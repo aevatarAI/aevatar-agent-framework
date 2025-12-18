@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Reflection;
 using Aevatar.Agents.Abstractions;
@@ -245,7 +245,8 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
         }
         else
         {
-            Logger?.LogWarning("OnStateChangedAsync called for agent {AgentId} ({AgentType}), but StateProjector is null", 
+            // StateProjector is optional. Logging this as Warning is too noisy and will flood logs.
+            Logger?.LogDebug("OnStateChangedAsync skipped projection for agent {AgentId} ({AgentType}) because StateProjector is null", 
                 Id, GetType().Name);
         }
     }
@@ -259,7 +260,7 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
     {
         if (StateProjector == null)
         {
-            Logger?.LogWarning("StateProjector not configured for agent {AgentId} ({AgentType}), state will not be projected", 
+            Logger?.LogDebug("StateProjector not configured for agent {AgentId} ({AgentType}), state will not be projected", 
                 Id, GetType().Name);
             return;
         }
@@ -557,7 +558,7 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
 
     // TODO: Read from configuration (EventSourcing:SnapshotFrequency)
     protected virtual ISnapshotStrategy SnapshotStrategy =>
-        new IntervalSnapshotStrategy(1);
+        new IntervalSnapshotStrategy(100);
 
     /// <summary>
     /// Create snapshot using StateStore (preferred) or EventStore (fallback)

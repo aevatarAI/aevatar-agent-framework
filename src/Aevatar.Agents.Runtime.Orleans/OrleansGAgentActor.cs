@@ -74,10 +74,13 @@ public class OrleansGAgentActor : IGAgentActor, IActorHierarchyOperations
         Logger.LogInformation("Activating Orleans Actor proxy {ActorId}, AgentType: {AgentType}", _id, _agentTypeName);
 
         // Get non-generic Grain reference
-        // Grain ID = AgentTypeShortName:AgentId (to ensure different Agent types use different Grains)
-        // Business State sharding is handled by IStateStore<TState>, not Orleans Grain
-        var agentTypeShortName = GetAgentTypeShortName(_agentTypeName);
-        var grainId = $"{agentTypeShortName}:{_id}";
+        // Grain ID = AgentId (string).
+        // Business state sharding is handled by IStateStore<TState>, not by Grain key.
+        //
+        // IMPORTANT:
+        // P2P routing only has targetAgentId, so Grain key MUST be derivable from agentId alone.
+        // Using "Type:Id" would create inconsistent identities and break event-sourcing consistency.
+        var grainId = _id.ToString();
         _grain = _grainFactory.GetGrain<IGAgentGrain>(grainId);
 
         // Initialize Agent in Grain (Silo side)
@@ -283,22 +286,8 @@ public class OrleansGAgentActor : IGAgentActor, IActorHierarchyOperations
     {
         if (_grain == null)
         {
-            var agentTypeShortName = GetAgentTypeShortName(_agentTypeName);
-            var grainId = $"{agentTypeShortName}:{_id}";
-            _grain = _grainFactory.GetGrain<IGAgentGrain>(grainId);
+            _grain = _grainFactory.GetGrain<IGAgentGrain>(_id.ToString());
         }
-    }
-
-    /// <summary>
-    /// Extract short type name from assembly qualified name
-    /// Example: "Aevatar.App.Agents.UserQuotaGAgent, Aevatar.App.Agents" -> "UserQuotaGAgent"
-    /// </summary>
-    private static string GetAgentTypeShortName(string agentTypeName)
-    {
-        // Extract class name from assembly qualified name
-        var fullName = agentTypeName.Split(',')[0].Trim();
-        var lastDot = fullName.LastIndexOf('.');
-        return lastDot >= 0 ? fullName.Substring(lastDot + 1) : fullName;
     }
 
     /// <summary>

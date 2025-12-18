@@ -58,7 +58,9 @@ public class MongoEventRepository : IEventRepository
     private readonly string _defaultCollectionName;
     private readonly MongoEventRepositoryOptions _options;
     private static readonly SemaphoreSlim _globalIndexLock = new(1, 1);
-    private static readonly HashSet<string> _indexedCollections = new();
+    // IMPORTANT: EnsureIndexesAsync can be called concurrently (fire-and-forget from constructors).
+    // Use a concurrent set to avoid HashSet race conditions.
+    private static readonly ConcurrentDictionary<string, byte> _indexedCollections = new();
 
     /// <summary>
     /// Creates a new MongoEventRepository with configuration options
@@ -159,14 +161,14 @@ public class MongoEventRepository : IEventRepository
         CancellationToken ct = default)
     {
         // Check if this collection has already been indexed
-        if (_indexedCollections.Contains(collectionName))
+        if (_indexedCollections.ContainsKey(collectionName))
             return;
 
         await _globalIndexLock.WaitAsync(ct);
         try
         {
             // Double-check after acquiring lock
-            if (_indexedCollections.Contains(collectionName))
+            if (_indexedCollections.ContainsKey(collectionName))
                 return;
 
             var indexModels = new List<CreateIndexModel<EventDocument>>();
@@ -216,7 +218,7 @@ public class MongoEventRepository : IEventRepository
             // Batch create all indexes
             await collection.Indexes.CreateManyAsync(indexModels, ct);
 
-            _indexedCollections.Add(collectionName);
+            _indexedCollections.TryAdd(collectionName, 0);
             
             _logger.LogInformation(
                 "MongoDB indexes created for collection '{Collection}': agentId+version DESC (UNIQUE), timestamp, eventType",
@@ -229,7 +231,7 @@ public class MongoEventRepository : IEventRepository
                 collectionName);
             
             // Mark as indexed even on failure to avoid retry storms
-            _indexedCollections.Add(collectionName);
+            _indexedCollections.TryAdd(collectionName, 0);
         }
         finally
         {

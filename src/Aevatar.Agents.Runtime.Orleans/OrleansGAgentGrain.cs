@@ -177,8 +177,11 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
 
     public Task<bool> InitializeAgentAsync(string agentTypeName)
     {
-        // Grain ID format: "AgentTypeShortName:AgentId" (e.g., "UserQuotaGAgent:abc123-...")
-        // Extract Agent ID from Grain's PrimaryKey
+        // Grain Key format:
+        // - Preferred: "AgentId" (string guid)  ✅ consistent with P2P routing (targetAgentId only)
+        // - Backward compatible: "AgentTypeShortName:AgentId"
+        //
+        // Always extract AgentId from the Grain key for consistency.
         var grainKey = this.GetPrimaryKeyString();
         var agentId = ExtractAgentIdFromGrainKey(grainKey);
         return InitializeAgentInternalAsync(agentTypeName, agentId, persistState: true);
@@ -487,12 +490,16 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
 
     public Task<Guid> GetIdAsync()
     {
-        var keyString = this.GetPrimaryKeyString();
-        if (Guid.TryParse(keyString, out var guid))
+        var grainKey = this.GetPrimaryKeyString();
+        try
         {
-            return Task.FromResult(guid);
+            return Task.FromResult(ExtractAgentIdFromGrainKey(grainKey));
         }
-        return Task.FromResult(Guid.Empty);
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse AgentId from Grain key '{GrainKey}'", grainKey);
+            return Task.FromResult(Guid.Empty);
+        }
     }
 
     public async Task AddChildAsync(Guid childId)

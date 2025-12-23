@@ -1,7 +1,9 @@
 using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions.Context;
 using Aevatar.Agents.Abstractions.Helpers;
 using Aevatar.Agents.Core;
+using Aevatar.Agents.Core.Context;
 using Aevatar.Agents.Core.Internal;
 using Aevatar.Agents.Runtime.Orleans.Stream;
 using Google.Protobuf;
@@ -29,6 +31,7 @@ public class OrleansGAgentActor : IGAgentActor, IActorHierarchyOperations
     private readonly StreamingOptions _streamingOptions;
     private readonly IMessageStreamProvider? _externalStreamProvider;
     private readonly MessageStreamProviderOptions _providerOptions;
+    private readonly AgentContextPropagator? _contextPropagator;
     
     // Cached Grain reference (for RPC operations only)
     private IGAgentGrain? _grain;
@@ -57,7 +60,8 @@ public class OrleansGAgentActor : IGAgentActor, IActorHierarchyOperations
         StreamingOptions streamingOptions,
         ILogger<OrleansGAgentActor> logger,
         IMessageStreamProvider? externalStreamProvider = null,
-        IOptions<MessageStreamProviderOptions>? providerOptions = null)
+        IOptions<MessageStreamProviderOptions>? providerOptions = null,
+        AgentContextPropagator? contextPropagator = null)
     {
         _id = id;
         _agentTypeName = agentTypeName;
@@ -67,6 +71,7 @@ public class OrleansGAgentActor : IGAgentActor, IActorHierarchyOperations
         Logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _externalStreamProvider = externalStreamProvider;
         _providerOptions = providerOptions?.Value ?? new MessageStreamProviderOptions();
+        _contextPropagator = contextPropagator;
     }
 
     #region IGAgentActor Implementation
@@ -182,6 +187,9 @@ public class OrleansGAgentActor : IGAgentActor, IActorHierarchyOperations
             Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow),
             CorrelationId = Guid.NewGuid().ToString()
         };
+
+        // Inject context into envelope for propagation across agent boundaries
+        _contextPropagator?.InjectContext(envelope);
 
         // Send via Stream (async, non-blocking)
         if (_myStream == null)

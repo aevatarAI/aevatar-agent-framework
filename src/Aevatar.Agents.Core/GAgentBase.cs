@@ -4,7 +4,9 @@ using System.Linq;
 using System.Reflection;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Attributes;
+using Aevatar.Agents.Abstractions.Context;
 using Aevatar.Agents.Abstractions.Helpers;
+using Aevatar.Agents.Core.Context;
 using Aevatar.Agents.Core.EventSourcing;
 using Aevatar.Agents.Core.Helpers;
 using Aevatar.Agents.Core.Observability;
@@ -49,6 +51,18 @@ public abstract class GAgentBase : IGAgent
     /// Logger property - supports automatic injection
     /// </summary>
     protected ILogger Logger { get; set; } = NullLogger.Instance;
+
+    /// <summary>
+    /// Agent context accessor for request-scoped data.
+    /// Internal to allow injection via AgentContextAccessorInjector.
+    /// </summary>
+    internal IAgentContextAccessor? ContextAccessor;
+
+    /// <summary>
+    /// Convenience property to get current agent context.
+    /// Returns null if not in a context scope.
+    /// </summary>
+    protected IAgentContext? Context => ContextAccessor?.Context;
 
     // Event handler cache (type -> metadata list)
     private static readonly ConcurrentDictionary<Type, EventHandlerMetadata[]> HandlerCache = new();
@@ -395,12 +409,15 @@ public abstract class GAgentBase : IGAgent
         // Create event handling log scope
         var eventType = envelope.Payload?.TypeUrl?.Split('/').LastOrDefault() ?? "Unknown";
 
-        using var scope = LoggingScope.CreateEventHandlingScope(
+        using var loggingScope = LoggingScope.CreateEventHandlingScope(
             Logger,
             Id,
             envelope.Id,
             eventType,
             envelope.CorrelationId);
+
+        // Create context scope from envelope metadata (restores previous context on dispose)
+        using var contextScope = ContextAccessor?.CreateScope(envelope) ?? AgentContextScope.Empty;
 
         var stopwatch = Stopwatch.StartNew();
         var handled = false;

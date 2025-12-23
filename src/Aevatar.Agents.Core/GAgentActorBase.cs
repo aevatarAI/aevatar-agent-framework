@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions.Context;
+using Aevatar.Agents.Core.Context;
 using Aevatar.Agents.Core.EventDeduplication;
 using Aevatar.Agents.Core.EventRouting;
 using Aevatar.Agents.Core.Helpers;
@@ -30,6 +32,12 @@ public abstract class GAgentActorBase : IGAgentActor, IActorHierarchyOperations
     // EventRouter factory for creating EventRouter with DI support
     // Internal to allow EventRouterFactoryInjector to replace it
     internal EventRouterFactory _eventRouterFactory = new();
+
+    /// <summary>
+    /// Context propagator for injecting context into events.
+    /// Internal to allow injection via AgentContextAccessorInjector.
+    /// </summary>
+    internal AgentContextPropagator? ContextPropagator;
 
     /// <summary>
     /// Logger property - supports automatic injection
@@ -196,6 +204,9 @@ public abstract class GAgentActorBase : IGAgentActor, IActorHierarchyOperations
             envelope.PublisherId = "";
         }
 
+        // Inject context metadata into envelope
+        ContextPropagator?.InjectContext(envelope);
+
         using var scope = LoggingScope.CreateAgentScope(
             Logger,
             Id,
@@ -257,6 +268,9 @@ public abstract class GAgentActorBase : IGAgentActor, IActorHierarchyOperations
         {
             envelope.PublisherId = "";
         }
+
+        // Inject context metadata into envelope
+        ContextPropagator?.InjectContext(envelope);
 
         using var scope = LoggingScope.CreateAgentScope(
             Logger,

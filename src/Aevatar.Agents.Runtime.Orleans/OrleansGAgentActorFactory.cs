@@ -1,5 +1,6 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Helpers;
+using Aevatar.Agents.Core.Context;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -75,6 +76,7 @@ public class OrleansGAgentActorFactory : IGAgentActorFactory
             agentType.Name, inputId, actorId);
 
         // Create lightweight actor proxy (Agent will be created in Grain/Silo)
+        var contextPropagator = _serviceProvider.GetService<AgentContextPropagator>();
         var actor = new OrleansGAgentActor(
             rawId,
             agentTypeName,
@@ -83,7 +85,8 @@ public class OrleansGAgentActorFactory : IGAgentActorFactory
             _streamingOptions,
             _serviceProvider.GetRequiredService<ILogger<OrleansGAgentActor>>(),
             _messageStreamProvider,
-            _providerOptions);
+            _providerOptions,
+            contextPropagator);
 
         // Activate - This will initialize Agent in the Grain (Silo side)
         await actor.ActivateAsync(ct);

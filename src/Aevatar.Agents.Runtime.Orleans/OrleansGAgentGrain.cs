@@ -1,5 +1,6 @@
 using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions.Context;
 using Aevatar.Agents.Abstractions.CQRS;
 using Aevatar.Agents.Abstractions.Helpers;
 using Aevatar.Agents.Core;
@@ -538,6 +539,12 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
         // Inject ActorFactory (for Agents that need to create child Agents)
         InjectActorFactory(agent);
 
+        // Inject AgentContextAccessor for context propagation in event handlers
+        var contextAccessor = ServiceProvider.GetService<IAgentContextAccessor>();
+        if (contextAccessor != null)
+        {
+            AgentContextAccessorInjector.InjectContextAccessor(agent, contextAccessor);
+        }
     }
 
     private void InjectActorFactory(IGAgent agent)

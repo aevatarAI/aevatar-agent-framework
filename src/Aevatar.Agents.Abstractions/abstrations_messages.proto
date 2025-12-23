@@ -4,6 +4,28 @@ package Aevatar.Agents;
 import "google/protobuf/any.proto";
 import "google/protobuf/timestamp.proto";
 
+// ============================================================
+// Context Value for type-safe context propagation
+// ============================================================
+
+// Type-safe context value using oneof for extensibility.
+// New types can be added without breaking compatibility.
+message ContextValue {
+  oneof value {
+    string string_value = 1;
+    bool bool_value = 2;
+    int64 int_value = 3;
+    double double_value = 4;
+    string datetime_iso = 5;    // ISO8601 format string
+    string guid_string = 6;     // Standard GUID format
+    // Reserved for future expansion:
+    // float float_value = 7;
+    // bytes bytes_value = 8;
+    // string decimal_string = 9;
+    // int32 enum_value = 10;
+  }
+}
+
 // Event propagation direction
 enum EventDirection {
   EVENT_DIRECTION_UNSPECIFIED = 0;
@@ -50,6 +72,11 @@ message EventEnvelope {
   // - Unspecified: Pure P2P, only target processes
   // - Down/Up/Both: Target processes then continues propagation in this direction
   EventDirection on_arrival_direction = 15;
+
+  // Context metadata for request-scoped data propagation.
+  // Type-safe key-value pairs from IAgentContext.
+  // Uses ContextValue oneof for extensibility and cross-language support.
+  map<string, ContextValue> context_metadata = 16;
 }
 
 message SubAgentAdded {

@@ -1,0 +1,52 @@
+syntax = "proto3";
+package AgentContextDemo;
+
+import "google/protobuf/timestamp.proto";
+
+option csharp_namespace = "AgentContextDemo";
+
+// ============================================================
+// Agent Context Demo - Messages for testing context propagation
+// ============================================================
+
+// State for ContextAware Agent
+message ContextAwareAgentState {
+    string agent_name = 1;
+    int32 event_count = 2;
+    repeated string received_contexts = 3;  // Log of received context values
+    string last_correlation_id = 4;
+    string last_user_id = 5;
+    string last_language = 6;
+}
+
+// Event to trigger context-aware processing
+message ProcessWithContextEvent {
+    string request_id = 1;
+    string message = 2;
+}
+
+// Response event with context info
+message ContextProcessedEvent {
+    string request_id = 1;
+    string correlation_id = 2;
+    string user_id = 3;
+    string language = 4;
+    bool is_cn = 5;
+    string processed_by = 6;
+}
+
+// Event for parent-child context propagation test
+message PropagateContextEvent {
+    string request_id = 1;
+    string message = 2;
+}
+
+// Response from child agent
+message ChildContextReceivedEvent {
+    string request_id = 1;
+    string child_agent_id = 2;
+    string received_correlation_id = 3;
+    string received_user_id = 4;
+    string received_language = 5;
+}
+

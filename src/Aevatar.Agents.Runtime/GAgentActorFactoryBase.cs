@@ -1,4 +1,5 @@
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions.Context;
 using Aevatar.Agents.Abstractions.Helpers;
 using Aevatar.Agents.AI.Core.Helpers;
 using Aevatar.Agents.Core.Helpers;
@@ -78,11 +79,26 @@ public abstract class GAgentActorFactoryBase : IGAgentActorFactory
         // 1. Create uninitialized actor instance (implemented by subclasses)
         var actor = await CreateActorInstanceAsync(agent, actorId, ct);
 
-        // 2. Inject dependencies (Logger, EventRouterFactory, StateProjector)
+        // 2. Inject dependencies (Logger, EventRouterFactory, StateProjector, ContextAccessor)
         LoggerInjector.InjectLogger(actor, _serviceProvider);
         LoggerInjector.InjectLogger(agent, _serviceProvider);
         EventRouterFactoryInjector.InjectEventRouterFactory(actor, _serviceProvider);
         StateProjectorInjector.InjectStateProjector(agent, _serviceProvider);
+
+        // Inject context accessor and propagator
+        if (actor is Core.GAgentActorBase actorBase)
+        {
+            AgentContextAccessorInjector.InjectContext(agent, actorBase, _serviceProvider);
+        }
+        else
+        {
+            // For non-GAgentActorBase actors, only inject accessor
+            var contextAccessor = _serviceProvider.GetService<IAgentContextAccessor>();
+            if (contextAccessor != null)
+            {
+                AgentContextAccessorInjector.InjectContextAccessor(agent, contextAccessor);
+            }
+        }
 
         // 3. Activate actor (starts streams, loads state, etc.)
         await actor.ActivateAsync(ct);

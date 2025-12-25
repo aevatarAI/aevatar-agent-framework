@@ -136,11 +136,16 @@ public static class ServiceCollectionExtensions
     
     /// <summary>
     /// Adds MassTransit Message Stream plugin with explicit assembly list.
+    /// 
+    /// Configuration structure:
+    /// - TopicPrefix: Default topic for Agent communication
+    /// - TopicMapping: Category -> Topic routing for Producer
+    /// - Producer.Enabled: Enable/disable Producer
+    /// - Consumer.Enabled: Enable/disable Consumer
+    /// - Consumer.Topics: Topics to subscribe (auto-scanned from [StreamTopic] if empty)
+    /// - Consumer.IncludeTopicPrefix: Auto-add TopicPrefix to consumer topics
+    /// - Consumer.AutoScanAgentTopics: Auto-scan [StreamTopic] attributes for consumer topics
     /// </summary>
-    /// <param name="services">The service collection</param>
-    /// <param name="configuration">The configuration</param>
-    /// <param name="agentAssemblies">Assemblies containing Agent definitions to scan for [StreamTopic] attributes</param>
-    /// <returns>The service collection</returns>
     public static IServiceCollection AddMassTransitStreamPlugin(
         this IServiceCollection services,
         IConfiguration configuration,
@@ -150,79 +155,118 @@ public static class ServiceCollectionExtensions
         var section = configuration.GetSection("MassTransit:Stream");
         services.Configure<MassTransitStreamOptions>(section);
 
-        // Create options instance to merge config and annotations
         var options = section.Get<MassTransitStreamOptions>() ?? new MassTransitStreamOptions();
-        // NOTE:
-        // - Configuration binding can still set reference-type properties to null at runtime.
-        // - Keep a local non-null reference to avoid nullable warnings + NREs.
+        
+        // Ensure non-null references
         var topicMapping = options.TopicMapping ?? new Dictionary<string, string>();
         options.TopicMapping = topicMapping;
-        
-        // Collect all topics to subscribe to and produce to
-        var allTopics = new HashSet<string>();
-        
-        // Always add the default TopicPrefix
-        if (!string.IsNullOrEmpty(options.TopicPrefix))
+        options.Producer ??= new ProducerOptions();
+        options.Consumer ??= new ConsumerOptions();
+
+        // ============================================================
+        // De-duplicate Kafka bootstrap config:
+        // Prefer MassTransit:Stream:Kafka:* but fallback to top-level Kafka:* when missing
+        // ============================================================
+        if (options.TransportType == MassTransitTransportType.Kafka)
         {
-            allTopics.Add(options.TopicPrefix);
+            options.Kafka ??= new KafkaOptions();
+            if (string.IsNullOrWhiteSpace(options.Kafka.BootstrapServers))
+            {
+                options.Kafka.BootstrapServers = configuration.GetValue<string>("Kafka:BootstrapServers") ?? "localhost:9092";
+            }
         }
         
-        // Add additional topics from configuration
-        if (options.Topics != null)
+        // ============================================================
+        // Collect Producer Topics (for sending messages)
+        // ============================================================
+        var producerTopics = new HashSet<string>();
+        
+        if (options.Producer.Enabled)
         {
-            foreach (var t in options.Topics)
+            // Add TopicPrefix
+            if (!string.IsNullOrEmpty(options.TopicPrefix))
             {
-                if (!string.IsNullOrEmpty(t)) allTopics.Add(t);
+                producerTopics.Add(options.TopicPrefix);
+            }
+            
+            // Add topics from TopicMapping
+            foreach (var t in topicMapping.Values)
+            {
+                if (!string.IsNullOrEmpty(t)) producerTopics.Add(t);
             }
         }
 
-        // Add topics from configured mapping
-        foreach (var t in topicMapping.Values)
+        // ============================================================
+        // Collect Consumer Topics (for receiving messages)
+        // ============================================================
+        var consumerTopics = new HashSet<string>();
+        
+        if (options.Consumer.Enabled)
         {
-            if (!string.IsNullOrEmpty(t)) allTopics.Add(t);
-        }
-
-        // 1.1 Scan Assemblies for [StreamTopic]
-        if (agentAssemblies != null && agentAssemblies.Length > 0)
-        {
-            foreach (var assembly in agentAssemblies)
+            // Add explicitly configured topics
+            if (options.Consumer.Topics != null)
             {
-                try 
+                foreach (var t in options.Consumer.Topics)
                 {
-                    var agentTypes = assembly.GetTypes()
-                        .Where(t => typeof(IGAgent).IsAssignableFrom(t) && !t.IsAbstract && !t.IsInterface);
-
-                    foreach (var type in agentTypes)
+                    if (!string.IsNullOrEmpty(t)) consumerTopics.Add(t);
+                }
+            }
+            
+            // Auto-add TopicPrefix if enabled
+            if (options.Consumer.IncludeTopicPrefix && !string.IsNullOrEmpty(options.TopicPrefix))
+            {
+                consumerTopics.Add(options.TopicPrefix);
+            }
+            
+            // Auto-scan [StreamTopic] attributes if enabled
+            if (options.Consumer.AutoScanAgentTopics && agentAssemblies != null)
+            {
+                foreach (var assembly in agentAssemblies)
+                {
+                    try 
                     {
-                        var attr = type.GetCustomAttribute<StreamTopicAttribute>();
-                        if (attr != null)
-                        {
-                            var category = type.Name;
-                            var topic = attr.Topic;
+                        var agentTypes = assembly.GetTypes()
+                            .Where(t => typeof(IGAgent).IsAssignableFrom(t) && !t.IsAbstract && !t.IsInterface);
 
-                            // Add to Mapping (for Producer routing)
-                            // Note: This modifies the local 'options' object used for setup, 
-                            // but NOT the IOptions registered in DI. 
-                            // We need to ensure MassTransitMessageStream uses the merged mapping.
-                            if (!topicMapping.ContainsKey(category))
+                        foreach (var type in agentTypes)
+                        {
+                            var attr = type.GetCustomAttribute<StreamTopicAttribute>();
+                            if (attr != null)
                             {
-                                topicMapping[category] = topic;
+                                var category = type.Name;
+                                var topic = attr.Topic;
+
+                                // Add to Mapping (for Producer routing)
+                                if (!topicMapping.ContainsKey(category))
+                                {
+                                    topicMapping[category] = topic;
+                                }
+                                
+                                // Add to Consumer topics (for Silo)
+                                consumerTopics.Add(topic);
+                                
+                                // Also add to Producer topics
+                                if (options.Producer.Enabled)
+                                {
+                                    producerTopics.Add(topic);
+                                }
                             }
-                            
-                            // Add to Subscription (for Consumer)
-                            allTopics.Add(topic);
                         }
                     }
-                }
-                catch (Exception)
-                {
-                    // Best-effort scan: ignore reflection errors from unrelated assemblies.
+                    catch (Exception)
+                    {
+                        // Best-effort scan
+                    }
                 }
             }
         }
         
-        // CRITICAL: Update the registered options with the merged mapping
-        // Since we modified 'options' locally, we need to replace the IOptions registration or configure it.
+        // Log configuration
+        Console.WriteLine($"[MassTransit] RuntimeName: {options.RuntimeName}");
+        Console.WriteLine($"[MassTransit] Producer Enabled: {options.Producer.Enabled}, Topics: {string.Join(", ", producerTopics)}");
+        Console.WriteLine($"[MassTransit] Consumer Enabled: {options.Consumer.Enabled}, Topics: {string.Join(", ", consumerTopics)}");
+        
+        // Update registered options with merged mapping
         services.PostConfigure<MassTransitStreamOptions>(o => 
         {
             var targetMapping = o.TopicMapping ?? new Dictionary<string, string>();
@@ -237,7 +281,7 @@ public static class ServiceCollectionExtensions
             }
         });
 
-        // 2. Register Provider (both concrete and interface)
+        // 2. Register Provider
         services.AddSingleton<MassTransitMessageStreamProvider>();
         services.AddSingleton<IMessageStreamProvider>(sp => sp.GetRequiredService<MassTransitMessageStreamProvider>());
         
@@ -247,16 +291,17 @@ public static class ServiceCollectionExtensions
             switch (options.TransportType)
             {
                 case MassTransitTransportType.InMemory:
-                    x.AddConsumer<StreamMessageDispatcher>();
+                    if (options.Consumer.Enabled && consumerTopics.Count > 0)
+                    {
+                        x.AddConsumer<StreamMessageDispatcher>();
+                    }
                     x.UsingInMemory((context, cfg) =>
                     {
-                        // Configure endpoints - Consumer will be automatically subscribed to ByteArrayMessage
                         cfg.ConfigureEndpoints(context);
                     });
                     break;
 
                 case MassTransitTransportType.Kafka:
-                    // Host Bus is In-Memory
                     x.UsingInMemory((context, cfg) =>
                     {
                         cfg.ConfigureEndpoints(context);
@@ -264,12 +309,12 @@ public static class ServiceCollectionExtensions
 
                     x.AddRider(rider =>
                     {
-                        rider.AddConsumer<StreamMessageDispatcher>();
+                        if (options.Consumer.Enabled && consumerTopics.Count > 0)
+                        {
+                            rider.AddConsumer<StreamMessageDispatcher>();
+                        }
                         
-                        // Register Producers for ALL topics
-                        // This allows MassTransitMessageStream to dynamically produce to any configured topic
-                        // Use string key to match StreamId format (AgentTypeShortName:AgentId)
-                        foreach (var topic in allTopics)
+                        foreach (var topic in producerTopics)
                         {
                             rider.AddProducer<string, ByteArrayMessage>(topic);
                         }
@@ -281,45 +326,40 @@ public static class ServiceCollectionExtensions
                                 k.Host(options.Kafka.BootstrapServers);
                             }
                             
-                            // Explicitly set security protocol to Plaintext to avoid SASL warnings/errors on local dev
                             k.SecurityProtocol = Confluent.Kafka.SecurityProtocol.Plaintext;
 
-                            foreach (var topic in allTopics)
+                            if (options.Consumer.Enabled)
                             {
-                                // Configure Topic Subscription for each topic
-                                k.TopicEndpoint<ByteArrayMessage>(
-                                    topic, 
-                                    options.Kafka?.ConsumerGroupId ?? "aevatar-agents-group", 
-                                    e =>
-                                    {
-                                        e.AutoOffsetReset = Confluent.Kafka.AutoOffsetReset.Earliest;
-                                        
-                                        // Optimize Concurrency & Prefetch (Phase 2 Optimization)
-                                        e.UseConcurrencyLimit(50); // Increase concurrency
-                                        e.PrefetchCount = 200;     // Increase prefetch
-                                        
-                                        // Note: We rely on Kafka Partition Ordering (Producer uses StreamId as Key)
-                                        // so we don't need explicit UsePartitioner here for ordering.
-                                        // Consumer processes partitions sequentially by default.
-
-                                        // Optimize Checkpoint (Batch Commit)
-                                        e.CheckpointInterval = TimeSpan.FromSeconds(5);
-                                        e.CheckpointMessageCount = 100;
-                                        
-                                        e.CreateIfMissing(t =>
+                                foreach (var topic in consumerTopics)
+                                {
+                                    k.TopicEndpoint<ByteArrayMessage>(
+                                        topic, 
+                                        options.Kafka?.ConsumerGroupId ?? "aevatar-agents-group", 
+                                        e =>
                                         {
-                                            t.NumPartitions = 8; // Match Orleans default
-                                            t.ReplicationFactor = 1;
+                                            e.AutoOffsetReset = Confluent.Kafka.AutoOffsetReset.Earliest;
+                                            e.UseConcurrencyLimit(50);
+                                            e.PrefetchCount = 200;
+                                            e.CheckpointInterval = TimeSpan.FromSeconds(5);
+                                            e.CheckpointMessageCount = 100;
+                                            e.CreateIfMissing(t =>
+                                            {
+                                                t.NumPartitions = 8;
+                                                t.ReplicationFactor = 1;
+                                            });
+                                            e.ConfigureConsumer<StreamMessageDispatcher>(context);
                                         });
-                                        e.ConfigureConsumer<StreamMessageDispatcher>(context);
-                                    });
+                                }
                             }
                         });
                     });
                     break;
 
                 case MassTransitTransportType.RabbitMQ:
-                    x.AddConsumer<StreamMessageDispatcher>();
+                    if (options.Consumer.Enabled && consumerTopics.Count > 0)
+                    {
+                        x.AddConsumer<StreamMessageDispatcher>();
+                    }
                     x.UsingRabbitMq((context, cfg) =>
                     {
                         if (options.RabbitMQ != null)
@@ -331,11 +371,13 @@ public static class ServiceCollectionExtensions
                             });
                         }
                         
-                        // Configure Queue Subscription
-                        cfg.ReceiveEndpoint(options.TopicPrefix, e =>
+                        if (options.Consumer.Enabled && consumerTopics.Count > 0)
                         {
-                            e.ConfigureConsumer<StreamMessageDispatcher>(context);
-                        });
+                            cfg.ReceiveEndpoint(options.TopicPrefix, e =>
+                            {
+                                e.ConfigureConsumer<StreamMessageDispatcher>(context);
+                            });
+                        }
                     });
                     break;
             }
@@ -346,12 +388,8 @@ public static class ServiceCollectionExtensions
     
     /// <summary>
     /// Adds MassTransit Message Stream Client (Producer-only mode).
-    /// Use this for Orleans Clients that only need to send messages to Kafka,
-    /// while Silo handles consumption. This avoids Consumer Group competition.
+    /// Use this for Orleans Clients that only need to send messages to Kafka.
     /// </summary>
-    /// <param name="services">The service collection</param>
-    /// <param name="configuration">The configuration</param>
-    /// <returns>The service collection</returns>
     public static IServiceCollection AddMassTransitStreamClient(
         this IServiceCollection services,
         IConfiguration configuration)
@@ -368,38 +406,27 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration,
         params Assembly[] agentAssemblies)
     {
-        // 1. Configure Options
         var section = configuration.GetSection("MassTransit:Stream");
         services.Configure<MassTransitStreamOptions>(section);
 
         var options = section.Get<MassTransitStreamOptions>() ?? new MassTransitStreamOptions();
+        var topicMapping = options.TopicMapping ?? new Dictionary<string, string>();
         
-        // Collect all topics to produce to
-        var allTopics = new HashSet<string>();
+        // Collect producer topics
+        var producerTopics = new HashSet<string>();
         
         if (!string.IsNullOrEmpty(options.TopicPrefix))
         {
-            allTopics.Add(options.TopicPrefix);
-        }
-        
-        if (options.Topics != null)
-        {
-            foreach (var t in options.Topics)
-            {
-                if (!string.IsNullOrEmpty(t)) allTopics.Add(t);
-            }
+            producerTopics.Add(options.TopicPrefix);
         }
 
-        if (options.TopicMapping != null)
+        foreach (var t in topicMapping.Values)
         {
-            foreach (var t in options.TopicMapping.Values)
-            {
-                if (!string.IsNullOrEmpty(t)) allTopics.Add(t);
-            }
+            if (!string.IsNullOrEmpty(t)) producerTopics.Add(t);
         }
 
         // Scan for [StreamTopic] annotations
-        if (agentAssemblies != null && agentAssemblies.Length > 0)
+        if (agentAssemblies != null)
         {
             foreach (var assembly in agentAssemblies)
             {
@@ -416,25 +443,24 @@ public static class ServiceCollectionExtensions
                             var category = type.Name;
                             var topic = attr.Topic;
                             
-                            if (!options.TopicMapping.ContainsKey(category))
+                            if (!topicMapping.ContainsKey(category))
                             {
-                                options.TopicMapping[category] = topic;
+                                topicMapping[category] = topic;
                             }
-                            allTopics.Add(topic);
+                            producerTopics.Add(topic);
                         }
                     }
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    System.Console.WriteLine($"WARNING: Failed to scan assembly {assembly.FullName}: {ex.Message}");
+                    // Best-effort scan
                 }
             }
         }
         
-        // Update registered options with merged mapping
         services.PostConfigure<MassTransitStreamOptions>(o => 
         {
-            foreach (var kvp in options.TopicMapping)
+            foreach (var kvp in topicMapping)
             {
                 if (!o.TopicMapping.ContainsKey(kvp.Key))
                 {
@@ -443,17 +469,14 @@ public static class ServiceCollectionExtensions
             }
         });
 
-        // 2. Register Provider
         services.AddSingleton<MassTransitMessageStreamProvider>();
         services.AddSingleton<IMessageStreamProvider>(sp => sp.GetRequiredService<MassTransitMessageStreamProvider>());
         
-        // 3. Register MassTransit (Producer-only, NO Consumer)
         services.AddMassTransit(x =>
         {
             switch (options.TransportType)
             {
                 case MassTransitTransportType.InMemory:
-                    // InMemory mode - no consumer needed for client
                     x.UsingInMemory((context, cfg) =>
                     {
                         cfg.ConfigureEndpoints(context);
@@ -461,7 +484,6 @@ public static class ServiceCollectionExtensions
                     break;
 
                 case MassTransitTransportType.Kafka:
-                    // Host Bus is In-Memory
                     x.UsingInMemory((context, cfg) =>
                     {
                         cfg.ConfigureEndpoints(context);
@@ -469,9 +491,7 @@ public static class ServiceCollectionExtensions
 
                     x.AddRider(rider =>
                     {
-                        // Register Producers for ALL topics (NO Consumer registration)
-                        // Use string key to match MassTransitMessageStream.ProduceAsync
-                        foreach (var topic in allTopics)
+                        foreach (var topic in producerTopics)
                         {
                             rider.AddProducer<string, ByteArrayMessage>(topic);
                         }
@@ -482,15 +502,12 @@ public static class ServiceCollectionExtensions
                             {
                                 k.Host(options.Kafka.BootstrapServers);
                             }
-                            
                             k.SecurityProtocol = Confluent.Kafka.SecurityProtocol.Plaintext;
-                            // NO TopicEndpoint subscription - Producer only!
                         });
                     });
                     break;
 
                 case MassTransitTransportType.RabbitMQ:
-                    // RabbitMQ mode - no consumer for client
                     x.UsingRabbitMq((context, cfg) =>
                     {
                         if (options.RabbitMQ != null)
@@ -501,7 +518,6 @@ public static class ServiceCollectionExtensions
                                 h.Password(options.RabbitMQ.Password);
                             });
                         }
-                        // No ReceiveEndpoint - Producer only!
                     });
                     break;
             }

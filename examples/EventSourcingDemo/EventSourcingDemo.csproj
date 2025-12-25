@@ -20,13 +20,20 @@
         <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
         <PackageReference Include="Microsoft.Extensions.Logging.Console" />
         <PackageReference Include="Microsoft.Extensions.Hosting" />
+        <PackageReference Include="Microsoft.Extensions.Configuration" />
+        <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
         <PackageReference Include="Microsoft.Orleans.Server" />
+        <PackageReference Include="Microsoft.Orleans.Client" />
         <PackageReference Include="Microsoft.Orleans.Streaming" />
         <PackageReference Include="Google.Protobuf" />
         <PackageReference Include="Grpc.Tools">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
+    </ItemGroup>
+    
+    <ItemGroup>
+        <ProjectReference Include="..\..\plugins\Aevatar.Agents.Plugins.MassTransit\Aevatar.Agents.Plugins.MassTransit.csproj" />
     </ItemGroup>
     
     <ItemGroup>

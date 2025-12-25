@@ -84,3 +84,8 @@ message UpdateBalanceEvent {
     double amount = 1;
 }
 
+// Event to trigger test data initialization (for RPC compatibility)
+message InitializeTestDataEvent {
+    // No parameters needed - triggers full test data initialization
+}
+

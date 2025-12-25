@@ -42,39 +42,24 @@ public class AgentRuntimeOptions
 }
 
 /// <summary>
-/// Orleans Runtime Configuration
+/// Orleans Runtime Configuration (Client-side)
+/// Note: SiloPort/GatewayPort/UseLocalhostClustering are Silo-side configs, not needed here
 /// </summary>
 public class OrleansRuntimeOptions
 {
     /// <summary>
-    /// Cluster ID for Orleans
+    /// Cluster ID for Orleans (must match Silo config)
     /// </summary>
     public string ClusterId { get; set; } = "aevatar-cluster";
 
     /// <summary>
-    /// Service ID for Orleans
+    /// Service ID for Orleans (must match Silo config)
     /// </summary>
     public string ServiceId { get; set; } = "aevatar-service";
-
-    /// <summary>
-    /// Silo port for Orleans communication
-    /// </summary>
-    public int SiloPort { get; set; } = 11111;
-
-    /// <summary>
-    /// Gateway port for client connections
-    /// </summary>
-    public int GatewayPort { get; set; } = 30000;
-
-    /// <summary>
-    /// Use localhost clustering (development mode)
-    /// Set to false for production clustering
-    /// </summary>
-    public bool UseLocalhostClustering { get; set; } = true;
     
     /// <summary>
-    /// Stream provider name for Orleans streams
+    /// Reserved for Orleans streaming (not used when MessageStream.Provider=MassTransit)
     /// </summary>
-    public string StreamProviderName { get; set; } = "DefaultStreamProvider";
+    // Intentionally removed: StreamProviderName (we use MassTransit for all streaming)
 }
 

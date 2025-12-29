@@ -65,6 +65,7 @@
     <Project Path="examples\SimpleDemo\SimpleDemo.csproj" />
     <Project Path="examples\SkillsMCPUnifiedDemo\SkillsMCPUnifiedDemo.csproj" Type="Classic C#" />
     <Project Path="examples\StateStoreDemo\StateStoreDemo.csproj" />
+    <Project Path="examples\GraphNeo4jDemo\GraphNeo4jDemo.csproj" />
   </Folder>
   <Folder Name="/plugins/">
     <Project Path="plugins\Aevatar.Agents.Plugins.CQRS\Aevatar.Agents.Plugins.CQRS.csproj" Type="Classic C#" />
@@ -82,6 +83,7 @@
     <Project Path="src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
     <Project Path="src\Aevatar.Agents.CreativeReasoning\Aevatar.Agents.CreativeReasoning.csproj" />
     <Project Path="src\Aevatar.Agents.Maker\Aevatar.Agents.Maker.csproj" />
+    <Project Path="src\Aevatar.Agents.Persistence.Graph\Aevatar.Agents.Persistence.Graph.csproj" />
     <Project Path="src\Aevatar.Agents.Persistence.MongoDB\Aevatar.Agents.Persistence.MongoDB.csproj" />
     <Project Path="src\Aevatar.Agents.Persistence.Supabase\Aevatar.Agents.Persistence.Supabase.csproj" />
     <Project Path="src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
@@ -111,6 +113,7 @@
     <Project Path="test\Aevatar.Agents.Workflow.Tests\Aevatar.Agents.Workflow.Tests.csproj" />
     <Project Path="test\Aevatar.CognitiveMesh.Dsl.Tests\Aevatar.CognitiveMesh.Dsl.Tests.csproj" Type="Classic C#" />
     <Project Path="test\Aevatar.PaperReview.Tests\Aevatar.PaperReview.Tests.csproj" Type="Classic C#" />
+    <Project Path="test\Aevatar.Agents.Persistence.Graph.Tests\Aevatar.Agents.Persistence.Graph.Tests.csproj" />
     <File Path="test/README.md" />
     <File Path="test\UnitTestDesign.md" />
   </Folder>

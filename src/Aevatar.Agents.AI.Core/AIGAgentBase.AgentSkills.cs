@@ -92,7 +92,8 @@ public abstract partial class AIGAgentBase
         if (!string.IsNullOrWhiteSpace(env))
         {
             // Support both ';' and ':' for convenience across shells.
-            foreach (var part in env.Split([';', ':'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            foreach (var part in env.Split([';', ':'],
+                         StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
                 if (!string.IsNullOrWhiteSpace(part))
                 {
@@ -174,7 +175,8 @@ public abstract partial class AIGAgentBase
                     ["register_tools"] = new()
                     {
                         Type = "boolean",
-                        Description = "If true, auto-register dotnet-file tools (.cs with /*aevatar_tool*/ manifest) under this skill folder"
+                        Description =
+                            "If true, auto-register dotnet-file tools (.cs with /*aevatar_tool*/ manifest) under this skill folder"
                     },
                     ["max_chars"] = new()
                     {
@@ -303,7 +305,8 @@ public abstract partial class AIGAgentBase
 
                 try
                 {
-                    var tool = await DotNetFileSkillTool.LoadFromFileAsync(toolFile, executionContext.Logger, cancellationToken);
+                    var tool = await DotNetFileSkillTool.LoadFromFileAsync(toolFile, executionContext.Logger,
+                        cancellationToken);
                     var def = tool.CreateToolDefinition(baseToolContext, executionContext.Logger);
                     await executionContext.ToolManager.RegisterToolAsync(def, cancellationToken);
                     registered.Add(tool.Name);
@@ -362,7 +365,8 @@ public abstract partial class AIGAgentBase
                 if (!File.Exists(skillFile))
                     continue;
 
-                var folderName = Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                var folderName =
+                    Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
 
                 // Read front matter only (best-effort). If parsing fails, fall back to folder name.
                 var frontMatter = TryReadSkillFrontMatter(skillFile, cancellationToken);
@@ -533,6 +537,7 @@ public abstract partial class AIGAgentBase
                     {
                         currentList?.Add(t[2..].Trim());
                     }
+
                     continue;
                 }
             }
@@ -614,6 +619,7 @@ public abstract partial class AIGAgentBase
         {
             return v[1..^1];
         }
+
         return v;
     }
 
@@ -639,7 +645,8 @@ public abstract partial class AIGAgentBase
         return sb.ToString();
     }
 
-    private static async Task<string> ReadAllTextWithLimitAsync(string path, int maxChars, CancellationToken cancellationToken)
+    private static async Task<string> ReadAllTextWithLimitAsync(string path, int maxChars,
+        CancellationToken cancellationToken)
     {
         await using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         using var reader = new StreamReader(fs, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
@@ -686,4 +693,3 @@ public abstract partial class AIGAgentBase
         List
     }
 }
-

@@ -1,0 +1,383 @@
+:root {
+  --bg: #0d1117;
+  --panel: #0f1623;
+  --panel-2: #0b1220;
+  --text: #e6edf3;
+  --muted: #94a3b8;
+  --border: rgba(255, 255, 255, 0.08);
+  --accent: #7c3aed;
+  --accent-2: #22c55e;
+  --danger: #ef4444;
+  --warn: #f59e0b;
+  --shadow: rgba(0, 0, 0, 0.45);
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Display",
+    "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* ============================================================
+   Layout primitives (Cursor/VSCode-ish)
+   ============================================================ */
+
+.Shell {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.TopBar {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent);
+  border-bottom: 1px solid var(--border);
+}
+
+.TopBarTitle {
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.TopBarMeta {
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.Main {
+  flex: 1;
+  min-height: 0;
+}
+
+.Panel {
+  height: 100%;
+  background: var(--panel);
+}
+
+.PanelHeader {
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.PanelHeaderTitle {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.9px;
+}
+
+.Btn {
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.Btn:hover {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.BtnPrimary {
+  border-color: rgba(124, 58, 237, 0.45);
+  background: rgba(124, 58, 237, 0.14);
+}
+
+.BtnPrimary:hover {
+  border-color: rgba(124, 58, 237, 0.65);
+  background: rgba(124, 58, 237, 0.22);
+}
+
+.BtnDanger {
+  border-color: rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.BtnDanger:hover {
+  border-color: rgba(239, 68, 68, 0.6);
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.StatusBar {
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  font-size: 12px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.02);
+  border-top: 1px solid var(--border);
+}
+
+.Tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+}
+
+.Dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--muted);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.2);
+}
+
+.DotOk {
+  background: var(--accent-2);
+}
+
+.DotBad {
+  background: var(--danger);
+}
+
+.DotWarn {
+  background: var(--warn);
+}
+
+/* Tabs */
+.Tabs {
+  height: 34px;
+  display: flex;
+  gap: 1px;
+  align-items: stretch;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.Tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  border-right: 1px solid var(--border);
+}
+
+.TabActive {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.TabDirty {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--warn);
+}
+
+.TabClose {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0;
+}
+
+.TabClose:hover {
+  color: var(--text);
+}
+
+/* FileTree */
+.Tree {
+  padding: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.TreeRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.TreeRow:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+}
+
+.TreeRowActive {
+  background: rgba(124, 58, 237, 0.16);
+  color: var(--text);
+  border: 1px solid rgba(124, 58, 237, 0.25);
+}
+
+.TreeIndent {
+  width: 14px;
+}
+
+.TreeIcon {
+  width: 16px;
+  text-align: center;
+  opacity: 0.9;
+}
+
+.TreeName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Command palette */
+.Overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 80px;
+}
+
+.Palette {
+  width: min(720px, calc(100% - 32px));
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(15, 22, 35, 0.92);
+  box-shadow: 0 18px 70px var(--shadow);
+  overflow: hidden;
+}
+
+.PaletteInput {
+  width: 100%;
+  border: none;
+  outline: none;
+  padding: 14px 14px;
+  font-size: 14px;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.25);
+  font-family: var(--font-sans);
+}
+
+.PaletteList {
+  max-height: min(420px, calc(100vh - 200px));
+  overflow: auto;
+}
+
+.PaletteItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  cursor: pointer;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.PaletteItem:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.PaletteItemMain {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.PaletteItemTitle {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.PaletteItemSubtitle {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.Kbd {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 8px;
+  padding: 2px 8px;
+}
+
+/* Editor */
+.EditorWrap {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.EditorBody {
+  flex: 1;
+  min-height: 0;
+}
+
+.Welcome {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+
+.WelcomeCard {
+  width: min(720px, calc(100% - 32px));
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 14px;
+  padding: 18px;
+}
+
+.WelcomeTitle {
+  color: var(--text);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.WelcomeHint {
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+

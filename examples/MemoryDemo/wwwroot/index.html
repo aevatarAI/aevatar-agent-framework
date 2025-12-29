@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -20,14 +20,35 @@
     </header>
 
     <section class="panel">
-      <div class="panel-title">Demo Settings (Long-term Memory + Paths)</div>
+      <div class="panel-title">Demo Settings (Memory + Tools + Paths)</div>
       <div class="row row-tight">
         <label class="chk"><input id="enableStoreChk" type="checkbox" /> Enable MemoryStore append</label>
         <label class="chk"><input id="enableVectorChk" type="checkbox" /> Enable VectorIndex append</label>
+        <label class="chk"><input id="allowInternalToolsChk" type="checkbox" /> Allow internal tools</label>
+        <label class="chk"><input id="allowDangerousToolsChk" type="checkbox" /> Allow dangerous tools</label>
         <button id="applySettingsBtn" class="btn btn-secondary">Apply</button>
         <button id="refreshInfoBtn" class="btn btn-secondary">Refresh</button>
+        <button id="refreshToolsBtn" class="btn btn-secondary">Tools</button>
       </div>
       <pre id="pathsBox" class="pre pre-small"></pre>
+      <pre id="toolsBox" class="pre pre-small"></pre>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title">Knowledge Base (Book → MemoryStore/VectorIndex)</div>
+      <div class="row row-tight">
+        <input id="kbBookId" class="input input-small" placeholder="bookId (optional)" />
+        <input id="kbTitle" class="input" placeholder="book title (optional)" />
+        <button id="kbIngestBtn" class="btn btn-secondary">Ingest</button>
+        <button id="kbListBtn" class="btn btn-secondary">List</button>
+      </div>
+      <textarea id="kbText" class="textarea" placeholder="Paste book text here (demo limit: 2,000,000 chars)"></textarea>
+      <div class="row row-tight">
+        <input id="kbMemoryId" class="input" placeholder="active memoryId (e.g. tenant::book-...)" />
+        <button id="kbSelectBtn" class="btn btn-secondary">Select for Chat</button>
+        <button id="kbClearBtn" class="btn btn-secondary">Clear</button>
+      </div>
+      <pre id="kbBox" class="pre"></pre>
     </section>
 
     <section class="panel">

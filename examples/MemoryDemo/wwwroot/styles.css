@@ -95,6 +95,24 @@ h1 { margin: 0 0 6px; font-size: 22px; }
 .input::placeholder { color: rgba(168,176,216,0.65); }
 .input:focus { border-color: rgba(110,168,254,0.5); }
 
+.textarea {
+  width: 100%;
+  margin-top: 10px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  color: var(--text);
+  outline: none;
+  min-height: 160px;
+  resize: vertical;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+  font-size: 12px;
+  line-height: 1.35;
+}
+.textarea::placeholder { color: rgba(168,176,216,0.65); }
+.textarea:focus { border-color: rgba(110,168,254,0.5); }
+
 .btn {
   border: 1px solid rgba(110,168,254,0.35);
   background: rgba(110,168,254,0.12);

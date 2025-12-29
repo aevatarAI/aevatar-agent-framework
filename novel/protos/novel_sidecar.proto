@@ -1,0 +1,291 @@
+syntax = "proto3";
+
+package Aevatar.Novel;
+
+option csharp_namespace = "Aevatar.Novel.Contracts";
+
+import "google/protobuf/timestamp.proto";
+import "novel_assets.proto";
+import "novel_pipeline.proto";
+
+// ============================================================
+//  Sidecar Contracts (Local IPC / UI Bridge)
+//
+//  WHY:
+//  - UI(Tauri/React) <-> Sidecar is a boundary.
+//  - Cross-boundary messages MUST be Protobuf.
+//  - We need a minimal event stream contract for SSOT file changes.
+// ============================================================
+
+enum FileChangeKind {
+  FILE_CHANGE_KIND_UNSPECIFIED = 0;
+  FILE_CHANGE_KIND_CREATED = 1;
+  FILE_CHANGE_KIND_CHANGED = 2;
+  FILE_CHANGE_KIND_DELETED = 3;
+  FILE_CHANGE_KIND_RENAMED = 4;
+}
+
+message ProjectRootInfo {
+  string project_root = 1;
+  bool exists = 2;
+  google.protobuf.Timestamp observed_at = 3;
+  map<string, string> labels = 100;
+}
+
+message SetProjectRootRequest {
+  string project_root = 1;
+}
+
+message SetProjectRootResponse {
+  ProjectRootInfo info = 1;
+}
+
+message SstFileChangedEvent {
+  string event_id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+
+  string project_root = 3;
+
+  // Full path on disk.
+  string full_path = 4;
+
+  // Best-effort path relative to project_root (empty if not under root).
+  string relative_path = 5;
+
+  FileChangeKind kind = 6;
+
+  // Optional (for rename).
+  string old_full_path = 7;
+  string old_relative_path = 8;
+
+  map<string, string> labels = 100;
+}
+
+message ProjectRootChangedEvent {
+  string event_id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  ProjectRootInfo info = 3;
+  map<string, string> labels = 100;
+}
+
+message UnitTestsCompletedEvent {
+  string event_id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+
+  // SSOT root this run is based on.
+  string project_root = 3;
+
+  // Best-effort ids derived from file layout (v1).
+  string story_id = 10;
+  string chapter_id = 11;
+
+  NarrativeTestRunSummary summary = 20;
+  ArtifactRef test_report = 21;
+
+  map<string, string> labels = 100;
+}
+
+// Generic event envelope for sidecar -> UI streaming.
+message SidecarEvent {
+  string event_id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+
+  oneof payload {
+    SstFileChangedEvent file_changed = 10;
+    ProjectRootChangedEvent project_root_changed = 11;
+    UnitTestsCompletedEvent unit_tests_completed = 12;
+    WritingSessionLogUpdatedEvent writing_session_log_updated = 13;
+    StoryDeviationImpactAnalysisCompletedEvent deviation_impact_completed = 14;
+    CanonChangeRecordedEvent canon_change_recorded = 15;
+    RewriteBranchCreatedEvent rewrite_branch_created = 16;
+    RewriteBranchMergedEvent rewrite_branch_merged = 17;
+    SetupPayoffLedgerScanCompletedEvent setup_payoff_scan_completed = 18;
+  }
+}
+
+message CanonChangeRecordedEvent {
+  string event_id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+
+  string project_root = 3;
+  string story_id = 4;
+
+  // The canon file that was changed (relative to project_root).
+  string changed_relative_path = 10;
+
+  // Governance record (derived artifact).
+  ArtifactRef canon_change_record = 20;
+
+  map<string, string> labels = 100;
+}
+
+// ============================================================
+//  Rewrite Branch / Merge (UI ↔ Sidecar)
+// ============================================================
+
+message RewriteBranchInfo {
+  string story_relative_path = 1; // relative to project_root
+  string branch_id = 2;
+  string name = 3;
+  string based_on_branch_id = 4; // "" means main
+  google.protobuf.Timestamp created_at = 5;
+  map<string, string> labels = 100;
+}
+
+message CreateRewriteBranchRequest {
+  string story_relative_path = 1;
+  string name = 2;
+  string based_on_branch_id = 3;
+}
+
+message CreateRewriteBranchResponse {
+  RewriteBranchInfo branch = 1;
+  ArtifactRef branch_manifest = 2; // file://.../branches/<id>/branch.md
+  map<string, string> labels = 100;
+}
+
+message ListRewriteBranchesRequest {
+  string story_relative_path = 1;
+}
+
+message ListRewriteBranchesResponse {
+  string story_relative_path = 1;
+  repeated RewriteBranchInfo branches = 2;
+  map<string, string> labels = 100;
+}
+
+message DiffBranchChapterRequest {
+  string story_relative_path = 1;
+  string branch_id = 2;
+  string chapter_file = 3; // e.g. "001-ch1.txt"
+}
+
+message DiffBranchChapterResponse {
+  string story_relative_path = 1;
+  string branch_id = 2;
+  string chapter_file = 3;
+  TextPayload diff = 10; // format=MARKDOWN, inline_text contains ```diff block
+  map<string, string> labels = 100;
+}
+
+message MergeBranchChapterRequest {
+  string story_relative_path = 1;
+  string branch_id = 2;
+  string chapter_file = 3;
+  bool create_backup = 4;
+}
+
+message MergeBranchChapterResponse {
+  bool success = 1;
+  string message = 2;
+  ArtifactRef merge_record = 10; // file://.../branches/_merges/<id>_merge.md
+  map<string, string> labels = 100;
+}
+
+message RewriteBranchCreatedEvent {
+  string event_id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  RewriteBranchInfo branch = 10;
+  ArtifactRef branch_manifest = 11;
+  map<string, string> labels = 100;
+}
+
+message RewriteBranchMergedEvent {
+  string event_id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  RewriteBranchInfo branch = 10;
+  string chapter_file = 11;
+  ArtifactRef merge_record = 12;
+  map<string, string> labels = 100;
+}
+
+// ============================================================
+//  Setup/Payoff Ledger (workflow)
+// ============================================================
+
+message SetupPayoffLedgerScanCompletedEvent {
+  string event_id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+
+  string project_root = 3;
+  string story_id = 4;
+
+  // Relative file path that triggered the scan (chapter or ledger file).
+  string trigger_relative_path = 10;
+
+  ArtifactRef ledger = 20; // artifacts/ledger/setup_payoff_ledger.md
+  ArtifactRef report = 21; // artifacts/ledger/reports/<run_id>_setup_payoff_report.md
+
+  int32 open_count = 30;
+  int32 paid_count = 31;
+  int32 broken_count = 32;
+  int32 due_soon_count = 33;
+
+  map<string, string> labels = 100;
+}
+
+// ============================================================
+//  File APIs (UI ↔ Sidecar)
+// ============================================================
+
+message FileEntry {
+  string relative_path = 1;
+  bool is_directory = 2;
+  int64 size_bytes = 3;
+  google.protobuf.Timestamp last_write_time = 4;
+}
+
+message ListDirectoryRequest {
+  // Directory relative to project_root ("" means root).
+  string relative_path = 1;
+  bool include_directories = 2;
+  bool include_files = 3;
+
+  // If true, only return .txt/.md files (still returns directories if include_directories=true).
+  bool only_supported_text_files = 4;
+}
+
+message ListDirectoryResponse {
+  string relative_path = 1;
+  repeated FileEntry entries = 2;
+  map<string, string> labels = 100;
+}
+
+message ReadTextFileRequest {
+  string relative_path = 1;
+
+  // If file size <= max_inline_bytes, sidecar returns inline_text.
+  // Otherwise returns blob_ref + preview.
+  int32 max_inline_bytes = 2;
+}
+
+message ReadTextFileResponse {
+  string relative_path = 1;
+  bool exists = 2;
+  int64 size_bytes = 3;
+  google.protobuf.Timestamp last_write_time = 4;
+  string content_hash = 5; // e.g. "sha256:..."
+
+  TextPayload content = 10; // inline_text OR blob_ref (file://...)
+  map<string, string> labels = 100;
+}
+
+message WriteTextFileRequest {
+  string relative_path = 1;
+  TextPayload content = 2; // v1 expects inline_text
+
+  // Optional optimistic concurrency control. If set and mismatched, write fails.
+  string expected_content_hash = 3; // e.g. "sha256:..."
+}
+
+message WriteTextFileResponse {
+  string relative_path = 1;
+  bool success = 2;
+  string message = 3;
+  int64 size_bytes = 4;
+  google.protobuf.Timestamp last_write_time = 5;
+  string content_hash = 6; // e.g. "sha256:..."
+  map<string, string> labels = 100;
+}
+
+

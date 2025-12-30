@@ -1,7 +1,7 @@
+using Aevatar.Agents.Persistence.Supabase.GAgent.Options;
 using Aevatar.Agents.Persistence.Supabase.Internal;
-using Aevatar.Agents.Persistence.Supabase.Options;
 
-namespace Aevatar.Agents.Persistence.Supabase.Setup;
+namespace Aevatar.Agents.Persistence.Supabase.GAgent.Setup;
 
 /// <summary>
 /// Generate Supabase(Postgres) initialization SQL (create schema / tables / indexes / tighten permissions / RLS).
@@ -38,7 +38,7 @@ public static class SupabaseSchemaScript
         if (options.AutoCreateTables)
         {
             // -------- Agent States --------
-            // Use (state_type, agent_id) as primary key, allowing same agent_id to coexist under different state types (safer for different agent systems/testing).
+            // Use (state_type, agent_id) as primary key, allowing same agent_id to coexist under different state types.
             stmts.Add($@"
 CREATE TABLE IF NOT EXISTS {schema}.{states} (
   state_type text NOT NULL,
@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS {schema}.{configs} (
 )");
 
             // -------- EventRouter Hierarchies --------
-            // children_ids stored as text[] (aligned with string agentId semantics); query patterns mainly by agent_id / parent_id.
+            // children_ids stored as text[]; query patterns mainly by agent_id / parent_id.
             stmts.Add($@"
 CREATE TABLE IF NOT EXISTS {schema}.{routers} (
   agent_id text PRIMARY KEY,
@@ -70,7 +70,6 @@ CREATE TABLE IF NOT EXISTS {schema}.{routers} (
   children_ids text[] NOT NULL DEFAULT '{{}}'::text[],
   updated_at timestamptz NOT NULL DEFAULT now()
 )");
-
         }
 
         // ==============================
@@ -92,15 +91,15 @@ CREATE TABLE IF NOT EXISTS {schema}.{routers} (
         // ==============================
         if (options.LockDownPublicAccess)
         {
-            // 1) Schema level: Revoke PUBLIC usage permissions to avoid accidental exposure by PostgREST
+            // 1) Schema level: revoke PUBLIC usage permissions to avoid accidental exposure by PostgREST
             stmts.Add($"REVOKE ALL ON SCHEMA {schema} FROM PUBLIC");
 
-            // 2) Table level: Revoke PUBLIC permissions
+            // 2) Table level: revoke PUBLIC permissions
             stmts.Add($"REVOKE ALL ON TABLE {schema}.{states} FROM PUBLIC");
             stmts.Add($"REVOKE ALL ON TABLE {schema}.{configs} FROM PUBLIC");
             stmts.Add($"REVOKE ALL ON TABLE {schema}.{routers} FROM PUBLIC");
 
-            // 3) Supabase common roles: anon/authenticated may not exist (non-Supabase environments), so use DO block for existence check
+            // 3) Supabase common roles: anon/authenticated may not exist, so use DO block for existence check
             stmts.Add($@"
 DO $$
 BEGIN
@@ -142,7 +141,7 @@ $$");
                 stmts.Add($"ALTER TABLE {schema}.{routers} FORCE ROW LEVEL SECURITY");
             }
 
-            // Optional: Create full-access policy for Supabase's service_role (only effective when PostgREST/JWT role=service_role).
+            // Optional: create full-access policy for Supabase service_role (when PostgREST/JWT role=service_role).
             if (options.CreateServiceRolePolicies)
             {
                 stmts.Add($@"

@@ -1,12 +1,12 @@
 using Aevatar.Agents.Abstractions.EventRouting;
+using Aevatar.Agents.Persistence.Supabase.GAgent.Options;
+using Aevatar.Agents.Persistence.Supabase.GAgent.Setup;
 using Aevatar.Agents.Persistence.Supabase.Internal;
-using Aevatar.Agents.Persistence.Supabase.Options;
-using Aevatar.Agents.Persistence.Supabase.Setup;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using NpgsqlTypes;
 
-namespace Aevatar.Agents.Persistence.Supabase.Stores;
+namespace Aevatar.Agents.Persistence.Supabase.GAgent.Stores;
 
 /// <summary>
 /// Supabase(Postgres) EventRouter hierarchy store:
@@ -148,7 +148,7 @@ DO UPDATE SET
 }
 
 /// <summary>
-/// Supabase EventRouter store factory（用于手工 DI/高级场景）。
+/// Supabase EventRouter store factory (for manual DI/advanced scenarios).
 /// </summary>
 public static class SupabaseEventRouterStoreFactory
 {
@@ -162,7 +162,7 @@ public static class SupabaseEventRouterStoreFactory
 
             var options = sp.GetService(typeof(IOptions<SupabasePersistenceOptions>)) as IOptions<SupabasePersistenceOptions>
                 ?? throw new InvalidOperationException(
-                    "SupabasePersistenceOptions not registered. Call services.AddAevatarSupabase(...) first.");
+                    "SupabasePersistenceOptions not registered. Call services.AddAevatarSupabaseGAgent(...) first.");
 
             return new SupabaseEventRouterStore(dataSource, options);
         };

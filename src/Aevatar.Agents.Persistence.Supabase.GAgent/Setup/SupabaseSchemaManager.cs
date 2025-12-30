@@ -1,9 +1,9 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
-using Aevatar.Agents.Persistence.Supabase.Options;
+using Aevatar.Agents.Persistence.Supabase.GAgent.Options;
 using Npgsql;
 
-namespace Aevatar.Agents.Persistence.Supabase.Setup;
+namespace Aevatar.Agents.Persistence.Supabase.GAgent.Setup;
 
 /// <summary>
 /// Runtime auto-initialization (create tables/indexes/tighten permissions/RLS).
@@ -44,7 +44,7 @@ internal static class SupabaseSchemaManager
         }
         catch
         {
-            // Initialization failure allows retry (avoid locking process forever in "initialized" state after one failure).
+            // Initialization failure allows retry (avoid locking process forever after one failure).
             Initialized.TryRemove(key, out _);
             throw;
         }
@@ -63,7 +63,7 @@ internal static class SupabaseSchemaManager
     private static string BuildKey(NpgsqlDataSource dataSource, SupabasePersistenceOptions options)
     {
         // Construct key using DataSource's identity hash + schema/table configuration.
-        // Purpose: Avoid duplicate DDL within same process, and allow multiple data sources to coexist.
+        // Purpose: avoid duplicate DDL within same process, and allow multiple data sources to coexist.
         var dsKey = RuntimeHelpers.GetHashCode(dataSource);
 
         return string.Join(

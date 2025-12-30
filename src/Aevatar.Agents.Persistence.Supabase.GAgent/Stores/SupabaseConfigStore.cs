@@ -1,13 +1,14 @@
 using System.Text.Json;
 using Aevatar.Agents.Abstractions.Persistence;
+using Aevatar.Agents.Persistence.Supabase.GAgent.Internal;
+using Aevatar.Agents.Persistence.Supabase.GAgent.Options;
+using Aevatar.Agents.Persistence.Supabase.GAgent.Setup;
 using Aevatar.Agents.Persistence.Supabase.Internal;
-using Aevatar.Agents.Persistence.Supabase.Options;
-using Aevatar.Agents.Persistence.Supabase.Setup;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using NpgsqlTypes;
 
-namespace Aevatar.Agents.Persistence.Supabase.Stores;
+namespace Aevatar.Agents.Persistence.Supabase.GAgent.Stores;
 
 /// <summary>
 /// Supabase(Postgres) ConfigStore implementation:
@@ -161,7 +162,7 @@ DO UPDATE SET
 }
 
 /// <summary>
-/// Supabase ConfigStore factory（用于手工 DI/高级场景）。
+/// Supabase ConfigStore factory (for manual DI/advanced scenarios).
 /// </summary>
 public static class SupabaseConfigurationStoreFactory
 {
@@ -176,7 +177,7 @@ public static class SupabaseConfigurationStoreFactory
 
             var options = sp.GetService(typeof(IOptions<SupabasePersistenceOptions>)) as IOptions<SupabasePersistenceOptions>
                 ?? throw new InvalidOperationException(
-                    "SupabasePersistenceOptions not registered. Call services.AddAevatarSupabase(...) first.");
+                    "SupabasePersistenceOptions not registered. Call services.AddAevatarSupabaseGAgent(...) first.");
 
             return new SupabaseConfigStore<TConfig>(dataSource, options);
         };

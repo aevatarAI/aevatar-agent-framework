@@ -1,6 +1,6 @@
--- Aevatar Supabase(Postgres) Persistence Schema (default)
--- -------------------------------------------------------
--- This script matches default SupabasePersistenceOptions:
+-- Aevatar Supabase(Postgres) GAgent Persistence Schema (default)
+-- -------------------------------------------------------------
+-- This script matches default SupabasePersistenceOptions (GAgent):
 -- - Schema: aevatar
 -- - Tables:
 --   - agent_states

@@ -1,15 +1,15 @@
 using System.Text.Json;
 using Google.Protobuf;
 
-namespace Aevatar.Agents.Persistence.Supabase.Internal;
+namespace Aevatar.Agents.Persistence.Supabase.GAgent.Internal;
 
 /// <summary>
-/// 配置对象的 JSON 序列化策略：
+/// Configuration JSON serialization strategy:
 ///
-/// - 若配置类型是 Protobuf（实现 <see cref="IMessage"/>），则使用 Protobuf JSON 映射（稳定、可演进）
-/// - 否则退化为 System.Text.Json（兼容非 Protobuf 的本地配置对象）
+/// - If the config type is Protobuf (implements <see cref="IMessage"/>), use Protobuf JSON mapping (stable & evolvable)
+/// - Otherwise fall back to System.Text.Json (for local-only config objects)
 ///
-/// 注意：框架规范要求跨边界配置对象必须是 Protobuf，本类因此把 Protobuf 作为第一优先级。
+/// Note: Framework rule says cross-boundary configs must be Protobuf, so Protobuf is the first priority here.
 /// </summary>
 internal static class SupabaseConfigJson
 {
@@ -22,7 +22,7 @@ internal static class SupabaseConfigJson
 
         if (config is IMessage msg)
         {
-            // Protobuf JSON：可保持字段名/默认值处理符合 Protobuf 语义
+            // Protobuf JSON keeps field/default semantics aligned with Protobuf.
             return JsonFormatter.Default.Format(msg);
         }
 
@@ -37,7 +37,7 @@ internal static class SupabaseConfigJson
             return null;
         }
 
-        // Protobuf JSON：使用 MessageDescriptor 解析（避免要求 TConfig 在编译期带 IMessage 约束）
+        // Protobuf JSON: parse via MessageDescriptor (avoids requiring IMessage constraint on TConfig).
         var instance = new TConfig();
         if (instance is IMessage msg)
         {

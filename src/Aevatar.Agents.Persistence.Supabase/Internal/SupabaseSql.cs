@@ -8,13 +8,13 @@ namespace Aevatar.Agents.Persistence.Supabase.Internal;
 /// - schema.table concatenation
 /// - FTS regconfig literal generation
 /// </summary>
-internal static class SupabaseSql
+public static class SupabaseSql
 {
     // Only allow: lowercase + underscore + digits, starting with letter
     // This allows us to avoid quotes, avoid case/escaping pitfalls, and completely prevent injection.
     private static readonly Regex IdentifierRegex = new("^[a-z][a-z0-9_]*$", RegexOptions.Compiled);
 
-    internal static string Ident(string value, string paramName)
+    public static string Ident(string value, string paramName)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
@@ -32,7 +32,7 @@ internal static class SupabaseSql
         return value;
     }
 
-    internal static string Table(string schema, string table, string paramNameForTable)
+    public static string Table(string schema, string table, string paramNameForTable)
     {
         var s = Ident(schema, nameof(schema));
         var t = Ident(table, paramNameForTable);
@@ -42,7 +42,7 @@ internal static class SupabaseSql
     /// <summary>
     /// Generate a safe regconfig SQL string literal, e.g.: 'simple'
     /// </summary>
-    internal static string RegConfigLiteral(string regConfig)
+    public static string RegConfigLiteral(string regConfig)
     {
         var cfg = Ident(regConfig, nameof(regConfig));
         return $"'{cfg}'";

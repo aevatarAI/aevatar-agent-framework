@@ -1,18 +1,18 @@
 using Aevatar.Agents.Abstractions.Persistence;
+using Aevatar.Agents.Persistence.Supabase.GAgent.Options;
+using Aevatar.Agents.Persistence.Supabase.GAgent.Setup;
 using Aevatar.Agents.Persistence.Supabase.Internal;
-using Aevatar.Agents.Persistence.Supabase.Options;
-using Aevatar.Agents.Persistence.Supabase.Setup;
 using Google.Protobuf;
 using Microsoft.Extensions.Options;
 using Npgsql;
 
-namespace Aevatar.Agents.Persistence.Supabase.Stores;
+namespace Aevatar.Agents.Persistence.Supabase.GAgent.Stores;
 
 /// <summary>
 /// Supabase(Postgres) StateStore implementation:
-/// - Uses Protobuf bytea storage (consistent with MongoDB version)
+/// - Uses Protobuf bytea storage
 /// - Implements idempotent upsert via (state_type, agent_id) unique key
-/// - version field used for EventSourcing Snapshot version marking (current framework semantics)
+/// - version field used for EventSourcing snapshot version marking (current framework semantics)
 /// </summary>
 /// <typeparam name="TState">Must be Protobuf IMessage</typeparam>
 public sealed class SupabaseStateStore<TState> : IVersionedStateStore<TState>
@@ -75,8 +75,7 @@ public sealed class SupabaseStateStore<TState> : IVersionedStateStore<TState>
 
     public Task SaveAsync(string agentId, TState state, long expectedVersion, CancellationToken ct = default)
         // NOTE:
-        // - Parameter name in Abstractions is expectedVersion, but current framework semantics is "snapshot version".
-        // - MongoDB version also directly writes this value.
+        // - Parameter name in Abstractions is expectedVersion, but current framework semantics is \"snapshot version\".
         => SaveInternalAsync(agentId, state, expectedVersion, ct);
 
     public async Task<long> GetCurrentVersionAsync(string agentId, CancellationToken ct = default)
@@ -194,7 +193,7 @@ public static class SupabaseStateStoreFactory
 
             var options = sp.GetService(typeof(IOptions<SupabasePersistenceOptions>)) as IOptions<SupabasePersistenceOptions>
                 ?? throw new InvalidOperationException(
-                    "SupabasePersistenceOptions not registered. Call services.AddAevatarSupabase(...) first.");
+                    "SupabasePersistenceOptions not registered. Call services.AddAevatarSupabaseGAgent(...) first.");
 
             return new SupabaseStateStore<TState>(dataSource, options);
         };

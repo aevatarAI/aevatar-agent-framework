@@ -1,4 +1,4 @@
-using Aevatar.Agents.Persistence.Supabase.Internal;
+using Aevatar.Agents.Persistence.Supabase.GAgent.Internal;
 using FluentAssertions;
 using Xunit;
 

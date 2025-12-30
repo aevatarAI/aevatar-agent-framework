@@ -1,6 +1,6 @@
 using Aevatar.Agents.Persistence.Supabase.Internal;
-using Aevatar.Agents.Persistence.Supabase.Options;
-using Aevatar.Agents.Persistence.Supabase.Setup;
+using Aevatar.Agents.Persistence.Supabase.GAgent.Options;
+using Aevatar.Agents.Persistence.Supabase.GAgent.Setup;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using Xunit;

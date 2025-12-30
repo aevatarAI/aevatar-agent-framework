@@ -1,5 +1,5 @@
 using Aevatar.Agents.Abstractions.EventRouting;
-using Aevatar.Agents.Persistence.Supabase.Stores;
+using Aevatar.Agents.Persistence.Supabase.GAgent.Stores;
 using FluentAssertions;
 using Xunit;
 

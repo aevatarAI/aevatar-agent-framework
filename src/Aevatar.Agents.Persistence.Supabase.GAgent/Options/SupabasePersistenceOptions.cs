@@ -1,17 +1,22 @@
-namespace Aevatar.Agents.Persistence.Supabase.Options;
+namespace Aevatar.Agents.Persistence.Supabase.GAgent.Options;
 
 /// <summary>
-/// Supabase(Postgres) persistence options.
+/// Supabase(Postgres) persistence options for GAgent State/Config/EventRouter.
 ///
 /// Design goals:
 /// - Use Supabase-hosted Postgres as storage backend (direct database connection)
 /// - Auto-create tables/indexes (can be disabled)
-/// - Default "minimal exposure": Try to avoid being directly exposed by Supabase PostgREST (configurable)
+/// - Default \"minimal exposure\": try to avoid being directly exposed by Supabase PostgREST (configurable)
 /// </summary>
 public sealed class SupabasePersistenceOptions
 {
     /// <summary>
     /// Postgres connection string (from Supabase Dashboard -> Project Settings -> Database).
+    ///
+    /// Note:
+    /// - In the split architecture, the connection pool is owned by the base project
+    ///   (<see cref="Aevatar.Agents.Persistence.Supabase.DependencyInjection.SupabaseServiceCollectionExtensions"/>),
+    ///   so this field is mainly kept for convenience/compatibility.
     /// </summary>
     public string ConnectionString { get; set; } = string.Empty;
 
@@ -54,11 +59,11 @@ public sealed class SupabasePersistenceOptions
     // ==============================
 
     /// <summary>
-    /// Whether to tighten permissions by default: Revoke PUBLIC/anon/authenticated permissions on schema/table.
+    /// Whether to tighten permissions by default: revoke PUBLIC/anon/authenticated permissions on schema/table.
     ///
     /// Note:
     /// - This does not affect table owner (usually the database user used for initialization/server connection).
-    /// - Purpose: Prevent direct read/write via anon key when Supabase exposes PostgREST by default.
+    /// - Purpose: prevent direct read/write via anon key when Supabase exposes PostgREST by default.
     /// </summary>
     public bool LockDownPublicAccess { get; set; } = true;
 
@@ -67,7 +72,7 @@ public sealed class SupabasePersistenceOptions
     ///
     /// Recommendation:
     /// - If you plan to expose these tables via Supabase PostgREST, enable RLS and configure Policy.
-    /// - This library only provides the most basic "service_role full access" policy (optional).
+    /// - This library only provides the most basic \"service_role full access\" policy (optional).
     /// </summary>
     public bool EnableRowLevelSecurity { get; set; } = false;
 
@@ -78,7 +83,7 @@ public sealed class SupabasePersistenceOptions
     public bool ForceRowLevelSecurity { get; set; } = false;
 
     /// <summary>
-    /// Whether to create "full access" Policy for Supabase's service_role.
+    /// Whether to create \"full access\" Policy for Supabase's service_role.
     /// Only effective when EnableRowLevelSecurity=true.
     /// </summary>
     public bool CreateServiceRolePolicies { get; set; } = false;

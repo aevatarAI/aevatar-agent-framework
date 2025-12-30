@@ -1,67 +1,37 @@
 ## Aevatar.Agents.Persistence.Supabase
 
-这个项目提供 **Supabase(Postgres) 直连版**持久化实现，用于替代 `Aevatar.Agents.Persistence.MongoDB`：
+这个项目是 **Supabase(Postgres) 持久化的基础设施层**，只负责：
 
-- **StateStore**：`SupabaseStateStore<TState>`（Protobuf -> `bytea`）
-- **ConfigStore**：`SupabaseConfigStore<TConfig>`（`jsonb`）
-- **EventRouterStore**：`SupabaseEventRouterStore`（parent/children）
+- **连接池**：注册并复用 `NpgsqlDataSource`
+- **共享工具**：SQL identifier 校验/拼接（防注入）
+
+实际的持久化实现按领域拆分在两个项目里：
+
+- `Aevatar.Agents.Persistence.Supabase.GAgent`：Agent 的 **State / Config / EventRouter**
+- `Aevatar.Agents.Persistence.Supabase.Memory`：AI Memory 的 **IMemoryStore / IMemoryVectorIndex(pgvector)**
 
 ### 目录结构
 
 ```
 src/Aevatar.Agents.Persistence.Supabase/
-├── DependencyInjection/                 # DI 扩展（AddAevatarSupabase + 注册 store）
-├── Internal/                            # SQL 安全拼接/校验工具
-├── Options/                             # SupabasePersistenceOptions
-├── Setup/                               # 自动建表/建索引/权限收紧/RLS
-├── Stores/                              # StateStore/ConfigStore/EventRouterStore
+├── DependencyInjection/                 # DI 扩展（AddAevatarSupabase：注册 NpgsqlDataSource）
+├── Internal/                            # SQL 安全拼接/校验工具（identifier validation）
 └── docs/
     ├── README.md
-    └── schema.sql                       # 默认建库脚本（与默认 Options 对齐）
 ```
 
-### 快速使用（推荐：自动初始化）
+### 快速使用（注册连接池）
 
 ```csharp
-using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Persistence.Supabase.DependencyInjection;
-using Aevatar.Agents.Persistence.Supabase.Stores;
 
-// 1) 注册 Supabase(Postgres) 基础设施
 services.AddAevatarSupabase(
-    connectionString: configuration.GetConnectionString("SupabasePostgres")!,
-    configure: o =>
-    {
-        o.Schema = "aevatar";              // 建议独立 schema
-        o.LockDownPublicAccess = true;    // 默认收紧权限（推荐）
-        o.EnableRowLevelSecurity = false; // 默认关闭，避免误伤直连服务端
-    });
-
-// 2) 接入 Aevatar Agent System（替换默认内存 store）
-services.AddAevatarAgentSystem(options =>
-{
-    options.StateStoreType = typeof(SupabaseStateStore<>);
-    options.ConfigStoreType = typeof(SupabaseConfigStore<>);
-    options.EventRouterStoreType = typeof(SupabaseEventRouterStore);
-});
+    connectionString: configuration.GetConnectionString("SupabasePostgres")!);
 ```
 
-### 手工部署（SQL 审计友好）
+### 下一步
 
-- 默认脚本见：`docs/schema.sql`
-- 或者在代码里用 `SupabaseSchemaScript.BuildSql(options)` 输出完整 SQL，再交给 DBA 执行。
-
-### 权限与暴露建议（Supabase 场景）
-
-- 默认 `Schema = aevatar`：**不放在 public**，降低被 PostgREST 暴露的概率。
-- 默认 `LockDownPublicAccess = true`：**撤销 PUBLIC/anon/authenticated 权限**，防止 anon key 直接读写。
-- 若你“就是要”通过 PostgREST 暴露：
-  - 开启 `EnableRowLevelSecurity = true`
-  - 并自行补充更细粒度 Policy（本库仅可选生成 service_role 全通 policy）
-
-### 约束（很重要）
-
-- `Schema/Table` 名称要求：**全小写 + 下划线**（`[a-z][a-z0-9_]*`），用于避免 SQL 注入与引号陷阱。
-- `TState` 必须是 **Protobuf IMessage**（符合框架核心铁律）。
+- 要接入 **GAgent State/Config**：看 `src/Aevatar.Agents.Persistence.Supabase.GAgent/docs/README.md`
+- 要接入 **AI Memory(pgvector)**：看 `src/Aevatar.Agents.Persistence.Supabase.Memory/docs/README.md`
 
 

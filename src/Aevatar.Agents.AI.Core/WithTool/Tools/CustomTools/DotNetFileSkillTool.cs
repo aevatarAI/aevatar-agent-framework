@@ -440,13 +440,25 @@ internal static class DotNetFileSkillRunner
         var sb = new StringBuilder(capacity: Math.Min(maxChars, 16 * 1024));
         var buffer = new char[4096];
 
-        while (sb.Length < maxChars)
+        // IMPORTANT:
+        // - We MUST keep draining stdout/stderr until EOF.
+        // - If we stop reading once `maxChars` is reached, the child process can block on a full pipe,
+        //   never exit, and we'll end up timing out (this happens on endpoints that return big payloads
+        //   like market/tickers or market/contracts).
+        while (true)
         {
-            var remaining = maxChars - sb.Length;
-            var read = await reader.ReadAsync(buffer.AsMemory(0, Math.Min(buffer.Length, remaining)), cancellationToken);
+            var read = await reader.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken);
             if (read <= 0)
                 break;
-            sb.Append(buffer, 0, read);
+
+            var remaining = maxChars - sb.Length;
+            if (remaining <= 0)
+            {
+                // Discard remaining output but keep draining to avoid deadlock.
+                continue;
+            }
+
+            sb.Append(buffer, 0, Math.Min(read, remaining));
         }
 
         return sb.ToString();

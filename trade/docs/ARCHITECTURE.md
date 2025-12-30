@@ -113,6 +113,9 @@ trade/
 │   └── AI_WARS_DOTNET_SKILLS.md        # AI Wars API → DotNet File Skills 索引
 │   └── TRADING_WORKFLOW.md             # 面向客户：多智能体交易闭环与“谁在何时如何下单”
 │
+├── scripts/                           # 工具脚本（开发/运维）
+│   └── test_dotnet_skills.py           # DotNet file skills 巡检（走 /api/ai-wars/*）
+│
 ├── frontend/                          # ✅ 演示 UI（Vite + React + TS）
 │   ├── README.md                      # 启动/联调说明
 │   ├── vite.config.ts                 # 开发期同源代理（默认转发到 http://localhost:7100）

@@ -34,6 +34,13 @@ using System.Text.Json.Serialization.Metadata;
 
 var input = await Console.In.ReadToEndAsync();
 
+var jsonOptions = new JsonSerializerOptions
+{
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    // dotnet run --file 默认禁用反射序列化，这里显式开启
+    TypeInfoResolver = new DefaultJsonTypeInfoResolver()
+};
+
 var baseUrl = GetEnv("WEEX_BASE_URL", "https://api-contract.weex.com");
 var locale = GetEnv("WEEX_LOCALE", "en-US");
 
@@ -66,10 +73,7 @@ if (httpMethod == HttpMethod.Get)
 else
 {
     var body = BuildBody(root, allParams);
-    bodyJson = JsonSerializer.Serialize(body, new JsonSerializerOptions
-    {
-        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
-    });
+    bodyJson = JsonSerializer.Serialize(body, jsonOptions);
     url = new Uri(new Uri(baseUrl.TrimEnd('/')), requestPath);
 }
 
@@ -130,7 +134,7 @@ try
         raw
     };
 
-    Console.WriteLine("AEVATAR_TOOL_OUTPUT:" + JsonSerializer.Serialize(result));
+    Console.WriteLine("AEVATAR_TOOL_OUTPUT:" + JsonSerializer.Serialize(result, jsonOptions));
     Environment.ExitCode = ok ? 0 : 1;
 }
 catch (Exception ex)
@@ -140,7 +144,7 @@ catch (Exception ex)
         success = false,
         error = ex.Message
     };
-    Console.WriteLine("AEVATAR_TOOL_OUTPUT:" + JsonSerializer.Serialize(result));
+    Console.WriteLine("AEVATAR_TOOL_OUTPUT:" + JsonSerializer.Serialize(result, jsonOptions));
     Environment.ExitCode = 1;
 }
 

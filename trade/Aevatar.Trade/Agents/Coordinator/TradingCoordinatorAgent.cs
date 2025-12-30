@@ -75,6 +75,9 @@ public class TradingCoordinatorAgent : AIGAgentBase
     private double _technicalWeight = 0.4;
     private double _newsWeight = 0.3;
     private string _executionMode = "DryRun";
+    // Decision timeout is a *safety valve* (avoid deadlock), not a "fast fail".
+    // Default to a large value; user can tune via DecisionEngine:TimeoutSeconds.
+    private int _decisionTimeoutSeconds = 300;
 
     // ---------------------------------------------------------------------
     //  Decision frequency / re-entrancy guard
@@ -89,6 +92,12 @@ public class TradingCoordinatorAgent : AIGAgentBase
     // ---------------------------------------------------------------------
     private const int DecisionMinIntervalSeconds = 1;
     private int _decisionRunning;
+    private DateTime _lastNoStrategyExplainUtc = DateTime.MinValue;
+    private const int NoStrategyExplainIntervalSeconds = 60;
+    private DateTime _decisionInFlightStartUtc = DateTime.MinValue;
+    private DateTime _lastInFlightExplainUtc = DateTime.MinValue;
+    private const int InFlightExplainAfterSeconds = 60;
+    private const int InFlightExplainIntervalSeconds = 60;
 
     // Latest market snapshot (from DataCollector) for pricing / order placement.
     private readonly Dictionary<string, MarketTickEvent> _latestTickBySymbol = new(StringComparer.OrdinalIgnoreCase);
@@ -125,17 +134,19 @@ public class TradingCoordinatorAgent : AIGAgentBase
         double sentimentWeight = 0.3,
         double technicalWeight = 0.4,
         double newsWeight = 0.3,
-        TradeExecutionMode executionMode = TradeExecutionMode.DryRun)
+        TradeExecutionMode executionMode = TradeExecutionMode.DryRun,
+        int decisionTimeoutSeconds = 300)
     {
         _minConfidenceToTrade = minConfidence;
         _sentimentWeight = sentimentWeight;
         _technicalWeight = technicalWeight;
         _newsWeight = newsWeight;
         _executionMode = executionMode.ToString();
+        _decisionTimeoutSeconds = Math.Clamp(decisionTimeoutSeconds, 3, 3600);
 
         Logger.LogInformation(
-            "[Coordinator] Configured: MinConf={MinConf}, Weights=[S:{S}, T:{T}, N:{N}]",
-            minConfidence, sentimentWeight, technicalWeight, newsWeight);
+            "[Coordinator] Configured: MinConf={MinConf}, Weights=[S:{S}, T:{T}, N:{N}], Timeout={Timeout}s",
+            minConfidence, sentimentWeight, technicalWeight, newsWeight, _decisionTimeoutSeconds);
     }
 
     // ============ Event Handlers ============
@@ -144,57 +155,74 @@ public class TradingCoordinatorAgent : AIGAgentBase
     /// Handle market ticks (price snapshot for sizing / limit price).
     /// </summary>
     [EventHandler]
-    public async Task HandleMarketTick(MarketTickEvent evt)
+    public Task HandleMarketTick(MarketTickEvent evt)
     {
         if (!string.IsNullOrWhiteSpace(evt.Symbol))
         {
             _latestTickBySymbol[evt.Symbol] = evt;
         }
 
-        // 高频决策入口：市场有新 tick 就尝试决策（会被内部节流+互斥保护）
-        await TryMakeDecisionAsync();
+        // =========================================================================
+        // 关键修复：不要在事件处理链路里 await LLM 决策
+        //
+        // 原因：
+        // - LocalMessageStream 对“单个 Agent 的 stream”是串行处理（await handler 完成才处理下一条）
+        // - 如果这里 await 一个慢/卡住的 LLM 调用：
+        //   1) Coordinator 自己会“卡死”，后续 tick/analysis 都进不来
+        //   2) 更致命：Broadcast 的 Down 传播发生在 handler 返回之后，Analyst/Risk/Executor 也收不到事件
+        // - 结果就是你看到的：trade-audit 只剩下一个 Cycle，之后全停
+        //
+        // 解决：
+        // - 触发决策改为 fire-and-forget，让事件处理快速返回，传播不阻塞
+        // - 内部用 _decisionRunning 做 single-flight，避免并发决策风暴
+        // =========================================================================
+        _ = TryMakeDecisionAsync();
+        return Task.CompletedTask;
     }
 
     /// <summary>
     /// Handle market sentiment analysis results
     /// </summary>
     [EventHandler]
-    public async Task HandleSentimentAnalysis(MarketSentimentAnalysisEvent evt)
+    public Task HandleSentimentAnalysis(MarketSentimentAnalysisEvent evt)
     {
         _coordState.LatestSentiment = evt;
         Logger.LogDebug(
             "[Coordinator] Received sentiment: Score={Score}, Trend={Trend}",
             evt.SentimentScore, evt.SentimentTrend);
 
-        await TryMakeDecisionAsync();
+        _ = TryMakeDecisionAsync();
+        return Task.CompletedTask;
     }
 
     /// <summary>
     /// Handle technical analysis results
     /// </summary>
     [EventHandler]
-    public async Task HandleTechnicalAnalysis(TechnicalAnalysisEvent evt)
+    public Task HandleTechnicalAnalysis(TechnicalAnalysisEvent evt)
     {
         _coordState.LatestTechnical = evt;
         Logger.LogDebug(
             "[Coordinator] Received technical: Trend={Trend}, Signal={Signal}",
             evt.TrendDirection, evt.Signal);
 
-        await TryMakeDecisionAsync();
+        _ = TryMakeDecisionAsync();
+        return Task.CompletedTask;
     }
 
     /// <summary>
     /// Handle news impact analysis results
     /// </summary>
     [EventHandler]
-    public async Task HandleNewsAnalysis(NewsImpactAnalysisEvent evt)
+    public Task HandleNewsAnalysis(NewsImpactAnalysisEvent evt)
     {
         _coordState.LatestNews = evt;
         Logger.LogDebug(
             "[Coordinator] Received news: Impact={Impact}, Level={Level}",
             evt.ImpactType, evt.ImpactLevel);
 
-        await TryMakeDecisionAsync();
+        _ = TryMakeDecisionAsync();
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -230,10 +258,37 @@ public class TradingCoordinatorAgent : AIGAgentBase
     /// </summary>
     private async Task TryMakeDecisionAsync()
     {
-        // Check if there is sufficient analysis data
-        if (!HasSufficientData())
+        // Check if there is sufficient analysis data.
+        // If not, emit a periodic "why no strategy" cycle so the user always sees a reason in trade-audit (*.md).
+        if (!HasSufficientData(out var noDataReason))
         {
-            Logger.LogDebug("[Coordinator] Insufficient data for decision");
+            var now = DateTime.UtcNow;
+            if ((now - _lastNoStrategyExplainUtc).TotalSeconds >= NoStrategyExplainIntervalSeconds)
+            {
+                _lastNoStrategyExplainUtc = now;
+                await PublishNoStrategyCycleAsync(noDataReason);
+            }
+
+            Logger.LogDebug("[Coordinator] Insufficient data for decision: {Reason}", noDataReason);
+            return;
+        }
+
+        // If a decision is already running (LLM call in-flight), do NOT start another one.
+        // Instead, periodically emit a "waiting" reason so the log keeps moving and users
+        // don't feel the system is deadlocked.
+        if (Volatile.Read(ref _decisionRunning) == 1)
+        {
+            var now = DateTime.UtcNow;
+            var startedAt = _decisionInFlightStartUtc == DateTime.MinValue ? now : _decisionInFlightStartUtc;
+            var elapsed = now - startedAt;
+
+            if (elapsed.TotalSeconds >= InFlightExplainAfterSeconds &&
+                (now - _lastInFlightExplainUtc).TotalSeconds >= InFlightExplainIntervalSeconds)
+            {
+                _lastInFlightExplainUtc = now;
+                await PublishNoStrategyCycleAsync($"waiting for LLM response (in-flight {elapsed.TotalSeconds:F0}s)");
+            }
+
             return;
         }
 
@@ -255,11 +310,13 @@ public class TradingCoordinatorAgent : AIGAgentBase
 
         try
         {
+            _decisionInFlightStartUtc = DateTime.UtcNow;
             await MakeDecisionAsync();
         }
         finally
         {
             Interlocked.Exchange(ref _decisionRunning, 0);
+            _decisionInFlightStartUtc = DateTime.MinValue;
         }
     }
 
@@ -294,6 +351,147 @@ public class TradingCoordinatorAgent : AIGAgentBase
         return true;
     }
 
+    private bool HasSufficientData(out string reason)
+    {
+        reason = "";
+
+        var hasAnyAnalysis = _coordState.LatestSentiment != null || _coordState.LatestTechnical != null || _coordState.LatestNews != null;
+        if (!hasAnyAnalysis)
+        {
+            reason = "no analysis yet (Sentiment/Technical/News all missing) — likely LLM not configured or analysis not triggered";
+            return false;
+        }
+
+        var symbol =
+            _coordState.LatestTechnical?.Symbol
+            ?? _coordState.LatestSentiment?.Symbol
+            ?? _coordState.LatestNews?.AffectedSymbols.FirstOrDefault()
+            ?? "";
+
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            reason = "no symbol resolved from analysis";
+            return false;
+        }
+
+        if (!_latestTickBySymbol.TryGetValue(symbol, out var tick) || tick.Price <= 0)
+        {
+            reason = $"no market tick snapshot for {symbol} (ticker polling may be failing)";
+            return false;
+        }
+
+        return true;
+    }
+
+    private async Task PublishNoStrategyCycleAsync(string reason)
+    {
+        try
+        {
+            // Best-effort: pick a symbol to show in the log
+            var symbol =
+                _coordState.LatestTechnical?.Symbol
+                ?? _coordState.LatestSentiment?.Symbol
+                ?? _coordState.LatestNews?.AffectedSymbols.FirstOrDefault()
+                ?? _latestTickBySymbol.Keys.FirstOrDefault()
+                ?? "UNKNOWN";
+
+            var cycleId = Guid.NewGuid().ToString("N")[..16];
+            var decisionId = $"NO_STRATEGY_{cycleId}";
+
+            await PublishAsync(new DecisionCycleStartedEvent
+            {
+                CycleId = cycleId,
+                Symbol = symbol,
+                Trigger = $"NO_STRATEGY: {TrimReason(reason)}",
+                CoordinatorId = _coordState.AgentId,
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+            });
+
+            // Publish a synthetic HOLD decision so the audit log can show a concrete reason.
+            await PublishAsync(new TradingDecisionEvent
+            {
+                DecisionId = decisionId,
+                Symbol = symbol,
+                Direction = "HOLD",
+                Confidence = 0,
+                SuggestedPositionPct = 0,
+                SuggestedPrice = _latestTickBySymbol.TryGetValue(symbol, out var t) ? t.Price : 0,
+                SentimentSummary = "",
+                TechnicalSummary = "",
+                NewsSummary = "",
+                Reasoning = TrimReason(reason),
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+            });
+
+            await PublishAsync(new DecisionCycleCompletedEvent
+            {
+                CycleId = cycleId,
+                DecisionId = decisionId,
+                Symbol = symbol,
+                Direction = "HOLD",
+                Confidence = 0,
+                Executed = false,
+                ExecutionMode = _executionMode,
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "[Coordinator] Failed to publish NO_STRATEGY cycle");
+        }
+    }
+
+    private static string TrimReason(string? reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+            return "";
+        var s = reason.Replace("\r", " ").Replace("\n", " ").Trim();
+        if (s.Length > 180)
+            s = s[..180] + "…";
+        return s;
+    }
+
+    private async Task PublishTimeoutCycleAsync(string cycleId, string symbol, double currentPrice, string reason)
+    {
+        try
+        {
+            var decisionId = $"TIMEOUT_{cycleId}";
+            var r = TrimReason(reason);
+
+            // Publish a synthetic HOLD decision so audit has a concrete explanation.
+            await PublishAsync(new TradingDecisionEvent
+            {
+                DecisionId = decisionId,
+                Symbol = symbol,
+                Direction = "HOLD",
+                Confidence = 0,
+                SuggestedPositionPct = 0,
+                SuggestedPrice = currentPrice > 0 ? currentPrice : 0,
+                SentimentSummary = "",
+                TechnicalSummary = "",
+                NewsSummary = "",
+                Reasoning = r,
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+            });
+
+            await PublishAsync(new DecisionCycleCompletedEvent
+            {
+                CycleId = cycleId,
+                DecisionId = decisionId,
+                Symbol = symbol,
+                Direction = "HOLD",
+                Confidence = 0,
+                Executed = false,
+                ExecutionMode = _executionMode,
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "[Coordinator] Failed to publish timeout cycle");
+        }
+    }
+
     private async Task MakeDecisionAsync()
     {
         var symbol =
@@ -325,7 +523,37 @@ public class TradingCoordinatorAgent : AIGAgentBase
                 return chat.Content ?? string.Empty;
             });
 
-            var raw = await engine.GetDecisionJsonAsync(prompt, cycleId);
+            // ============================================================
+            //  LLM reliability guardrails
+            //
+            //  Why:
+            //  - If the provider hangs (network stall / upstream outage), the whole trading loop
+            //    appears "no strategy forever" and the markdown log stops updating.
+            //
+            //  Rule:
+            //  - Always finish the cycle (publish DecisionCycleCompleted) within timeout.
+            // ============================================================
+            var timeout = TimeSpan.FromSeconds(_decisionTimeoutSeconds);
+            using var timeoutCts = new CancellationTokenSource(timeout);
+
+            string raw;
+            try
+            {
+                var task = engine.GetDecisionJsonAsync(prompt, cycleId, timeoutCts.Token);
+                raw = await task.WaitAsync(timeout);
+            }
+            catch (TimeoutException)
+            {
+                timeoutCts.Cancel();
+                await PublishTimeoutCycleAsync(cycleId, symbol, currentPrice, $"llm-timeout>{_decisionTimeoutSeconds}s");
+                return;
+            }
+            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+            {
+                await PublishTimeoutCycleAsync(cycleId, symbol, currentPrice, $"llm-timeout>{_decisionTimeoutSeconds}s");
+                return;
+            }
+
             var decision = ParseDecisionResponse(raw, symbol);
             if (currentPrice > 0)
             {
@@ -339,6 +567,11 @@ public class TradingCoordinatorAgent : AIGAgentBase
 
             // Check confidence threshold
             var forwardedToRisk = decision.Direction != "HOLD" && decision.Confidence >= _minConfidenceToTrade;
+
+            // Publish decision for observability (even if it's HOLD / below threshold).
+            // RiskManager will fast-reject HOLD/low-confidence without calling its own LLM.
+            await PublishAsync(decision);
+
             if (!forwardedToRisk)
             {
                 Logger.LogInformation(
@@ -358,9 +591,6 @@ public class TradingCoordinatorAgent : AIGAgentBase
                 });
                 return;
             }
-
-            // Publish trading decision
-            await PublishAsync(decision);
 
             Logger.LogInformation(
                 "[Coordinator] Decision published: {Direction} {Symbol}, Confidence={Conf}%",
@@ -423,12 +653,17 @@ public class TradingCoordinatorAgent : AIGAgentBase
         if (_coordState.LatestSentiment != null)
         {
             var s = _coordState.LatestSentiment;
+            var fearGreed = double.IsNaN(s.FearGreedIndex) ? "N/A" : s.FearGreedIndex.ToString("F0");
+            var longShort = double.IsNaN(s.LongShortRatio) ? "N/A" : s.LongShortRatio.ToString("F2");
+            var funding = double.IsNaN(s.FundingRate) ? "N/A" : $"{s.FundingRate * 100:F4}%";
+            var openInterest = double.IsNaN(s.OpenInterest) ? "N/A" : s.OpenInterest.ToString("F0");
             sb.AppendLine("【Market Sentiment Analyst Report】");
             sb.AppendLine($"- Sentiment Score: {s.SentimentScore} (-100~+100)");
             sb.AppendLine($"- Sentiment Trend: {s.SentimentTrend}");
-            sb.AppendLine($"- Fear & Greed Index: {s.FearGreedIndex}");
-            sb.AppendLine($"- Long/Short Ratio: {s.LongShortRatio:F2}");
-            sb.AppendLine($"- Funding Rate: {s.FundingRate:F4}%");
+            sb.AppendLine($"- Fear & Greed Index: {fearGreed}");
+            sb.AppendLine($"- Long/Short Ratio: {longShort}");
+            sb.AppendLine($"- Funding Rate: {funding}");
+            sb.AppendLine($"- Open Interest: {openInterest}");
             sb.AppendLine($"- Analysis Summary: {s.AnalysisSummary}");
             sb.AppendLine($"- Confidence: {s.Confidence}%");
             sb.AppendLine();

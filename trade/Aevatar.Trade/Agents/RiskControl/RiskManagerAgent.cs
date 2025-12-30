@@ -82,6 +82,7 @@ public class RiskManagerAgent : AIGAgentBase
     private double _maxDailyLossPct = 5.0;      // Maximum daily loss 5%
     private int _maxConsecutiveLosses = 3;      // Consecutive loss circuit breaker
     private int _cooldownMinutes = 60;          // Circuit breaker cooldown time
+    private int _minConfidenceToTrade = 60;     // Coordinator gating (avoid accidental trading on low-confidence decisions)
 
     // ============ Lifecycle ============
 
@@ -136,7 +137,8 @@ public class RiskManagerAgent : AIGAgentBase
         double maxLossPerTrade = 2.0,
         double maxDailyLossPct = 5.0,
         int maxConsecutiveLosses = 3,
-        int cooldownMinutes = 60)
+        int cooldownMinutes = 60,
+        int minConfidenceToTrade = 60)
     {
         _maxPositionPct = maxPositionPct;
         _maxTotalPositionPct = maxTotalPositionPct;
@@ -144,11 +146,12 @@ public class RiskManagerAgent : AIGAgentBase
         _maxDailyLossPct = maxDailyLossPct;
         _maxConsecutiveLosses = maxConsecutiveLosses;
         _cooldownMinutes = cooldownMinutes;
+        _minConfidenceToTrade = minConfidenceToTrade;
 
         Logger.LogInformation(
             "[RiskManager] Configured: MaxPos={MaxPos}%, MaxTotal={MaxTotal}%, " +
-            "MaxLoss={MaxLoss}%, MaxDaily={MaxDaily}%",
-            maxPositionPct, maxTotalPositionPct, maxLossPerTrade, maxDailyLossPct);
+            "MaxLoss={MaxLoss}%, MaxDaily={MaxDaily}%, MinConf={MinConf}%",
+            maxPositionPct, maxTotalPositionPct, maxLossPerTrade, maxDailyLossPct, minConfidenceToTrade);
     }
 
     /// <summary>
@@ -180,6 +183,27 @@ public class RiskManagerAgent : AIGAgentBase
         Logger.LogInformation(
             "[RiskManager] Evaluating decision: {DecisionId}, {Direction} {Symbol}",
             evt.DecisionId, evt.Direction, evt.Symbol);
+
+        // ------------------------------------------------------------
+        //  "No trade" fast path
+        //
+        //  We intentionally emit a TradeRejectedEvent so TradeAudit can
+        //  render a human-readable reason in trade-audit (*.md).
+        // ------------------------------------------------------------
+        if (string.Equals(evt.Direction, "HOLD", StringComparison.OrdinalIgnoreCase))
+        {
+            await RejectTrade(evt, new List<string> { "No trade: Coordinator decision is HOLD" }, "LOW");
+            return;
+        }
+
+        if (evt.Confidence < _minConfidenceToTrade)
+        {
+            await RejectTrade(
+                evt,
+                new List<string> { $"No trade: confidence {evt.Confidence} < min {_minConfidenceToTrade}" },
+                "LOW");
+            return;
+        }
 
         // First perform hard rule checks
         var hardCheckResult = PerformHardRuleCheck(evt);

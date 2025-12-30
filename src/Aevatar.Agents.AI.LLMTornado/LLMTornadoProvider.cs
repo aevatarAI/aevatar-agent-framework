@@ -40,7 +40,20 @@ public class LLMTornadoProvider : AevatarLLMProviderBase
         try
         {
             var chatRequest = MapToChatRequest(request);
-            var response = await _api.Chat.CreateChatCompletion(chatRequest);
+            // ============================================================
+            // 关键修复：强制让第三方 SDK 的调用尊重 CancellationToken
+            //
+            // 背景：
+            // - Base 层会通过 CancelAfter(policy.CallTimeout) 触发取消来实现超时
+            // - 但 LlmTornado 的 CreateChatCompletion(...) 这里没有传 token，导致取消/超时无效
+            // - 结果：上层 Agent（比如 Trade 的 Coordinator）会“永远等不到返回”，表现为策略日志卡死
+            //
+            // 方案：
+            // - 使用 Task.WaitAsync(cancellationToken) 包一层
+            // - 即使底层请求无法被真正取消，也至少能让上层及时停止等待，避免系统死锁
+            // ============================================================
+            var responseTask = _api.Chat.CreateChatCompletion(chatRequest);
+            var response = await responseTask.WaitAsync(cancellationToken);
             return MapToLLMResponse(response);
         }
         catch (Exception ex)

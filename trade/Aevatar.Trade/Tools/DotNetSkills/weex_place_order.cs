@@ -26,8 +26,17 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 
 var input = await Console.In.ReadToEndAsync();
+
+var jsonOptions = new JsonSerializerOptions
+{
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    // dotnet run --file 默认禁用反射序列化，这里显式开启
+    TypeInfoResolver = new DefaultJsonTypeInfoResolver()
+};
 
 var baseUrl = GetEnv("WEEX_BASE_URL", "https://api-spot.weex.com");
 var apiKey = GetRequiredEnv("WEEX_API_KEY");
@@ -64,7 +73,7 @@ var bodyObj = new Dictionary<string, object?>
     ["clientOrderId"] = string.IsNullOrWhiteSpace(clientOrderId) ? null : clientOrderId
 };
 
-var bodyJson = JsonSerializer.Serialize(bodyObj, new JsonSerializerOptions { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull });
+var bodyJson = JsonSerializer.Serialize(bodyObj, jsonOptions);
 
 var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
 var signature = Sign(apiSecret, timestamp, "POST", path, bodyJson);
@@ -115,7 +124,7 @@ try
         raw
     };
 
-    Console.WriteLine("AEVATAR_TOOL_OUTPUT:" + JsonSerializer.Serialize(result));
+    Console.WriteLine("AEVATAR_TOOL_OUTPUT:" + JsonSerializer.Serialize(result, jsonOptions));
     Environment.ExitCode = result.success ? 0 : 1;
 }
 catch (Exception ex)
@@ -125,7 +134,7 @@ catch (Exception ex)
         success = false,
         error = ex.Message
     };
-    Console.WriteLine("AEVATAR_TOOL_OUTPUT:" + JsonSerializer.Serialize(result));
+    Console.WriteLine("AEVATAR_TOOL_OUTPUT:" + JsonSerializer.Serialize(result, jsonOptions));
     Environment.ExitCode = 1;
 }
 

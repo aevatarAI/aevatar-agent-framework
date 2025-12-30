@@ -25,6 +25,28 @@ public interface IWeexApiClient
         string interval, 
         int limit = 100, 
         CancellationToken ct = default);
+
+    // ============ Market Rates (Contract-only; Spot returns null) ============
+
+    /// <summary>
+    /// Get current funding rate for a contract symbol.
+    /// Contract API: GET /capi/v2/market/currentFundRate
+    ///
+    /// NOTE:
+    /// - Return value is **ratio** (e.g., 0.0001 means 0.01%).
+    /// - Spot mode returns null.
+    /// </summary>
+    Task<decimal?> GetCurrentFundingRateAsync(string symbol, CancellationToken ct = default);
+
+    /// <summary>
+    /// Get open interest for a contract symbol.
+    /// Contract API: GET /capi/v2/market/open_interest
+    ///
+    /// NOTE:
+    /// - Unit is exchange-defined; we pass through the API numeric value.
+    /// - Spot mode returns null.
+    /// </summary>
+    Task<decimal?> GetOpenInterestAsync(string symbol, CancellationToken ct = default);
     
     // ============ Account ============
     

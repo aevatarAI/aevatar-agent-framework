@@ -101,6 +101,7 @@ public class TradingSystem : IAsyncDisposable
         _sentimentActor = await _actorFactory.CreateGAgentActorAsync<MarketSentimentAgent>(Guid.NewGuid().ToString(), ct);
         var sentiment = (MarketSentimentAgent)_sentimentActor.GetAgent();
         sentiment.AllowDangerousTools = false; // safe default
+        sentiment.ApiClient = _apiClient;     // for funding/openInterest (avoid placeholder metrics)
         await sentiment.InitializeAsync(providerName, cancellationToken: ct);
         
         _technicalActor = await _actorFactory.CreateGAgentActorAsync<TechnicalAnalystAgent>(Guid.NewGuid().ToString(), ct);
@@ -118,7 +119,8 @@ public class TradingSystem : IAsyncDisposable
             _analysisConfig.SentimentWeight,
             _analysisConfig.TechnicalWeight,
             _analysisConfig.NewsWeight,
-            _tradingConfig.ExecutionMode);
+            _tradingConfig.ExecutionMode,
+            _decisionEngineConfig.TimeoutSeconds);
         
         if (string.Equals(_decisionEngineConfig.Mode, "CognitiveMesh", StringComparison.OrdinalIgnoreCase))
         {
@@ -143,7 +145,8 @@ public class TradingSystem : IAsyncDisposable
             _tradingConfig.MaxLossPerTrade,
             _tradingConfig.MaxDailyLoss,
             _riskConfig.MaxConsecutiveLosses,
-            _riskConfig.CooldownMinutes);
+            _riskConfig.CooldownMinutes,
+            _tradingConfig.MinConfidenceToTrade);
 
         // 5. Executor
         _executorActor = await _actorFactory.CreateGAgentActorAsync<ExecutorAgent>(Guid.NewGuid().ToString(), ct);
@@ -185,17 +188,44 @@ public class TradingSystem : IAsyncDisposable
         //                      │
         //                      └── Executor (Execution)
 
-        await ActorHierarchyCoordinator.LinkAsync(_dataCollectorActor, _sentimentActor, _logger, ct);
-        await ActorHierarchyCoordinator.LinkAsync(_dataCollectorActor, _technicalActor, _logger, ct);
+        // ============================================================
+        //  Hierarchy design (IMPORTANT)
+        //
+        //  EventRouter semantics:
+        //  - Up: only to parent (NO sibling fan-out)
+        //  - Down: to all children
+        //
+        //  Therefore, analysts must be children of Coordinator so their analysis (Publish Up)
+        //  can reach the Coordinator. DataCollector only needs to publish market data Down.
+        //
+        //  Topology:
+        //    DataCollector
+        //        ↓
+        //    Coordinator
+        //     ├── SentimentAgent
+        //     ├── TechnicalAgent
+        //     └── RiskManager
+        //          └── Executor
+        //               └── TradeAudit
+        //                    └── AiWarsUploader
+        // ============================================================
+
         await ActorHierarchyCoordinator.LinkAsync(_dataCollectorActor, _coordinatorActor, _logger, ct);
+        await ActorHierarchyCoordinator.LinkAsync(_coordinatorActor, _sentimentActor, _logger, ct);
+        await ActorHierarchyCoordinator.LinkAsync(_coordinatorActor, _technicalActor, _logger, ct);
         await ActorHierarchyCoordinator.LinkAsync(_coordinatorActor, _riskManagerActor, _logger, ct);
         await ActorHierarchyCoordinator.LinkAsync(_riskManagerActor, _executorActor, _logger, ct);
         
-        // Attach audit agent to key nodes (decision/risk/execution) for event capture
+        // Attach audit agent for event capture.
+        //
+        // NOTE:
+        // - Each actor can only have ONE parent (EventRouter has a single ParentId).
+        // - To capture Coordinator/Risk/Executor events consistently, link Audit as a child of Executor:
+        //   Coordinator Down -> RiskManager -> Executor -> Audit
+        //   RiskManager Down -> Executor -> Audit
+        //   Executor Down -> Audit
         if (_auditActor != null)
         {
-            await ActorHierarchyCoordinator.LinkAsync(_coordinatorActor, _auditActor, _logger, ct);
-            await ActorHierarchyCoordinator.LinkAsync(_riskManagerActor, _auditActor, _logger, ct);
             await ActorHierarchyCoordinator.LinkAsync(_executorActor, _auditActor, _logger, ct);
         }
         

@@ -68,8 +68,13 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
     //  - 目标：让比赛 Demo “一眼看懂 AI 在想什么、为什么下单、结果如何”
     //  - 策略：按 DecisionCycleCompletedEvent 触发一次汇总落盘（append-only）
     // ---------------------------------------------------------------------
+    private const int DefaultMaxMarkdownBytes = 1_000_000; // 1MB per segment (human-friendly)
+    private int _maxMarkdownBytes = DefaultMaxMarkdownBytes;
+    private int _nextMarkdownPartIndex = 1; // Next archive part number (part0001, part0002, ...)
+
+    // Active markdown file is always stable: trade_audit_<runId>.md
+    // When it grows too large, we archive it to trade_audit_<runId>_partNNNN.md and start a fresh active file.
     private string _markdownFile = "";
-    private bool _markdownHeaderWritten;
 
     private readonly Dictionary<string, DecisionCycleStartedEvent> _cycleStarted = new();
     private readonly Dictionary<string, DecisionCycleCompletedEvent> _cycleCompleted = new();
@@ -112,8 +117,7 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
 
         Directory.CreateDirectory(State.OutputDir);
 
-        _markdownFile = $"trade_audit_{State.AuditRunId}.md";
-        _markdownHeaderWritten = false;
+        InitializeMarkdownRotationState();
 
         Logger.LogInformation(
             "[TradeAudit] Activated: AgentId={AgentId}, Run={RunId}, Output={OutputDir}/{File}",
@@ -136,6 +140,7 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
         _includeMarketData = config.IncludeMarketData;
         _requestAiWarsUpload = config.RequestAiwarsUpload;
         _aiModel = string.IsNullOrWhiteSpace(aiModel) ? "unknown" : aiModel.Trim();
+        _maxMarkdownBytes = ResolveMaxMarkdownBytes(config);
 
         if (!string.IsNullOrWhiteSpace(config.OutputDir))
         {
@@ -149,9 +154,8 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
         State.CurrentFile = $"trade_audit_{State.AuditRunId}.jsonl";
         Directory.CreateDirectory(State.OutputDir);
 
-        // Keep markdown file aligned with current run id / output dir.
-        _markdownFile = $"trade_audit_{State.AuditRunId}.md";
-        _markdownHeaderWritten = false;
+        // Keep markdown rotation aligned with current run id / output dir.
+        InitializeMarkdownRotationState();
 
         Logger.LogInformation(
             "[TradeAudit] Configured: IncludeMarketData={Market}, RequestAiWarsUpload={Upload}, Output={OutputDir}/{File}",
@@ -372,9 +376,9 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
     //  设计原则：
     //  - 不上传整份 JSONL（太大、重复、且不符合 uploadAiLog 参数模型）
     //  - 生成 “每个决策/结果” 的小 payload（stage/model/input/output/explanation）
-    //  - 触发时机：
-    //    - DecisionCycleCompleted 且 executed=false（无交易）→ 立即上传（Decision stage）
-    //    - 有交易：等到 TradeRejected / OrderExecuted / OrderSimulated / OrderFailed 这种“终态”事件再上传
+    //  - 触发时机（更新后，更贴合比赛/成本/可读性）：
+    //    - ✅ 仅在“真实发生交易尝试”后上传：OrderExecuted / OrderSimulated / OrderFailed
+    //    - ❌ 不上传“无交易/无决策”的日志（例如 HOLD / NO_STRATEGY / 风控拒绝），这些只在本地 trade-audit 里记录
     // =====================================================================
 
     private async Task MaybeRequestAiWarsUploadAsync(EventEnvelope envelope)
@@ -382,36 +386,7 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
         if (envelope.Payload == null)
             return;
 
-        // 1) 无交易：DecisionCycleCompleted.executed=false
-        try
-        {
-            var completed = envelope.Payload.Unpack<DecisionCycleCompletedEvent>();
-            if (!completed.Executed)
-            {
-                var decisionId = completed.DecisionId ?? string.Empty;
-                await RequestAiWarsUploadAsync(
-                    cycleId: completed.CycleId,
-                    decisionId: decisionId,
-                    stage: "Decision (No Trade)",
-                    orderId: null);
-            }
-            return;
-        }
-        catch { /* ignore */ }
-
-        // 2) 有交易：等“终态”事件
-        try
-        {
-            var rejected = envelope.Payload.Unpack<TradeRejectedEvent>();
-            await RequestAiWarsUploadAsync(
-                cycleId: _cycleIdByDecisionId.TryGetValue(rejected.DecisionId, out var cid) ? cid : string.Empty,
-                decisionId: rejected.DecisionId,
-                stage: "Risk Control",
-                orderId: null);
-            return;
-        }
-        catch { /* ignore */ }
-
+        // Only upload when an order was attempted / produced an execution outcome.
         try
         {
             var executed = envelope.Payload.Unpack<OrderExecutedEvent>();
@@ -660,33 +635,138 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
 
     private async Task EnsureMarkdownInitializedAsync()
     {
-        if (_markdownHeaderWritten)
-            return;
-
         try
         {
             if (string.IsNullOrWhiteSpace(State.OutputDir))
                 State.OutputDir = "trade-audit";
             if (string.IsNullOrWhiteSpace(_markdownFile))
-                _markdownFile = $"trade_audit_{State.AuditRunId}.md";
+                _markdownFile = BuildMarkdownActiveFileName();
 
             Directory.CreateDirectory(State.OutputDir);
 
             var mdPath = Path.Combine(State.OutputDir, _markdownFile);
             if (File.Exists(mdPath))
             {
-                _markdownHeaderWritten = true;
                 return;
             }
 
             var header = BuildMarkdownHeader();
             await File.WriteAllTextAsync(mdPath, header, Encoding.UTF8);
-            _markdownHeaderWritten = true;
         }
         catch (Exception ex)
         {
             Logger.LogWarning(ex, "[TradeAudit] Failed to initialize markdown log file");
         }
+    }
+
+    private void InitializeMarkdownRotationState()
+    {
+        // Active file is stable; parts are archived with _partNNNN suffix.
+        _markdownFile = BuildMarkdownActiveFileName();
+
+        // Best-effort: detect next part index from existing files, so restart continues cleanly.
+        _nextMarkdownPartIndex = DetectNextMarkdownPartIndex();
+    }
+
+    private string BuildMarkdownActiveFileName()
+        => $"trade_audit_{State.AuditRunId}.md";
+
+    private string BuildMarkdownPartFileName(int partIndex)
+        => $"trade_audit_{State.AuditRunId}_part{partIndex:0000}.md";
+
+    private int DetectNextMarkdownPartIndex()
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(State.OutputDir))
+                return 1;
+            if (!Directory.Exists(State.OutputDir))
+                return 1;
+            if (string.IsNullOrWhiteSpace(State.AuditRunId))
+                return 1;
+
+            // trade_audit_<runId>_partNNNN.md
+            var prefix = $"trade_audit_{State.AuditRunId}_part";
+            var max = 0;
+            foreach (var path in Directory.EnumerateFiles(State.OutputDir, $"trade_audit_{State.AuditRunId}_part*.md",
+                         SearchOption.TopDirectoryOnly))
+            {
+                var name = Path.GetFileNameWithoutExtension(path);
+                if (!name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var numStr = name[prefix.Length..];
+                if (numStr.Length == 0)
+                    continue;
+
+                if (int.TryParse(numStr, out var n) && n > max)
+                    max = n;
+            }
+
+            return max + 1;
+        }
+        catch
+        {
+            return 1;
+        }
+    }
+
+    private static int ResolveMaxMarkdownBytes(TradeAuditConfig config)
+    {
+        // Protobuf default is 0; interpret as "use code default".
+        // Allow <0 to disable rotation explicitly.
+        if (config.MaxMarkdownBytes < 0)
+            return 0;
+        if (config.MaxMarkdownBytes > 0)
+            return config.MaxMarkdownBytes;
+        return DefaultMaxMarkdownBytes;
+    }
+
+    private async Task<string> GetMarkdownPathForAppendAsync(string upcomingBlock)
+    {
+        // Ensure active file exists (header).
+        await EnsureMarkdownInitializedAsync();
+
+        if (_maxMarkdownBytes <= 0)
+            return Path.Combine(State.OutputDir, _markdownFile);
+
+        try
+        {
+            var activePath = Path.Combine(State.OutputDir, _markdownFile);
+            var fi = new FileInfo(activePath);
+            if (!fi.Exists)
+                return activePath;
+
+            var upcomingBytes = Encoding.UTF8.GetByteCount(upcomingBlock);
+            if (fi.Length + upcomingBytes <= _maxMarkdownBytes)
+                return activePath;
+
+            // Rotate: trade_audit_<runId>.md -> trade_audit_<runId>_partNNNN.md
+            while (true)
+            {
+                var partName = BuildMarkdownPartFileName(_nextMarkdownPartIndex);
+                var partPath = Path.Combine(State.OutputDir, partName);
+                if (File.Exists(partPath))
+                {
+                    _nextMarkdownPartIndex++;
+                    continue;
+                }
+
+                File.Move(activePath, partPath);
+                _nextMarkdownPartIndex++;
+                break;
+            }
+
+            // Create fresh active file with header.
+            await EnsureMarkdownInitializedAsync();
+        }
+        catch (Exception ex)
+        {
+            // Never fail the trading loop because audit rotation failed.
+            Logger.LogWarning(ex, "[TradeAudit] Markdown rotation failed; continuing without rotation");
+        }
+
+        return Path.Combine(State.OutputDir, _markdownFile);
     }
 
     private async Task TryAppendAiWarsUploadMarkdownAsync(EventEnvelope envelope)
@@ -739,9 +819,6 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
     {
         try
         {
-            await EnsureMarkdownInitializedAsync();
-
-            var mdPath = Path.Combine(State.OutputDir, _markdownFile);
             var now = DateTime.UtcNow;
             var block = $"""
 
@@ -754,6 +831,7 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
 - Detail: {detail}
 
 """;
+            var mdPath = await GetMarkdownPathForAppendAsync(block);
             await File.AppendAllTextAsync(mdPath, block, Encoding.UTF8);
         }
         catch (Exception ex)
@@ -773,10 +851,6 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
             var exec = envelope.Payload.Unpack<OrderExecutedEvent>();
             if (!IsStartupGuard(exec.ClientOrderId, exec.DecisionId))
                 return;
-
-            await EnsureMarkdownInitializedAsync();
-
-            var mdPath = Path.Combine(State.OutputDir, _markdownFile);
             var now = DateTime.UtcNow;
 
             var block = $"""
@@ -793,6 +867,7 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
 - Status: `{exec.Status}`
 
 """;
+            var mdPath = await GetMarkdownPathForAppendAsync(block);
             await File.AppendAllTextAsync(mdPath, block, Encoding.UTF8);
             return;
         }
@@ -804,10 +879,6 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
             var fail = envelope.Payload.Unpack<OrderFailedEvent>();
             if (!IsStartupGuard(fail.ClientOrderId, fail.DecisionId))
                 return;
-
-            await EnsureMarkdownInitializedAsync();
-
-            var mdPath = Path.Combine(State.OutputDir, _markdownFile);
             var now = DateTime.UtcNow;
 
             var block = $"""
@@ -822,6 +893,7 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
 - Message: {SanitizeOneLine(fail.ErrorMessage)}
 
 """;
+            var mdPath = await GetMarkdownPathForAppendAsync(block);
             await File.AppendAllTextAsync(mdPath, block, Encoding.UTF8);
         }
         catch { /* ignore */ }
@@ -870,10 +942,8 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
     {
         try
         {
-            var mdPath = Path.Combine(State.OutputDir, _markdownFile);
-            await EnsureMarkdownInitializedAsync();
-
             var block = BuildCycleMarkdown(completed);
+            var mdPath = await GetMarkdownPathForAppendAsync(block);
             await File.AppendAllTextAsync(mdPath, block, Encoding.UTF8);
         }
         catch (Exception ex)
@@ -886,12 +956,14 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
     {
         var now = DateTime.UtcNow;
         var jsonl = Path.Combine(State.OutputDir, State.CurrentFile).Replace("\\", "/");
+        var partsHint = $"trade_audit_{State.AuditRunId}_part*.md";
         return $"""
 # Trade Strategy Log (Human Readable)
 
 - Run: `{State.AuditRunId}`
 - GeneratedAt(UTC): `{now:O}`
 - JSONL Artifact: `{jsonl}`
+- ArchiveParts: `{partsHint}` (auto-rotated when too large)
 
 > 说明：每个 Decision Cycle 会追加一段摘要（AI 分析 → 决策 → 风控 → 执行结果），用于比赛 Demo/复盘。
 

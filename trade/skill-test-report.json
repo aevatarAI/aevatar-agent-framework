@@ -1,0 +1,262 @@
+{
+  "apiBase": "https://localhost:7100",
+  "symbol": "cmt_btcusdt",
+  "tested": 24,
+  "passed": 24,
+  "failed": 0,
+  "skipped": 14,
+  "results": [
+    {
+      "tool": "weex_ai_account_adjust_margin",
+      "status": "SKIP",
+      "reason": "dangerous/requiresConfirmation (use --confirm-dangerous to execute)",
+      "file": "Tools/DotNetSkills/ai-wars/account/config/weex_ai_account_adjust_margin.cs"
+    },
+    {
+      "tool": "weex_ai_account_assets",
+      "status": "PASS",
+      "detail": "ok",
+      "file": "Tools/DotNetSkills/ai-wars/account/assets/weex_ai_account_assets.cs",
+      "url": "https://localhost:7100/api/ai-wars/weex_ai_account_assets?confirm=false"
+    },
+    {
+      "tool": "weex_ai_account_bills",
+      "status": "PASS",
+      "detail": "ok",
+      "file": "Tools/DotNetSkills/ai-wars/account/assets/weex_ai_account_bills.cs",
+      "url": "https://localhost:7100/api/ai-wars/weex_ai_account_bills?confirm=false"
+    },
+    {
+      "tool": "weex_ai_account_get_account",
+      "status": "PASS",
+      "detail": "ok",
+      "file": "Tools/DotNetSkills/ai-wars/account/assets/weex_ai_account_get_account.cs",
+      "url": "https://localhost:7100/api/ai-wars/weex_ai_account_get_account?confirm=false"
+    },
+    {
+      "tool": "weex_ai_account_get_accounts",
+      "status": "PASS",
+      "detail": "ok",
+      "file": "Tools/DotNetSkills/ai-wars/account/assets/weex_ai_account_get_accounts.cs",
+      "url": "https://localhost:7100/api/ai-wars/weex_ai_account_get_accounts?confirm=false"
+    },
+    {
+      "tool": "weex_ai_account_leverage",
+      "status": "SKIP",
+      "reason": "dangerous/requiresConfirmation (use --confirm-dangerous to execute)",
+      "file": "Tools/DotNetSkills/ai-wars/account/config/weex_ai_account_leverage.cs"
+    },
+    {
+      "tool": "weex_ai_account_modify_auto_append_margin",
+      "status": "SKIP",
+      "reason": "dangerous/requiresConfirmation (use --confirm-dangerous to execute)",
+      "file": "Tools/DotNetSkills/ai-wars/account/config/weex_ai_account_modify_auto_append_margin.cs"
+    },
+    {
+      "tool": "weex_ai_account_position_all_position",
+      "status": "PASS",
+      "detail": "ok",
+      "file": "Tools/DotNetSkills/ai-wars/account/positions/weex_ai_account_position_all_position.cs",
+      "url": "https://localhost:7100/api/ai-wars/weex_ai_account_position_all_position?confirm=false"
+    },
+    {
+      "tool": "weex_ai_account_position_change_hold_model",
+      "status": "SKIP",
+      "reason": "dangerous/requiresConfirmation (use --confirm-dangerous to execute)",
+      "file": "Tools/DotNetSkills/ai-wars/account/config/weex_ai_account_position_change_hold_model.cs"
+    },
+    {
+      "tool": "weex_ai_account_position_single_position",
+      "status": "PASS",
+      "detail": "ok",
+      "file": "Tools/DotNetSkills/ai-wars/account/positions/weex_ai_account_position_single_position.cs",
+      "url": "https://localhost:7100/api/ai-wars/weex_ai_account_position_single_position?confirm=false"
+    },
+    {
+      "tool": "weex_ai_account_settings",
+      "status": "PASS",
+      "detail": "ok",
+      "file": "Tools/DotNetSkills/ai-wars/account/config/weex_ai_account_settings.cs",
+      "url": "https://localhost:7100/api/ai-wars/weex_ai_account_settings?confirm=false"
+    },
+    {
+      "tool": "weex_ai_market_candles",
+      "status": "PASS",
+      "detail": "ok",
+      "file": "Tools/DotNetSkills/ai-wars/market/rates/weex_ai_market_candles.cs",
+      "url": "https://localhost:7100/api/ai-wars/weex_ai_market_candles?confirm=false"
+    },
+    {
+      "tool": "weex_ai_market_contracts",
+      "status": "PASS",
+      "detail": "ok",
+      "file": "Tools/DotNetSkills/ai-wars/market/core/weex_ai_market_contracts.cs",
+      "url": "https://localhost:7100/api/ai-wars/weex_ai_market_contracts?confirm=false"
+    },
+    {
+      "tool": "weex_ai_market_current_fund_rate",
+      "status": "PASS",
+      "detail": "ok",
+      "file": "Tools/DotNetSkills/ai-wars/market/rates/weex_ai_market_current_fund_rate.cs",
+      "url": "https://localhost:7100/api/ai-wars/weex_ai_market_current_fund_rate?confirm=false"
+    },
+    {
+      "tool": "weex_ai_market_depth",
+      "status": "PASS",
+      "detail": "ok",
+      "file": "Tools/DotNetSkills/ai-wars/market/core/weex_ai_market_depth.cs",
+      "url": "https://localhost:7100/api/ai-wars/weex_ai_market_depth?confirm=false"
+    },
+    {
+      "tool": "weex_ai_market_funding_time",
+      "status": "PASS",
+      "detail": "ok",
+      "file": "Tools/DotNetSkills/ai-wars/market/rates/weex_ai_market_funding_time.cs",
+      "url": "https://localhost:7100/api/ai-wars/weex_ai_market_funding_time?confirm=false"
+    },
+    {
+      "tool": "weex_ai_market_get_history_fund_rate",
+      "status": "PASS",
+      "detail": "ok",
+      "file": "Tools/DotNetSkills/ai-wars/market/rates/weex_ai_market_get_history_fund_rate.cs",
+      "url": "https://localhost:7100/api/ai-wars/weex_ai_market_get_history_fund_rate?confirm=false"
+    },
+    {
+      "tool": "weex_ai_market_index",
+      "status": "PASS",
+      "detail": "ok",
+      "file": "Tools/DotNetSkills/ai-wars/market/rates/weex_ai_market_index.cs",
+      "url": "https://localhost:7100/api/ai-wars/weex_ai_market_index?confirm=false"
+    },
+    {
+      "tool": "weex_ai_market_open_interest",
+      "status": "PASS",
+      "detail": "ok",
+      "file": "Tools/DotNetSkills/ai-wars/market/rates/weex_ai_market_open_interest.cs",
+      "url": "https://localhost:7100/api/ai-wars/weex_ai_market_open_interest?confirm=false"
+    },
+    {
+      "tool": "weex_ai_market_ticker",
+      "status": "PASS",
+      "detail": "ok",
+      "file": "Tools/DotNetSkills/ai-wars/market/core/weex_ai_market_ticker.cs",
+      "url": "https://localhost:7100/api/ai-wars/weex_ai_market_ticker?confirm=false"
+    },
+    {
+      "tool": "weex_ai_market_tickers",
+      "status": "PASS",
+      "detail": "ok",
+      "file": "Tools/DotNetSkills/ai-wars/market/core/weex_ai_market_tickers.cs",
+      "url": "https://localhost:7100/api/ai-wars/weex_ai_market_tickers?confirm=false"
+    },
+    {
+      "tool": "weex_ai_market_time",
+      "status": "PASS",
+      "detail": "ok",
+      "file": "Tools/DotNetSkills/ai-wars/market/core/weex_ai_market_time.cs",
+      "url": "https://localhost:7100/api/ai-wars/weex_ai_market_time?confirm=false"
+    },
+    {
+      "tool": "weex_ai_market_trades",
+      "status": "PASS",
+      "detail": "ok",
+      "file": "Tools/DotNetSkills/ai-wars/market/core/weex_ai_market_trades.cs",
+      "url": "https://localhost:7100/api/ai-wars/weex_ai_market_trades?confirm=false"
+    },
+    {
+      "tool": "weex_ai_order_cancel_all_orders",
+      "status": "SKIP",
+      "reason": "dangerous/requiresConfirmation (use --confirm-dangerous to execute)",
+      "file": "Tools/DotNetSkills/ai-wars/trade/risk-actions/weex_ai_order_cancel_all_orders.cs"
+    },
+    {
+      "tool": "weex_ai_order_cancel_order",
+      "status": "SKIP",
+      "reason": "dangerous/requiresConfirmation (use --confirm-dangerous to execute)",
+      "file": "Tools/DotNetSkills/ai-wars/trade/orders/weex_ai_order_cancel_order.cs"
+    },
+    {
+      "tool": "weex_ai_order_cancel_plan",
+      "status": "SKIP",
+      "reason": "dangerous/requiresConfirmation (use --confirm-dangerous to execute)",
+      "file": "Tools/DotNetSkills/ai-wars/trade/pending-orders/weex_ai_order_cancel_plan.cs"
+    },
+    {
+      "tool": "weex_ai_order_close_positions",
+      "status": "SKIP",
+      "reason": "dangerous/requiresConfirmation (use --confirm-dangerous to execute)",
+      "file": "Tools/DotNetSkills/ai-wars/trade/risk-actions/weex_ai_order_close_positions.cs"
+    },
+    {
+      "tool": "weex_ai_order_current",
+      "status": "PASS",
+      "detail": "ok",
+      "file": "Tools/DotNetSkills/ai-wars/trade/orders/weex_ai_order_current.cs",
+      "url": "https://localhost:7100/api/ai-wars/weex_ai_order_current?confirm=false"
+    },
+    {
+      "tool": "weex_ai_order_current_plan",
+      "status": "PASS",
+      "detail": "ok",
+      "file": "Tools/DotNetSkills/ai-wars/trade/pending-orders/weex_ai_order_current_plan.cs",
+      "url": "https://localhost:7100/api/ai-wars/weex_ai_order_current_plan?confirm=false"
+    },
+    {
+      "tool": "weex_ai_order_detail",
+      "status": "SKIP",
+      "reason": "missing default for required param: orderId",
+      "file": "Tools/DotNetSkills/ai-wars/trade/orders/weex_ai_order_detail.cs"
+    },
+    {
+      "tool": "weex_ai_order_fills",
+      "status": "PASS",
+      "detail": "ok",
+      "file": "Tools/DotNetSkills/ai-wars/trade/orders/weex_ai_order_fills.cs",
+      "url": "https://localhost:7100/api/ai-wars/weex_ai_order_fills?confirm=false"
+    },
+    {
+      "tool": "weex_ai_order_history",
+      "status": "PASS",
+      "detail": "ok",
+      "file": "Tools/DotNetSkills/ai-wars/trade/orders/weex_ai_order_history.cs",
+      "url": "https://localhost:7100/api/ai-wars/weex_ai_order_history?confirm=false"
+    },
+    {
+      "tool": "weex_ai_order_history_plan",
+      "status": "PASS",
+      "detail": "ok",
+      "file": "Tools/DotNetSkills/ai-wars/trade/pending-orders/weex_ai_order_history_plan.cs",
+      "url": "https://localhost:7100/api/ai-wars/weex_ai_order_history_plan?confirm=false"
+    },
+    {
+      "tool": "weex_ai_order_modify_tp_sl_order",
+      "status": "SKIP",
+      "reason": "dangerous/requiresConfirmation (use --confirm-dangerous to execute)",
+      "file": "Tools/DotNetSkills/ai-wars/trade/risk-actions/weex_ai_order_modify_tp_sl_order.cs"
+    },
+    {
+      "tool": "weex_ai_order_place_order",
+      "status": "SKIP",
+      "reason": "dangerous/requiresConfirmation (use --confirm-dangerous to execute)",
+      "file": "Tools/DotNetSkills/ai-wars/trade/orders/weex_ai_order_place_order.cs"
+    },
+    {
+      "tool": "weex_ai_order_place_tp_sl_order",
+      "status": "SKIP",
+      "reason": "dangerous/requiresConfirmation (use --confirm-dangerous to execute)",
+      "file": "Tools/DotNetSkills/ai-wars/trade/risk-actions/weex_ai_order_place_tp_sl_order.cs"
+    },
+    {
+      "tool": "weex_ai_order_plan_order",
+      "status": "SKIP",
+      "reason": "dangerous/requiresConfirmation (use --confirm-dangerous to execute)",
+      "file": "Tools/DotNetSkills/ai-wars/trade/pending-orders/weex_ai_order_plan_order.cs"
+    },
+    {
+      "tool": "weex_ai_order_upload_ai_log",
+      "status": "SKIP",
+      "reason": "missing default for required param: stage",
+      "file": "Tools/DotNetSkills/ai-wars/upload/weex_ai_order_upload_ai_log.cs"
+    }
+  ]
+}

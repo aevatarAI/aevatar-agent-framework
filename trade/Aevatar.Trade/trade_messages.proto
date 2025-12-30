@@ -461,6 +461,7 @@ message TradeAuditConfig {
     string output_dir = 2;                  // Output directory for JSONL
     bool include_market_data = 3;           // Whether to log high-frequency market data
     bool request_aiwars_upload = 4;         // Whether to emit AiWarsLogUploadRequestedEvent
+    int32 max_markdown_bytes = 5;           // Rotate markdown when file exceeds this size. 0=use default, <0=disable
 }
 
 // WEEX AI Wars log upload configuration (skeleton)

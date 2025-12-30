@@ -73,6 +73,22 @@ internal sealed class WeexSpotApiClient : WeexApiClientBase, IWeexApiClient
     }
 
     // =========================
+    //  Market Rates (Contract-only)
+    // =========================
+
+    public Task<decimal?> GetCurrentFundingRateAsync(string symbol, CancellationToken ct = default)
+    {
+        Logger.LogDebug("[WeexSpot] GetCurrentFundingRateAsync is contract-only. Return null. Symbol={Symbol}", symbol);
+        return Task.FromResult<decimal?>(null);
+    }
+
+    public Task<decimal?> GetOpenInterestAsync(string symbol, CancellationToken ct = default)
+    {
+        Logger.LogDebug("[WeexSpot] GetOpenInterestAsync is contract-only. Return null. Symbol={Symbol}", symbol);
+        return Task.FromResult<decimal?>(null);
+    }
+
+    // =========================
     //  Account
     // =========================
 

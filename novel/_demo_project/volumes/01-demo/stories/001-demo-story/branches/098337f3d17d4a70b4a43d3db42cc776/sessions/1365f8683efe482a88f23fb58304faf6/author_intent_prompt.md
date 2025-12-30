@@ -6,6 +6,6 @@ Recent changes (session):
 
 Latest narrative tests:
 - status: Passed
-- report: file:///Users/zhaoyiqi/Code/aevatar-agent-framework/novel/_demo_project/volumes/01-demo/stories/001-demo-story/branches/098337f3d17d4a70b4a43d3db42cc776/artifacts/tests/80330b77d3924fa095ec67a9f2fcb69d_test_report.md
+- report: file:///Users/zhaoyiqi/Code/aevatar-agent-framework/novel/_demo_project/volumes/01-demo/stories/001-demo-story/branches/098337f3d17d4a70b4a43d3db42cc776/artifacts/tests/87492ada77a144e5bb32762cd21b704c_test_report.md
 
 When generating future chapters or updating outline, ensure all narrative tests pass or propose a concrete fix roadmap.

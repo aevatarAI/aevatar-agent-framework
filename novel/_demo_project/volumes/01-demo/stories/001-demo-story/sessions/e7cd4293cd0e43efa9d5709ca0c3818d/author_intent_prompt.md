@@ -5,7 +5,7 @@ Recent changes (session):
 - volumes/01-demo/stories/001-demo-story/chapters/001-ch1.txt
 
 Latest narrative tests:
-- status: Failed
-- report: file:///Users/zhaoyiqi/Code/aevatar-agent-framework/novel/_demo_project/volumes/01-demo/stories/001-demo-story/artifacts/tests/b1786e16a97b486e9a81e1c9b5643f4d_test_report.md
+- status: Passed
+- report: file:///Users/zhaoyiqi/Code/aevatar-agent-framework/novel/_demo_project/volumes/01-demo/stories/001-demo-story/artifacts/tests/0472e3d98a70402a9186ad60bb159dc5_test_report.md
 
 When generating future chapters or updating outline, ensure all narrative tests pass or propose a concrete fix roadmap.

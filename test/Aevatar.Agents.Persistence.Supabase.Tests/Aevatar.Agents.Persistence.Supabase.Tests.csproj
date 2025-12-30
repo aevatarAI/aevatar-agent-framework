@@ -35,6 +35,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.Supabase\Aevatar.Agents.Persistence.Supabase.csproj" />
     <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.Supabase.GAgent\Aevatar.Agents.Persistence.Supabase.GAgent.csproj" />
+    <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.Supabase.Memory\Aevatar.Agents.Persistence.Supabase.Memory.csproj" />
   </ItemGroup>
 
 </Project>

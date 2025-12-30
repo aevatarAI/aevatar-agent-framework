@@ -33,6 +33,24 @@ Edit `examples/MemoryDemo/appsettings.secrets.json`:
 
 ---
 
+### Persistence Switching (Config-driven)
+
+MemoryDemo can switch persistence implementations **purely by config** (no code changes).
+
+- Edit `examples/MemoryDemo/appsettings.json`:
+  - `Aevatar:Persistence:MemoryStore`: `file | mongodb | supabase`
+  - `Aevatar:Persistence:MemoryVectorIndex`: `file | mongodb | supabase`
+  - `Aevatar:Persistence:MemoryGraph`: `file | neo4j`
+
+- Edit `examples/MemoryDemo/appsettings.secrets.json` (recommended) to provide connection strings / credentials when you select DB providers:
+  - `ConnectionStrings:MongoDB`
+  - `ConnectionStrings:SupabasePostgres`
+  - `Aevatar:Persistence:Neo4j:Password`
+
+For a step-by-step checklist to validate each backend, see: `examples/MemoryDemo/VALIDATION.md`.
+
+---
+
 ### How to Trigger Memory Effects in Demo (Including CQRS Projection)
 
 1. Chat multiple rounds consecutively (more than 8 messages) → triggers compaction:

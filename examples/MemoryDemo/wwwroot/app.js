@@ -52,6 +52,7 @@ async function refreshInfo() {
         agentId: info.agentId,
         defaultMemoryId: `privateagent::${info.agentId}`,
         ...info.paths,
+        persistence: info.persistence,
         settings: info.settings,
       });
 
@@ -145,8 +146,12 @@ async function loadMemoryEntries() {
 async function memoryStats() {
   const memoryId = el("memEntriesId").value.trim();
   if (!memoryId) return;
-  const data = await fetchJson(`/api/memory/stats?memoryId=${encodeURIComponent(memoryId)}`);
-  el("memBox").textContent = pretty(data);
+  try {
+    const data = await fetchJson(`/api/memory/stats?memoryId=${encodeURIComponent(memoryId)}`);
+    el("memBox").textContent = pretty(data);
+  } catch (e) {
+    el("memBox").textContent = `error: ${e.message}`;
+  }
 }
 
 async function vectorSearch() {
@@ -164,8 +169,12 @@ async function vectorSearch() {
 async function vectorStats() {
   const memoryId = el("vectorMemoryId").value.trim();
   if (!memoryId) return;
-  const data = await fetchJson(`/api/vector/stats?memoryId=${encodeURIComponent(memoryId)}`);
-  el("vectorBox").textContent = pretty(data);
+  try {
+    const data = await fetchJson(`/api/vector/stats?memoryId=${encodeURIComponent(memoryId)}`);
+    el("vectorBox").textContent = pretty(data);
+  } catch (e) {
+    el("vectorBox").textContent = `error: ${e.message}`;
+  }
 }
 
 async function seedTrace() {

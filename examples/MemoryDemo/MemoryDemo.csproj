@@ -20,6 +20,8 @@
     <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.Supabase\Aevatar.Agents.Persistence.Supabase.csproj" />
     <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.Supabase.GAgent\Aevatar.Agents.Persistence.Supabase.GAgent.csproj" />
     <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.Supabase.Memory\Aevatar.Agents.Persistence.Supabase.Memory.csproj" />
+    <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.Neo4j\Aevatar.Agents.Persistence.Neo4j.csproj" />
+    <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.Neo4j.MemoryGraph\Aevatar.Agents.Persistence.Neo4j.MemoryGraph.csproj" />
   </ItemGroup>
 
   <ItemGroup>

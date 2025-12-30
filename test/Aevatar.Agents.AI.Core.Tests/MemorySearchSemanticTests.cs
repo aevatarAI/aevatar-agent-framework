@@ -185,6 +185,95 @@ public class MemorySearchSemanticTests
     }
 
     [Fact]
+    public async Task SearchMemory_ShouldPassExplicitMemoryId_ToVectorIndex()
+    {
+        var vectorIndex = new FakeMemoryVectorIndex();
+        var tool = new AevatarMemorySearchTool(
+            NullLogger<AevatarMemorySearchTool>.Instance,
+            stateQueryService: null,
+            memoryStore: null,
+            memoryVectorIndex: vectorIndex);
+
+        var ctx = new ToolContext
+        {
+            AgentId = "agent-1",
+            AgentType = "test-agent",
+            GetStateCallback = () => new AevatarAIAgentState(),
+            GenerateEmbeddingsAsync = DeterministicEmbeddingsAsync
+        };
+
+        var result = await tool.ExecuteAsync(
+            new Dictionary<string, object>
+            {
+                ["query"] = "feline",
+                ["maxResults"] = 1,
+                ["memoryType"] = "working",
+                ["memoryId"] = "  session::s1  "
+            },
+            ctx,
+            NullLogger.Instance,
+            CancellationToken.None);
+
+        var json = JsonFormatter.Default.Format(result);
+        using var doc = JsonDocument.Parse(json);
+
+        var results = doc.RootElement.GetProperty("results");
+        results.GetArrayLength().ShouldBe(1);
+        vectorIndex.LastMemoryId.ShouldBe("session::s1");
+    }
+
+    [Fact]
+    public async Task SearchMemory_ShouldFallbackToMemoryStoreLexical_WhenVectorIndexReturnsEmpty()
+    {
+        var store = new InMemoryMemoryStore();
+        await store.AppendAsync(new MemoryEntry
+        {
+            EntryId = "e1",
+            MemoryId = "privateagent::agent-1",
+            Scope = new MemoryScope { Type = MemoryScopeType.PrivateAgent, ScopeId = "agent-1" },
+            Role = "user",
+            Content = "cats are lovely",
+            CreatedAt = Timestamp.FromDateTime(DateTime.UtcNow)
+        });
+
+        var vectorIndex = new FakeEmptyMemoryVectorIndex();
+        var tool = new AevatarMemorySearchTool(
+            NullLogger<AevatarMemorySearchTool>.Instance,
+            stateQueryService: null,
+            memoryStore: store,
+            memoryVectorIndex: vectorIndex);
+
+        var ctx = new ToolContext
+        {
+            AgentId = "agent-1",
+            AgentType = "test-agent",
+            GetStateCallback = () => new AevatarAIAgentState(),
+            GenerateEmbeddingsAsync = DeterministicEmbeddingsAsync
+        };
+
+        var result = await tool.ExecuteAsync(
+            new Dictionary<string, object>
+            {
+                ["query"] = "cats",
+                ["maxResults"] = 1,
+                ["memoryType"] = "working"
+            },
+            ctx,
+            NullLogger.Instance,
+            CancellationToken.None);
+
+        var json = JsonFormatter.Default.Format(result);
+        using var doc = JsonDocument.Parse(json);
+
+        var results = doc.RootElement.GetProperty("results");
+        results.GetArrayLength().ShouldBe(1);
+
+        var first = results[0];
+        first.GetProperty("Metadata").GetProperty("source").GetString().ShouldBe("memory.store");
+        first.GetProperty("Metadata").GetProperty("ranking").GetString().ShouldBe("lexical");
+    }
+
+    [Fact]
     public async Task SearchMemory_ShouldFallbackToMemoryStoreLexical_WhenNoEmbeddings()
     {
         var store = new InMemoryMemoryStore();
@@ -345,6 +434,30 @@ public class MemorySearchSemanticTests
 
             var match = new MemoryVectorMatch { Record = record, Similarity = 0.99 };
             return Task.FromResult<IReadOnlyList<MemoryVectorMatch>>([match]);
+        }
+    }
+
+    private sealed class FakeEmptyMemoryVectorIndex : IMemoryVectorIndex
+    {
+        public string? LastMemoryId { get; private set; }
+
+        public Task UpsertAsync(MemoryVectorRecord record, CancellationToken ct = default)
+        {
+            ct.ThrowIfCancellationRequested();
+            return Task.CompletedTask;
+        }
+
+        public Task<IReadOnlyList<MemoryVectorMatch>> SearchAsync(
+            IReadOnlyList<float> queryEmbedding,
+            int limit = 20,
+            string? memoryId = null,
+            MemoryScopeType? scopeTypeFilter = null,
+            string? scopeId = null,
+            CancellationToken ct = default)
+        {
+            ct.ThrowIfCancellationRequested();
+            LastMemoryId = memoryId;
+            return Task.FromResult<IReadOnlyList<MemoryVectorMatch>>([]);
         }
     }
 }

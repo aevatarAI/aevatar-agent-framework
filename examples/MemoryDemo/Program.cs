@@ -12,8 +12,6 @@ using Aevatar.Agents.Abstractions.Tracing;
 using Aevatar.Agents.Core.Memory;
 using Aevatar.Agents.Core.MemoryGraphs;
 using Aevatar.Agents.Core.Tracing;
-using Aevatar.Agents.Persistence.MongoDB;
-using Aevatar.Agents.Persistence.Supabase.DependencyInjection;
 using Aevatar.Agents.Runtime.Local;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Options;
@@ -40,8 +38,13 @@ builder.Services.Configure<LLMProvidersConfig>(builder.Configuration.GetSection(
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 
-// Aevatar core + Local runtime (includes: default MemoryStore/VectorIndex/TraceStore/GraphStore registrations)
-builder.Services.AddAevatarAgentSystem(b => b.UseLocalRuntime());
+// ============================================================
+//  Persistence selection (config-driven)
+// ============================================================
+var persistence = MemoryDemoPersistence.Configure(builder.Services, builder.Configuration);
+
+// Aevatar core + Local runtime (stores are configured by persistence selection above)
+builder.Services.AddAevatarAgentSystem(persistence.ConfigureStores, b => b.UseLocalRuntime());
 builder.Services.AddMEAI();
 
 // ============================================================
@@ -67,6 +70,7 @@ app.UseStaticFiles();
 app.MapGet("/api/info", async (
     MemoryDemoRuntime runtime,
     IOptions<LLMProvidersConfig> llm,
+    MemoryDemoPersistence.MemoryDemoPersistenceSelection persistenceSelection,
     CancellationToken ct) =>
 {
     var status = await runtime.GetStatusAsync(ct);
@@ -91,6 +95,21 @@ app.MapGet("/api/info", async (
             traceRoot = paths.TraceRoot,
             memoryRoot = paths.MemoryRoot,
             vectorRoot = paths.VectorRoot
+        },
+        persistence = new
+        {
+            providers = new
+            {
+                memoryStore = persistenceSelection.MemoryStoreProvider,
+                memoryVectorIndex = persistenceSelection.MemoryVectorIndexProvider,
+                memoryGraph = persistenceSelection.MemoryGraphProvider
+            },
+            types = new
+            {
+                memoryStore = persistenceSelection.MemoryStoreType ?? "default(file)",
+                memoryVectorIndex = persistenceSelection.MemoryVectorIndexType ?? "default(file)",
+                memoryGraphStore = persistenceSelection.MemoryGraphStoreType ?? "default(file)"
+            }
         }
     });
 });
@@ -280,10 +299,21 @@ app.MapGet("/api/memory/entries", async (
     return Results.Json(new { memoryId = memoryId.Trim(), count = entries.Count, entries });
 });
 
-app.MapGet("/api/memory/stats", (string memoryId) =>
+app.MapGet("/api/memory/stats", (
+    string memoryId,
+    MemoryDemoPersistence.MemoryDemoPersistenceSelection persistenceSelection) =>
 {
     if (string.IsNullOrWhiteSpace(memoryId))
         return Results.BadRequest(new { error = "memoryId is required" });
+
+    if (!string.Equals(persistenceSelection.MemoryStoreProvider, "file", StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.BadRequest(new
+        {
+            error = "memory stats is only available for file-based IMemoryStore",
+            provider = persistenceSelection.MemoryStoreProvider
+        });
+    }
 
     var paths = MemoryDemoPaths.Get();
     var dir = FileMemoryStore.GetBundleDirectory(paths.MemoryRoot, memoryId.Trim());
@@ -352,10 +382,21 @@ app.MapPost("/api/vector/search", async (
     });
 });
 
-app.MapGet("/api/vector/stats", (string memoryId) =>
+app.MapGet("/api/vector/stats", (
+    string memoryId,
+    MemoryDemoPersistence.MemoryDemoPersistenceSelection persistenceSelection) =>
 {
     if (string.IsNullOrWhiteSpace(memoryId))
         return Results.BadRequest(new { error = "memoryId is required" });
+
+    if (!string.Equals(persistenceSelection.MemoryVectorIndexProvider, "file", StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.BadRequest(new
+        {
+            error = "vector stats is only available for file-based IMemoryVectorIndex",
+            provider = persistenceSelection.MemoryVectorIndexProvider
+        });
+    }
 
     var paths = MemoryDemoPaths.Get();
     var dir = FileMemoryStore.GetBundleDirectory(paths.VectorRoot, memoryId.Trim());

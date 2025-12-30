@@ -7,7 +7,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
-    <ProjectReference Include="..\Aevatar.Agents.AI.Abstractions\Aevatar.Agents.AI.Abstractions.csproj" />
   </ItemGroup>
 
   <ItemGroup>

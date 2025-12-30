@@ -2,40 +2,42 @@ using System;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 
-namespace Aevatar.Agents.Persistence.MongoDB;
+namespace Aevatar.Agents.Persistence.MongoDB.GAgent;
 
 /// <summary>
-/// MongoDB configuration document wrapper
+/// MongoDB configuration document wrapper.
 /// </summary>
 /// <typeparam name="TConfig">Configuration type</typeparam>
 internal class AgentConfigDocument<TConfig>
 {
     /// <summary>
-    /// MongoDB document ID (auto-generated)
+    /// MongoDB document ID (auto-generated).
     /// </summary>
     [BsonId]
     [BsonRepresentation(BsonType.ObjectId)]
     public string? Id { get; set; }
 
     /// <summary>
-    /// Agent Type (full type name)
+    /// Agent Type (full type name).
     /// </summary>
     [BsonRequired]
     public string AgentType { get; set; } = default!;
 
     /// <summary>
-    /// Agent ID
+    /// Agent ID.
     /// </summary>
     [BsonRequired]
     public string AgentId { get; set; } = string.Empty;
 
     /// <summary>
-    /// Configuration object
+    /// Configuration object.
     /// </summary>
     public TConfig Config { get; set; } = default!;
 
     /// <summary>
-    /// Last update timestamp
+    /// Last update timestamp.
     /// </summary>
     public DateTime UpdatedAt { get; set; }
 }
+
+

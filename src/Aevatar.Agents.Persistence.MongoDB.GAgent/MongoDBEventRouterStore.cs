@@ -4,18 +4,18 @@ using System.Threading.Tasks;
 using Aevatar.Agents.Abstractions.EventRouting;
 using MongoDB.Driver;
 
-namespace Aevatar.Agents.Persistence.MongoDB;
+namespace Aevatar.Agents.Persistence.MongoDB.GAgent;
 
 /// <summary>
-/// MongoDB EventRouter hierarchy store implementation
-/// Stores agent hierarchies in MongoDB collections
+/// MongoDB EventRouter hierarchy store implementation.
+/// Stores agent hierarchies in MongoDB collections.
 /// </summary>
 public class MongoDBEventRouterStore : IEventRouterStore
 {
     private readonly IMongoCollection<EventRouterHierarchyDocument> _collection;
 
     /// <summary>
-    /// Create MongoDB EventRouter store
+    /// Create MongoDB EventRouter store.
     /// </summary>
     /// <param name="database">MongoDB database instance</param>
     /// <param name="collectionName">Optional custom collection name</param>
@@ -26,12 +26,12 @@ public class MongoDBEventRouterStore : IEventRouterStore
         var name = collectionName ?? "agent_event_router_hierarchies";
         _collection = database.GetCollection<EventRouterHierarchyDocument>(name);
 
-        // Ensure indexes are created (idempotent, runs once per collection per process)
+        // Ensure indexes are created (idempotent).
         MongoDBIndexManager.EnsureEventRouterStoreIndexes(_collection);
     }
 
     /// <summary>
-    /// Load hierarchy from MongoDB
+    /// Load hierarchy from MongoDB.
     /// </summary>
     public async Task<EventRouterHierarchy?> LoadAsync(string agentId, CancellationToken ct = default)
     {
@@ -50,7 +50,7 @@ public class MongoDBEventRouterStore : IEventRouterStore
     }
 
     /// <summary>
-    /// Save hierarchy to MongoDB (upsert)
+    /// Save hierarchy to MongoDB (upsert).
     /// </summary>
     public async Task SaveAsync(string agentId, EventRouterHierarchy hierarchy, CancellationToken ct = default)
     {
@@ -70,7 +70,7 @@ public class MongoDBEventRouterStore : IEventRouterStore
     }
 
     /// <summary>
-    /// Delete hierarchy from MongoDB
+    /// Delete hierarchy from MongoDB.
     /// </summary>
     public async Task DeleteAsync(string agentId, CancellationToken ct = default)
     {
@@ -78,7 +78,7 @@ public class MongoDBEventRouterStore : IEventRouterStore
     }
 
     /// <summary>
-    /// Check if hierarchy exists
+    /// Check if hierarchy exists.
     /// </summary>
     public async Task<bool> ExistsAsync(string agentId, CancellationToken ct = default)
     {
@@ -89,21 +89,14 @@ public class MongoDBEventRouterStore : IEventRouterStore
 }
 
 /// <summary>
-/// MongoDB EventRouter store factory for DI
+/// MongoDB EventRouter store factory for DI.
 /// </summary>
 public static class MongoDBEventRouterStoreFactory
 {
     /// <summary>
-    /// Create MongoDB EventRouter store factory function using DI-registered IMongoDatabase
-    /// 
-    /// Preferred usage:
-    /// <code>
-    /// services.AddAevatarMongoDB("mongodb://localhost:27017");
-    /// services.AddMongoDBEventRouterStore();
-    /// </code>
+    /// Create MongoDB EventRouter store factory function using DI-registered IMongoDatabase.
     /// </summary>
     /// <param name="collectionName">Optional custom collection name</param>
-    /// <returns>Factory function for DI</returns>
     public static Func<IServiceProvider, IEventRouterStore> Create(string? collectionName = null)
     {
         return sp =>
@@ -115,3 +108,5 @@ public static class MongoDBEventRouterStoreFactory
         };
     }
 }
+
+

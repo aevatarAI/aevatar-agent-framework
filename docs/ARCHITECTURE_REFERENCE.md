@@ -99,6 +99,12 @@ Aevatar.Agents.Core/
 └── Observability/                       # 可观测性
 ```
 
+### 持久化模块（Backend-first 命名）
+
+持久化相关项目采用 **后端优先** 的命名与分层（Backend = 稳定边界；Capability = 可插拔能力），以保持与 MongoDB/Supabase 现有结构一致，并避免 “Graph/Backend 两套命名轴混用” 的长期混乱。
+
+详见：`docs/PERSISTENCE_PROJECT_LAYOUT.md`
+
 ### 运行时实现
 
 #### Local Runtime (进程内)

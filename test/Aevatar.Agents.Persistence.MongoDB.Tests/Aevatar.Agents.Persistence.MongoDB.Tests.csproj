@@ -34,6 +34,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.MongoDB\Aevatar.Agents.Persistence.MongoDB.csproj" />
+    <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.MongoDB.GAgent\Aevatar.Agents.Persistence.MongoDB.GAgent.csproj" />
+    <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.MongoDB.Memory\Aevatar.Agents.Persistence.MongoDB.Memory.csproj" />
   </ItemGroup>
 
 </Project>

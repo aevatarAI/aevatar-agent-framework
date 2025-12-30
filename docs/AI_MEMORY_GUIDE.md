@@ -51,6 +51,7 @@
 - **载体**：`IMemoryGraphStore` + `MemoryGraph`（Protobuf）
 - **用途**：把执行过程（trace）转成可导航的实体/边，支撑“为什么这么做”的可解释回忆（GraphRAG 工程骨架）
 - **默认行为**：`IExecutionTraceStore.SaveAsync` 后 best-effort 投影产出 graph artifact + execution‑scoped `MemoryEntry`
+- **可选**：可用 Neo4j 替换默认 file graph store，把 MemoryGraph 落到可查询图数据库（适合 axiom reasoning / GraphRAG）
 - 详见：`docs/MEMORY_GRAPH.md`
 
 ---

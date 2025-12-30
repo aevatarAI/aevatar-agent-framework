@@ -4,11 +4,11 @@ using System.Threading.Tasks;
 using Aevatar.Agents.Abstractions.Persistence;
 using MongoDB.Driver;
 
-namespace Aevatar.Agents.Persistence.MongoDB;
+namespace Aevatar.Agents.Persistence.MongoDB.GAgent;
 
 /// <summary>
-/// MongoDB configuration store implementation
-/// Stores agent configurations in MongoDB collections with agent type isolation
+/// MongoDB configuration store implementation.
+/// Stores agent configurations in MongoDB collections with agent type isolation.
 /// </summary>
 /// <typeparam name="TConfig">Configuration type</typeparam>
 public class MongoDbConfigStore<TConfig> : IConfigStore<TConfig>
@@ -17,7 +17,7 @@ public class MongoDbConfigStore<TConfig> : IConfigStore<TConfig>
     private readonly IMongoCollection<AgentConfigDocument<TConfig>> _collection;
 
     /// <summary>
-    /// Create MongoDB configuration store
+    /// Create MongoDB configuration store.
     /// </summary>
     /// <param name="database">MongoDB database instance</param>
     /// <param name="collectionName">Optional custom collection name</param>
@@ -28,12 +28,12 @@ public class MongoDbConfigStore<TConfig> : IConfigStore<TConfig>
         var name = collectionName ?? $"agent_configs_{typeof(TConfig).Name}";
         _collection = database.GetCollection<AgentConfigDocument<TConfig>>(name);
 
-        // Ensure indexes are created (idempotent, runs once per collection per process)
+        // Ensure indexes are created (idempotent).
         MongoDBIndexManager.EnsureConfigStoreIndexes(_collection);
     }
 
     /// <summary>
-    /// Load configuration from MongoDB
+    /// Load configuration from MongoDB.
     /// </summary>
     public async Task<TConfig?> LoadAsync(Type agentType, string agentId, CancellationToken ct = default)
     {
@@ -45,7 +45,7 @@ public class MongoDbConfigStore<TConfig> : IConfigStore<TConfig>
     }
 
     /// <summary>
-    /// Save configuration to MongoDB (upsert)
+    /// Save configuration to MongoDB (upsert).
     /// </summary>
     public async Task SaveAsync(Type agentType, string agentId, TConfig config, CancellationToken ct = default)
     {
@@ -66,18 +66,18 @@ public class MongoDbConfigStore<TConfig> : IConfigStore<TConfig>
     }
 
     /// <summary>
-    /// Delete configuration from MongoDB
+    /// Delete configuration from MongoDB.
     /// </summary>
     public async Task DeleteAsync(Type agentType, string agentId, CancellationToken ct = default)
     {
         var agentTypeName = agentType.FullName ?? agentType.Name;
         await _collection.DeleteOneAsync(
-            x => x.AgentType == agentTypeName && x.AgentId == agentId, 
+            x => x.AgentType == agentTypeName && x.AgentId == agentId,
             ct).ConfigureAwait(false);
     }
 
     /// <summary>
-    /// Check if configuration exists
+    /// Check if configuration exists.
     /// </summary>
     public async Task<bool> ExistsAsync(Type agentType, string agentId, CancellationToken ct = default)
     {
@@ -88,3 +88,5 @@ public class MongoDbConfigStore<TConfig> : IConfigStore<TConfig>
         return count > 0;
     }
 }
+
+

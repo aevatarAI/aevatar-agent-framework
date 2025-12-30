@@ -1,25 +1,22 @@
-using System;
 using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using MongoDB.Driver;
 
-namespace Aevatar.Agents.Persistence.MongoDB;
+namespace Aevatar.Agents.Persistence.MongoDB.GAgent;
 
 /// <summary>
-/// Centralized MongoDB index manager
-/// Ensures indexes are created once per collection per process lifetime
+/// Centralized MongoDB index manager.
+/// Ensures indexes are created once per collection per process lifetime.
 /// </summary>
 internal static class MongoDBIndexManager
 {
-    // Track which collections have been initialized (per collection full name)
+    // Track which collections have been initialized (per collection full name).
     private static readonly ConcurrentDictionary<string, bool> InitializedCollections = new();
 
     /// <summary>
-    /// Ensure indexes for AgentStateDocument collection
+    /// Ensure indexes for AgentStateDocument collection.
     /// </summary>
-    /// <param name="collection">MongoDB collection</param>
-    /// <param name="ct">Cancellation token</param>
     public static async Task EnsureStateStoreIndexesAsync(
         IMongoCollection<AgentStateDocument> collection,
         CancellationToken ct = default)
@@ -27,7 +24,6 @@ internal static class MongoDBIndexManager
         var collectionKey = GetCollectionKey(collection);
         if (!InitializedCollections.TryAdd(collectionKey, true))
         {
-            // Already initialized in this process
             return;
         }
 
@@ -36,13 +32,13 @@ internal static class MongoDBIndexManager
             var indexKeys = Builders<AgentStateDocument>.IndexKeys;
             var indexes = new[]
             {
-                // AgentId is [BsonId] so MongoDB creates _id index automatically
-                // We add UpdatedAt index for TTL cleanup and time-range queries
+                // AgentId is [BsonId] so MongoDB creates _id index automatically.
+                // We add UpdatedAt index for TTL cleanup and time-range queries.
                 new CreateIndexModel<AgentStateDocument>(
                     indexKeys.Descending(x => x.UpdatedAt),
                     new CreateIndexOptions { Name = "idx_updated_at", Background = true }),
 
-                // Version index for optimistic concurrency queries
+                // Version index for optimistic concurrency queries.
                 new CreateIndexModel<AgentStateDocument>(
                     indexKeys.Combine(
                         indexKeys.Ascending(x => x.AgentId),
@@ -54,17 +50,13 @@ internal static class MongoDBIndexManager
         }
         catch (MongoCommandException ex) when (ex.Code == 85 || ex.Code == 86)
         {
-            // Index already exists with different options (85) or name (86)
-            // This is fine - indexes are already in place
+            // Index already exists - OK.
         }
     }
 
     /// <summary>
-    /// Ensure indexes for AgentConfigDocument collection
+    /// Ensure indexes for AgentConfigDocument collection.
     /// </summary>
-    /// <typeparam name="TConfig">Config type</typeparam>
-    /// <param name="collection">MongoDB collection</param>
-    /// <param name="ct">Cancellation token</param>
     public static async Task EnsureConfigStoreIndexesAsync<TConfig>(
         IMongoCollection<AgentConfigDocument<TConfig>> collection,
         CancellationToken ct = default)
@@ -80,14 +72,14 @@ internal static class MongoDBIndexManager
             var indexKeys = Builders<AgentConfigDocument<TConfig>>.IndexKeys;
             var indexes = new[]
             {
-                // Compound unique index on AgentType + AgentId
+                // Compound unique index on AgentType + AgentId.
                 new CreateIndexModel<AgentConfigDocument<TConfig>>(
                     indexKeys.Combine(
                         indexKeys.Ascending(x => x.AgentType),
                         indexKeys.Ascending(x => x.AgentId)),
                     new CreateIndexOptions { Name = "idx_agent_type_id", Unique = true, Background = true }),
 
-                // UpdatedAt index for TTL cleanup
+                // UpdatedAt index for TTL cleanup.
                 new CreateIndexModel<AgentConfigDocument<TConfig>>(
                     indexKeys.Descending(x => x.UpdatedAt),
                     new CreateIndexOptions { Name = "idx_updated_at", Background = true })
@@ -97,15 +89,13 @@ internal static class MongoDBIndexManager
         }
         catch (MongoCommandException ex) when (ex.Code == 85 || ex.Code == 86)
         {
-            // Index already exists - OK
+            // Index already exists - OK.
         }
     }
 
     /// <summary>
-    /// Ensure indexes for EventRouterHierarchyDocument collection
+    /// Ensure indexes for EventRouterHierarchyDocument collection.
     /// </summary>
-    /// <param name="collection">MongoDB collection</param>
-    /// <param name="ct">Cancellation token</param>
     public static async Task EnsureEventRouterStoreIndexesAsync(
         IMongoCollection<EventRouterHierarchyDocument> collection,
         CancellationToken ct = default)
@@ -121,13 +111,13 @@ internal static class MongoDBIndexManager
             var indexKeys = Builders<EventRouterHierarchyDocument>.IndexKeys;
             var indexes = new[]
             {
-                // AgentId is [BsonId] so _id index is automatic
-                // ParentId index for finding all children of a parent
+                // AgentId is [BsonId] so _id index is automatic.
+                // ParentId index for finding all children of a parent.
                 new CreateIndexModel<EventRouterHierarchyDocument>(
                     indexKeys.Ascending(x => x.ParentId),
                     new CreateIndexOptions { Name = "idx_parent_id", Background = true }),
 
-                // UpdatedAt index for TTL cleanup
+                // UpdatedAt index for TTL cleanup.
                 new CreateIndexModel<EventRouterHierarchyDocument>(
                     indexKeys.Descending(x => x.UpdatedAt),
                     new CreateIndexOptions { Name = "idx_updated_at", Background = true })
@@ -137,15 +127,14 @@ internal static class MongoDBIndexManager
         }
         catch (MongoCommandException ex) when (ex.Code == 85 || ex.Code == 86)
         {
-            // Index already exists - OK
+            // Index already exists - OK.
         }
     }
 
     /// <summary>
-    /// Synchronous version for constructor usage (not recommended for hot paths)
+    /// Synchronous version for constructor usage (not recommended for hot paths).
     /// </summary>
-    public static void EnsureStateStoreIndexes(
-        IMongoCollection<AgentStateDocument> collection)
+    public static void EnsureStateStoreIndexes(IMongoCollection<AgentStateDocument> collection)
     {
         var collectionKey = GetCollectionKey(collection);
         if (!InitializedCollections.TryAdd(collectionKey, true))
@@ -173,15 +162,14 @@ internal static class MongoDBIndexManager
         }
         catch (MongoCommandException ex) when (ex.Code == 85 || ex.Code == 86)
         {
-            // Index already exists - OK
+            // Index already exists - OK.
         }
     }
 
     /// <summary>
-    /// Synchronous version for constructor usage
+    /// Synchronous version for constructor usage.
     /// </summary>
-    public static void EnsureConfigStoreIndexes<TConfig>(
-        IMongoCollection<AgentConfigDocument<TConfig>> collection)
+    public static void EnsureConfigStoreIndexes<TConfig>(IMongoCollection<AgentConfigDocument<TConfig>> collection)
     {
         var collectionKey = GetCollectionKey(collection);
         if (!InitializedCollections.TryAdd(collectionKey, true))
@@ -209,15 +197,14 @@ internal static class MongoDBIndexManager
         }
         catch (MongoCommandException ex) when (ex.Code == 85 || ex.Code == 86)
         {
-            // Index already exists - OK
+            // Index already exists - OK.
         }
     }
 
     /// <summary>
-    /// Synchronous version for constructor usage
+    /// Synchronous version for constructor usage.
     /// </summary>
-    public static void EnsureEventRouterStoreIndexes(
-        IMongoCollection<EventRouterHierarchyDocument> collection)
+    public static void EnsureEventRouterStoreIndexes(IMongoCollection<EventRouterHierarchyDocument> collection)
     {
         var collectionKey = GetCollectionKey(collection);
         if (!InitializedCollections.TryAdd(collectionKey, true))
@@ -243,24 +230,19 @@ internal static class MongoDBIndexManager
         }
         catch (MongoCommandException ex) when (ex.Code == 85 || ex.Code == 86)
         {
-            // Index already exists - OK
+            // Index already exists - OK.
         }
     }
 
-    /// <summary>
-    /// Get unique key for collection tracking
-    /// </summary>
     private static string GetCollectionKey<T>(IMongoCollection<T> collection)
     {
         return $"{collection.Database.DatabaseNamespace.DatabaseName}:{collection.CollectionNamespace.CollectionName}";
     }
 
-    /// <summary>
-    /// Clear initialization tracking (for testing purposes)
-    /// </summary>
     internal static void ResetForTesting()
     {
         InitializedCollections.Clear();
     }
 }
+
 

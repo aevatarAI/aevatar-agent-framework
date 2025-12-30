@@ -2,6 +2,7 @@ using Aevatar.Agents.Abstractions.EventSourcing;
 using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Orleans.MongoDB;
 using Aevatar.Agents.Persistence.MongoDB;
+using Aevatar.Agents.Persistence.MongoDB.GAgent;
 using Aevatar.Agents.Runtime.Orleans.EventSourcing;
 using Aevatar.Agents.Runtime.Orleans.MongoDB;
 using Demo.Api;

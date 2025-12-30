@@ -1,4 +1,4 @@
-using Aevatar.Agents.Persistence.MongoDB;
+using Aevatar.Agents.Persistence.MongoDB.GAgent;
 using FluentAssertions;
 using MongoDB.Driver;
 using Moq;

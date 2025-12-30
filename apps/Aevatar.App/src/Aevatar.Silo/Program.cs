@@ -15,6 +15,7 @@ using Aevatar.Agents.Runtime.Orleans.Extensions;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Persistence.MongoDB;
+using Aevatar.Agents.Persistence.MongoDB.GAgent;
 using Aevatar.Agents.Runtime.Orleans.EventSourcing;
 using Aevatar.Agents.Runtime.Orleans.MongoDB;
 using Aevatar.Agents.Orleans.MongoDB;

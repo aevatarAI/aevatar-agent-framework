@@ -37,12 +37,13 @@ public sealed class Neo4jExecutor : IGraphExecutor<CypherCommand>
         {
             ReadNode => await ReadNodeAsync(compiled),
             CreateNode => await CreateNodeAsync(compiled),
-            UpdateNode or DeleteNode => await ExecNonQueryAsync(compiled),
+            UpdateNode or DeleteNode or DeleteNodes => await ExecNonQueryAsync(compiled),
             QueryNodes => await QueryNodesAsync(compiled),
             ReadEdge => await ReadEdgeAsync(compiled),
             CreateEdge => await CreateEdgeAsync(compiled),
             UpdateEdge or DeleteEdge => await ExecNonQueryAsync(compiled),
-            ReadEdgesBetween => await ReadEdgesBetweenAsync(compiled),
+            QueryEdges => await ReadEdgesAsync(compiled),
+            DeleteEdges => await ExecNonQueryAsync(compiled),
             _ => null
         };
     }
@@ -83,7 +84,7 @@ public sealed class Neo4jExecutor : IGraphExecutor<CypherCommand>
         return ToGraphEdge(edges[0]);
     }
 
-    private async Task<object?> ReadEdgesBetweenAsync(CypherCommand cmd)
+    private async Task<object?> ReadEdgesAsync(CypherCommand cmd)
     {
         var edges = await _client.ReadAsync(
             cmd.Text,

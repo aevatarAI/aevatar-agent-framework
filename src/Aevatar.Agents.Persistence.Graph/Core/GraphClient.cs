@@ -47,6 +47,10 @@ public sealed class GraphClient<TCommand> : IGraphClient
         Execute<object>(new DeleteNode(id));
 
     /// <inheritdoc />
+    public Task DeleteAsync(NodeQuery query) =>
+        Execute<object>(new DeleteNodes(query));
+
+    /// <inheritdoc />
     public async Task<IReadOnlyList<GraphNode>> QueryAsync(NodeQuery query)
     {
         var result = await Execute<IReadOnlyList<GraphNode>>(new QueryNodes(query));
@@ -74,11 +78,15 @@ public sealed class GraphClient<TCommand> : IGraphClient
         Execute<object>(new DeleteEdge(id));
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<GraphEdge>> ReadBetweenAsync(NodeId from, NodeId to, EdgeQuery? filter = null)
+    public async Task<IReadOnlyList<GraphEdge>> QueryAsync(EdgeQuery query)
     {
-        var result = await Execute<IReadOnlyList<GraphEdge>>(new ReadEdgesBetween(from, to, filter));
+        var result = await Execute<IReadOnlyList<GraphEdge>>(new QueryEdges(query));
         return result ?? Array.Empty<GraphEdge>();
     }
+
+    /// <inheritdoc />
+    public Task DeleteAsync(EdgeQuery query) =>
+        Execute<object>(new DeleteEdges(query));
 
     // ── Shared executor ──
     private async Task<T?> Execute<T>(GraphOperation op)

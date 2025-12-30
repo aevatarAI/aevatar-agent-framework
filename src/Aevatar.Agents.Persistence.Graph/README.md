@@ -62,8 +62,8 @@ var edgeId = await graph.WriteAsync("FRIEND_OF", aliceId, bobId, new Dictionary<
 // Read edge (找不到返回 null)
 var edge = await graph.ReadAsync(edgeId);
 
-// Query edges between two nodes with filter
-var edges = await graph.ReadBetweenAsync(aliceId, bobId, new EdgeQuery
+// Query edges by type + conditions
+var edges = await graph.QueryAsync(new EdgeQuery
 {
     Type = "FRIEND_OF",
     Conditions = [ new Condition("since", Operator.GreaterThan, new IntValue(2020)) ]
@@ -80,8 +80,8 @@ await graph.DeleteAsync(bobId);
 
 ## API 速览
 - `IGraphClient`
-  - Nodes: `ReadAsync(NodeId)`, `WriteAsync(string, props)`, `UpdateAsync(NodeId, props)`, `DeleteAsync(NodeId)`, `QueryAsync(NodeQuery)`
-  - Edges: `ReadAsync(EdgeId)`, `WriteAsync(string, from, to, props)`, `UpdateAsync(EdgeId, props)`, `DeleteAsync(EdgeId)`, `ReadBetweenAsync(NodeId, NodeId, EdgeQuery?)`
+  - Nodes: `ReadAsync(NodeId)`, `WriteAsync(string, props)`, `UpdateAsync(NodeId, props)`, `DeleteAsync(NodeId)`, `DeleteAsync(NodeQuery)`, `QueryAsync(NodeQuery)`
+  - Edges: `ReadAsync(EdgeId)`, `WriteAsync(string, from, to, props)`, `UpdateAsync(EdgeId, props)`, `DeleteAsync(EdgeId)`, `QueryAsync(EdgeQuery)`, `DeleteAsync(EdgeQuery)`
 - Neo4j 扩展：`services.AddAevatarGraphNeo4j(uri, user, password, database?)`
 - 编译/执行扩展：实现并替换 `IGraphCompiler<T>` / `IGraphExecutor<T>` 可适配新后端。
 

@@ -43,6 +43,14 @@ public interface IGraphClient
     Task DeleteAsync(NodeId id);
 
     /// <summary>
+    /// 按类型及条件批量删除节点（DETACH 语义：会同时移除其关联的关系）。
+    /// </summary>
+    /// <param name="query">包含 Type（必填）与 Conditions 的删除条件。</param>
+    /// <returns>完成任务即代表执行成功。</returns>
+    /// <exception cref="Exception">执行失败时抛出。</exception>
+    Task DeleteAsync(NodeQuery query);
+
+    /// <summary>
     /// 按类型及条件查询节点。
     /// </summary>
     /// <param name="query">包含 Type（必填）与 Conditions 的查询。</param>
@@ -88,12 +96,18 @@ public interface IGraphClient
     Task DeleteAsync(EdgeId id);
 
     /// <summary>
-    /// 读取两个节点间的关系列表，可选类型/条件过滤。
+    /// 按类型及条件查询关系。
     /// </summary>
-    /// <param name="from">起点节点 id。</param>
-    /// <param name="to">终点节点 id。</param>
-    /// <param name="filter">可选类型/条件过滤。</param>
+    /// <param name="query">包含可选 Type 与 Conditions 的查询。</param>
     /// <returns>匹配列表，未命中返回空集合。</returns>
     /// <exception cref="Exception">执行失败时抛出。</exception>
-    Task<IReadOnlyList<GraphEdge>> ReadBetweenAsync(NodeId from, NodeId to, EdgeQuery? filter = null);
+    Task<IReadOnlyList<GraphEdge>> QueryAsync(EdgeQuery query);
+
+    /// <summary>
+    /// 按类型及条件删除关系（批量）。
+    /// </summary>
+    /// <param name="query">包含可选 Type 与 Conditions 的删除条件。</param>
+    /// <returns>完成任务即代表执行成功。</returns>
+    /// <exception cref="Exception">执行失败时抛出。</exception>
+    Task DeleteAsync(EdgeQuery query);
 }

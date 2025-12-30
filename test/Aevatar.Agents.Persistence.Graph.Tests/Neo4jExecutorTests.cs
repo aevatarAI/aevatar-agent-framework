@@ -231,7 +231,7 @@ public class Neo4jExecutorTests
     }
 
     [Fact]
-    public async Task ReadEdgesBetween_returns_list()
+    public async Task QueryEdges_returns_list()
     {
         var client = new Mock<INeo4jClient>();
         var rel = new Mock<IRelationship>();
@@ -248,11 +248,55 @@ public class Neo4jExecutorTests
             .ReturnsAsync(new List<IRelationship> { rel.Object, rel.Object });
 
         var executor = new Neo4jExecutor(client.Object);
-        var cmd = new CypherCommand("read edges between", new Dictionary<string, object?>(), new ReadEdgesBetween(new NodeId("from"), new NodeId("to"), null));
+        var cmd = new CypherCommand("query edges", new Dictionary<string, object?>(), new QueryEdges(new EdgeQuery { Type = "LIKES" }));
 
         var result = await executor.ExecuteAsync(cmd);
 
         var list = result.ShouldBeOfType<List<GraphEdge>>();
         list.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task DeleteEdges_calls_write()
+    {
+        var client = new Mock<INeo4jClient>();
+        client.Setup(c => c.WriteAsync(
+                It.IsAny<string>(),
+                It.IsAny<IReadOnlyDictionary<string, object?>>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask)
+            .Verifiable();
+
+        var executor = new Neo4jExecutor(client.Object);
+        var cmd = new CypherCommand("delete edges", new Dictionary<string, object?>(), new DeleteEdges(new EdgeQuery { Type = "DEPENDS_ON" }));
+
+        await executor.ExecuteAsync(cmd);
+
+        client.Verify(c => c.WriteAsync(
+            It.IsAny<string>(),
+            It.IsAny<IReadOnlyDictionary<string, object?>>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task DeleteNodes_calls_write()
+    {
+        var client = new Mock<INeo4jClient>();
+        client.Setup(c => c.WriteAsync(
+                It.IsAny<string>(),
+                It.IsAny<IReadOnlyDictionary<string, object?>>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask)
+            .Verifiable();
+
+        var executor = new Neo4jExecutor(client.Object);
+        var cmd = new CypherCommand("delete nodes", new Dictionary<string, object?>(), new DeleteNodes(new NodeQuery { Type = "Person" }));
+
+        await executor.ExecuteAsync(cmd);
+
+        client.Verify(c => c.WriteAsync(
+            It.IsAny<string>(),
+            It.IsAny<IReadOnlyDictionary<string, object?>>(),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 }

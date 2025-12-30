@@ -58,6 +58,18 @@ public class GraphClientTests
     }
 
     [Fact]
+    public async Task Query_edges_returns_empty_when_executor_null()
+    {
+        _executor.OnExecute = _ => null;
+        var client = new GraphClient<FakeCommand>(_compiler, _executor);
+
+        var result = await client.QueryAsync(new EdgeQuery { Type = "LIKES" });
+
+        result.ShouldNotBeNull();
+        result.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task Update_and_delete_are_forwarded()
     {
         var callCount = 0;
@@ -72,6 +84,38 @@ public class GraphClientTests
         await client.DeleteAsync(new NodeId("n1"));
 
         callCount.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Delete_edges_is_forwarded()
+    {
+        var callCount = 0;
+        _executor.OnExecute = op =>
+        {
+            if (op is DeleteEdges) callCount++;
+            return null;
+        };
+
+        var client = new GraphClient<FakeCommand>(_compiler, _executor);
+        await client.DeleteAsync(new EdgeQuery { Type = "DEPENDS_ON" });
+
+        callCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Delete_nodes_is_forwarded()
+    {
+        var callCount = 0;
+        _executor.OnExecute = op =>
+        {
+            if (op is DeleteNodes) callCount++;
+            return null;
+        };
+
+        var client = new GraphClient<FakeCommand>(_compiler, _executor);
+        await client.DeleteAsync(new NodeQuery { Type = "Person" });
+
+        callCount.ShouldBe(1);
     }
 
     [Fact]

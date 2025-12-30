@@ -19,8 +19,9 @@ public sealed record UpdateEdge(EdgeId Id, IReadOnlyDictionary<string, Value> Pr
 /// <summary>删除关系；Id 不存在时后端可能忽略。</summary>
 /// <param name="Id">要删除的关系 Id。</param>
 public sealed record DeleteEdge(EdgeId Id) : GraphOperation;
-/// <summary>查询两节点间的关系，可选类型/条件过滤。</summary>
-/// <param name="From">起点节点 Id。</param>
-/// <param name="To">终点节点 Id。</param>
-/// <param name="Filter">可选过滤条件。</param>
-public sealed record ReadEdgesBetween(NodeId From, NodeId To, EdgeQuery? Filter) : GraphOperation;
+/// <summary>按类型与条件查询关系。</summary>
+/// <param name="Query">包含可选 Type 与 Conditions 的查询。</param>
+public sealed record QueryEdges(EdgeQuery Query) : GraphOperation;
+/// <summary>按类型与条件删除关系（批量）。</summary>
+/// <param name="Query">包含可选 Type 与 Conditions 的删除条件。</param>
+public sealed record DeleteEdges(EdgeQuery Query) : GraphOperation;

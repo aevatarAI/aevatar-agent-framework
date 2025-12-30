@@ -20,12 +20,14 @@ public sealed class CypherCompiler : IGraphCompiler<CypherCommand>
             CreateNode op => CompileCreateNode(op),
             UpdateNode op => CompileUpdateNode(op),
             DeleteNode op => CompileDeleteNode(op),
+            DeleteNodes op => CompileDeleteNodes(op),
             QueryNodes op => CompileQueryNodes(op),
             ReadEdge op => CompileReadEdge(op),
             CreateEdge op => CompileCreateEdge(op),
             UpdateEdge op => CompileUpdateEdge(op),
             DeleteEdge op => CompileDeleteEdge(op),
-            ReadEdgesBetween op => CompileReadEdgesBetween(op),
+            QueryEdges op => CompileQueryEdges(op),
+            DeleteEdges op => CompileDeleteEdges(op),
             _ => throw new NotSupportedException($"Unsupported operation {plan.Operation.GetType().Name}")
         };
 
@@ -70,6 +72,29 @@ public sealed class CypherCompiler : IGraphCompiler<CypherCommand>
             new Dictionary<string, object?> { ["id"] = op.Id.Value },
             op);
 
+    private static CypherCommand CompileDeleteNodes(DeleteNodes op)
+    {
+        var sb = new StringBuilder();
+        var parameters = new Dictionary<string, object?>();
+        sb.Append("MATCH (n:`").Append(op.Query.Type).Append("`)");
+
+        if (op.Query.Conditions.Count > 0)
+        {
+            sb.Append(" WHERE ");
+            for (var i = 0; i < op.Query.Conditions.Count; i++)
+            {
+                var c = op.Query.Conditions[i];
+                var param = $"p{i}";
+                if (i > 0) sb.Append(" AND ");
+                sb.Append("n.").Append(c.Property).Append(' ').Append(ToOperator(c.Operator)).Append(" $").Append(param);
+                parameters[param] = ToPlainValue(c.Value);
+            }
+        }
+
+        sb.Append(" DETACH DELETE n");
+        return new CypherCommand(sb.ToString(), parameters, op);
+    }
+
     private static CypherCommand CompileQueryNodes(QueryNodes op)
     {
         var sb = new StringBuilder();
@@ -97,8 +122,10 @@ public sealed class CypherCompiler : IGraphCompiler<CypherCommand>
             new Dictionary<string, object?> { ["id"] = op.Id.Value },
             op);
 
-    private static CypherCommand CompileCreateEdge(CreateEdge op) =>
-        new(
+    private static CypherCommand CompileCreateEdge(CreateEdge op)
+    {
+        var props = ToPlainDictionary(op.Props);
+        return new(
             """
             MATCH (from { id: $from }), (to { id: $to })
             MERGE (from)-[r:`$type` { id: coalesce($id, randomUUID()) }]->(to)
@@ -110,10 +137,12 @@ public sealed class CypherCompiler : IGraphCompiler<CypherCommand>
             {
                 ["from"] = op.From.Value,
                 ["to"] = op.To.Value,
-                ["id"] = null,
-                ["props"] = ToPlainDictionary(op.Props)
+                // Allow caller to provide deterministic relationship id via props["id"].
+                ["id"] = props.ContainsKey("id") ? props["id"] : null,
+                ["props"] = props
             },
             op);
+    }
 
     private static CypherCommand CompileUpdateEdge(UpdateEdge op) =>
         new(
@@ -131,26 +160,24 @@ public sealed class CypherCompiler : IGraphCompiler<CypherCommand>
             new Dictionary<string, object?> { ["id"] = op.Id.Value },
             op);
 
-    private static CypherCommand CompileReadEdgesBetween(ReadEdgesBetween op)
+    private static CypherCommand CompileQueryEdges(QueryEdges op)
     {
         var sb = new StringBuilder();
-        var parameters = new Dictionary<string, object?>
+        var parameters = new Dictionary<string, object?>();
+
+        sb.Append("MATCH ()-[r");
+        if (!string.IsNullOrWhiteSpace(op.Query.Type))
         {
-            ["from"] = op.From.Value,
-            ["to"] = op.To.Value
-        };
+            sb.Append(":`").Append(op.Query.Type).Append('`');
+        }
+        sb.Append("]->()");
 
-        sb.Append("MATCH (from { id: $from })-[r");
-        if (!string.IsNullOrWhiteSpace(op.Filter?.Type))
-            sb.Append(":`").Append(op.Filter!.Type).Append('`');
-        sb.Append("]->(to { id: $to })");
-
-        if (op.Filter?.Conditions?.Count > 0)
+        if (op.Query.Conditions.Count > 0)
         {
             sb.Append(" WHERE ");
-            for (var i = 0; i < op.Filter.Conditions.Count; i++)
+            for (var i = 0; i < op.Query.Conditions.Count; i++)
             {
-                var c = op.Filter.Conditions[i];
+                var c = op.Query.Conditions[i];
                 var param = $"p{i}";
                 if (i > 0) sb.Append(" AND ");
                 sb.Append("r.").Append(c.Property).Append(' ').Append(ToOperator(c.Operator)).Append(" $").Append(param);
@@ -159,6 +186,35 @@ public sealed class CypherCompiler : IGraphCompiler<CypherCommand>
         }
 
         sb.Append(" RETURN r");
+        return new CypherCommand(sb.ToString(), parameters, op);
+    }
+
+    private static CypherCommand CompileDeleteEdges(DeleteEdges op)
+    {
+        var sb = new StringBuilder();
+        var parameters = new Dictionary<string, object?>();
+
+        sb.Append("MATCH ()-[r");
+        if (!string.IsNullOrWhiteSpace(op.Query.Type))
+        {
+            sb.Append(":`").Append(op.Query.Type).Append('`');
+        }
+        sb.Append("]->()");
+
+        if (op.Query.Conditions.Count > 0)
+        {
+            sb.Append(" WHERE ");
+            for (var i = 0; i < op.Query.Conditions.Count; i++)
+            {
+                var c = op.Query.Conditions[i];
+                var param = $"p{i}";
+                if (i > 0) sb.Append(" AND ");
+                sb.Append("r.").Append(c.Property).Append(' ').Append(ToOperator(c.Operator)).Append(" $").Append(param);
+                parameters[param] = ToPlainValue(c.Value);
+            }
+        }
+
+        sb.Append(" DELETE r");
         return new CypherCommand(sb.ToString(), parameters, op);
     }
 

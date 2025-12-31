@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Aevatar.Notebook</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="title">Aevatar.Notebook</div>
+        <div class="sub">Sources · Q&A · Report · Memory Layers (0~4.2)</div>
+      </div>
+      <div class="status">
+        <div id="statusBadge" class="badge">loading...</div>
+        <button id="resetBtn" class="btn btn-secondary">Reset</button>
+      </div>
+    </header>
+
+    <main class="grid">
+      <!-- Left: Sources -->
+      <section class="panel">
+        <div class="panel-title">资料 / 记忆管理（Sources）</div>
+
+        <div class="row">
+          <input id="sourceTitle" class="input" placeholder="title (optional)" />
+          <button id="addSourceBtn" class="btn">Add</button>
+        </div>
+        <textarea id="sourceText" class="textarea" placeholder="Paste source text here..."></textarea>
+
+        <div class="row row-tight">
+          <button id="refreshSourcesBtn" class="btn btn-secondary">Refresh</button>
+        </div>
+        <div id="sourcesList" class="list"></div>
+        <pre id="sourceDetail" class="pre"></pre>
+      </section>
+
+      <!-- Middle: Q&A -->
+      <section class="panel">
+        <div class="panel-title">问答（Chat）</div>
+        <div id="chatLog" class="chat-log"></div>
+        <div class="row">
+          <input id="chatInput" class="input" placeholder="Ask a question..." />
+          <button id="sendBtn" class="btn">Send</button>
+        </div>
+        <pre id="chatMeta" class="pre pre-small"></pre>
+      </section>
+
+      <!-- Right: Report -->
+      <section class="panel">
+        <div class="panel-title">报告生成（Report）</div>
+        <div class="row">
+          <input id="reportTopic" class="input" placeholder="Report topic..." />
+          <button id="genReportBtn" class="btn">Generate</button>
+        </div>
+        <pre id="reportBox" class="pre"></pre>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div>Project: <code>notebook/</code></div>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
+
+

@@ -68,6 +68,10 @@
     <Project Path="examples\StateStoreDemo\StateStoreDemo.csproj" />
     <Project Path="examples\GraphNeo4jDemo\GraphNeo4jDemo.csproj" />
   </Folder>
+  <Folder Name="/notebook/">
+    <Project Path="notebook\Aevatar.Notebook.csproj" />
+    <File Path="notebook\README.md" />
+  </Folder>
   <Folder Name="/plugins/">
     <Project Path="plugins\Aevatar.Agents.Plugins.CQRS\Aevatar.Agents.Plugins.CQRS.csproj" Type="C#" />
     <Project Path="plugins\Aevatar.Agents.Plugins.MassTransit\Aevatar.Agents.Plugins.MassTransit.csproj" Type="C#" />

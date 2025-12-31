@@ -79,6 +79,15 @@ Aevatar.AxiomReasoning/
 - **不改动框架调用链**：沿用 `CognitiveStrategy` 的 Actor 并行与 vote 共识机制。
 - **输入限制**：`CognitiveStrategy` 注入 `task/context`（以及少量 Context 变量），所以本项目把 `axioms + focus(可选)` 编码进 task 文本，由 workflow 在 init 步骤解析并写入 `state`。
 
+### Goal / Seed Hypothesis（可选）
+
+本项目把输入组织为两类：
+
+- **Goal**：作为整个 loop 提出 hypotheses 的大方向（workflow 会把它写入 `state.focus` 并在后续 propose 阶段持续对齐）。
+- **Seed Hypothesis（可选）**：用户给一个“第一轮就要尝试验证/修补”的起始假设（workflow 会优先把它作为 `current_hypothesis` 的 statement）。
+
+实现上，这两者会被编码进 `task` 文本（`Focus (optional):` 与 `SeedHypothesis (optional):` 两段），由 workflow 的 `init_state` 步骤解析并写入 `state`。
+
 ## 多 Workflow / 多语言 / 长跑预算
 
 ### UI 参数（Create Session）

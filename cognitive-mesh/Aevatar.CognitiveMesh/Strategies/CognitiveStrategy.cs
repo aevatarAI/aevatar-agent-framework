@@ -13,6 +13,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using System.Collections.Concurrent;
 using System.Text;
+using System.Text.Json;
 
 namespace Aevatar.CognitiveMesh.Strategies;
 
@@ -648,14 +649,156 @@ public sealed class CognitiveStrategy : IReasoningStrategy
         var snapshot = coordinator.GetResult();
         snapshot.Success = false;
         snapshot.Error = "Workflow execution timed out";
-        snapshot.Output = BuildTimeoutFallbackOutput(coordinator.GetStepEvents(), elapsed, timeout);
+        snapshot.Output = BuildTimeoutFallbackOutputObject(coordinator.GetStepEvents(), elapsed, timeout);
         return snapshot;
     }
 
     // ─────────────────────────────────────────────────────────
     //  Timeout fallback: 组合已完成片段为部分报告（不浪费前面跑出的内容）
     // ─────────────────────────────────────────────────────────
-    private static string BuildTimeoutFallbackOutput(IReadOnlyList<WorkflowStepEvent> events, TimeSpan elapsed, TimeSpan timeout)
+    private static object BuildTimeoutFallbackOutputObject(IReadOnlyList<WorkflowStepEvent> events, TimeSpan elapsed, TimeSpan timeout)
+    {
+        // IMPORTANT:
+        // - On timeout, we still want to persist "state/theorems" artifacts.
+        // - AxiomReasoningService extracts `state` + `theorems` by parsing result.Content as JSON.
+        // - Therefore, timeout fallback MUST be a JSON object that includes these fields.
+        //
+        // We also include a human-readable markdown report nested under `timeout` (nested to avoid SerializeOutput
+        // accidentally returning a long top-level string instead of the JSON object).
+
+        var report = BuildTimeoutFallbackReport(events, elapsed, timeout);
+
+        var output = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["status"] = "timeout",
+            ["elapsed_minutes"] = Math.Round(elapsed.TotalMinutes, 2),
+            ["timeout_minutes"] = Math.Round(timeout.TotalMinutes, 2),
+            // Always present so downstream extraction never fails.
+            ["state"] = new Dictionary<string, object?>(StringComparer.Ordinal),
+            ["theorems"] = new List<object>(),
+            ["timeout"] = new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["report_markdown"] = report
+            }
+        };
+
+        if (TryExtractLatestStateAndTheorems(events, out var state, out var theorems))
+        {
+            output["state"] = state;
+            output["theorems"] = theorems;
+        }
+
+        return output;
+    }
+
+    private static bool TryExtractLatestStateAndTheorems(
+        IReadOnlyList<WorkflowStepEvent> events,
+        out JsonElement state,
+        out JsonElement theorems)
+    {
+        state = default;
+        theorems = default;
+
+        static IEnumerable<string> EnumerateJsonCandidates(string raw)
+        {
+            var trimmed = (raw ?? "").Trim();
+            if (trimmed.Length == 0) yield break;
+
+            // 1) Raw text
+            yield return trimmed;
+
+            // 2) Strip markdown code fences: ```json ... ```
+            if (trimmed.StartsWith("```", StringComparison.Ordinal))
+            {
+                var firstNl = trimmed.IndexOf('\n');
+                if (firstNl >= 0 && firstNl + 1 < trimmed.Length)
+                {
+                    var inner = trimmed[(firstNl + 1)..];
+                    var endFence = inner.LastIndexOf("```", StringComparison.Ordinal);
+                    if (endFence >= 0)
+                    {
+                        var body = inner[..endFence].Trim();
+                        if (body.Length > 0) yield return body;
+                    }
+                }
+            }
+
+            // 3) Best-effort: take first {...} block (handles accidental pre/post text)
+            var firstBrace = trimmed.IndexOf('{');
+            var lastBrace = trimmed.LastIndexOf('}');
+            if (firstBrace >= 0 && lastBrace > firstBrace)
+            {
+                var obj = trimmed[firstBrace..(lastBrace + 1)].Trim();
+                if (obj.Length > 0) yield return obj;
+            }
+        }
+
+        static bool TryParseJsonObject(string raw, out JsonElement root)
+        {
+            foreach (var candidate in EnumerateJsonCandidates(raw))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(candidate);
+                    root = doc.RootElement.Clone(); // detach from doc lifetime
+                    return root.ValueKind == JsonValueKind.Object;
+                }
+                catch
+                {
+                    // ignore and try next candidate
+                }
+            }
+
+            root = default;
+            return false;
+        }
+
+        // Prefer the latest checkpoint snapshot that includes "state".
+        for (var i = events.Count - 1; i >= 0; i--)
+        {
+            var e = events[i];
+            if (e.Status != StepStatus.Completed) continue;
+            if (!string.Equals(e.StepType, "checkpoint", StringComparison.OrdinalIgnoreCase)) continue;
+            if (string.IsNullOrWhiteSpace(e.AssistantResponse)) continue;
+
+            if (!TryParseJsonObject(e.AssistantResponse, out var root)) continue;
+            if (root.TryGetProperty("state", out var s) && s.ValueKind == JsonValueKind.Object)
+            {
+                state = s.Clone();
+                if (state.TryGetProperty("theorems", out var th) && th.ValueKind == JsonValueKind.Array)
+                    theorems = th.Clone();
+                return true;
+            }
+        }
+
+        // Fallback: initial state from init_state llm_call (may be empty theorems, but better than nothing).
+        for (var i = events.Count - 1; i >= 0; i--)
+        {
+            var e = events[i];
+            if (e.Status != StepStatus.Completed) continue;
+            if (!string.Equals(e.StepType, "llm_call", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!string.Equals(e.StepId, "init_state", StringComparison.OrdinalIgnoreCase)) continue;
+            if (string.IsNullOrWhiteSpace(e.AssistantResponse)) continue;
+
+            if (!TryParseJsonObject(e.AssistantResponse, out var root)) continue;
+
+            // Some workflows may wrap output as { "state": { ... } }.
+            if (root.TryGetProperty("state", out var wrapped) && wrapped.ValueKind == JsonValueKind.Object)
+                root = wrapped;
+
+            if (root.ValueKind != JsonValueKind.Object) continue;
+            if (!root.TryGetProperty("axioms", out _)) continue; // heuristic: looks like a state object
+
+            state = root.Clone();
+            if (state.TryGetProperty("theorems", out var th) && th.ValueKind == JsonValueKind.Array)
+                theorems = th.Clone();
+            return true;
+        }
+
+        return false;
+    }
+
+    private static string BuildTimeoutFallbackReport(IReadOnlyList<WorkflowStepEvent> events, TimeSpan elapsed, TimeSpan timeout)
     {
         static string? LastCompletedAssistant(IReadOnlyList<WorkflowStepEvent> evts, int depth, string stepId, string stepType)
         {

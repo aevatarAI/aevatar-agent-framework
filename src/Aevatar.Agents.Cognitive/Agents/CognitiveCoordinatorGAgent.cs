@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Text.Encodings.Web;
+using System.Text.Json;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.AI;
@@ -597,8 +599,62 @@ public partial class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordina
 
     private Task<PrimitiveResult> ExecuteCheckpointAsync(StepDefinition step)
     {
+        // Checkpoint is a token-free observability primitive.
+        // It can optionally emit a JSON snapshot of selected workflow variables (or dotted paths),
+        // so the UI / transcript can show incremental state without waiting for workflow completion.
+        //
+        // DSL usage:
+        // - id: checkpoint_state
+        //   type: checkpoint
+        //   variables: ["state", "state.theorems"]
         Logger.LogDebug("Checkpoint at step: {StepId}", step.Id);
-        return Task.FromResult(PrimitiveResult.Ok(null));
+
+        var varsObj = step.Parameters.GetValueOrDefault("variables");
+        var names = varsObj switch
+        {
+            IEnumerable<string> ss => ss.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).ToList(),
+            System.Collections.IEnumerable e => e.Cast<object?>()
+                .Select(x => x?.ToString())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x!.Trim())
+                .ToList(),
+            _ => new List<string>()
+        };
+
+        var snapshot = new Dictionary<string, object?>(StringComparer.Ordinal);
+        foreach (var name in names)
+        {
+            if (string.IsNullOrWhiteSpace(name)) continue;
+            var val = ResolvePathValue(_workflowVariables, name);
+            snapshot[name] = val;
+        }
+
+        string body;
+        try
+        {
+            body = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                // Same spirit as TemplateEngine: keep non-ASCII readable in UI output.
+                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            });
+        }
+        catch
+        {
+            body = snapshot.ToString() ?? "";
+        }
+
+        var userPrompt = names.Count > 0
+            ? $"Checkpoint variables: {string.Join(", ", names)}"
+            : "Checkpoint";
+
+        return Task.FromResult(new PrimitiveResult
+        {
+            Success = true,
+            Value = snapshot,
+            UserPrompt = userPrompt,
+            AssistantResponse = body
+        });
     }
 
     // ============================================================

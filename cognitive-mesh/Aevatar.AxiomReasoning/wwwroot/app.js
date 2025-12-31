@@ -1260,10 +1260,13 @@ function applyEvent(sessionId, evt) {
 function renderGraph(graph, selectedId) {
   const viewport = $("graph-viewport");
   if (!viewport) return;
+  const svg = $("graph-svg");
 
   // SVG nodes have fixed size; text must be clipped/truncated to avoid overlap.
   const NODE_W = 220;
   const NODE_H = 54;
+  const NODE_TOP_PAD = 22; // rect y = p.y - 22
+  const FIT_PAD = 80;
 
   const axioms = Array.isArray(graph.axioms) ? graph.axioms : [];
   const assumptions = Array.isArray(graph.assumptions) ? graph.assumptions : [];
@@ -1333,6 +1336,23 @@ function renderGraph(graph, selectedId) {
     laneY[layer] += 120;
   }
 
+  // Auto-fit SVG canvas to include all nodes (fix: nodes could be rendered outside the initial 1200x520 viewBox).
+  if (svg) {
+    let maxX = 1200;
+    let maxY = 520;
+    for (const k in pos) {
+      const p = pos[k];
+      if (!p) continue;
+      maxX = Math.max(maxX, p.x + NODE_W + FIT_PAD);
+      maxY = Math.max(maxY, (p.y - NODE_TOP_PAD) + NODE_H + FIT_PAD);
+    }
+    maxX = Math.ceil(maxX);
+    maxY = Math.ceil(maxY);
+    svg.setAttribute("width", String(maxX));
+    svg.setAttribute("height", String(maxY));
+    svg.setAttribute("viewBox", `0 0 ${maxX} ${maxY}`);
+  }
+
   // edges
   const edges = [];
   for (const t of ths) {
@@ -1382,6 +1402,7 @@ function renderGraph(graph, selectedId) {
 function renderDagGraph(dag, selectedId) {
   const viewport = $("graph-viewport");
   if (!viewport) return;
+  const svg = $("graph-svg");
   if (!dag || !Array.isArray(dag.nodes) || !Array.isArray(dag.edges)) {
     viewport.innerHTML = "";
     return;
@@ -1390,6 +1411,8 @@ function renderDagGraph(dag, selectedId) {
   // SVG nodes have fixed size; text must be clipped/truncated to avoid overlap.
   const NODE_W = 220;
   const NODE_H = 54;
+  const NODE_TOP_PAD = 22; // rect y = p.y - 22
+  const FIT_PAD = 80;
 
   function clipSafeId(id) {
     return String(id || "").replace(/[^\w\-]/g, "_");
@@ -1436,6 +1459,23 @@ function renderDagGraph(dag, selectedId) {
     if (!laneY[layer]) laneY[layer] = 50;
     pos[id] = { x: 320 + (layer - 1) * 280, y: laneY[layer] };
     laneY[layer] += 120;
+  }
+
+  // Auto-fit SVG canvas to include all nodes (fix: large theorem indices push nodes outside the initial viewBox).
+  if (svg) {
+    let maxX = 1200;
+    let maxY = 520;
+    for (const k in pos) {
+      const p = pos[k];
+      if (!p) continue;
+      maxX = Math.max(maxX, p.x + NODE_W + FIT_PAD);
+      maxY = Math.max(maxY, (p.y - NODE_TOP_PAD) + NODE_H + FIT_PAD);
+    }
+    maxX = Math.ceil(maxX);
+    maxY = Math.ceil(maxY);
+    svg.setAttribute("width", String(maxX));
+    svg.setAttribute("height", String(maxY));
+    svg.setAttribute("viewBox", `0 0 ${maxX} ${maxY}`);
   }
 
   const edges = dag.edges
@@ -1656,6 +1696,7 @@ async function createSession() {
   const payload = {
     axioms: $("input-axioms").value.trim(),
     goal: $("input-goal").value.trim(),
+    seedHypothesis: $("input-seed-hypothesis") ? $("input-seed-hypothesis").value.trim() : "",
     workflow: $("input-workflow") ? $("input-workflow").value : "hypothesis_promotion_loop",
     language: $("input-language") ? $("input-language").value : "English",
     k: parseInt($("input-k").value, 10) || 3,
@@ -1724,6 +1765,9 @@ function initDefaults() {
   if (!$("input-goal").value.trim()) {
     $("input-goal").value =
       "Discover novel non-trivial implications and conjectures from O1–O4. Each step must be either (A) DEDUCTION strictly from O1–O4 or prior derived facts, or (B) INTERPRETATION clearly labeled. Prefer small, checkable steps; avoid repetition.";
+  }
+  if ($("input-seed-hypothesis") && !$("input-seed-hypothesis").value.trim()) {
+    $("input-seed-hypothesis").value = "";
   }
 }
 

@@ -1,7 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 
-namespace Aevatar.AxiomReasoning.Infrastructure;
+namespace Aevatar.AxiomReasoning.EventStreaming;
 
 // ============================================================
 //  BROADCAST EVENT HUB

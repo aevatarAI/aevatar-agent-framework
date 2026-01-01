@@ -6,14 +6,18 @@ using System.Text.Json;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AGUI;
-using Aevatar.AxiomReasoning.AgUi;
+using Aevatar.AxiomReasoning.EventStreaming.AgUi;
 using Aevatar.AxiomReasoning.Models;
 using Aevatar.CognitiveMesh.Abstractions;
 using Aevatar.CognitiveMesh.Strategies;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using ErrorEvent = Aevatar.AxiomReasoning.Models.ErrorEvent;
-using ResultEvent = Aevatar.AxiomReasoning.Models.ResultEvent;
+using ErrorEvent = Aevatar.AxiomReasoning.EventStreaming.Events.ErrorEvent;
+using ResultEvent = Aevatar.AxiomReasoning.EventStreaming.Events.ResultEvent;
+using ProgressEvent = Aevatar.AxiomReasoning.EventStreaming.Events.ProgressEvent;
+using Aevatar.AxiomReasoning.EventStreaming.Events;
+using Aevatar.AxiomReasoning.Graph;
+using Aevatar.AxiomReasoning.LlmRecorder;
 
 namespace Aevatar.AxiomReasoning.Services;
 
@@ -174,7 +178,7 @@ public sealed class AxiomReasoningService
             _logger.LogInformation("Created axiom session: {Id}", session.Id);
 
             // 立即发一个初始事件，方便前端接入
-            session.EventHub.Publish(new Aevatar.AxiomReasoning.Models.ProgressEvent
+            session.EventHub.Publish(new ProgressEvent
             {
                 SessionId = session.Id,
                 Phase = "CREATED",

@@ -4,15 +4,19 @@ using Aevatar.Agents.AI.MEAI.DependencyInjection;
 using Aevatar.Agents.Cognitive.DependencyInjection;
 using Aevatar.Agents.Persistence.MongoDB;
 using Aevatar.Agents.Persistence.MongoDB.GAgent.DependencyInjection;
+using Aevatar.Agents.Persistence.Neo4j.Graph.DependencyInjection;
 using Aevatar.Agents.Plugins.MassTransit.DependencyInjection;
 using Aevatar.Agents.Runtime.Local;
 using Aevatar.AxiomReasoning.Services;
+using Aevatar.AxiomReasoning.LlmRecorder;
+using Aevatar.AxiomReasoning.Graph;
 using HealthChecks.UI.Client;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
+using Aevatar.Agents.Persistence.Neo4j;
 
 // ============================================================
 //  AXIOM REASONING
@@ -129,14 +133,32 @@ if (!string.IsNullOrWhiteSpace(mongoConn))
 builder.Services.AddSingleton<AxiomReasoningEventBridge>();
 builder.Services.AddSingleton<AxiomReasoningService>();
 builder.Services.AddSingleton<LlmTranscriptRecorder>();
-builder.Services.AddSingleton<AxiomDagService>();        // InMemory fallback
-builder.Services.AddSingleton<SupabaseGraphStore>();     // Supabase backend (optional)
+builder.Services.AddSingleton<InMemoryGraphStore>();        // InMemory fallback
+
+// Optional: Neo4j graph persistence (unified IGraphClient)
+var neo4jEnabled = builder.Configuration.GetValue<bool?>("Neo4j:Enabled") ?? false;
+var neo4jUri = builder.Configuration["Neo4j:Uri"];
+var neo4jUser = builder.Configuration["Neo4j:Username"];
+var neo4jPass = builder.Configuration["Neo4j:Password"];
+var neo4jDb = builder.Configuration["Neo4j:Database"] ?? "neo4j";
+
+var useNeo4jGraph =
+    neo4jEnabled &&
+    !string.IsNullOrWhiteSpace(neo4jUri) &&
+    !string.IsNullOrWhiteSpace(neo4jUser) &&
+    !string.IsNullOrWhiteSpace(neo4jPass);
+
+if (useNeo4jGraph)
+{
+    builder.Services.AddAevatarGraphNeo4j(neo4jUri!, neo4jUser!, neo4jPass!, neo4jDb);
+    builder.Services.AddSingleton<Neo4jGraphStore>();
+}
+
 builder.Services.AddSingleton<IGraphStore>(sp =>
 {
-    var cfg = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<SupabaseConfig>>().Value;
-    if (cfg.Enabled && cfg.DagEnabled)
-        return sp.GetRequiredService<SupabaseGraphStore>();
-    return sp.GetRequiredService<AxiomDagService>();
+    if (useNeo4jGraph)
+        return sp.GetRequiredService<Neo4jGraphStore>();
+    return sp.GetRequiredService<InMemoryGraphStore>();
 });
 builder.Services.AddSingleton<SupabaseService>();
 
@@ -150,7 +172,7 @@ var app = builder.Build();
 
 // Supabase (best-effort init; no-op if not enabled)
 await app.Services.GetRequiredService<SupabaseService>().InitializeAsync();
-await app.Services.GetRequiredService<SupabaseGraphStore>().InitializeAsync();
+// await app.Services.GetRequiredService<SupabaseGraphStore>().InitializeAsync();
 
 app.MapHealthChecks("/health", new HealthCheckOptions
 {
@@ -176,8 +198,8 @@ app.MapGet("/api/graphstore/diagnostics", (IGraphStore store) =>
 {
     return store switch
     {
-        SupabaseGraphStore s => Results.Json(s.GetDiagnostics()),
-        AxiomDagService m => Results.Json(m.GetDiagnostics()),
+        Neo4jGraphStore n => Results.Json(n.GetDiagnostics()),
+        InMemoryGraphStore m => Results.Json(m.GetDiagnostics()),
         _ => Results.Json(new { type = store.GetType().Name })
     };
 });

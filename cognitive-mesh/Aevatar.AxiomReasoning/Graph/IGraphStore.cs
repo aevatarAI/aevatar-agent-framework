@@ -1,6 +1,7 @@
-using Aevatar.AxiomReasoning.Models;
+using Aevatar.AxiomReasoning.EventStreaming.Events;
+using Aevatar.AxiomReasoning.Graph.Models;
 
-namespace Aevatar.AxiomReasoning.Services;
+namespace Aevatar.AxiomReasoning.Graph;
 
 // ============================================================
 //  GRAPH STORE ABSTRACTION
@@ -18,9 +19,9 @@ public interface IGraphStore
 {
     Task UpsertFromGraphEventAsync(string sessionId, GraphEvent graphEvent, CancellationToken ct = default);
 
-    Task<DagSnapshot> GetSnapshotAsync(string sessionId, CancellationToken ct = default);
+    Task<Snapshot> GetSnapshotAsync(string sessionId, CancellationToken ct = default);
 
-    Task<DagExplainResult> ExplainAsync(string sessionId, string nodeId, CancellationToken ct = default);
+    Task<ExplainResult> ExplainAsync(string sessionId, string nodeId, CancellationToken ct = default);
 }
 
 

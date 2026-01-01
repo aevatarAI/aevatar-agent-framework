@@ -25,6 +25,10 @@
     
     <!-- AG-UI 集成 -->
     <ProjectReference Include="..\..\src\Aevatar.Agents.AGUI\Aevatar.Agents.AGUI.csproj" />
+
+    <!-- Graph persistence (Neo4j via unified IGraphClient) -->
+    <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.Neo4j.Graph\Aevatar.Agents.Persistence.Neo4j.Graph.csproj" />
+    <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.Graph\Aevatar.Agents.Persistence.Graph.csproj" />
   </ItemGroup>
 
   <ItemGroup>

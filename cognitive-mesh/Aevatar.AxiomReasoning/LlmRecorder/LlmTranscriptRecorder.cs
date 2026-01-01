@@ -9,7 +9,7 @@ using Aevatar.CognitiveMesh.Abstractions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace Aevatar.AxiomReasoning.Services;
+namespace Aevatar.AxiomReasoning.LlmRecorder;
 
 // ============================================================
 //  LLM TRANSCRIPT RECORDER (Local)

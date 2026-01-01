@@ -1,4 +1,4 @@
-namespace Aevatar.AxiomReasoning.Services;
+namespace Aevatar.AxiomReasoning.LlmRecorder;
 
 // ============================================================
 //  LLM TRANSCRIPT OPTIONS

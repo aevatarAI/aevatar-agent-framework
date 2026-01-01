@@ -1,9 +1,9 @@
 using System.Collections.Concurrent;
-using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
-using Aevatar.AxiomReasoning.Models;
+using Aevatar.AxiomReasoning.EventStreaming.Events;
+using Aevatar.AxiomReasoning.Graph.Models;
 
-namespace Aevatar.AxiomReasoning.Services;
+namespace Aevatar.AxiomReasoning.Graph;
 
 // ============================================================
 //  AXIOM DAG SERVICE (Graph DB)
@@ -17,61 +17,14 @@ namespace Aevatar.AxiomReasoning.Services;
 //  - 数据结构稳定：node/edge 都是可序列化对象（API 输出）
 // ============================================================
 
-public enum DagNodeKind
-{
-    Axiom,
-    Theorem,
-    Hypothesis,
-    Assumption,
-    Unknown
-}
-
-public sealed record DagNode
-{
-    public string Id { get; init; } = "";
-    [JsonConverter(typeof(JsonStringEnumConverter))]
-    public DagNodeKind Kind { get; init; } = DagNodeKind.Unknown;
-    public string Label { get; init; } = "";
-    public string Proof { get; init; } = "";
-    public DateTimeOffset UpdatedAt { get; init; } = DateTimeOffset.UtcNow;
-}
-
-public sealed record DagEdge
-{
-    public string FromId { get; init; } = "";
-    public string ToId { get; init; } = "";
-    public string Kind { get; init; } = "depends_on";
-}
-
-public sealed record DagSnapshot
-{
-    public string SessionId { get; init; } = "";
-    public List<DagNode> Nodes { get; init; } = [];
-    public List<DagEdge> Edges { get; init; } = [];
-}
-
-public sealed record DagExplainResult
-{
-    public string SessionId { get; init; } = "";
-    public DagNode? Node { get; init; }
-
-    public List<string> DirectDependencies { get; init; } = [];
-    public List<string> TopologicalOrder { get; init; } = [];
-
-    public bool HasCycle { get; init; }
-    public bool ProvableFromAxioms { get; init; }
-
-    public List<DagNode> MissingDependencies { get; init; } = [];
-}
-
-public sealed class AxiomDagService : IGraphStore
+public sealed class InMemoryGraphStore : IGraphStore
 {
     private static readonly Regex AxiomIdRegex = new(@"^([A-Za-z]\w*)\s*:", RegexOptions.Compiled);
 
     private sealed class Graph
     {
-        public ConcurrentDictionary<string, DagNode> Nodes { get; } = new(StringComparer.Ordinal);
-        public ConcurrentDictionary<string, DagEdge> Edges { get; } = new(StringComparer.Ordinal);
+        public ConcurrentDictionary<string, Node> Nodes { get; } = new(StringComparer.Ordinal);
+        public ConcurrentDictionary<string, Edge> Edges { get; } = new(StringComparer.Ordinal);
     }
 
     private readonly ConcurrentDictionary<string, Graph> _graphs = new(StringComparer.Ordinal);
@@ -111,10 +64,10 @@ public sealed class AxiomDagService : IGraphStore
             var line = graphEvent.Axioms[i] ?? "";
             var id = ExtractAxiomId(line, i);
             axiomIds.Add(id);
-            g.Nodes[id] = new DagNode
+            g.Nodes[id] = new Node
             {
                 Id = id,
-                Kind = DagNodeKind.Axiom,
+                Type = NodeType.Axiom,
                 Label = line,
                 UpdatedAt = DateTimeOffset.UtcNow
             };
@@ -127,10 +80,10 @@ public sealed class AxiomDagService : IGraphStore
             var id = (a.Id ?? "").Trim();
             if (string.IsNullOrWhiteSpace(id)) continue;
             assumptionIds.Add(id);
-            g.Nodes[id] = new DagNode
+            g.Nodes[id] = new Node
             {
                 Id = id,
-                Kind = DagNodeKind.Assumption,
+                Type = NodeType.Assumption,
                 Label = a.Statement ?? "",
                 // Store motivation as "proof" to show in inspector (assumptions have no proof).
                 Proof = a.Motivation ?? "",
@@ -146,10 +99,10 @@ public sealed class AxiomDagService : IGraphStore
             if (string.IsNullOrWhiteSpace(id)) continue;
             theoremIds.Add(id);
 
-            g.Nodes[id] = new DagNode
+            g.Nodes[id] = new Node
             {
                 Id = id,
-                Kind = DagNodeKind.Theorem,
+                Type = NodeType.Theorem,
                 Label = t.Statement ?? "",
                 Proof = t.Proof ?? "",
                 UpdatedAt = DateTimeOffset.UtcNow
@@ -170,18 +123,18 @@ public sealed class AxiomDagService : IGraphStore
                 // Ensure dependency node exists with a reasonable kind
                 if (!g.Nodes.TryGetValue(fromId, out var existing))
                 {
-                    var kind = axiomIds.Contains(fromId)
-                        ? DagNodeKind.Axiom
+                    var type = axiomIds.Contains(fromId)
+                        ? NodeType.Axiom
                         : assumptionIds.Contains(fromId)
-                            ? DagNodeKind.Assumption
+                            ? NodeType.Assumption
                         : theoremIds.Contains(fromId)
-                            ? DagNodeKind.Theorem
-                            : DagNodeKind.Hypothesis;
+                            ? NodeType.Theorem
+                            : NodeType.Hypothesis;
 
-                    g.Nodes[fromId] = new DagNode
+                    g.Nodes[fromId] = new Node
                     {
                         Id = fromId,
-                        Kind = kind,
+                        Type = type,
                         Label = fromId,
                         UpdatedAt = DateTimeOffset.UtcNow
                     };
@@ -189,16 +142,16 @@ public sealed class AxiomDagService : IGraphStore
                 else
                 {
                     // Fix-up kind if we later learn it is an axiom/theorem
-                    if (axiomIds.Contains(fromId) && existing.Kind != DagNodeKind.Axiom)
-                        g.Nodes[fromId] = existing with { Kind = DagNodeKind.Axiom, UpdatedAt = DateTimeOffset.UtcNow };
-                    else if (assumptionIds.Contains(fromId) && existing.Kind != DagNodeKind.Assumption)
-                        g.Nodes[fromId] = existing with { Kind = DagNodeKind.Assumption, UpdatedAt = DateTimeOffset.UtcNow };
-                    else if (theoremIds.Contains(fromId) && existing.Kind != DagNodeKind.Theorem)
-                        g.Nodes[fromId] = existing with { Kind = DagNodeKind.Theorem, UpdatedAt = DateTimeOffset.UtcNow };
+                    if (axiomIds.Contains(fromId) && existing.Type != NodeType.Axiom)
+                        g.Nodes[fromId] = existing with { Type = NodeType.Axiom, UpdatedAt = DateTimeOffset.UtcNow };
+                    else if (assumptionIds.Contains(fromId) && existing.Type != NodeType.Assumption)
+                        g.Nodes[fromId] = existing with { Type = NodeType.Assumption, UpdatedAt = DateTimeOffset.UtcNow };
+                    else if (theoremIds.Contains(fromId) && existing.Type != NodeType.Theorem)
+                        g.Nodes[fromId] = existing with { Type = NodeType.Theorem, UpdatedAt = DateTimeOffset.UtcNow };
                 }
 
                 var key = $"{fromId}->{toId}";
-                g.Edges[key] = new DagEdge { FromId = fromId, ToId = toId, Kind = "depends_on" };
+                g.Edges[key] = new Edge { FromId = fromId, ToId = toId, Type = "depends_on" };
             }
         }
     }
@@ -214,32 +167,32 @@ public sealed class AxiomDagService : IGraphStore
         return Task.CompletedTask;
     }
 
-    public Task<DagSnapshot> GetSnapshotAsync(string sessionId, CancellationToken ct = default)
+    public Task<Snapshot> GetSnapshotAsync(string sessionId, CancellationToken ct = default)
         => Task.FromResult(GetSnapshot(sessionId));
 
-    public Task<DagExplainResult> ExplainAsync(string sessionId, string nodeId, CancellationToken ct = default)
+    public Task<ExplainResult> ExplainAsync(string sessionId, string nodeId, CancellationToken ct = default)
         => Task.FromResult(Explain(sessionId, nodeId));
 
-    public DagSnapshot GetSnapshot(string sessionId)
+    public Snapshot GetSnapshot(string sessionId)
     {
         if (!_graphs.TryGetValue(sessionId, out var g))
-            return new DagSnapshot { SessionId = sessionId };
+            return new Snapshot { SessionId = sessionId };
 
-        return new DagSnapshot
+        return new Snapshot
         {
             SessionId = sessionId,
-            Nodes = g.Nodes.Values.OrderBy(n => n.Kind).ThenBy(n => n.Id).ToList(),
+            Nodes = g.Nodes.Values.OrderBy(n => n.Type).ThenBy(n => n.Id).ToList(),
             Edges = g.Edges.Values.OrderBy(e => e.FromId).ThenBy(e => e.ToId).ToList()
         };
     }
 
-    public DagExplainResult Explain(string sessionId, string nodeId)
+    public ExplainResult Explain(string sessionId, string nodeId)
     {
         if (!_graphs.TryGetValue(sessionId, out var g))
-            return new DagExplainResult { SessionId = sessionId, Node = null };
+            return new ExplainResult { SessionId = sessionId, Node = null };
 
         if (!g.Nodes.TryGetValue(nodeId, out var node))
-            return new DagExplainResult { SessionId = sessionId, Node = null };
+            return new ExplainResult { SessionId = sessionId, Node = null };
 
         // Build incoming adjacency: to -> [from]
         var deps = new Dictionary<string, List<string>>(StringComparer.Ordinal);
@@ -290,12 +243,12 @@ public sealed class AxiomDagService : IGraphStore
         Dfs(nodeId);
 
         // Missing dependencies = any Hypothesis/Assumption/Unknown in closure (excluding the target itself)
-        var missing = new List<DagNode>();
+        var missing = new List<Node>();
         foreach (var id in visited)
         {
             if (string.Equals(id, nodeId, StringComparison.Ordinal)) continue;
             if (!g.Nodes.TryGetValue(id, out var n2)) continue;
-            if (n2.Kind is DagNodeKind.Hypothesis or DagNodeKind.Assumption or DagNodeKind.Unknown)
+            if (n2.Type is NodeType.Hypothesis or NodeType.Assumption or NodeType.Unknown)
                 missing.Add(n2);
         }
 
@@ -305,7 +258,7 @@ public sealed class AxiomDagService : IGraphStore
         // TopologicalOrder: dependencies first; keep stable order (axioms first, then theorems, then target)
         topo.Reverse(); // now dependencies before dependents
 
-        return new DagExplainResult
+        return new ExplainResult
         {
             SessionId = sessionId,
             Node = node,

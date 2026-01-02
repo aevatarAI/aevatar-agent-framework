@@ -26,6 +26,7 @@ public sealed class AxiomSession
     // 用户输入（原始）
     public string AxiomsText { get; set; } = "";
     public string Goal { get; set; } = "";
+    public string SeedHypothesis { get; set; } = "";
 
     // 运行模式
     // - Workflow: 选择 Cognitive DSL workflow（支持多个）

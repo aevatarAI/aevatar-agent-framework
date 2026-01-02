@@ -91,6 +91,7 @@ public sealed class AxiomReasoningService
     {
         public string? Axioms { get; init; }
         public string? Goal { get; init; }
+        public string? SeedHypothesis { get; init; }
         public string? Workflow { get; init; }
         public string? Language { get; init; }
         public int? K { get; init; }
@@ -132,6 +133,7 @@ public sealed class AxiomReasoningService
 
             var axiomsText = (req.Axioms ?? "").Trim();
             var goal = (req.Goal ?? "").Trim();
+            var seedHypothesis = (req.SeedHypothesis ?? "").Trim();
 
             if (string.IsNullOrWhiteSpace(axiomsText))
                 return new { success = false, error = "axioms is required" };
@@ -141,6 +143,7 @@ public sealed class AxiomReasoningService
             {
                 AxiomsText = axiomsText,
                 Goal = goal,
+                SeedHypothesis = seedHypothesis,
                 Workflow = ResolveWorkflow(req.Workflow),
                 Language = NormalizeLanguage(req.Language),
                 K = req.K is > 0 ? req.K.Value : 3,
@@ -451,6 +454,7 @@ public sealed class AxiomReasoningService
         // - CognitiveStrategy 只会注入 `task`/`context` 变量给 workflow。
         // - theorem-loop workflow 会从 raw_task 中提取 axioms + optional focus。
         var focus = string.IsNullOrWhiteSpace(session.Goal) ? "" : session.Goal.Trim();
+        var seed = string.IsNullOrWhiteSpace(session.SeedHypothesis) ? "" : session.SeedHypothesis.Trim();
 
         return $"""
                HYPOTHESIS PROMOTION LOOP (HPL)
@@ -460,6 +464,9 @@ public sealed class AxiomReasoningService
 
                Focus (optional):
                {focus}
+
+               SeedHypothesis (optional):
+               {seed}
 
                ContinueOnFailure:
                {session.ContinueOnFailure}

@@ -42,7 +42,7 @@ public sealed class CypherCompiler : IGraphCompiler<CypherCommand>
         var props = ToPlainDictionary(op.Props);
         return new(
             """
-            CREATE (n:__Generic {id: coalesce($id, randomUUID())})
+            MERGE (n:__Generic {id: coalesce($id, randomUUID())})
             SET n:`$type`
             SET n += $props
             RETURN n

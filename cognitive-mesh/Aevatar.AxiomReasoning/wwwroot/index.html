@@ -4,123 +4,138 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Axiom Reasoning · Cognitive Mesh</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=20260102-graphfs8">
 </head>
 <body>
 <div class="app">
-  <header class="topbar">
-    <div class="brand">
-      <div class="brand-icon">AR</div>
-      <div>
-        <div class="brand-title">Axiom Reasoning</div>
-        <div class="brand-sub">Cognitive Mesh · axiom_reasoning</div>
+  <div class="nav-drawer nav-top" id="nav-drawer">
+    <div class="nav-inner">
+      <div class="nav-rail" aria-label="Navigation">
+        <div class="nav-rail-left">
+        </div>
+        <div class="nav-rail-center">
+          <div class="nav-rail-title">Axiom Reasoning</div>
+        </div>
+        <div class="nav-rail-right">
+          <div class="nav-rail-hint">Hover to open Sessions / New Run</div>
+        </div>
+      </div>
+
+      <div class="nav-flyout" id="nav-flyout">
+        <div class="nav-flyout-scroll">
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <div class="panel-title">Sessions</div>
+                <div class="panel-subtitle">Click to switch</div>
+              </div>
+              <button id="btn-refresh" class="icon-btn" title="Refresh">⟳</button>
+            </div>
+            <div id="session-list" class="session-list empty-state">No sessions</div>
+          </div>
+
+          <div class="panel" id="panel-new-run">
+            <div class="panel-header">
+              <div>
+                <div class="panel-title">New Run</div>
+                <div class="panel-subtitle">Create a session then run</div>
+              </div>
+              <div class="actions">
+                <button id="btn-toggle-new-run" class="icon-btn" title="Collapse / Expand">▾</button>
+              </div>
+            </div>
+
+            <div class="form" id="new-run-body">
+              <div class="new-run-grid">
+                <div class="new-run-left">
+                  <label class="field">
+                    <span>Axioms (one per line)</span>
+                    <textarea id="input-axioms" rows="10" placeholder="O1: ...&#10;O2: ..."></textarea>
+                  </label>
+                  <label class="field">
+                    <span>Goal</span>
+                    <input id="input-goal" type="text" placeholder="Exploration direction / what to derive (optional)">
+                  </label>
+                  <label class="field">
+                    <span>Seed Hypothesis (optional)</span>
+                    <textarea id="input-seed-hypothesis" rows="4" placeholder="Optional starting hypothesis statement to prove/refine (leave empty to let the agent propose)."></textarea>
+                  </label>
+                </div>
+
+                <div class="new-run-right">
+                  <div class="row-3">
+                    <label class="field">
+                      <span>Workflow</span>
+                      <select id="input-workflow"></select>
+                    </label>
+                    <label class="field">
+                      <span>Language</span>
+                      <select id="input-language">
+                        <option value="English">English</option>
+                        <option value="Chinese">中文</option>
+                      </select>
+                    </label>
+                    <div class="field">
+                      <span>&nbsp;</span>
+                      <div class="hint" style="margin-top:10px;">Workflow=选择推理流程；Language=控制证明/定理自然语言。</div>
+                    </div>
+                  </div>
+
+                  <div class="row-3">
+                    <label class="field">
+                      <span>K</span>
+                      <input id="input-k" type="number" min="1" max="9" value="3">
+                    </label>
+                    <label class="field">
+                      <span>max_rounds</span>
+                      <input id="input-max-rounds" type="number" min="1" max="50" value="10">
+                    </label>
+                    <label class="field">
+                      <span>max_depth</span>
+                      <input id="input-max-depth" type="number" min="1" max="200" value="200">
+                    </label>
+                  </div>
+
+                  <details class="advanced" open>
+                    <summary>Advanced (long-run budgets)</summary>
+                    <div class="row-3">
+                      <label class="field">
+                        <span>max_duration_minutes</span>
+                        <input id="input-max-duration-minutes" type="number" min="1" max="1440" value="120">
+                      </label>
+                      <label class="field">
+                        <span>max_llm_calls</span>
+                        <input id="input-max-llm-calls" type="number" min="1" max="200000" value="5000">
+                      </label>
+                      <label class="field">
+                        <span>max_tokens</span>
+                        <input id="input-max-tokens" type="number" min="1" max="200000000" value="8000000">
+                      </label>
+                    </div>
+                    <label class="field field-inline">
+                      <input id="input-continue-on-failure" type="checkbox" checked>
+                      <span>continue_on_failure (proved=false 也继续下一轮)</span>
+                    </label>
+                    <div class="hint">
+                      Tip: 长跑建议同时调大 max_depth；预算越大越烧钱。若模型流式输出很慢，Worker 内部有 idle/total timeout 防“假死”。
+                    </div>
+                  </details>
+
+                  <div class="new-run-actions">
+                    <button id="btn-create" class="btn">Create Session</button>
+                    <button id="btn-run" class="btn primary" disabled>Run</button>
+                    <div class="hint">Tip: voting proposals are grouped; raw token spam is hidden.</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
-    <div class="actions">
-      <button id="btn-stop" class="btn danger" disabled>Stop</button>
-    </div>
-  </header>
+  </div>
 
   <div class="layout">
-    <aside class="sidebar">
-      <div class="panel">
-        <div class="panel-header">
-          <div>
-            <div class="panel-title">Sessions</div>
-            <div class="panel-subtitle">Click to switch</div>
-          </div>
-          <button id="btn-refresh" class="icon-btn" title="Refresh">⟳</button>
-        </div>
-        <div id="session-list" class="session-list empty-state">No sessions</div>
-      </div>
-
-      <div class="panel">
-        <div class="panel-header">
-          <div>
-            <div class="panel-title">New Run</div>
-            <div class="panel-subtitle">Create a session then run</div>
-          </div>
-        </div>
-
-        <div class="form">
-          <label class="field">
-            <span>Axioms (one per line)</span>
-            <textarea id="input-axioms" rows="8" placeholder="O1: ...&#10;O2: ..."></textarea>
-          </label>
-          <label class="field">
-            <span>Goal</span>
-            <input id="input-goal" type="text" placeholder="Exploration direction / what to derive (optional)">
-          </label>
-          <label class="field">
-            <span>Seed Hypothesis (optional)</span>
-            <textarea id="input-seed-hypothesis" rows="3" placeholder="Optional starting hypothesis statement to prove/refine (leave empty to let the agent propose)."></textarea>
-          </label>
-
-          <div class="row-3">
-            <label class="field">
-              <span>Workflow</span>
-              <select id="input-workflow"></select>
-            </label>
-            <label class="field">
-              <span>Language</span>
-              <select id="input-language">
-                <option value="English">English</option>
-                <option value="Chinese">中文</option>
-              </select>
-            </label>
-            <div class="field">
-              <span>&nbsp;</span>
-              <div class="hint" style="margin-top:10px;">Workflow=选择推理流程；Language=控制证明/定理自然语言。</div>
-            </div>
-          </div>
-
-          <div class="row-3">
-            <label class="field">
-              <span>K</span>
-              <input id="input-k" type="number" min="1" max="9" value="3">
-            </label>
-            <label class="field">
-              <span>max_rounds</span>
-              <input id="input-max-rounds" type="number" min="1" max="50" value="10">
-            </label>
-            <label class="field">
-              <span>max_depth</span>
-              <input id="input-max-depth" type="number" min="1" max="200" value="200">
-            </label>
-          </div>
-
-          <details class="advanced" open>
-            <summary>Advanced (long-run budgets)</summary>
-            <div class="row-3">
-              <label class="field">
-                <span>max_duration_minutes</span>
-                <input id="input-max-duration-minutes" type="number" min="1" max="1440" value="120">
-              </label>
-              <label class="field">
-                <span>max_llm_calls</span>
-                <input id="input-max-llm-calls" type="number" min="1" max="200000" value="5000">
-              </label>
-              <label class="field">
-                <span>max_tokens</span>
-                <input id="input-max-tokens" type="number" min="1" max="200000000" value="8000000">
-              </label>
-            </div>
-            <label class="field field-inline">
-              <input id="input-continue-on-failure" type="checkbox" checked>
-              <span>continue_on_failure (proved=false 也继续下一轮)</span>
-            </label>
-            <div class="hint">
-              Tip: 长跑建议同时调大 max_depth；预算越大越烧钱。若模型流式输出很慢，Worker 内部有 idle/total timeout 防“假死”。
-            </div>
-          </details>
-
-          <button id="btn-create" class="btn block">Create Session</button>
-          <button id="btn-run" class="btn primary block" disabled>Run</button>
-          <div class="hint">Tip: voting proposals are grouped; raw token spam is hidden.</div>
-        </div>
-      </div>
-    </aside>
-
     <main class="content">
       <section class="panel">
         <div class="panel-header">
@@ -138,6 +153,30 @@
           <div id="progress-bar-inner"></div>
         </div>
         <div class="pipeline" id="pipeline-steps"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">Dependency Graph</div>
+            <div class="panel-subtitle">Axioms → Theorems (edges = depends_on)</div>
+          </div>
+          <div class="actions">
+            <div class="stat-chip">iter=<span id="graph-iter">0</span></div>
+            <button id="btn-graph-fit" class="icon-btn" title="Fit graph">⌖</button>
+            <button id="btn-graph-fullscreen" class="icon-btn" title="Fullscreen">⤢</button>
+          </div>
+        </div>
+        <div class="graph-wrap">
+          <div id="graph-canvas" class="graph-canvas">
+            <svg id="graph-svg" width="1200" height="520" viewBox="0 0 1200 520" xmlns="http://www.w3.org/2000/svg">
+              <g id="graph-viewport"></g>
+            </svg>
+          </div>
+          <div id="graph-inspector" class="graph-inspector empty-state">
+            Click a node to inspect details.
+          </div>
+        </div>
       </section>
 
       <div class="grid-2">
@@ -183,26 +222,6 @@
       <section class="panel">
         <div class="panel-header">
           <div>
-            <div class="panel-title">Dependency Graph</div>
-            <div class="panel-subtitle">Axioms → Theorems (edges = depends_on)</div>
-          </div>
-          <div class="stat-chip">iter=<span id="graph-iter">0</span></div>
-        </div>
-        <div class="graph-wrap">
-          <div id="graph-canvas" class="graph-canvas">
-            <svg id="graph-svg" width="1200" height="520" viewBox="0 0 1200 520" xmlns="http://www.w3.org/2000/svg">
-              <g id="graph-viewport"></g>
-            </svg>
-          </div>
-          <div id="graph-inspector" class="graph-inspector empty-state">
-            Click a node to inspect details.
-          </div>
-        </div>
-      </section>
-
-      <section class="panel">
-        <div class="panel-header">
-          <div>
             <div class="panel-title">Steps</div>
             <div class="panel-subtitle">Human-readable cards (proposals + consensus)</div>
           </div>
@@ -224,6 +243,36 @@
   </div>
 </div>
 
+<!-- Graph Fullscreen Modal -->
+<div id="graph-modal" class="modal hidden graph-modal">
+  <div id="graph-modal-backdrop" class="modal-backdrop"></div>
+  <div class="modal-content graph-modal-content">
+    <section class="panel graph-modal-panel">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Dependency Graph</div>
+          <div class="panel-subtitle">Axioms → Theorems (edges = depends_on)</div>
+        </div>
+        <div class="actions">
+          <div class="stat-chip">iter=<span id="graph-iter-modal">0</span></div>
+          <button id="btn-graph-modal-fit" class="icon-btn" title="Fit graph">⌖</button>
+          <button id="graph-modal-close" class="icon-btn" title="Close">✕</button>
+        </div>
+      </div>
+      <div class="graph-wrap graph-wrap-modal">
+        <div class="graph-canvas graph-canvas-modal">
+          <svg id="graph-svg-modal" width="1200" height="520" viewBox="0 0 1200 520" xmlns="http://www.w3.org/2000/svg">
+            <g id="graph-viewport-modal"></g>
+          </svg>
+        </div>
+        <div id="graph-inspector-modal" class="graph-inspector empty-state">
+          Click a node to inspect details.
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
 <!-- Worker Detail Modal (PaperReview-style) -->
 <div id="modal" class="modal hidden">
   <div id="modal-backdrop" class="modal-backdrop"></div>
@@ -239,7 +288,7 @@
   </div>
 </div>
 
-<script src="app.js?v=20251219"></script>
+<script src="app.js?v=20260102-graphfs10"></script>
 </body>
 </html>
 

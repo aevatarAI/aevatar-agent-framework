@@ -163,6 +163,14 @@ function ensureSessionCache(sessionId) {
       graphSelectedId: null,
       dag: null,          // snapshot from /api/sessions/{id}/dag
       dagExplain: null,   // explain result from /api/sessions/{id}/dag/{nodeId}
+      graphLayout: {
+        // Persistent per-session layout (supports drag repositioning).
+        // Node positions are shared between main view + modal.
+        pos: Object.create(null), // nodeId -> { x, y }
+        // Viewports are per-canvas (main/modal) because each can have its own zoom/pan.
+        view: { main: null, modal: null }, // { x, y, w, h } | null
+      },
+      graphModalOpen: false,
       lastVoteStepId: null,
       // AG-UI: message meta index (messageId -> meta)
       msgMeta: Object.create(null),
@@ -230,8 +238,40 @@ function buildDagFromGraph(graph) {
 
   function addNode(id, kind, label, proof) {
     const nid = String(id || "").trim();
-    if (!nid || byId[nid]) return;
-    const n = { id: nid, kind: kind || inferNodeKind(nid), label: label || "", proof: proof || "" };
+    if (!nid) return;
+    const nextKind = kind || inferNodeKind(nid);
+    const nextLabel = String(label || "");
+    const nextProof = String(proof || "");
+
+    // IMPORTANT: Upsert semantics.
+    // A node can be introduced first as a dependency placeholder (label=id),
+    // then later appear as a full theorem/assumption with statement/proof.
+    // We should "upgrade" the existing node instead of keeping the placeholder.
+    const existing = byId[nid];
+    if (existing) {
+      // kind: upgrade Unknown -> concrete kind
+      if (!existing.kind || String(existing.kind).toLowerCase() === "unknown") {
+        existing.kind = nextKind;
+      }
+
+      // label: prefer non-empty, and prefer a label that's not just the id.
+      const exLabel = String(existing.label || "");
+      const exLooksPlaceholder = !exLabel || exLabel === nid;
+      const nextLooksBetter = nextLabel && nextLabel !== nid;
+      if (exLooksPlaceholder && nextLooksBetter) {
+        existing.label = nextLabel;
+      } else if (!exLabel && nextLabel) {
+        existing.label = nextLabel;
+      }
+
+      // proof: fill if missing
+      if (!existing.proof && nextProof) {
+        existing.proof = nextProof;
+      }
+      return;
+    }
+
+    const n = { id: nid, kind: nextKind, label: nextLabel, proof: nextProof };
     byId[nid] = n;
     nodes.push(n);
   }
@@ -278,7 +318,11 @@ function applyGraphSnapshot(cache, sessionId, graph) {
     theorems: Array.isArray(graph && graph.theorems) ? graph.theorems : [],
   };
 
-  $("graph-iter").textContent = String(cache.graph.iteration || 0);
+  const iter = String(cache.graph.iteration || 0);
+  const iterMain = $("graph-iter");
+  if (iterMain) iterMain.textContent = iter;
+  const iterModal = $("graph-iter-modal");
+  if (iterModal) iterModal.textContent = iter;
 
   // Build index for inspector (axiomsById / theoremsById / assumptionsById)
   const axiomsById = Object.create(null);
@@ -302,8 +346,7 @@ function applyGraphSnapshot(cache, sessionId, graph) {
 
   // Build a local DAG snapshot (no extra HTTP request per update).
   cache.dag = buildDagFromGraph(cache.graph);
-  renderDagGraph(cache.dag, cache.graphSelectedId);
-  renderGraphInspector(cache);
+  renderGraphViews(cache);
 }
 
 function applyAgUiGraphDelta(cache, deltaOps) {
@@ -505,11 +548,16 @@ function renderSessions() {
     .map((s) => {
       const active = s.id === state.current ? "active" : "";
       const sub = `progress=${s.progressPercent ?? 0}% · llm=${s.totalLlmCalls ?? 0} · tokens=${s.totalTokens ?? 0}`;
+      const status = String(s.status || "").toLowerCase();
+      const canStop = status.includes("running") || status.includes("execut") || status.includes("stream") || status.includes("pending");
       return `
         <div class="session-item ${active}" data-id="${s.id}">
           <div class="line1">
             <div class="id">${escapeHtml(s.id)}</div>
-            <div class="status">${escapeHtml(s.status)}</div>
+            <div class="actions">
+              <div class="status">${escapeHtml(s.status)}</div>
+              <button class="session-stop" data-stop-id="${escapeAttr(s.id)}" ${canStop ? "" : "disabled"} title="Stop this session">Stop</button>
+            </div>
           </div>
           <div class="line2">${escapeHtml(sub)}</div>
         </div>
@@ -519,6 +567,16 @@ function renderSessions() {
 
   for (const item of el.querySelectorAll(".session-item")) {
     item.addEventListener("click", () => selectSession(item.getAttribute("data-id")));
+  }
+
+  for (const btn of el.querySelectorAll(".session-stop")) {
+    btn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = btn.getAttribute("data-stop-id");
+      if (!id) return;
+      await stopSessionById(id);
+    });
   }
 }
 
@@ -697,7 +755,7 @@ function openWorkerModal(workerId) {
 
   renderModal(worker);
   $("modal").classList.remove("hidden");
-  document.body.style.overflow = "hidden";
+  setBodyOverflowForModals();
 }
 
 function renderModal(worker) {
@@ -809,10 +867,413 @@ function updateModalIfOpen(cache) {
 
 function closeModal() {
   $("modal").classList.add("hidden");
-  document.body.style.overflow = "";
+  setBodyOverflowForModals();
   state.modal.sessionId = null;
   state.modal.workerId = null;
   state.modal.headTs = 0;
+}
+
+// ============================================================
+//  Graph Fullscreen Modal + Interactive Canvas
+// ============================================================
+
+function setBodyOverflowForModals() {
+  const workerModal = $("modal");
+  const graphModal = $("graph-modal");
+  const workerOpen = workerModal && !workerModal.classList.contains("hidden");
+  const graphOpen = graphModal && !graphModal.classList.contains("hidden");
+  document.body.style.overflow = (workerOpen || graphOpen) ? "hidden" : "";
+}
+
+// ============================================================
+//  UI Layout Preferences (focus mode + collapse New Run)
+// ============================================================
+
+const UI_PREF_KEYS = {
+  newRunCollapsed: "axiom.ui.newRunCollapsed.v1",
+};
+
+// Focus mode removed (header removed + nav drawer provides max width already).
+
+function setNewRunCollapsed(collapsed) {
+  const panel = $("panel-new-run");
+  const btn = $("btn-toggle-new-run");
+  if (panel) panel.classList.toggle("collapsed", !!collapsed);
+  if (btn) btn.textContent = collapsed ? "▸" : "▾";
+  try {
+    localStorage.setItem(UI_PREF_KEYS.newRunCollapsed, collapsed ? "1" : "0");
+  } catch { /* ignore */ }
+}
+
+function toggleNewRunCollapsed() {
+  const panel = $("panel-new-run");
+  const collapsed = panel ? !panel.classList.contains("collapsed") : true;
+  setNewRunCollapsed(collapsed);
+}
+
+// ============================================================
+//  Graph Fullscreen Modal
+// ============================================================
+
+function openGraphModal() {
+  const el = $("graph-modal");
+  if (el) {
+    el.classList.remove("hidden");
+    // Ensure transition triggers reliably
+    el.classList.remove("is-open");
+    requestAnimationFrame(() => el.classList.add("is-open"));
+  }
+  setBodyOverflowForModals();
+
+  // Allow opening even before a session is selected (modal will show empty canvas).
+  const sid = state.current;
+  if (!sid) return;
+
+  const cache = ensureSessionCache(sid);
+  cache.graphModalOpen = true;
+
+  // Fullscreen should feel "bigger": fit-to-view by default.
+  if (cache.graphLayout && cache.graphLayout.view) {
+    cache.graphLayout.view.modal = null;
+  }
+  const iterEl = $("graph-iter-modal");
+  if (iterEl) iterEl.textContent = String(cache.graph && cache.graph.iteration ? cache.graph.iteration : 0);
+
+  renderGraphViews(cache);
+}
+
+function closeGraphModal() {
+  if (state.current) {
+    const cache = ensureSessionCache(state.current);
+    cache.graphModalOpen = false;
+  }
+  const el = $("graph-modal");
+  if (!el) return;
+
+  el.classList.remove("is-open");
+
+  const done = () => {
+    el.classList.add("hidden");
+    setBodyOverflowForModals();
+  };
+
+  // Wait for fade-out transition (fallback timer for safety)
+  const onEnd = (e) => {
+    if (e && e.target !== el) return;
+    el.removeEventListener("transitionend", onEnd);
+    done();
+  };
+  el.addEventListener("transitionend", onEnd);
+  setTimeout(() => {
+    el.removeEventListener("transitionend", onEnd);
+    if (!el.classList.contains("hidden")) done();
+  }, 260);
+}
+
+function fitGraphView(targetKey) {
+  if (!state.current) return;
+  const cache = ensureSessionCache(state.current);
+  if (!cache.graphLayout) return;
+  if (!cache.graphLayout.view) cache.graphLayout.view = { main: null, modal: null };
+  cache.graphLayout.view[targetKey] = null;
+  renderGraphCanvases(cache);
+}
+
+function parseViewBox(raw) {
+  const s = String(raw || "").trim();
+  const parts = s.split(/\s+/).map((x) => parseFloat(x));
+  if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n))) return null;
+  return { x: parts[0], y: parts[1], w: parts[2], h: parts[3] };
+}
+
+function applyViewBox(svg, view) {
+  if (!svg || !view) return;
+  svg.setAttribute("viewBox", `${view.x} ${view.y} ${view.w} ${view.h}`);
+}
+
+function bindGraphCanvas(svgId, targetKey) {
+  const svg = $(svgId);
+  if (!svg) return;
+  if (svg.dataset.bound === "1") return;
+  svg.dataset.bound = "1";
+
+  let mode = null; // "node" | "pan" | null
+  let pointerId = null;
+  let nodeId = null;
+  let startClient = null;
+  let startNodePos = null;
+  let startView = null;
+  let startScale = null; // { u } in viewbox units per pixel (uniform for preserveAspectRatio="meet")
+  let moved = false;
+  let rafId = 0;
+  let pendingView = null;
+  let lastMoveClient = null;
+  let lastMoveTs = 0;
+  let lastVel = { vx: 0, vy: 0 }; // viewbox units per ms (momentum)
+
+  function reset() {
+    mode = null;
+    pointerId = null;
+    nodeId = null;
+    startClient = null;
+    startNodePos = null;
+    startView = null;
+    startScale = null;
+    moved = false;
+    pendingView = null;
+    lastMoveClient = null;
+    lastMoveTs = 0;
+    lastVel = { vx: 0, vy: 0 };
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = 0;
+  }
+
+  function ensureInertiaState(cache) {
+    if (!cache || !cache.graphLayout) return null;
+    if (!cache.graphLayout.inertia) {
+      cache.graphLayout.inertia = {
+        active: Object.create(null), // nodeId -> { vx, vy }
+        raf: 0,
+        lastTs: 0,
+        sessionId: state.current || null,
+      };
+    }
+    return cache.graphLayout.inertia;
+  }
+
+  function stopInertia(cache, id) {
+    const st = ensureInertiaState(cache);
+    if (!st || !id) return;
+    if (st.active && st.active[id]) delete st.active[id];
+  }
+
+  function startInertia(cache, id, vx, vy) {
+    const st = ensureInertiaState(cache);
+    if (!st || !cache || !cache.graphLayout || !cache.graphLayout.pos) return;
+    if (!id) return;
+
+    const speed = Math.hypot(vx, vy);
+    const MIN = 0.045; // subtle threshold (units/ms)
+    const MAX = 0.60;  // clamp
+    if (!Number.isFinite(speed) || speed < MIN) return;
+    if (speed > MAX) {
+      const k = MAX / speed;
+      vx *= k;
+      vy *= k;
+    }
+
+    st.active[id] = { vx, vy };
+    st.sessionId = state.current || st.sessionId;
+
+    if (st.raf) return;
+    st.lastTs = 0;
+
+    const step = (ts) => {
+      // Stop animating if user switched sessions
+      if (st.sessionId && state.current && st.sessionId !== state.current) {
+        st.active = Object.create(null);
+      }
+
+      if (!st.lastTs) st.lastTs = ts;
+      let dt = ts - st.lastTs;
+      st.lastTs = ts;
+      if (!Number.isFinite(dt) || dt <= 0) dt = 16;
+      dt = Math.min(40, dt);
+
+      const decay = Math.exp(-0.006 * dt); // exponential decay per ms
+      let any = false;
+      for (const nid in st.active) {
+        const v = st.active[nid];
+        const p = cache.graphLayout.pos[nid];
+        if (!v || !p) {
+          delete st.active[nid];
+          continue;
+        }
+
+        p.x += v.vx * dt;
+        p.y += v.vy * dt;
+        v.vx *= decay;
+        v.vy *= decay;
+
+        if (Math.hypot(v.vx, v.vy) < 0.02) {
+          delete st.active[nid];
+        } else {
+          any = true;
+        }
+      }
+
+      if (any) {
+        renderGraphCanvases(cache);
+        st.raf = requestAnimationFrame(step);
+      } else {
+        st.raf = 0;
+      }
+    };
+
+    st.raf = requestAnimationFrame(step);
+  }
+
+  async function fetchExplainAndRender(cache, id) {
+    try {
+      cache.dagExplain = await API.dagExplain(state.current, id);
+    } catch {
+      cache.dagExplain = null;
+    }
+    renderGraphInspector(cache, "graph-inspector");
+    if (cache.graphModalOpen) renderGraphInspector(cache, "graph-inspector-modal");
+  }
+
+  svg.addEventListener("pointerdown", (e) => {
+    if (!state.current) return;
+    const cache = ensureSessionCache(state.current);
+    if (!cache || !cache.graphLayout) return;
+
+    const t = e.target;
+    const hit = t && typeof t.closest === "function" ? t.closest(".graph-node") : null;
+
+    mode = hit ? "node" : "pan";
+    pointerId = e.pointerId;
+    startClient = { x: e.clientX, y: e.clientY };
+    moved = false;
+    lastMoveClient = { x: e.clientX, y: e.clientY };
+    lastMoveTs = performance.now ? performance.now() : Date.now();
+    lastVel = { vx: 0, vy: 0 };
+
+    const rect = svg.getBoundingClientRect();
+    startView = cache.graphLayout.view[targetKey] || parseViewBox(svg.getAttribute("viewBox")) || { x: 0, y: 0, w: 1200, h: 520 };
+    cache.graphLayout.view[targetKey] = startView;
+    const wpx = Math.max(1, rect.width || svg.clientWidth || 1);
+    const hpx = Math.max(1, rect.height || svg.clientHeight || 1);
+    // preserveAspectRatio="xMidYMid meet" => uniform scale
+    const scale = Math.min(wpx / Math.max(1, startView.w), hpx / Math.max(1, startView.h));
+    startScale = { u: scale > 0 ? (1 / scale) : 1 };
+
+    if (mode === "node") {
+      nodeId = hit.dataset.nodeId || hit.dataset.id;
+      if (!nodeId) { reset(); return; }
+      stopInertia(cache, nodeId);
+      const p = cache.graphLayout.pos[nodeId] || { x: startView.x, y: startView.y };
+      cache.graphLayout.pos[nodeId] = p;
+      startNodePos = { x: p.x, y: p.y };
+    }
+
+    try { svg.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    e.preventDefault();
+  });
+
+  svg.addEventListener("pointermove", (e) => {
+    if (!state.current) return;
+    if (!mode || pointerId !== e.pointerId) return;
+    const cache = ensureSessionCache(state.current);
+    if (!cache || !cache.graphLayout) return;
+    if (!startClient || !startView || !startScale) return;
+
+    const dxPx = e.clientX - startClient.x;
+    const dyPx = e.clientY - startClient.y;
+    if (!moved && (Math.abs(dxPx) > 2 || Math.abs(dyPx) > 2)) moved = true;
+
+    const dx = dxPx * startScale.u;
+    const dy = dyPx * startScale.u;
+
+    if (mode === "node" && nodeId && startNodePos) {
+      // Track velocity for "glide" effect on release
+      const nowTs = performance.now ? performance.now() : Date.now();
+      if (lastMoveClient) {
+        const dtMs = Math.max(1, nowTs - (lastMoveTs || nowTs));
+        const instVx = ((e.clientX - lastMoveClient.x) * startScale.u) / dtMs;
+        const instVy = ((e.clientY - lastMoveClient.y) * startScale.u) / dtMs;
+        lastVel.vx = lastVel.vx * 0.8 + instVx * 0.2;
+        lastVel.vy = lastVel.vy * 0.8 + instVy * 0.2;
+      }
+      lastMoveClient = { x: e.clientX, y: e.clientY };
+      lastMoveTs = nowTs;
+
+      cache.graphLayout.pos[nodeId] = { x: startNodePos.x + dx, y: startNodePos.y + dy };
+      if (!cache._graphDragRaf) {
+        cache._graphDragRaf = requestAnimationFrame(() => {
+          cache._graphDragRaf = 0;
+          renderGraphCanvases(cache);
+        });
+      }
+    } else if (mode === "pan" && startView) {
+      pendingView = { x: startView.x - dx, y: startView.y - dy, w: startView.w, h: startView.h };
+      cache.graphLayout.view[targetKey] = pendingView;
+      if (!rafId) {
+        rafId = requestAnimationFrame(() => {
+          rafId = 0;
+          if (pendingView) applyViewBox(svg, pendingView);
+        });
+      }
+    }
+    e.preventDefault();
+  });
+
+  svg.addEventListener("pointerup", (e) => {
+    if (!state.current) { reset(); return; }
+    if (!mode || pointerId !== e.pointerId) { reset(); return; }
+    const cache = ensureSessionCache(state.current);
+
+    // Click = pointerup on node without drag.
+    if (cache && mode === "node" && nodeId && !moved) {
+      cache.graphSelectedId = nodeId;
+      cache.dagExplain = null;
+      renderGraphCanvases(cache);
+      // async explain (best-effort)
+      void fetchExplainAndRender(cache, nodeId);
+    } else if (cache) {
+      if (mode === "node" && moved && cache.graphLayout) {
+        cache.graphLayout.userMoved = true;
+        startInertia(cache, nodeId, lastVel.vx, lastVel.vy);
+      }
+      // finish drag/pan: refresh selection highlight in both canvases
+      renderGraphCanvases(cache);
+    }
+
+    try { svg.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    reset();
+    e.preventDefault();
+  });
+
+  svg.addEventListener("pointercancel", () => reset());
+
+  svg.addEventListener("wheel", (e) => {
+    if (!state.current) return;
+    const cache = ensureSessionCache(state.current);
+    if (!cache || !cache.graphLayout) return;
+
+    // Zoom around cursor
+    const cur = cache.graphLayout.view[targetKey] || parseViewBox(svg.getAttribute("viewBox")) || { x: 0, y: 0, w: 1200, h: 520 };
+    const rect = svg.getBoundingClientRect();
+    const wpx = Math.max(1, rect.width || svg.clientWidth || 1);
+    const hpx = Math.max(1, rect.height || svg.clientHeight || 1);
+    // preserveAspectRatio="xMidYMid meet" mapping (account for letterboxing)
+    const scale = Math.min(wpx / Math.max(1, cur.w), hpx / Math.max(1, cur.h));
+    const drawnW = cur.w * scale;
+    const drawnH = cur.h * scale;
+    const offX = (wpx - drawnW) / 2;
+    const offY = (hpx - drawnH) / 2;
+    let px = (e.clientX - rect.left) - offX;
+    let py = (e.clientY - rect.top) - offY;
+    px = Math.min(drawnW, Math.max(0, px));
+    py = Math.min(drawnH, Math.max(0, py));
+    const u = scale > 0 ? (1 / scale) : 1;
+    const pt = { x: cur.x + px * u, y: cur.y + py * u };
+
+    const delta = e.deltaY;
+    const factor = delta > 0 ? 1.12 : 0.88; // wheel down => zoom out
+    const nextW = Math.min(20_000, Math.max(240, cur.w * factor));
+    const nextH = Math.min(20_000, Math.max(180, cur.h * factor));
+    const fx = nextW / cur.w;
+    const fy = nextH / cur.h;
+
+    const nx = pt.x - (pt.x - cur.x) * fx;
+    const ny = pt.y - (pt.y - cur.y) * fy;
+    const next = { x: nx, y: ny, w: nextW, h: nextH };
+
+    cache.graphLayout.view[targetKey] = next;
+    applyViewBox(svg, next);
+    e.preventDefault();
+  }, { passive: false });
 }
 
 function applyEvent(sessionId, evt) {
@@ -1222,7 +1683,6 @@ function applyEvent(sessionId, evt) {
     cache.llm = evt.totalLlmCalls ?? cache.llm;
     scheduleRender(sessionId, true);
 
-    $("btn-stop").disabled = true;
     $("btn-run").disabled = false;
     setDownloads(sessionId, true);
 
@@ -1249,7 +1709,6 @@ function applyEvent(sessionId, evt) {
     const msg = evt.message || evt.error || "Execution failed";
     $("status-text").textContent = `FAILED: ${msg}`;
     renderResultBox(msg, false);
-    $("btn-stop").disabled = true;
     $("btn-run").disabled = false;
     // Even on failure/stop, transcript/review may exist.
     setDownloads(sessionId, true);
@@ -1257,244 +1716,68 @@ function applyEvent(sessionId, evt) {
   }
 }
 
-function renderGraph(graph, selectedId) {
-  const viewport = $("graph-viewport");
-  if (!viewport) return;
-  const svg = $("graph-svg");
+function renderGraphViews(cache) {
+  if (!cache) return;
 
-  // SVG nodes have fixed size; text must be clipped/truncated to avoid overlap.
-  const NODE_W = 220;
-  const NODE_H = 54;
-  const NODE_TOP_PAD = 22; // rect y = p.y - 22
-  const FIT_PAD = 80;
+  renderGraphCanvases(cache);
 
-  const axioms = Array.isArray(graph.axioms) ? graph.axioms : [];
-  const assumptions = Array.isArray(graph.assumptions) ? graph.assumptions : [];
-  const theorems = Array.isArray(graph.theorems) ? graph.theorems : [];
-
-  function clipSafeId(id) {
-    return String(id || "").replace(/[^\w\-]/g, "_");
-  }
-
-  function normalizeOneLine(s) {
-    return String(s || "").replace(/\s+/g, " ").trim();
-  }
-
-  function shortLabel(s, maxChars = 34) {
-    const t = normalizeOneLine(s);
-    if (t.length <= maxChars) return t;
-    return t.slice(0, Math.max(1, maxChars - 1)) + "…";
-  }
-
-  function axId(line, idx) {
-    // NOTE: Regex literal must use single backslashes (\w, \s). Double backslashes would match literal "\w".
-    const m = String(line || "").match(/^([A-Za-z]\w*)\s*:/);
-    return m ? m[1] : `A${idx + 1}`;
-  }
-
-  const nodes = [];
-  for (let i = 0; i < axioms.length; i++) nodes.push({ id: axId(axioms[i], i), label: axioms[i], kind: "axiom" });
-  for (let i = 0; i < assumptions.length; i++) {
-    const a = assumptions[i] || {};
-    const id = String(a.id || "").trim() || `S${i + 1}`;
-    nodes.push({
-      id,
-      label: a.statement || a.id || id,
-      kind: "assumption",
-      motivation: a.motivation || "",
-    });
-  }
-  for (const t of theorems) nodes.push({
-    id: t.id || "",
-    label: t.statement || t.id || "",
-    kind: "theorem",
-    dependsOn: t.dependsOn || t.depends_on || [],
-    proof: t.proof || "",
-  });
-
-  const byId = Object.create(null);
-  for (const n of nodes) byId[n.id] = n;
-
-  // layout
-  const pos = Object.create(null);
-  let y = 50;
-  const sources = nodes
-    .filter(n => n.kind !== "theorem")
-    .sort((a, b) => String(a.id).localeCompare(String(b.id)));
-  for (const n of sources) {
-    pos[n.id] = { x: 40, y };
-    y += 90;
-  }
-  const ths = nodes.filter(n => n.kind === "theorem").sort((a, b) => String(a.id).localeCompare(String(b.id)));
-  const laneY = Object.create(null);
-  for (let i = 0; i < ths.length; i++) {
-    const id = ths[i].id;
-    const m = id.match(/^T(\d+)$/i);
-    const layer = m ? parseInt(m[1], 10) : (i + 1);
-    if (!laneY[layer]) laneY[layer] = 50;
-    pos[id] = { x: 320 + (layer - 1) * 280, y: laneY[layer] };
-    laneY[layer] += 120;
-  }
-
-  // Auto-fit SVG canvas to include all nodes (fix: nodes could be rendered outside the initial 1200x520 viewBox).
-  if (svg) {
-    let maxX = 1200;
-    let maxY = 520;
-    for (const k in pos) {
-      const p = pos[k];
-      if (!p) continue;
-      maxX = Math.max(maxX, p.x + NODE_W + FIT_PAD);
-      maxY = Math.max(maxY, (p.y - NODE_TOP_PAD) + NODE_H + FIT_PAD);
-    }
-    maxX = Math.ceil(maxX);
-    maxY = Math.ceil(maxY);
-    svg.setAttribute("width", String(maxX));
-    svg.setAttribute("height", String(maxY));
-    svg.setAttribute("viewBox", `0 0 ${maxX} ${maxY}`);
-  }
-
-  // edges
-  const edges = [];
-  for (const t of ths) {
-    const deps = Array.isArray(t.dependsOn) ? t.dependsOn : [];
-    for (const d of deps) {
-      const depId = String(d || "").trim();
-      if (byId[depId]) edges.push({ from: depId, to: t.id });
-    }
-  }
-
-  const defs = [];
-  const parts = [];
-  for (const e of edges) {
-    const a = pos[e.from];
-    const b = pos[e.to];
-    if (!a || !b) continue;
-    const x1 = a.x + NODE_W, y1 = a.y;
-    const x2 = b.x, y2 = b.y;
-    const mx = (x1 + x2) / 2;
-    parts.push(`<path d="M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}" stroke="#94a3b8" stroke-width="2" fill="none" />`);
-  }
-  for (const n of nodes) {
-    const p = pos[n.id];
-    if (!p) continue;
-    const k = String(n.kind || "").toLowerCase();
-    const fill = k === "axiom" ? "#eff6ff" : (k === "assumption" ? "#fff7ed" : "#f0fdf4");
-    const stroke = k === "axiom" ? "#bfdbfe" : (k === "assumption" ? "#fdba74" : "#bbf7d0");
-    const fullLabel = normalizeOneLine(n.label || n.id);
-    const title = escapeHtml(shortLabel(fullLabel));
-    const clipId = `clip_${clipSafeId(n.id)}`;
-    const sel = selectedId && selectedId === n.id;
-
-    // Clip to node rect so label never overflows into neighbors.
-    defs.push(`<clipPath id="${clipId}"><rect x="${p.x}" y="${p.y - 22}" width="${NODE_W}" height="${NODE_H}" rx="10" ry="10"></rect></clipPath>`);
-    parts.push(`
-      <g class="graph-node ${sel ? "selected" : ""}" data-node-id="${escapeAttr(n.id)}" data-node-kind="${escapeAttr(n.kind)}" clip-path="url(#${clipId})">
-        <title>${escapeHtml(fullLabel)}</title>
-        <rect x="${p.x}" y="${p.y - 22}" rx="10" ry="10" width="${NODE_W}" height="${NODE_H}" fill="${fill}" stroke="${stroke}" stroke-width="2"></rect>
-        <text x="${p.x + 10}" y="${p.y - 2}" font-family="ui-monospace, Menlo, Consolas" font-size="12" fill="#0f172a">${escapeHtml(n.id)}</text>
-        <text x="${p.x + 10}" y="${p.y + 16}" font-family="ui-sans-serif, system-ui" font-size="12" fill="#334155">${title}</text>
-      </g>
-    `);
-  }
-  viewport.innerHTML = `${defs.length ? `<defs>${defs.join("")}</defs>` : ""}${parts.join("")}`;
+  renderGraphInspector(cache, "graph-inspector");
+  if (cache.graphModalOpen) renderGraphInspector(cache, "graph-inspector-modal");
 }
 
-function renderDagGraph(dag, selectedId) {
-  const viewport = $("graph-viewport");
-  if (!viewport) return;
-  const svg = $("graph-svg");
+function renderGraphCanvases(cache) {
+  if (!cache) return;
+  if (cache.dag) {
+    renderDagGraph(cache.dag, cache.graphSelectedId, cache, "main");
+    if (cache.graphModalOpen) renderDagGraph(cache.dag, cache.graphSelectedId, cache, "modal");
+  } else {
+    renderGraph(cache.graph, cache.graphSelectedId, cache, "main");
+    if (cache.graphModalOpen) renderGraph(cache.graph, cache.graphSelectedId, cache, "modal");
+  }
+}
+
+function renderGraph(graph, selectedId, cache, target = "main") {
+  const dag = buildDagFromGraph(graph);
+  renderDagGraph(dag, selectedId, cache, target);
+}
+
+function renderDagGraph(dag, selectedId, cache, target = "main") {
+  const viewport = target === "modal" ? $("graph-viewport-modal") : $("graph-viewport");
+  const svg = target === "modal" ? $("graph-svg-modal") : $("graph-svg");
+  if (!viewport || !svg) return;
+
   if (!dag || !Array.isArray(dag.nodes) || !Array.isArray(dag.edges)) {
     viewport.innerHTML = "";
     return;
   }
 
-  // SVG nodes have fixed size; text must be clipped/truncated to avoid overlap.
-  const NODE_W = 220;
-  const NODE_H = 54;
-  const NODE_TOP_PAD = 22; // rect y = p.y - 22
-  const FIT_PAD = 80;
-
-  function clipSafeId(id) {
-    return String(id || "").replace(/[^\w\-]/g, "_");
-  }
+  // SVG style: we control interaction via viewBox (pan/zoom), so keep the SVG responsive.
+  svg.style.width = "100%";
+  svg.style.height = "100%";
+  svg.style.touchAction = "none";
+  svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
 
   function normalizeOneLine(s) {
     return String(s || "").replace(/\s+/g, " ").trim();
   }
 
-  function shortLabel(s, maxChars = 34) {
+  function shortLabel(s, maxChars = 44) {
     const t = normalizeOneLine(s);
     if (t.length <= maxChars) return t;
     return t.slice(0, Math.max(1, maxChars - 1)) + "…";
   }
 
-  const nodes = dag.nodes.map((n) => ({
-    id: n.id || "",
-    kind: n.kind || "Unknown",
-    label: n.label || "",
-    proof: n.proof || "",
-  })).filter((n) => n.id);
-
-  const byId = Object.create(null);
-  for (const n of nodes) byId[n.id] = n;
-
-  // layout: sources (axiom/hypothesis/assumption/unknown) on the left, theorems on the right
-  const sources = nodes.filter((n) => String(n.kind).toLowerCase() !== "theorem")
-    .sort((a, b) => String(a.id).localeCompare(String(b.id)));
-  const theorems = nodes.filter((n) => String(n.kind).toLowerCase() === "theorem")
-    .sort((a, b) => String(a.id).localeCompare(String(b.id)));
-
-  const pos = Object.create(null);
-  let y = 50;
-  for (const n of sources) {
-    pos[n.id] = { x: 40, y };
-    y += 90;
-  }
-
-  const laneY = Object.create(null);
-  for (let i = 0; i < theorems.length; i++) {
-    const id = theorems[i].id;
-    const m = String(id).match(/^T(\d+)$/i);
-    const layer = m ? parseInt(m[1], 10) : (i + 1);
-    if (!laneY[layer]) laneY[layer] = 50;
-    pos[id] = { x: 320 + (layer - 1) * 280, y: laneY[layer] };
-    laneY[layer] += 120;
-  }
-
-  // Auto-fit SVG canvas to include all nodes (fix: large theorem indices push nodes outside the initial viewBox).
-  if (svg) {
-    let maxX = 1200;
-    let maxY = 520;
-    for (const k in pos) {
-      const p = pos[k];
-      if (!p) continue;
-      maxX = Math.max(maxX, p.x + NODE_W + FIT_PAD);
-      maxY = Math.max(maxY, (p.y - NODE_TOP_PAD) + NODE_H + FIT_PAD);
-    }
-    maxX = Math.ceil(maxX);
-    maxY = Math.ceil(maxY);
-    svg.setAttribute("width", String(maxX));
-    svg.setAttribute("height", String(maxY));
-    svg.setAttribute("viewBox", `0 0 ${maxX} ${maxY}`);
-  }
-
-  const edges = dag.edges
-    .map((e) => ({ from: e.fromId, to: e.toId }))
-    .filter((e) => e.from && e.to && pos[e.from] && pos[e.to]);
-
-  const defs = [];
-  const parts = [];
-  for (const e of edges) {
-    const a = pos[e.from];
-    const b = pos[e.to];
-    const x1 = a.x + NODE_W, y1 = a.y;
-    const x2 = b.x, y2 = b.y;
-    const mx = (x1 + x2) / 2;
-    parts.push(`<path d="M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}" stroke="#94a3b8" stroke-width="2" fill="none" />`);
+  function kindKey(kind) {
+    const k = String(kind || "").toLowerCase();
+    if (k.includes("axiom")) return "axiom";
+    if (k.includes("theorem")) return "theorem";
+    if (k.includes("assumption")) return "assumption";
+    if (k.includes("hypothesis")) return "hypothesis";
+    return "unknown";
   }
 
   function colors(kind) {
-    const k = String(kind || "").toLowerCase();
+    const k = kindKey(kind);
     if (k === "axiom") return { fill: "#eff6ff", stroke: "#bfdbfe" };
     if (k === "theorem") return { fill: "#f0fdf4", stroke: "#bbf7d0" };
     if (k === "hypothesis") return { fill: "#fffbeb", stroke: "#fde68a" };
@@ -1502,32 +1785,220 @@ function renderDagGraph(dag, selectedId) {
     return { fill: "#f8fafc", stroke: "#e2e8f0" };
   }
 
+  const nodes = dag.nodes
+    .map((n) => ({
+      id: String(n && n.id ? n.id : "").trim(),
+      kind: n && n.kind ? n.kind : "Unknown",
+      label: n && n.label ? n.label : "",
+      proof: n && n.proof ? n.proof : "",
+    }))
+    .filter((n) => n.id);
+
+  const edges = dag.edges
+    .map((e) => ({ from: e && e.fromId ? String(e.fromId).trim() : "", to: e && e.toId ? String(e.toId).trim() : "" }))
+    .filter((e) => e.from && e.to);
+
+  // ─────────────────────────────────────────────
+  // Layout (persistent positions + deterministic defaults)
+  // ─────────────────────────────────────────────
+  const layout = cache && cache.graphLayout ? cache.graphLayout : { pos: Object.create(null), view: { main: null, modal: null } };
+  const pos = layout.pos || (layout.pos = Object.create(null));
+
+  // Drop stale positions
+  const alive = new Set(nodes.map((n) => n.id));
+  for (const k in pos) {
+    if (!alive.has(k)) delete pos[k];
+  }
+
+  function kindWeight(k) {
+    const kk = kindKey(k);
+    if (kk === "axiom") return 0;
+    if (kk === "assumption") return 1;
+    if (kk === "hypothesis") return 2;
+    if (kk === "theorem") return 3;
+    return 4;
+  }
+
+  function sortKey(n) {
+    return `${kindWeight(n.kind)}:${String(n.id || "")}`;
+  }
+
+  function computeAutoLayout() {
+    const ids = nodes.map((n) => n.id);
+    const out = Object.create(null);
+    const indeg = Object.create(null);
+    for (const id of ids) {
+      out[id] = [];
+      indeg[id] = 0;
+    }
+
+    // Dedup edges by from->to
+    const edgeKey = new Set();
+    for (const e of edges) {
+      if (!out[e.from] || typeof out[e.from].push !== "function") continue;
+      if (typeof indeg[e.to] !== "number") continue;
+      const k = `${e.from}->${e.to}`;
+      if (edgeKey.has(k)) continue;
+      edgeKey.add(k);
+      out[e.from].push(e.to);
+      indeg[e.to] += 1;
+    }
+
+    const byId = Object.create(null);
+    for (const n of nodes) byId[n.id] = n;
+
+    const q = ids
+      .filter((id) => indeg[id] === 0)
+      .sort((a, b) => String(sortKey(byId[a])).localeCompare(String(sortKey(byId[b]))));
+    const order = [];
+
+    while (q.length) {
+      const id = q.shift();
+      order.push(id);
+      for (const to of out[id] || []) {
+        indeg[to] -= 1;
+        if (indeg[to] === 0) {
+          q.push(to);
+          q.sort((a, b) => String(sortKey(byId[a])).localeCompare(String(sortKey(byId[b]))));
+        }
+      }
+    }
+
+    // Cycles / leftovers: append deterministically
+    if (order.length < ids.length) {
+      const seen = new Set(order);
+      const rest = ids
+        .filter((id) => !seen.has(id))
+        .sort((a, b) => String(sortKey(byId[a])).localeCompare(String(sortKey(byId[b]))));
+      order.push(...rest);
+    }
+
+    const depth = Object.create(null);
+    for (const id of ids) depth[id] = 0;
+    for (const id of order) {
+      const d = depth[id] || 0;
+      for (const to of out[id] || []) {
+        depth[to] = Math.max(depth[to] || 0, d + 1);
+      }
+    }
+
+    // Stable, readable spacing (prevents "all nodes in one row")
+    const X0 = 160;
+    const Y0 = 90;
+    const X_SP = 260;
+    const Y_SP = 84;
+
+    const m = Object.create(null);
+    for (let i = 0; i < order.length; i++) {
+      const id = order[i];
+      m[id] = { x: X0 + (depth[id] || 0) * X_SP, y: Y0 + i * Y_SP };
+    }
+    return m;
+  }
+
+  const auto = computeAutoLayout();
+
+  // If layout looks degenerate (e.g. all theorems share the same y), auto-fix unless user dragged.
+  const theoremYs = nodes
+    .filter((n) => kindKey(n.kind) === "theorem")
+    .map((n) => (pos[n.id] ? pos[n.id].y : null))
+    .filter((y) => typeof y === "number");
+  const yMin = theoremYs.length ? Math.min(...theoremYs) : 0;
+  const yMax = theoremYs.length ? Math.max(...theoremYs) : 0;
+  const degenerateTheoremRow = theoremYs.length >= 4 && (yMax - yMin) < 30;
+
+  const canRewrite = !layout.userMoved;
+  const initial = Object.keys(pos).length === 0;
+  const rewriteAll = canRewrite && (initial || degenerateTheoremRow);
+
+  for (const n of nodes) {
+    if (rewriteAll || !pos[n.id]) {
+      const p = auto[n.id];
+      if (p) pos[n.id] = { x: p.x, y: p.y };
+    }
+  }
+
+  // ─────────────────────────────────────────────
+  // ViewBox (fit once unless user changes it)
+  // ─────────────────────────────────────────────
+  const viewKey = target === "modal" ? "modal" : "main";
+  if (!layout.view) layout.view = { main: null, modal: null };
+  let view = layout.view[viewKey];
+  if (!view) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of nodes) {
+      const p = pos[n.id];
+      if (!p) continue;
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x);
+      maxY = Math.max(maxY, p.y);
+    }
+    if (!Number.isFinite(minX)) {
+      minX = 0; minY = 0; maxX = 1200; maxY = 520;
+    }
+    const PAD = 140;
+    const w = Math.max(720, (maxX - minX) + PAD * 2);
+    const h = Math.max(520, (maxY - minY) + PAD * 2);
+    view = { x: minX - PAD, y: minY - PAD, w, h };
+    layout.view[viewKey] = view;
+  }
+  svg.setAttribute("viewBox", `${view.x} ${view.y} ${view.w} ${view.h}`);
+
+  // ─────────────────────────────────────────────
+  // Render (circles + arrows)
+  // ─────────────────────────────────────────────
+  const R = 28;
+  const markerId = "arrow";
+  const defs = [
+    `<marker id="${markerId}" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">` +
+      `<path d="M0,0 L0,6 L9,3 z" fill="rgba(148, 163, 184, 0.95)"></path>` +
+    `</marker>`
+  ];
+
+  const parts = [];
+
+  // edges first (under nodes)
+  for (const e of edges) {
+    const a = pos[e.from];
+    const b = pos[e.to];
+    if (!a || !b) continue;
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    const sx = a.x + (dx / dist) * R;
+    const sy = a.y + (dy / dist) * R;
+    const ex = b.x - (dx / dist) * (R + 2);
+    const ey = b.y - (dy / dist) * (R + 2);
+    const dx2 = ex - sx;
+    const c1x = sx + dx2 * 0.35;
+    const c2x = ex - dx2 * 0.35;
+    parts.push(`<g class="graph-edge"><path d="M ${sx} ${sy} C ${c1x} ${sy}, ${c2x} ${ey}, ${ex} ${ey}" marker-end="url(#${markerId})"></path></g>`);
+  }
+
+  // nodes
   for (const n of nodes) {
     const p = pos[n.id];
     if (!p) continue;
     const c = colors(n.kind);
-    const fullLabel = normalizeOneLine(n.label || n.id);
-    const title = escapeHtml(shortLabel(fullLabel));
-    const clipId = `clip_${clipSafeId(n.id)}`;
     const sel = selectedId && selectedId === n.id;
-
-    // Clip to node rect so label never overflows into neighbors.
-    defs.push(`<clipPath id="${clipId}"><rect x="${p.x}" y="${p.y - 22}" width="${NODE_W}" height="${NODE_H}" rx="10" ry="10"></rect></clipPath>`);
-    parts.push(`
-      <g class="graph-node ${sel ? "selected" : ""}" data-node-id="${escapeAttr(n.id)}" data-node-kind="${escapeAttr(n.kind)}" clip-path="url(#${clipId})">
-        <title>${escapeHtml(fullLabel)}</title>
-        <rect x="${p.x}" y="${p.y - 22}" rx="10" ry="10" width="${NODE_W}" height="${NODE_H}" fill="${c.fill}" stroke="${c.stroke}" stroke-width="2"></rect>
-        <text x="${p.x + 10}" y="${p.y - 2}" font-family="ui-monospace, Menlo, Consolas" font-size="12" fill="#0f172a">${escapeHtml(n.id)}</text>
-        <text x="${p.x + 10}" y="${p.y + 16}" font-family="ui-sans-serif, system-ui" font-size="12" fill="#334155">${title}</text>
-      </g>
-    `);
+    const fullLabel = normalizeOneLine(n.label || n.id);
+    const labelText = escapeHtml(shortLabel(fullLabel));
+    parts.push(
+      `<g class="graph-node ${sel ? "selected" : ""}" data-node-id="${escapeAttr(n.id)}" data-node-kind="${escapeAttr(n.kind)}">` +
+        `<title>${escapeHtml(fullLabel)}</title>` +
+        `<circle cx="${p.x}" cy="${p.y}" r="${R}" fill="${c.fill}" stroke="${c.stroke}" stroke-width="2"></circle>` +
+        `<text x="${p.x}" y="${p.y + 1}" text-anchor="middle" dominant-baseline="middle" font-family="ui-monospace, Menlo, Consolas" font-size="12" fill="#0f172a">${escapeHtml(n.id)}</text>` +
+        `<text x="${p.x + R + 10}" y="${p.y + 4}" font-family="ui-sans-serif, system-ui" font-size="12" fill="#334155">${labelText}</text>` +
+      `</g>`
+    );
   }
 
   viewport.innerHTML = `${defs.length ? `<defs>${defs.join("")}</defs>` : ""}${parts.join("")}`;
 }
 
-function renderGraphInspector(cache) {
-  const host = $("graph-inspector");
+function renderGraphInspector(cache, hostId = "graph-inspector") {
+  const host = $(hostId);
   if (!host) return;
 
   // Prefer Graph DB explain data (DAG reasoning)
@@ -1682,13 +2153,10 @@ function selectSession(sessionId) {
     } catch {
       cache.dag = null;
     }
-    if (cache.dag) renderDagGraph(cache.dag, cache.graphSelectedId);
-    else renderGraph(cache.graph, cache.graphSelectedId);
-    renderGraphInspector(cache);
+    renderGraphViews(cache);
   })();
 
-  // Allow stop/run for current
-  $("btn-stop").disabled = false;
+  // Allow run for current
   $("btn-run").disabled = false;
 }
 
@@ -1734,23 +2202,38 @@ async function createSession() {
 async function runSession() {
   if (!state.current) return;
   $("btn-run").disabled = true;
-  $("btn-stop").disabled = false;
   setDownloads(state.current, false);
+
+  // UX: once running, New Run panel becomes low-signal; collapse it.
+  setNewRunCollapsed(true);
 
   const res = await API.run(state.current);
   if (!res.success) {
     $("status-text").textContent = `Run failed: ${res.error || "unknown"}`;
     $("btn-run").disabled = false;
-    $("btn-stop").disabled = true;
   }
 }
 
+async function stopSessionById(sessionId) {
+  const id = String(sessionId || "").trim();
+  if (!id) return;
+
+  const res = await API.stop(id);
+
+  // If user stopped the current session, reflect it.
+  if (id === state.current) {
+    $("status-text").textContent = res.success ? "Stopped" : `Stop failed: ${res.error || "unknown"}`;
+    $("btn-run").disabled = false;
+  }
+
+  // Refresh list so status updates quickly.
+  void refreshSessions();
+}
+
+// Back-compat helper (if any old caller still uses it).
 async function stopSession() {
   if (!state.current) return;
-  const res = await API.stop(state.current);
-  $("status-text").textContent = res.success ? "Stopped" : `Stop failed: ${res.error || "unknown"}`;
-  $("btn-stop").disabled = true;
-  $("btn-run").disabled = false;
+  return stopSessionById(state.current);
 }
 
 function initDefaults() {
@@ -1767,7 +2250,13 @@ function initDefaults() {
       "Discover novel non-trivial implications and conjectures from O1–O4. Each step must be either (A) DEDUCTION strictly from O1–O4 or prior derived facts, or (B) INTERPRETATION clearly labeled. Prefer small, checkable steps; avoid repetition.";
   }
   if ($("input-seed-hypothesis") && !$("input-seed-hypothesis").value.trim()) {
-    $("input-seed-hypothesis").value = "";
+    $("input-seed-hypothesis").value = [
+      "For any code subspace C ⊆ ℋ_bulk encoded via the holographic isometry Φ (O4), dim(C) ≤ dim(ℋ_{∂G}).",
+      "",
+      "(H0) Let R be any bounded causally closed region with boundary area A (O2), and let Φ: ℋ_bulk → ℋ_{∂G} be the holographic isometry (O4). Then any code subspace C ⊆ ℋ_bulk that is encoded into the boundary via Φ satisfies",
+      "dim(C) ≤ dim(ℋ_{∂G}) < ∞, and therefore the maximum number of perfectly distinguishable (mutually orthogonal) bulk code states is upper-bounded by the boundary information bound ~ exp(A/(4 l_P^2)).",
+      "Equivalently, for any bulk mixed state ρ supported on C, S(ρ) ≤ log dim(ℋ_{∂G}) ~ A/(4 l_P^2).",
+    ].join("\n");
   }
 }
 
@@ -1776,10 +2265,25 @@ window.addEventListener("load", async () => {
   await loadWorkflowsIntoSelect();
   applyRunConfigToForm(loadRunConfig());
 
+  // UI prefs
+  try {
+    setNewRunCollapsed(localStorage.getItem(UI_PREF_KEYS.newRunCollapsed) === "1");
+  } catch {
+    // ignore
+  }
+
+  if ($("btn-toggle-new-run")) $("btn-toggle-new-run").addEventListener("click", toggleNewRunCollapsed);
+
   $("btn-refresh").addEventListener("click", () => refreshSessions());
   $("btn-create").addEventListener("click", createSession);
   $("btn-run").addEventListener("click", runSession);
-  $("btn-stop").addEventListener("click", stopSession);
+
+  // Graph controls
+  if ($("btn-graph-fit")) $("btn-graph-fit").addEventListener("click", () => fitGraphView("main"));
+  if ($("btn-graph-fullscreen")) $("btn-graph-fullscreen").addEventListener("click", openGraphModal);
+  if ($("btn-graph-modal-fit")) $("btn-graph-modal-fit").addEventListener("click", () => fitGraphView("modal"));
+  if ($("graph-modal-close")) $("graph-modal-close").addEventListener("click", closeGraphModal);
+  if ($("graph-modal-backdrop")) $("graph-modal-backdrop").addEventListener("click", closeGraphModal);
 
   $("btn-toggle-raw").addEventListener("click", () => {
     state.rawOpen = !state.rawOpen;
@@ -1797,7 +2301,12 @@ window.addEventListener("load", async () => {
   $("modal-close").addEventListener("click", closeModal);
   $("modal-backdrop").addEventListener("click", closeModal);
   window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeModal();
+    if (e.key !== "Escape") return;
+    if ($("graph-modal") && !$("graph-modal").classList.contains("hidden")) {
+      closeGraphModal();
+      return;
+    }
+    closeModal();
   });
 
   // Workers: PaperReview-style pointerdown/up to survive DOM churn during streaming
@@ -1828,37 +2337,12 @@ window.addEventListener("load", async () => {
     if (wid) openWorkerModal(wid);
   });
 
-  // Graph: click nodes to inspect details (right inspector panel)
-  const svg = $("graph-svg");
-  if (svg) {
-    svg.addEventListener("click", (e) => {
-      if (!state.current) return;
-      const t = e.target;
-      if (!t || typeof t.closest !== "function") return;
-      const node = t.closest(".graph-node");
-      if (!node) return;
-      const id = node.dataset.nodeId || node.dataset.id;
-      if (!id) return;
-
-      const cache = ensureSessionCache(state.current);
-      cache.graphSelectedId = id;
-      cache.dagExplain = null;
-      if (cache.dag) renderDagGraph(cache.dag, cache.graphSelectedId);
-      else renderGraph(cache.graph, cache.graphSelectedId);
-
-      // Pull DAG reasoning detail (best-effort)
-      void (async () => {
-        try {
-          cache.dagExplain = await API.dagExplain(state.current, id);
-        } catch {
-          cache.dagExplain = null;
-        }
-        renderGraphInspector(cache);
-      })();
-    });
-  }
+  // Graph: interactive canvas (drag nodes + pan/zoom)
+  bindGraphCanvas("graph-svg", "main");
+  bindGraphCanvas("graph-svg-modal", "modal");
 
   await refreshSessions(true);
 });
+
 
 

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "executionId": "notebook-chat-36482d8925254e159f3380b106536763",
+  "kind": "Custom",
+  "status": "Succeeded",
+  "name": "notebook.chat",
+  "exportedAtUtc": "2026-01-03T03:20:52.336832+00:00",
+  "files": {
+    "traceBinary": "trace.pb",
+    "traceJson": "trace.json",
+    "manifest": "manifest.json",
+    "artifactsDir": "artifacts"
+  }
+}

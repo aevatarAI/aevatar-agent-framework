@@ -1,6 +1,12 @@
+using System.Runtime.CompilerServices;
+using Aevatar.Agents.Abstractions.Memory;
+using Aevatar.Agents.Abstractions.Tracing;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core;
+using Aevatar.Agents.AI.WithTool.Abstractions;
+using Aevatar.Notebook.Streaming;
+using Aevatar.Notebook.Tools;
 
 namespace Aevatar.Notebook.Agents;
 
@@ -14,6 +20,12 @@ namespace Aevatar.Notebook.Agents;
 public sealed class NotebookAgent : AIGAgentBase
 {
     public const string NotebookContextKey = "notebook_context";
+
+    // Injected by AIGAgentFactory (best-effort). Used by tools (Layer 4.2).
+    private IMemoryGraphStore? MemoryGraphStore { get; set; }
+
+    // Injected by AIGAgentFactory (best-effort). Reserved for future tooling.
+    private IExecutionTraceStore? ExecutionTraceStore { get; set; }
 
     public NotebookAgent()
     {
@@ -41,6 +53,34 @@ public sealed class NotebookAgent : AIGAgentBase
     public override Task<string> GetDescriptionAsync() =>
         Task.FromResult("Aevatar.Notebook Agent (context-grounded Q&A + report)");
 
+    protected override IAevatarToolManager CreateToolManager()
+    {
+        // Wrap default tool manager to emit tool progress events into current HTTP stream (best-effort).
+        return new NotebookToolManager(base.CreateToolManager());
+    }
+
+    protected override async Task RegisterToolsAsync(CancellationToken cancellationToken = default)
+    {
+        await base.RegisterToolsAsync(cancellationToken);
+
+        // Notebook tools depend on MemoryStore; if it's not wired, skip registration gracefully.
+        if (MemoryStore == null)
+            return;
+
+        await RegisterToolAsync(new ListSourcesTool(MemoryStore), cancellationToken: cancellationToken);
+        await RegisterToolAsync(new GetSourceTool(MemoryStore), cancellationToken: cancellationToken);
+        await RegisterToolAsync(new RetrieveChunksTool(MemoryStore, MemoryVectorIndex), cancellationToken: cancellationToken);
+
+        // Reports (stored in MemoryStore)
+        await RegisterToolAsync(new GetReportTool(MemoryStore), cancellationToken: cancellationToken);
+        await RegisterToolAsync(
+            new GenerateReportTool(MemoryStore, MemoryVectorIndex, (req, ct) => base.ChatAsync(req, ct)),
+            cancellationToken: cancellationToken);
+
+        // Execution graph (best-effort; works when IMemoryGraphStore is wired)
+        await RegisterToolAsync(new GetExecutionGraphTool(MemoryGraphStore), cancellationToken: cancellationToken);
+    }
+
     public override async Task<ChatResponse> ChatAsync(ChatRequest request, CancellationToken cancellationToken = default)
     {
         var resp = await base.ChatAsync(request, cancellationToken);
@@ -49,6 +89,19 @@ public sealed class NotebookAgent : AIGAgentBase
         await ProjectStateAsync(GetState(), cancellationToken);
 
         return resp;
+    }
+
+    public override async IAsyncEnumerable<string> ChatStreamAsync(
+        ChatRequest request,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        await foreach (var chunk in base.ChatStreamAsync(request, cancellationToken))
+        {
+            yield return chunk;
+        }
+
+        // Best-effort CQRS projection (Layer 3): project state snapshot after each turn.
+        await ProjectStateAsync(GetState(), cancellationToken);
     }
 
     protected override AevatarLLMRequest BuildLLMRequest(ChatRequest request)

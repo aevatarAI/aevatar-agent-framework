@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Report · Aevatar.Notebook</title>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    /* ============================================================
+       Report viewer (standalone)
+       - Keep styles local to avoid bloating global CSS.
+       ============================================================ */
+    body { background: var(--bg); }
+    .report-page { max-width: 980px; margin: 0 auto; padding: var(--s-4); }
+    .report-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); margin-bottom: var(--s-4); }
+    .report-title { font-size: var(--text-xl); font-weight: 750; letter-spacing: -0.02em; margin: 0; }
+    .report-sub { margin-top: 4px; font-size: var(--text-sm); color: var(--muted); }
+    .report-actions { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
+
+    .markdown {
+      line-height: 1.7;
+      font-size: 15px;
+      color: var(--text);
+    }
+    .markdown h1, .markdown h2, .markdown h3 {
+      letter-spacing: -0.01em;
+      margin: 18px 0 10px;
+    }
+    .markdown h1 { font-size: 26px; }
+    .markdown h2 { font-size: 20px; border-bottom: var(--bw) solid var(--border); padding-bottom: 6px; }
+    .markdown h3 { font-size: 16px; }
+    .markdown p { margin: 10px 0; }
+    .markdown ul, .markdown ol { margin: 10px 0 10px 22px; padding: 0; }
+    .markdown li { margin: 6px 0; }
+    .markdown code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.92em;
+      background: rgba(38, 99, 235, 0.08);
+      border: var(--bw) solid rgba(38, 99, 235, 0.14);
+      padding: 2px 6px;
+      border-radius: 8px;
+    }
+    .markdown pre {
+      background: var(--surface-2);
+      border: var(--bw) solid var(--border);
+      border-radius: var(--r-3);
+      padding: 12px 14px;
+      overflow: auto;
+      margin: 12px 0;
+    }
+    .markdown pre code { background: transparent; border: none; padding: 0; }
+    .markdown .citation {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 999px;
+      border: var(--bw) solid rgba(38, 99, 235, 0.18);
+      background: rgba(38, 99, 235, 0.06);
+      color: rgba(38, 99, 235, 0.95);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .report-error { color: var(--danger); white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <div class="report-page">
+    <div class="report-head">
+      <div>
+        <h1 id="reportTitle" class="report-title">Report</h1>
+        <div id="reportSub" class="report-sub">loading…</div>
+      </div>
+      <div class="report-actions">
+        <a class="btn btn-secondary" href="/" title="Back to Notebook">Back</a>
+        <button id="copyBtn" class="btn btn-ghost" type="button">Copy</button>
+        <button id="downloadBtn" class="btn btn-ghost" type="button">Download</button>
+        <button id="refreshBtn" class="btn btn-ghost" type="button">Refresh</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div id="reportRender" class="markdown"></div>
+      <div id="reportError" class="report-error"></div>
+
+      <details class="meta" style="margin-top: 12px;">
+        <summary class="meta-summary">Markdown</summary>
+        <pre id="reportMarkdown" class="pre"></pre>
+      </details>
+    </div>
+  </div>
+
+  <script src="report.js"></script>
+</body>
+</html>
+
+

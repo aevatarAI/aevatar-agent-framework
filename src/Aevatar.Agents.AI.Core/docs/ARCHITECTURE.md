@@ -28,6 +28,17 @@ src/Aevatar.Agents.AI.Core/
 - **对外**：业务工程只需要引用 `Aevatar.Agents.AI.Core`（即可获得工具/MCP 能力）。
 - **对内**：工具系统代码位于 `WithTool/` 目录，但仍使用 `Aevatar.Agents.AI.WithTool.*` 命名空间以避免破坏上层代码。
 
+## DI / 注入链路（节选）
+
+AI Agent 的依赖注入由 `AIGAgentFactory` 统一负责，并通过一组反射注入器（Injector）将 store/tooling 注入到 Agent 实例上。
+
+### Memory 相关（扩展）
+
+除 `IMemoryStore`、`IMemoryVectorIndex` 外，AI Agent 也可以（best-effort）获得：
+
+- `IMemoryGraphStore`：当 Agent 声明可写属性 `MemoryGraphStore : IMemoryGraphStore` 时自动注入  
+  用途：支持工具侧加载投影后的执行图（Layer 4.2 explainability），避免 host 代码耦合。
+
 ## 变更记录（合并 WithTool）
 
 - **Removed**：独立工程 `src/Aevatar.Agents.AI.WithTool`（工程级别）。

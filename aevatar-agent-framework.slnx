@@ -127,6 +127,7 @@
     <Project Path="test\Aevatar.CognitiveMesh.Dsl.Tests\Aevatar.CognitiveMesh.Dsl.Tests.csproj" Type="Classic C#" />
     <Project Path="test\Aevatar.PaperReview.Tests\Aevatar.PaperReview.Tests.csproj" Type="Classic C#" />
     <Project Path="test\Aevatar.Agents.Persistence.Graph.Tests\Aevatar.Agents.Persistence.Graph.Tests.csproj" />
+    <Project Path="test\Aevatar.Notebook.Tests\Aevatar.Notebook.Tests.csproj" />
     <File Path="test/README.md" />
     <File Path="test\UnitTestDesign.md" />
   </Folder>

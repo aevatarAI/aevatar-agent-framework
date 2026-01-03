@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "memoryId": "execution::notebook-chat-c40ea64d165949dcb1d83544b021855c",
+  "scopeType": "Execution",
+  "scopeId": "notebook-chat-c40ea64d165949dcb1d83544b021855c",
+  "entryCount": 3,
+  "latestAtUtc": "2026-01-03T06:22:50.037429+00:00",
+  "files": {
+    "entriesBinary": "entries.pb",
+    "manifest": "manifest.json"
+  }
+}

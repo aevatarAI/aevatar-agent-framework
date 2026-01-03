@@ -9,6 +9,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Google.Protobuf" />
+    <PackageReference Include="Grpc.Tools">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\src\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
     <ProjectReference Include="..\src\Aevatar.Agents.AI.MEAI\Aevatar.Agents.AI.MEAI.csproj" />
     <ProjectReference Include="..\src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
@@ -20,6 +28,14 @@
     <ProjectReference Include="..\src\Aevatar.Agents.Persistence.Supabase.Memory\Aevatar.Agents.Persistence.Supabase.Memory.csproj" />
     <ProjectReference Include="..\src\Aevatar.Agents.Persistence.Neo4j\Aevatar.Agents.Persistence.Neo4j.csproj" />
     <ProjectReference Include="..\src\Aevatar.Agents.Persistence.Neo4j.MemoryGraph\Aevatar.Agents.Persistence.Neo4j.MemoryGraph.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Protobuf Include="Protos/*.proto" GrpcServices="None" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Aevatar.Notebook.Tests" />
   </ItemGroup>
 
   <ItemGroup>

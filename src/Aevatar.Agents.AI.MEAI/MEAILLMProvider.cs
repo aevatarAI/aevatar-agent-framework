@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using System.Collections;
 using System.Text.Json.Nodes;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
@@ -94,6 +95,15 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
             }
 
             return result;
+        }
+        catch (OperationCanceledException ex)
+        {
+            // This can be:
+            // - Provider/network timeout
+            // - External cancellation (HTTP request aborted, shutdown, etc.)
+            _logger.LogWarning(ex, "[MEAI] Model call canceled/timeout: {Model} - {Message}", _config.Model, ex.Message);
+            LLMTelemetry.RecordError(activity, ex);
+            throw;
         }
         catch (Exception ex)
         {
@@ -454,6 +464,30 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
 
         await foreach (var chatUpdate in _chatClient.GetStreamingResponseAsync(messages, options, cancellationToken))
         {
+            // ------------------------------------------------------------
+            //  Streaming + tools (IMPORTANT)
+            //
+            //  Some providers (e.g., DeepSeek via OpenAI-compatible API) may emit a FunctionCall
+            //  in streaming updates. If we don't surface it as AevatarFunctionCall, the agent will
+            //  stop mid-answer (model expects tool execution).
+            //
+            //  We detect function calls best-effort and hand control back to AIGAgentBase:
+            //    - AIGAgentBase.ChatStreamAsync will execute the tool loop non-streaming
+            //    - then emit the final answer as a single chunk
+            // ------------------------------------------------------------
+            var functionCall = TryExtractStreamingFunctionCall(chatUpdate);
+            if (functionCall != null)
+            {
+                yield return new AevatarLLMToken
+                {
+                    AevatarFunctionCall = functionCall,
+                    Content = string.Empty,
+                    IsComplete = false
+                };
+
+                yield break;
+            }
+
             var chunk = ExtractStreamingText(chatUpdate);
             if (string.IsNullOrEmpty(chunk))
             {
@@ -489,6 +523,201 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
             chunkIndex, totalTokens, sw.ElapsedMilliseconds);
 
         yield return new AevatarLLMToken { Content = string.Empty, IsComplete = true };
+    }
+
+    /// <summary>
+    /// Best-effort extraction of function call from streaming updates.
+    /// </summary>
+    private AevatarFunctionCall? TryExtractStreamingFunctionCall(object chatUpdate)
+    {
+        try
+        {
+            // ------------------------------------------------------------
+            //  Common shapes (OpenAI-compatible streaming)
+            // ------------------------------------------------------------
+
+            // 1) update.Message.Contents
+            var fromMessage = TryExtractFunctionCallFromMessage(StreamingPropertyCache.GetValue(chatUpdate, "Message"));
+            if (fromMessage != null) return fromMessage;
+
+            // 2) update.Delta (some SDKs surface tool calls on Delta)
+            var delta = StreamingPropertyCache.GetValue(chatUpdate, "Delta");
+            var fromDelta = TryExtractFunctionCallFromAny(delta);
+            if (fromDelta != null) return fromDelta;
+
+            // 3) update.Choices[*].Delta / update.Choices[*].Message
+            var choices = StreamingPropertyCache.GetValue(chatUpdate, "Choices") as IEnumerable;
+            if (choices != null)
+            {
+                foreach (var choice in choices)
+                {
+                    if (choice == null) continue;
+                    var cDelta = StreamingPropertyCache.GetValue(choice, "Delta");
+                    var cMsg = StreamingPropertyCache.GetValue(choice, "Message");
+
+                    var fromChoiceDelta = TryExtractFunctionCallFromAny(cDelta);
+                    if (fromChoiceDelta != null) return fromChoiceDelta;
+
+                    var fromChoiceMsg = TryExtractFunctionCallFromMessage(cMsg);
+                    if (fromChoiceMsg != null) return fromChoiceMsg;
+                }
+            }
+
+            // 4) update.ToolCalls / update.FunctionCall
+            var fromToolCalls = TryExtractFunctionCallFromEnumerable(StreamingPropertyCache.GetValue(chatUpdate, "ToolCalls") as IEnumerable);
+            if (fromToolCalls != null) return fromToolCalls;
+
+            var fromDirect = TryExtractFunctionCallFromRaw(StreamingPropertyCache.GetValue(chatUpdate, "FunctionCall"));
+            if (fromDirect != null) return fromDirect;
+
+            // 5) Some update types may directly expose Content/Contents as parts.
+            var fromTopLevelParts = TryExtractFunctionCallFromEnumerable(
+                (StreamingPropertyCache.GetValue(chatUpdate, "Contents") as IEnumerable) ??
+                (StreamingPropertyCache.GetValue(chatUpdate, "Content") as IEnumerable));
+            if (fromTopLevelParts != null) return fromTopLevelParts;
+        }
+        catch
+        {
+            // ignore (best-effort)
+        }
+
+        return null;
+    }
+
+    private AevatarFunctionCall? TryExtractFunctionCallFromAny(object? candidate)
+    {
+        if (candidate == null)
+            return null;
+
+        // Direct part / raw tool call
+        var direct = TryExtractFunctionCallFromRaw(candidate);
+        if (direct != null)
+            return direct;
+
+        // candidate.Message
+        var fromMessage = TryExtractFunctionCallFromMessage(StreamingPropertyCache.GetValue(candidate, "Message"));
+        if (fromMessage != null)
+            return fromMessage;
+
+        // candidate.ToolCalls
+        var fromToolCalls = TryExtractFunctionCallFromEnumerable(StreamingPropertyCache.GetValue(candidate, "ToolCalls") as IEnumerable);
+        if (fromToolCalls != null)
+            return fromToolCalls;
+
+        // candidate.Contents / candidate.Content
+        var fromParts = TryExtractFunctionCallFromEnumerable(
+            (StreamingPropertyCache.GetValue(candidate, "Contents") as IEnumerable) ??
+            (StreamingPropertyCache.GetValue(candidate, "Content") as IEnumerable));
+        if (fromParts != null)
+            return fromParts;
+
+        // candidate.FunctionCall
+        var fromFunctionCall = TryExtractFunctionCallFromRaw(StreamingPropertyCache.GetValue(candidate, "FunctionCall"));
+        if (fromFunctionCall != null)
+            return fromFunctionCall;
+
+        return null;
+    }
+
+    private AevatarFunctionCall? TryExtractFunctionCallFromMessage(object? message)
+    {
+        if (message == null)
+            return null;
+
+        var parts = (StreamingPropertyCache.GetValue(message, "Contents") as IEnumerable)
+            ?? (StreamingPropertyCache.GetValue(message, "Content") as IEnumerable);
+
+        return TryExtractFunctionCallFromEnumerable(parts);
+    }
+
+    private AevatarFunctionCall? TryExtractFunctionCallFromEnumerable(IEnumerable? parts)
+    {
+        if (parts == null)
+            return null;
+
+        foreach (var part in parts)
+        {
+            if (part == null)
+                continue;
+
+            // Strong-typed path (Microsoft.Extensions.AI)
+            if (part is FunctionCallContent functionCall)
+            {
+                var unwrapped = UnwrapFunctionArguments(functionCall.Arguments);
+                var argsJson = unwrapped != null ? JsonSerializer.Serialize(unwrapped) : "{}";
+                return new AevatarFunctionCall
+                {
+                    Name = functionCall.Name,
+                    Arguments = argsJson
+                };
+            }
+
+            // Raw representation (OpenAI.Chat.ChatToolCall) - best effort via reflection.
+            var raw = StreamingPropertyCache.GetValue(part, "RawRepresentation");
+            var fromRaw = TryExtractFunctionCallFromRaw(raw);
+            if (fromRaw != null)
+                return fromRaw;
+
+            // Some streaming types may surface tool call directly as the part itself.
+            var fromPart = TryExtractFunctionCallFromRaw(part);
+            if (fromPart != null)
+                return fromPart;
+        }
+
+        return null;
+    }
+
+    private static AevatarFunctionCall? TryExtractFunctionCallFromRaw(object? raw)
+    {
+        if (raw == null)
+            return null;
+
+        var name = (StreamingPropertyCache.GetValue(raw, "Name") as string)
+                   ?? (StreamingPropertyCache.GetValue(raw, "ToolName") as string)
+                   ?? (StreamingPropertyCache.GetValue(raw, "FunctionName") as string)
+                   ?? string.Empty;
+
+        name = name.Trim();
+        if (name.Length == 0)
+            return null;
+
+        var argsObj = StreamingPropertyCache.GetValue(raw, "Arguments")
+                     ?? StreamingPropertyCache.GetValue(raw, "FunctionArguments");
+
+        var argsJson = "{}";
+        switch (argsObj)
+        {
+            case null:
+                break;
+            case string s:
+                argsJson = string.IsNullOrWhiteSpace(s) ? "{}" : s;
+                break;
+            case JsonElement el:
+                argsJson = el.ValueKind == JsonValueKind.String
+                    ? (el.GetString() ?? "{}")
+                    : el.GetRawText();
+                break;
+            case IDictionary<string, object?> dict:
+                argsJson = JsonSerializer.Serialize(dict);
+                break;
+            default:
+                // Best-effort: try to serialize unknown argument container
+                argsJson = JsonSerializer.Serialize(argsObj);
+                break;
+        }
+
+        // ToolArgumentsJson expects an object - keep it safe.
+        var trimmed = argsJson.Trim();
+        if (trimmed.Length == 0 || (!trimmed.StartsWith("{", StringComparison.Ordinal) && !trimmed.StartsWith("[", StringComparison.Ordinal)))
+        {
+            argsJson = "{}";
+        }
+
+        return new AevatarFunctionCall
+        {
+            Name = name,
+            Arguments = argsJson
+        };
     }
 
     /// <summary>
@@ -534,7 +763,8 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
             return sb.ToString();
         }
 
-        var content = StreamingPropertyCache.GetValue(message, "Content") as System.Collections.IEnumerable;
+        var content = (StreamingPropertyCache.GetValue(message, "Contents") as System.Collections.IEnumerable)
+            ?? (StreamingPropertyCache.GetValue(message, "Content") as System.Collections.IEnumerable);
         if (content == null)
         {
             return sb.ToString();

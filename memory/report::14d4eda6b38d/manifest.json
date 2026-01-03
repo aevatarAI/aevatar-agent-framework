@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "memoryId": "report::14d4eda6b38d",
+  "scopeType": "Graph",
+  "scopeId": "14d4eda6b38d",
+  "entryCount": 1,
+  "latestAtUtc": "2026-01-03T05:53:03.85603+00:00",
+  "files": {
+    "entriesBinary": "entries.pb",
+    "manifest": "manifest.json"
+  }
+}

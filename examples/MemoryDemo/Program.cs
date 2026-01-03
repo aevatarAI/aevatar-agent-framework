@@ -1,5 +1,4 @@
 using MemoryDemo;
-using System.Text.Json;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
@@ -13,9 +12,6 @@ using Aevatar.Agents.Abstractions.Tracing;
 using Aevatar.Agents.Core.Memory;
 using Aevatar.Agents.Core.MemoryGraphs;
 using Aevatar.Agents.Core.Tracing;
-using Aevatar.Agents.AI.WithTool.Abstractions;
-using Aevatar.Agents.Persistence.MongoDB;
-using Aevatar.Agents.Persistence.Supabase.DependencyInjection;
 using Aevatar.Agents.Runtime.Local;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Options;
@@ -42,8 +38,13 @@ builder.Services.Configure<LLMProvidersConfig>(builder.Configuration.GetSection(
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 
-// Aevatar core + Local runtime (includes: default MemoryStore/VectorIndex/TraceStore/GraphStore registrations)
-builder.Services.AddAevatarAgentSystem(b => b.UseLocalRuntime());
+// ============================================================
+//  Persistence selection (config-driven)
+// ============================================================
+var persistence = MemoryDemoPersistence.Configure(builder.Services, builder.Configuration);
+
+// Aevatar core + Local runtime (stores are configured by persistence selection above)
+builder.Services.AddAevatarAgentSystem(persistence.ConfigureStores, b => b.UseLocalRuntime());
 builder.Services.AddMEAI();
 
 // ============================================================
@@ -66,12 +67,10 @@ app.UseStaticFiles();
 //  APIs
 // ============================================================
 
-// Knowledge base (book) APIs
-MemoryDemoKnowledgeBaseApi.Map(app);
-
 app.MapGet("/api/info", async (
     MemoryDemoRuntime runtime,
     IOptions<LLMProvidersConfig> llm,
+    MemoryDemoPersistence.MemoryDemoPersistenceSelection persistenceSelection,
     CancellationToken ct) =>
 {
     var status = await runtime.GetStatusAsync(ct);
@@ -89,15 +88,28 @@ app.MapGet("/api/info", async (
             chatHistoryMaxMessages = status.ChatHistoryMaxMessages,
             chatHistorySummaryMaxChars = status.ChatHistorySummaryMaxChars,
             enableMemoryStoreAppend = status.EnableMemoryStoreAppend,
-            enableMemoryVectorIndexAppend = status.EnableMemoryVectorIndexAppend,
-            allowInternalTools = status.AllowInternalTools,
-            allowDangerousTools = status.AllowDangerousTools
+            enableMemoryVectorIndexAppend = status.EnableMemoryVectorIndexAppend
         },
         paths = new
         {
             traceRoot = paths.TraceRoot,
             memoryRoot = paths.MemoryRoot,
             vectorRoot = paths.VectorRoot
+        },
+        persistence = new
+        {
+            providers = new
+            {
+                memoryStore = persistenceSelection.MemoryStoreProvider,
+                memoryVectorIndex = persistenceSelection.MemoryVectorIndexProvider,
+                memoryGraph = persistenceSelection.MemoryGraphProvider
+            },
+            types = new
+            {
+                memoryStore = persistenceSelection.MemoryStoreType ?? "default(file)",
+                memoryVectorIndex = persistenceSelection.MemoryVectorIndexType ?? "default(file)",
+                memoryGraphStore = persistenceSelection.MemoryGraphStoreType ?? "default(file)"
+            }
         }
     });
 });
@@ -154,97 +166,6 @@ app.MapPost("/api/chat", async (
             defaultMemoryId = MemoryDemoPaths.BuildDefaultAgentMemoryId(agent.Id)
         }
     });
-});
-
-// ============================================================
-//  Streaming chat (NDJSON)
-//
-//  Response format (one JSON object per line):
-//  - { type: "start", agentId, requestId }
-//  - { type: "delta", content }
-//  - { type: "end", agentId, requestId, toolCalled, toolCall?, memory?, longTerm? }
-//
-//  WHY:
-//  - Simple to parse with fetch streaming (ReadableStream).
-//  - Keeps room for metadata without requiring SSE/EventSource.
-// ============================================================
-app.MapPost("/api/chat/stream", async (
-    ChatInDto input,
-    MemoryDemoRuntime runtime,
-    HttpResponse response,
-    CancellationToken ct) =>
-{
-    if (string.IsNullOrWhiteSpace(input.Message))
-    {
-        response.StatusCode = StatusCodes.Status400BadRequest;
-        await response.WriteAsync(JsonSerializer.Serialize(new { error = "message is required" }), ct);
-        return;
-    }
-
-    var (agent, agentId) = await runtime.GetAgentAsync(ct);
-    var request = new ChatRequest
-    {
-        Message = input.Message.Trim(),
-        RequestId = input.RequestId ?? Guid.NewGuid().ToString("N"),
-        StageHint = input.StageHint ?? ""
-    };
-
-    response.StatusCode = StatusCodes.Status200OK;
-    response.ContentType = "application/x-ndjson; charset=utf-8";
-    response.Headers.CacheControl = "no-cache";
-
-    var startedAtUtc = DateTime.UtcNow;
-
-    await WriteNdjsonAsync(response, new
-    {
-        type = "start",
-        agentId,
-        requestId = request.RequestId
-    }, ct);
-
-    var assistantText = new System.Text.StringBuilder();
-
-    try
-    {
-        await foreach (var chunk in agent.ChatStreamAsync(request, ct))
-        {
-            assistantText.Append(chunk);
-            await WriteNdjsonAsync(response, new { type = "delta", content = chunk }, ct);
-        }
-    }
-    catch (Exception ex)
-    {
-        // Best-effort: emit an error event (client may already have partial output).
-        await WriteNdjsonAsync(response, new { type = "error", error = ex.Message }, ct);
-        return;
-    }
-
-    // Build best-effort meta from current agent state (tool calls are stored into State.History when enabled).
-    var state = agent.GetState();
-    state.Context.TryGetValue("history_summary", out var summary);
-
-    var toolCall = TryExtractToolCallFromHistory(state, startedAtUtc);
-
-    await WriteNdjsonAsync(response, new
-    {
-        type = "end",
-        agentId,
-        requestId = request.RequestId,
-        content = assistantText.ToString(),
-        toolCalled = toolCall != null,
-        toolCall,
-        memory = new
-        {
-            historyCount = state.History?.Count ?? 0,
-            summary = summary ?? ""
-        },
-        longTerm = new
-        {
-            enableMemoryStoreAppend = agent.EnableMemoryStoreAppend,
-            enableMemoryVectorIndexAppend = agent.EnableMemoryVectorIndexAppend,
-            defaultMemoryId = MemoryDemoPaths.BuildDefaultAgentMemoryId(agent.Id)
-        }
-    }, ct);
 });
 
 app.MapPost("/api/seed", async (
@@ -347,65 +268,12 @@ app.MapPost("/api/settings", async (
     if (input.EnableMemoryVectorIndexAppend.HasValue)
         agent.EnableMemoryVectorIndexAppend = input.EnableMemoryVectorIndexAppend.Value;
 
-    if (input.AllowInternalTools.HasValue)
-        agent.AllowInternalTools = input.AllowInternalTools.Value;
-
-    if (input.AllowDangerousTools.HasValue)
-        agent.AllowDangerousTools = input.AllowDangerousTools.Value;
-
     return Results.Json(new
     {
         ok = true,
         enableMemoryStoreAppend = agent.EnableMemoryStoreAppend,
         enableMemoryVectorIndexAppend = agent.EnableMemoryVectorIndexAppend,
-        allowInternalTools = agent.AllowInternalTools,
-        allowDangerousTools = agent.AllowDangerousTools,
         defaultMemoryId = MemoryDemoPaths.BuildDefaultAgentMemoryId(agent.Id)
-    });
-});
-
-app.MapGet("/api/tools", async (
-    MemoryDemoRuntime runtime,
-    CancellationToken ct) =>
-{
-    var (agent, agentId) = await runtime.GetAgentAsync(ct);
-    var tools = await agent.GetRegisteredToolsAsync();
-
-    var list = tools
-        .OrderBy(t => t.Category)
-        .ThenBy(t => t.Name, StringComparer.Ordinal)
-        .Select(t =>
-        {
-            var denyReason = GetToolDenyReason(agent, t);
-            return new
-            {
-                name = t.Name,
-                description = t.Description,
-                category = t.Category.ToString(),
-                version = t.Version,
-                tags = t.Tags,
-                flags = new
-                {
-                    requiresInternalAccess = t.RequiresInternalAccess,
-                    requiresConfirmation = t.RequiresConfirmation,
-                    isDangerous = t.IsDangerous
-                },
-                policy = new
-                {
-                    allowInternalTools = agent.AllowInternalTools,
-                    allowDangerousTools = agent.AllowDangerousTools,
-                    allowed = denyReason == null,
-                    denyReason
-                }
-            };
-        })
-        .ToList();
-
-    return Results.Json(new
-    {
-        agentId,
-        count = list.Count,
-        tools = list
     });
 });
 
@@ -431,10 +299,21 @@ app.MapGet("/api/memory/entries", async (
     return Results.Json(new { memoryId = memoryId.Trim(), count = entries.Count, entries });
 });
 
-app.MapGet("/api/memory/stats", (string memoryId) =>
+app.MapGet("/api/memory/stats", (
+    string memoryId,
+    MemoryDemoPersistence.MemoryDemoPersistenceSelection persistenceSelection) =>
 {
     if (string.IsNullOrWhiteSpace(memoryId))
         return Results.BadRequest(new { error = "memoryId is required" });
+
+    if (!string.Equals(persistenceSelection.MemoryStoreProvider, "file", StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.BadRequest(new
+        {
+            error = "memory stats is only available for file-based IMemoryStore",
+            provider = persistenceSelection.MemoryStoreProvider
+        });
+    }
 
     var paths = MemoryDemoPaths.Get();
     var dir = FileMemoryStore.GetBundleDirectory(paths.MemoryRoot, memoryId.Trim());
@@ -503,10 +382,21 @@ app.MapPost("/api/vector/search", async (
     });
 });
 
-app.MapGet("/api/vector/stats", (string memoryId) =>
+app.MapGet("/api/vector/stats", (
+    string memoryId,
+    MemoryDemoPersistence.MemoryDemoPersistenceSelection persistenceSelection) =>
 {
     if (string.IsNullOrWhiteSpace(memoryId))
         return Results.BadRequest(new { error = "memoryId is required" });
+
+    if (!string.Equals(persistenceSelection.MemoryVectorIndexProvider, "file", StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.BadRequest(new
+        {
+            error = "vector stats is only available for file-based IMemoryVectorIndex",
+            provider = persistenceSelection.MemoryVectorIndexProvider
+        });
+    }
 
     var paths = MemoryDemoPaths.Get();
     var dir = FileMemoryStore.GetBundleDirectory(paths.VectorRoot, memoryId.Trim());
@@ -643,65 +533,188 @@ app.MapPost("/api/reset", async (MemoryDemoRuntime runtime, CancellationToken ct
 
 app.Run();
 
-static string? GetToolDenyReason(MemoryDemoAgent agent, ToolDefinition tool)
+// ============================================================
+//  DTOs + Runtime
+// ============================================================
+
+public sealed record ChatInDto(string Message)
 {
-    if (tool.RequiresInternalAccess && !agent.AllowInternalTools)
-        return "RequiresInternalAccess is disabled (AllowInternalTools=false).";
-
-    if ((tool.IsDangerous || tool.RequiresConfirmation) && !agent.AllowDangerousTools)
-        return "Dangerous/confirmation tools are disabled (AllowDangerousTools=false).";
-
-    return null;
+    public string? RequestId { get; init; }
+    public string? StageHint { get; init; }
 }
 
-static async Task WriteNdjsonAsync(HttpResponse response, object payload, CancellationToken ct)
+public sealed record SearchMemoryInDto(string Query)
 {
-    var json = JsonSerializer.Serialize(payload);
-    await response.WriteAsync(json, ct);
-    await response.WriteAsync("\n", ct);
-    await response.Body.FlushAsync(ct);
+    public int? MaxResults { get; init; }
+    public string? MemoryType { get; init; }
+    public string? MemoryId { get; init; }
 }
 
-static object? TryExtractToolCallFromHistory(AevatarAIAgentState state, DateTime startedAtUtc)
+public sealed record SeedInDto(string Text);
+
+public sealed record UpdateSettingsInDto
 {
-    if (state?.History == null || state.History.Count == 0)
-        return null;
+    public bool? EnableMemoryStoreAppend { get; init; }
+    public bool? EnableMemoryVectorIndexAppend { get; init; }
+}
 
-    // Tool call transcript is appended as:
-    // - Assistant message with ToolCalls[] (content: "Calling tool ...")
-    // - Tool role message with ToolResult (content: tool JSON result)
-    string? toolName = null;
-    string? arguments = null;
-    string? result = null;
+public sealed record VectorSearchInDto(string Query)
+{
+    public string? MemoryId { get; init; }
+    public int? Limit { get; init; }
+}
 
-    foreach (var msg in state.History)
+public sealed record TraceSeedInDto
+{
+    public string? ExecutionId { get; init; }
+}
+
+public sealed class MemoryDemoStatus
+{
+    public required string AgentId { get; init; }
+    public required bool IsReady { get; init; }
+    public string? LastError { get; init; }
+    public bool EnableChatHistoryInState { get; init; }
+    public bool EnableChatHistoryCompaction { get; init; }
+    public int ChatHistoryMaxMessages { get; init; }
+    public int ChatHistorySummaryMaxChars { get; init; }
+    public bool EnableMemoryStoreAppend { get; init; }
+    public bool EnableMemoryVectorIndexAppend { get; init; }
+}
+
+internal static class MemoryDemoPaths
+{
+    public static MemoryDemoPathInfo Get()
     {
-        var ts = msg.Timestamp?.ToDateTime();
-        if (ts == null || ts.Value < startedAtUtc)
-            continue;
+        // NOTE: demo reads default roots from the same helpers as core stores (env-var aware).
+        var traceRoot = FileExecutionTraceStore.GetTraceRootFromEnvironmentOrDefault();
+        var memoryRoot = FileMemoryStore.GetMemoryRootFromEnvironmentOrDefault();
+        var vectorRoot = FileMemoryVectorIndex.GetVectorRootFromEnvironmentOrDefault();
 
-        if (toolName == null && msg.ToolCalls != null && msg.ToolCalls.Count > 0)
-        {
-            var tc = msg.ToolCalls[0];
-            toolName = tc.ToolName;
-            arguments = tc.Arguments;
-            continue;
-        }
-
-        if (result == null && msg.Role == AevatarChatRole.Tool)
-        {
-            result = msg.ToolResult?.Content ?? msg.Content;
-        }
+        return new MemoryDemoPathInfo(traceRoot, memoryRoot, vectorRoot);
     }
 
-    if (string.IsNullOrWhiteSpace(toolName))
-        return null;
-
-    return new
-    {
-        name = toolName,
-        arguments = arguments ?? "",
-        result = result ?? ""
-    };
+    public static string BuildDefaultAgentMemoryId(string agentId)
+        => $"privateagent::{agentId}";
 }
+
+internal sealed record MemoryDemoPathInfo(string TraceRoot, string MemoryRoot, string VectorRoot);
+
+public sealed class MemoryDemoRuntime
+{
+    private readonly IGAgentActorFactory _actorFactory;
+    private readonly ILogger<MemoryDemoRuntime> _logger;
+    private readonly IOptions<LLMProvidersConfig> _llm;
+
+    private readonly SemaphoreSlim _lock = new(1, 1);
+
+    private IGAgentActor? _actor;
+    private MemoryDemoAgent? _agent;
+    private string _agentId = $"memory-demo-{Guid.NewGuid():N}";
+    private string? _lastError;
+    private bool _isReady;
+
+    public MemoryDemoRuntime(
+        IGAgentActorFactory actorFactory,
+        ILogger<MemoryDemoRuntime> logger,
+        IOptions<LLMProvidersConfig> llm)
+    {
+        _actorFactory = actorFactory;
+        _logger = logger;
+        _llm = llm;
+    }
+
+    public async Task<(MemoryDemoAgent Agent, string AgentId)> GetAgentAsync(CancellationToken ct)
+    {
+        await EnsureInitializedAsync(ct);
+        if (_agent == null || _actor == null)
+            throw new InvalidOperationException(_lastError ?? "agent not initialized");
+        return (_agent, _agentId);
+    }
+
+    public async Task<MemoryDemoStatus> GetStatusAsync(CancellationToken ct)
+    {
+        await EnsureInitializedAsync(ct);
+
+        return new MemoryDemoStatus
+        {
+            AgentId = _agentId,
+            IsReady = _isReady,
+            LastError = _lastError,
+            EnableChatHistoryInState = _agent?.EnableChatHistoryInState ?? false,
+            EnableChatHistoryCompaction = _agent?.EnableChatHistoryCompaction ?? false,
+            ChatHistoryMaxMessages = _agent?.ChatHistoryMaxMessages ?? 0,
+            ChatHistorySummaryMaxChars = _agent?.ChatHistorySummaryMaxChars ?? 0,
+            EnableMemoryStoreAppend = _agent?.EnableMemoryStoreAppend ?? false,
+            EnableMemoryVectorIndexAppend = _agent?.EnableMemoryVectorIndexAppend ?? false
+        };
+    }
+
+    public async Task<MemoryDemoStatus> ResetAsync(CancellationToken ct)
+    {
+        await _lock.WaitAsync(ct);
+        try
+        {
+            _actor = null;
+            _agent = null;
+            _isReady = false;
+            _lastError = null;
+            _agentId = $"memory-demo-{Guid.NewGuid():N}";
+        }
+        finally
+        {
+            _lock.Release();
+        }
+
+        return await GetStatusAsync(ct);
+    }
+
+    private async Task EnsureInitializedAsync(CancellationToken ct)
+    {
+        if (_isReady)
+            return;
+
+        await _lock.WaitAsync(ct);
+        try
+        {
+            if (_isReady)
+                return;
+
+            _lastError = null;
+
+            _logger.LogInformation("[MemoryDemo] Creating agent actor: {AgentId}", _agentId);
+            _actor = await _actorFactory.CreateGAgentActorAsync<MemoryDemoAgent>(_agentId);
+            _agent = (MemoryDemoAgent)_actor.GetAgent();
+
+            // Initialize LLM provider (use config default if present).
+            var providerName = string.IsNullOrWhiteSpace(_llm.Value.Default) ? "default" : _llm.Value.Default;
+            _logger.LogInformation("[MemoryDemo] Initializing LLM provider: {Provider}", providerName);
+
+            await _agent.InitializeAsync(
+                providerName,
+                cfg =>
+                {
+                    // Keep defaults unless caller wants to override in appsettings.
+                    cfg.Temperature = 0.3f;
+                    cfg.MaxOutputTokens = 800;
+                },
+                ct);
+
+            _logger.LogInformation("[MemoryDemo] Ready.");
+
+            _isReady = true;
+        }
+        catch (Exception ex)
+        {
+            _lastError = ex.Message;
+            _logger.LogError(ex, "[MemoryDemo] Initialization failed: {Message}", ex.Message);
+            _isReady = false;
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+}
+
 

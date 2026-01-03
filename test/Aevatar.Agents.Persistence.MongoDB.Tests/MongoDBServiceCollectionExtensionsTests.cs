@@ -1,5 +1,6 @@
 using Aevatar.Agents.Persistence.MongoDB;
-using Aevatar.Agents.AI.Abstractions;
+using Aevatar.Agents.Persistence.MongoDB.GAgent;
+using Aevatar.Agents.Persistence.MongoDB.GAgent.DependencyInjection;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using MongoDB.Driver;

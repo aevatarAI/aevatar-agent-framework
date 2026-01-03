@@ -13,6 +13,7 @@
         <ProjectReference Include="..\..\src\Aevatar.Agents.Runtime.Orleans\Aevatar.Agents.Runtime.Orleans.csproj" />
         <ProjectReference Include="..\..\src\Aevatar.Agents.Runtime.Orleans.MongoDB\Aevatar.Agents.Runtime.Orleans.MongoDB.csproj" />
         <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.MongoDB\Aevatar.Agents.Persistence.MongoDB.csproj" />
+        <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.MongoDB.GAgent\Aevatar.Agents.Persistence.MongoDB.GAgent.csproj" />
         <ProjectReference Include="..\Demo.Agents\Demo.Agents.csproj" />
     </ItemGroup>
 

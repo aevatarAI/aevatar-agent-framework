@@ -53,6 +53,39 @@ public class WeexTestController : ControllerBase
         }
     }
 
+    [HttpGet("positions")]
+    public async Task<IActionResult> GetPositions([FromQuery] string? symbol = null, CancellationToken ct = default)
+    {
+        try
+        {
+            var positions = await _weex.GetPositionsAsync(symbol, ct);
+            return Ok(new { count = positions.Count, positions });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "WEEX positions failed");
+            return StatusCode(500, new { error = ex.Message });
+        }
+    }
+
+    [HttpGet("fills")]
+    public async Task<IActionResult> GetFills(
+        [FromQuery] string? symbol = null,
+        [FromQuery] int limit = 50,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var fills = await _weex.GetFillsAsync(symbol, limit, ct);
+            return Ok(new { count = fills.Count, fills });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "WEEX fills failed");
+            return StatusCode(500, new { error = ex.Message });
+        }
+    }
+
     [HttpGet("open-orders")]
     public async Task<IActionResult> GetOpenOrders([FromQuery] string? symbol = null, CancellationToken ct = default)
     {

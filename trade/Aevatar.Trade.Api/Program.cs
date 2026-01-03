@@ -143,6 +143,9 @@ app.UseAuthorization();
 app.UsePrometheusMetrics();
 
 app.MapControllers();
+
+// AI Wars DotNetSkills -> HTTP endpoints (Swagger visible)
+await app.MapAiWarsSkillEndpointsAsync();
 app.MapDefaultEndpoints();
 
 // ============ Startup Banner ============

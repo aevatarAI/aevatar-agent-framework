@@ -3,6 +3,7 @@ using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.MEAI.DependencyInjection;
 using Aevatar.Agents.Cognitive.DependencyInjection;
 using Aevatar.Agents.Persistence.MongoDB;
+using Aevatar.Agents.Persistence.MongoDB.GAgent.DependencyInjection;
 using Aevatar.Agents.Plugins.MassTransit.DependencyInjection;
 using Aevatar.Agents.Runtime.Local;
 using Aevatar.AxiomReasoning.Services;

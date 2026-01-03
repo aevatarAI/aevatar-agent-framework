@@ -33,75 +33,40 @@ Edit `examples/MemoryDemo/appsettings.secrets.json`:
 
 ---
 
-### Production-grade Storage (How to Plug In)
+### Persistence Switching (Config-driven)
 
-MemoryDemo defaults to **file-based** implementations (no external dependencies).  
-In production, you typically want:
+MemoryDemo can switch persistence implementations **purely by config** (no code changes).
 
-- **Vector DB**: Postgres + `pgvector` (Supabase), Elasticsearch `dense_vector`, Milvus/Qdrant/Weaviate, etc.
-- **Graph DB**: Neo4j / Neptune / TigerGraph (for traversal + path queries), while still keeping `MemoryGraph` as a portable Protobuf artifact.
+- Edit `examples/MemoryDemo/appsettings.json`:
+  - `Aevatar:Persistence:MemoryStore`: `file | mongodb | supabase`
+  - `Aevatar:Persistence:MemoryVectorIndex`: `file | mongodb | supabase`
+  - `Aevatar:Persistence:MemoryGraph`: `file | neo4j`
 
-The framework already exposes 3 storage abstraction points:
+- Edit `examples/MemoryDemo/appsettings.secrets.json` (recommended) to provide connection strings / credentials when you select DB providers:
+  - `ConnectionStrings:MongoDB`
+  - `ConnectionStrings:SupabasePostgres`
+  - `Aevatar:Persistence:Neo4j:Password`
 
-- `IMemoryStore` (append-only `MemoryEntry`)
-- `IMemoryVectorIndex` (persistent semantic top‑k for `MemoryVectorRecord`)
-- `IMemoryGraphStore` (store/load `MemoryGraph` artifacts)
-
-To plug in your own implementations, register them through `GAgentOptions`:
-
-```csharp
-builder.Services.AddAevatarAgentSystem(
-    configureStores: options =>
-    {
-        options.MemoryStoreType = typeof(YourMemoryStore);
-        options.MemoryVectorIndexType = typeof(YourMemoryVectorIndex);
-        options.MemoryGraphStoreType = typeof(YourMemoryGraphStore);
-    },
-    configure: b => b.UseLocalRuntime());
-```
-
-Then `search_memory` will automatically use:
-
-- `IMemoryVectorIndex` (semantic) when embeddings are available
-- else `IMemoryStore` (lexical) fallback
-- plus CQRS read-model + State snapshot as additional best-effort sources
+For a step-by-step checklist to validate each backend, see: `examples/MemoryDemo/VALIDATION.md`.
 
 ---
 
 ### How to Trigger Memory Effects in Demo (Including CQRS Projection)
 
-0. Streaming chat (UI default):
-   - The demo chat now streams token deltas from API: `POST /api/chat/stream`
-   - The client reads NDJSON events:
-     - `start` → metadata
-     - `delta` → text chunks
-     - `end` → final content + best-effort tool-call info
-
-1. Knowledge Base (Book Q&A):
-   - Paste a book into the **Knowledge Base** panel and click **Ingest**
-     - Stored under: `tenant::<bookId>` (scope=tenant)
-     - If embeddings are configured, vectors are written so semantic retrieval works
-   - The demo auto-selects the ingested book for chat
-     - Check: `GET /api/kb/status`
-     - Or manually set another memoryId via **Select for Chat**
-   - Ask questions in **Chat**
-     - The agent will call `search_memory(memoryType="working", memoryId="tenant::<bookId>")` before answering
-
-2. Chat multiple rounds consecutively (more than 8 messages) → triggers compaction:
+1. Chat multiple rounds consecutively (more than 8 messages) → triggers compaction:
    - `State.History` is trimmed to 8 messages
    - `history_summary` starts appearing
-
-3. Use **Search Memory** on the page to search for a "previously mentioned" keyword:
+2. Use **Search Memory** on the page to search for a "previously mentioned" keyword:
    - Searches **MemoryStore/VectorIndex** / `cqrs_state` / `history_summary` / `State.History` (best-effort)
-4. New: **CQRS Read Model**
+3. New: **CQRS Read Model**
    - After each chat, the demo best-effort projects current state to an **in-memory CQRS read-model**
    - The **CQRS Read Model** panel on the page corresponds to API: `GET /api/cqrs/state`
    - `search_memory` results will include `Type = "cqrs_state"` (from `IStateQueryService.GetByIdAsync`)
-5. If you haven't configured LLM key yet, you can click **Seed**:
+4. If you haven't configured LLM key yet, you can click **Seed**:
    - Directly inserts a deterministic keyword (`aevatar-cqrs`) into state/history_summary and triggers projection
    - Then search for `aevatar-cqrs` using Search Memory, you'll see `cqrs_state` hits
 
-6. New: **Long-term Memory (MemoryStore + VectorIndex)**
+5. New: **Long-term Memory (MemoryStore + VectorIndex)**
    - Demo defaults to enabling:
      - `EnableMemoryStoreAppend = true`
      - `EnableMemoryVectorIndexAppend = true` (requires embeddings enabled in provider config)
@@ -112,7 +77,7 @@ Then `search_memory` will automatically use:
      - Use *Vector Search* to query the persistent index (requires embeddings)
      - Or inspect file stats to confirm vectors.pb is being written.
 
-7. New: **ExecutionTrace → MemoryGraph**
+6. New: **ExecutionTrace → MemoryGraph**
    - Click **Seed Trace**:
      - Writes a demo `ExecutionTrace` bundle
      - Automatically projects a `MemoryGraph` artifact under `trace/<executionId>/artifacts/`
@@ -120,13 +85,5 @@ Then `search_memory` will automatically use:
    - Then:
      - Load `trace` / `graph` in their panels
      - Use `search_memory` with `memoryId = execution::<executionId>` to recall execution facts
-
-8. New: **Tool Policy + Tool List**
-   - Demo exposes a small, focused tool set:
-     - `search_memory` (recall across vector/store/CQRS/state)
-     - `query_state` (read-only introspection; internal tool)
-   - The **Tools** button calls API: `GET /api/tools` and shows:
-     - tool flags (`RequiresInternalAccess`, `RequiresConfirmation`, `IsDangerous`)
-     - current policy (`AllowInternalTools`, `AllowDangerousTools`) + whether each tool is allowed
 
 

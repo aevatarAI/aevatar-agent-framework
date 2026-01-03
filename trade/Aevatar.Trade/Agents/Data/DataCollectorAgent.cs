@@ -67,10 +67,19 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
 
     public override Task<string> GetDescriptionAsync()
     {
+        // NOTE:
+        // - "Connected" historically meant WebSocket connected.
+        // - In AI Wars / contract environment, WS may be unavailable; REST polling is the normal/expected path.
+        var mode = State.IsConnected
+            ? "Mode=WebSocket"
+            : _pollingTimer != null
+                ? "Mode=REST polling"
+                : "Mode=Stopped";
+
         return Task.FromResult(
             $"DataCollector: {_subscribedSymbols.Count} symbols, " +
             $"{State.TicksReceived} ticks, " +
-            $"Connected: {State.IsConnected}");
+            mode);
     }
 
     // ============ Public Methods ============
@@ -114,6 +123,35 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
             
             _subscribedSymbols.Add(symbol);
             State.SubscribedSymbols.Add(symbol);
+        }
+
+        // ============================================================
+        //  Cold start: Seed historical klines ASAP
+        //
+        //  Why:
+        //  - TechnicalAnalystAgent requires a buffer (default 60 klines).
+        //  - If we only poll 1 kline every 15m, the first technical analysis could take ~15 hours.
+        //
+        //  Strategy:
+        //  - Fetch recent klines once at start (e.g. 120) and publish as KlineUpdateEvent.
+        //  - Keep it best-effort (no hard fail). If API is rate-limited, we still run with WS/ticks.
+        // ============================================================
+        if (_apiClient != null)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    foreach (var symbol in _subscribedSymbols)
+                    {
+                        await FetchHistoricalKlinesAsync(symbol, _pollingInterval, limit: 120, ct);
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    Logger.LogWarning(ex, "[DataCollector] Historical klines seeding failed (non-fatal)");
+                }
+            }, ct);
         }
 
         // Start heartbeat
@@ -175,7 +213,8 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
 
         var klines = await _apiClient.GetKlinesAsync(symbol, interval, limit, ct);
 
-        foreach (var kline in klines)
+        // Ensure chronological order (old -> new) for indicators.
+        foreach (var kline in klines.OrderBy(k => k.OpenTime))
         {
             await PublishAsync(new KlineUpdateEvent
             {
@@ -224,7 +263,9 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
 
         // Poll tickers frequently; klines at (roughly) kline interval.
         _pollingTimer?.Dispose();
-        _pollingTimer = new Timer(_ => _ = PollOnceAsync(symbols), null, TimeSpan.Zero, TimeSpan.FromSeconds(2));
+        // 高频 tick：用户明确要求“决策更频繁”，这里把 REST polling 从 2s 提升到 1s。
+        // NOTE: 仍有 _pollingRunning 互斥保护，避免 HTTP 调用慢时重入堆积。
+        _pollingTimer = new Timer(_ => _ = PollOnceAsync(symbols), null, TimeSpan.Zero, TimeSpan.FromSeconds(1));
     }
 
     private async Task PollOnceAsync(IEnumerable<string> symbols)
@@ -336,8 +377,12 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
     {
         var evt = new KlineUpdateEvent
         {
-            Symbol = "", // WebSocket kline needs to be parsed from channel
-            Interval = "",
+            // NOTE:
+            // - Current WS callback does not provide channel/symbol, so we do a best-effort mapping:
+            //   if only 1 symbol is subscribed, bind it; otherwise leave empty.
+            // - For multi-symbol WS support, update WeexWebSocketClient to emit (symbol, interval, kline).
+            Symbol = _subscribedSymbols.Count == 1 ? _subscribedSymbols[0] : "",
+            Interval = string.IsNullOrWhiteSpace(_pollingInterval) ? "" : _pollingInterval,
             Open = (double)kline.Open,
             High = (double)kline.High,
             Low = (double)kline.Low,

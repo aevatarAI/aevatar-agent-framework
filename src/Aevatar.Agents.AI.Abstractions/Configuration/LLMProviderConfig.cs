@@ -52,7 +52,10 @@ public class LLMProviderConfig
     /// <summary>
     /// Timeout duration (milliseconds)
     /// </summary>
-    public int TimeoutMilliseconds { get; set; } = 60000;
+    // NOTE:
+    // - Default to 10 minutes to match current MEAI/OpenAI client behavior (large context + tool loops can be slow).
+    // - Apps can override per-provider in configuration.
+    public int TimeoutMilliseconds { get; set; } = 600_000;
 
     /// <summary>
     /// Whether to enable streaming response

@@ -1,0 +1,142 @@
+syntax = "proto3";
+
+package Aevatar.Notebook;
+
+option csharp_namespace = "Aevatar.Notebook.Contracts";
+
+import "google/protobuf/timestamp.proto";
+
+// ============================================================
+//  Notebook Domain Contracts (Protobuf)
+//
+//  WHY:
+//  - Any cross-boundary / long-lived contract should be versionable.
+//  - Notebook "sources / chunks / reports / context slices" are the backbone
+//    of retrieval, citations, and explainability.
+//
+//  NOTES:
+//  - We still store primary text in MemoryEntry.content (string) for now.
+//  - These messages are used as metadata contracts (e.g., for tools, CQRS, trace).
+// ============================================================
+
+message NotebookSourceMeta {
+  // Stable id (UI + storage key): e.g. "ab12cd34ef56"
+  string source_id = 1;
+
+  // Display title (optional).
+  string title = 2;
+
+  // MIME type, default: "text/plain".
+  string mime_type = 3;
+
+  // Character size of original text (best-effort).
+  int32 size_chars = 4;
+
+  // Optional content hash (hex) for idempotency / re-index detection.
+  string sha256_hex = 5;
+
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+
+  // Extra attributes (bounded, string-only).
+  map<string, string> tags = 100;
+}
+
+message NotebookSourceChunkMeta {
+  string source_id = 1;
+
+  // Stable chunk id: e.g. "{source_id}:{chunk_index}".
+  string chunk_id = 2;
+
+  int32 chunk_index = 3;
+
+  // [offset_start, offset_end) in original source text (character offsets).
+  int32 offset_start = 4;
+  int32 offset_end = 5;
+
+  // Optional chunk hash (hex).
+  string sha256_hex = 6;
+
+  google.protobuf.Timestamp created_at = 7;
+
+  map<string, string> tags = 100;
+}
+
+message NotebookCitation {
+  string source_id = 1;
+  string chunk_id = 2;
+
+  // Optional fine-grained span inside chunk (best-effort).
+  int32 offset_start = 3;
+  int32 offset_end = 4;
+
+  // Optional short quote/snippet for UI (bounded).
+  string quote = 5;
+
+  // Why this was cited (best-effort).
+  string note = 6;
+
+  // Retrieval / ranking score (if any).
+  float score = 7;
+}
+
+message NotebookReportMeta {
+  string report_id = 1;
+  int32 version = 2;
+  string topic = 3;
+  google.protobuf.Timestamp created_at = 4;
+
+  repeated string source_ids = 5;
+  repeated NotebookCitation citations = 6;
+
+  map<string, string> tags = 100;
+}
+
+enum NotebookContextSliceKind {
+  NOTEBOOK_CONTEXT_SLICE_KIND_UNSPECIFIED = 0;
+
+  // A short preview or per-source summary (coverage-first).
+  NOTEBOOK_CONTEXT_SLICE_KIND_SOURCE_PREVIEW = 1;
+
+  // A retrieved chunk (relevance-first).
+  NOTEBOOK_CONTEXT_SLICE_KIND_SOURCE_CHUNK = 2;
+
+  // A global notebook summary (when budget is tight).
+  NOTEBOOK_CONTEXT_SLICE_KIND_GLOBAL_SUMMARY = 3;
+}
+
+message NotebookContextSlice {
+  NotebookContextSliceKind kind = 1;
+
+  string source_id = 2;
+  string chunk_id = 3;
+
+  // The actual text injected into prompts (bounded).
+  string content = 4;
+
+  // Ranking score (if derived from retrieval).
+  float score = 5;
+
+  // How/why this slice is included (debuggable + traceable).
+  string reason = 6;
+
+  map<string, string> tags = 100;
+}
+
+message NotebookContext {
+  // Optional notebook id (reserved for multi-notebook future).
+  string notebook_id = 1;
+  google.protobuf.Timestamp created_at = 2;
+
+  // Ordered slices; deterministic ordering is recommended for replayability.
+  repeated NotebookContextSlice slices = 3;
+
+  // Budget used to build this context (debuggable).
+  int32 max_total_chars = 4;
+  int32 max_per_source_chars = 5;
+  int32 max_chunks = 6;
+
+  map<string, string> tags = 100;
+}
+
+

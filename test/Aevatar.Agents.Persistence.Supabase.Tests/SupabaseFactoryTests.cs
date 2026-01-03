@@ -1,5 +1,5 @@
-using Aevatar.Agents.Persistence.Supabase.Options;
-using Aevatar.Agents.Persistence.Supabase.Stores;
+using Aevatar.Agents.Persistence.Supabase.GAgent.Options;
+using Aevatar.Agents.Persistence.Supabase.GAgent.Stores;
 using FluentAssertions;
 using Microsoft.Extensions.Options;
 using Moq;

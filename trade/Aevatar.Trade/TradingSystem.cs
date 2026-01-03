@@ -11,8 +11,10 @@ using Aevatar.Trade.Agents.RiskControl;
 using Aevatar.Trade.Infrastructure.AiWars;
 using Aevatar.Trade.Infrastructure.DecisionEngines;
 using Aevatar.Trade.Infrastructure.WeexApi;
+using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Globalization;
 
 namespace Aevatar.Trade;
 
@@ -99,6 +101,7 @@ public class TradingSystem : IAsyncDisposable
         _sentimentActor = await _actorFactory.CreateGAgentActorAsync<MarketSentimentAgent>(Guid.NewGuid().ToString(), ct);
         var sentiment = (MarketSentimentAgent)_sentimentActor.GetAgent();
         sentiment.AllowDangerousTools = false; // safe default
+        sentiment.ApiClient = _apiClient;     // for funding/openInterest (avoid placeholder metrics)
         await sentiment.InitializeAsync(providerName, cancellationToken: ct);
         
         _technicalActor = await _actorFactory.CreateGAgentActorAsync<TechnicalAnalystAgent>(Guid.NewGuid().ToString(), ct);
@@ -116,7 +119,8 @@ public class TradingSystem : IAsyncDisposable
             _analysisConfig.SentimentWeight,
             _analysisConfig.TechnicalWeight,
             _analysisConfig.NewsWeight,
-            _tradingConfig.ExecutionMode);
+            _tradingConfig.ExecutionMode,
+            _decisionEngineConfig.TimeoutSeconds);
         
         if (string.Equals(_decisionEngineConfig.Mode, "CognitiveMesh", StringComparison.OrdinalIgnoreCase))
         {
@@ -141,7 +145,8 @@ public class TradingSystem : IAsyncDisposable
             _tradingConfig.MaxLossPerTrade,
             _tradingConfig.MaxDailyLoss,
             _riskConfig.MaxConsecutiveLosses,
-            _riskConfig.CooldownMinutes);
+            _riskConfig.CooldownMinutes,
+            _tradingConfig.MinConfidenceToTrade);
 
         // 5. Executor
         _executorActor = await _actorFactory.CreateGAgentActorAsync<ExecutorAgent>(Guid.NewGuid().ToString(), ct);
@@ -154,15 +159,20 @@ public class TradingSystem : IAsyncDisposable
         {
             _auditActor = await _actorFactory.CreateGAgentActorAsync<TradeAuditAgent>(Guid.NewGuid().ToString(), ct);
             var audit = (TradeAuditAgent)_auditActor.GetAgent();
-            audit.Configure(_auditConfig);
+            // Provide the effective LLM model name for AI Wars log payload (best-effort).
+            var modelName = _llmProvidersConfig.Providers.TryGetValue(providerName, out var llm)
+                ? llm.Model
+                : providerName;
+            audit.Configure(_auditConfig, aiModel: modelName);
         }
         
         // 7. AI Wars uploader (optional)
         if (_auditActor != null && (_aiWarsConfig.Enabled || _auditConfig.RequestAiwarsUpload))
         {
             _aiWarsUploaderActor = await _actorFactory.CreateGAgentActorAsync<AiWarsLogUploaderAgent>(Guid.NewGuid().ToString(), ct);
-            var uploader = (AiWarsLogUploaderAgent)_aiWarsUploaderActor.GetAgent();
-            uploader.Client = _aiWarsClient;
+            // NOTE:
+            // - Uploader executes the dotnet-file skill (weex_ai_order_upload_ai_log.cs) directly.
+            // - It reads WEEX_* from env (set by Trade.Api Program.cs).
         }
 
         // ============ Establish Hierarchy ============
@@ -178,17 +188,44 @@ public class TradingSystem : IAsyncDisposable
         //                      │
         //                      └── Executor (Execution)
 
-        await ActorHierarchyCoordinator.LinkAsync(_dataCollectorActor, _sentimentActor, _logger, ct);
-        await ActorHierarchyCoordinator.LinkAsync(_dataCollectorActor, _technicalActor, _logger, ct);
+        // ============================================================
+        //  Hierarchy design (IMPORTANT)
+        //
+        //  EventRouter semantics:
+        //  - Up: only to parent (NO sibling fan-out)
+        //  - Down: to all children
+        //
+        //  Therefore, analysts must be children of Coordinator so their analysis (Publish Up)
+        //  can reach the Coordinator. DataCollector only needs to publish market data Down.
+        //
+        //  Topology:
+        //    DataCollector
+        //        ↓
+        //    Coordinator
+        //     ├── SentimentAgent
+        //     ├── TechnicalAgent
+        //     └── RiskManager
+        //          └── Executor
+        //               └── TradeAudit
+        //                    └── AiWarsUploader
+        // ============================================================
+
         await ActorHierarchyCoordinator.LinkAsync(_dataCollectorActor, _coordinatorActor, _logger, ct);
+        await ActorHierarchyCoordinator.LinkAsync(_coordinatorActor, _sentimentActor, _logger, ct);
+        await ActorHierarchyCoordinator.LinkAsync(_coordinatorActor, _technicalActor, _logger, ct);
         await ActorHierarchyCoordinator.LinkAsync(_coordinatorActor, _riskManagerActor, _logger, ct);
         await ActorHierarchyCoordinator.LinkAsync(_riskManagerActor, _executorActor, _logger, ct);
         
-        // Attach audit agent to key nodes (decision/risk/execution) for event capture
+        // Attach audit agent for event capture.
+        //
+        // NOTE:
+        // - Each actor can only have ONE parent (EventRouter has a single ParentId).
+        // - To capture Coordinator/Risk/Executor events consistently, link Audit as a child of Executor:
+        //   Coordinator Down -> RiskManager -> Executor -> Audit
+        //   RiskManager Down -> Executor -> Audit
+        //   Executor Down -> Audit
         if (_auditActor != null)
         {
-            await ActorHierarchyCoordinator.LinkAsync(_coordinatorActor, _auditActor, _logger, ct);
-            await ActorHierarchyCoordinator.LinkAsync(_riskManagerActor, _auditActor, _logger, ct);
             await ActorHierarchyCoordinator.LinkAsync(_executorActor, _auditActor, _logger, ct);
         }
         
@@ -208,7 +245,11 @@ public class TradingSystem : IAsyncDisposable
     {
         _logger.LogInformation("Starting Trading System for {Symbol}...", _tradingConfig.Symbol);
 
-        // Sync account information
+        // Startup guard: ensure we have enough BTC value (>=10U by default) before starting the loop.
+        // In Live mode this may place a small market order to top up; in DryRun it only logs.
+        await EnsureMinBaseAssetValueOnStartAsync(ct);
+
+        // Sync account information (after possible bootstrap buy)
         await SyncAccountInfoAsync();
 
         // Start data collection
@@ -226,6 +267,171 @@ public class TradingSystem : IAsyncDisposable
             ct);
 
         _logger.LogInformation("Trading System started");
+    }
+
+    // ============================================================================
+    //  Startup Guard: Ensure base asset value >= N USDT
+    //  - Example: ensure BTC * lastPrice >= 10
+    //  - Purpose: guarantee the system can always execute SELL/hedge operations in spot-like semantics
+    //             and satisfy hackathon demo constraints.
+    // ============================================================================
+
+    private async Task EnsureMinBaseAssetValueOnStartAsync(CancellationToken ct)
+    {
+        var minUsd = _tradingConfig.MinBaseAssetUsdOnStart;
+        if (minUsd <= 0)
+            return;
+
+        if (!TryParseBaseQuote(_tradingConfig.Symbol, out var baseAsset, out var quoteAsset))
+        {
+            _logger.LogWarning(
+                "Startup guard skipped: cannot parse base/quote from symbol={Symbol}",
+                _tradingConfig.Symbol);
+            return;
+        }
+
+        if (!string.Equals(quoteAsset, "USDT", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning(
+                "Startup guard skipped: quoteAsset={Quote} is not USDT (symbol={Symbol})",
+                quoteAsset, _tradingConfig.Symbol);
+            return;
+        }
+
+        // Always read current price from WEEX to avoid stale assumptions.
+        var ticker = await _apiClient.GetTickerAsync(_tradingConfig.Symbol, ct);
+        var last = (double)ticker.LastPrice;
+        if (last <= 0)
+            throw new InvalidOperationException($"Startup guard failed: invalid lastPrice={ticker.LastPrice} for {_tradingConfig.Symbol}");
+
+        var balances = await _apiClient.GetBalancesAsync(ct);
+        var baseBalance = balances.FirstOrDefault(b => b.Currency.Equals(baseAsset, StringComparison.OrdinalIgnoreCase))?.Balance ?? 0m;
+
+        var baseValueUsd = (double)baseBalance * last;
+        if (baseValueUsd >= minUsd)
+        {
+            _logger.LogInformation(
+                "Startup guard OK: {Asset}={Balance} (≈{Value:F2} USDT) >= {Min:F2} USDT",
+                baseAsset, baseBalance, baseValueUsd, minUsd);
+            return;
+        }
+
+        var missingUsd = minUsd - baseValueUsd;
+        var needQty = missingUsd / last;
+
+        // Round up (avoid being just below due to rounding/price move).
+        needQty = Math.Ceiling(needQty * 100_000_000d) / 100_000_000d;
+        if (needQty <= 0)
+            return;
+
+        if (_tradingConfig.ExecutionMode != TradeExecutionMode.Live)
+        {
+            _logger.LogWarning(
+                "Startup guard would buy {Qty} {Asset} (≈{Usd:F2} USDT) to reach >= {Min:F2} USDT, but ExecutionMode={Mode} so skip.",
+                needQty, baseAsset, missingUsd, minUsd, _tradingConfig.ExecutionMode);
+            return;
+        }
+
+        _logger.LogInformation(
+            "Startup guard: {Asset} value is {Value:F2} USDT < {Min:F2}. Placing MARKET BUY to top up ≈{Usd:F2} USDT (qty={Qty}).",
+            baseAsset, baseValueUsd, minUsd, missingUsd, needQty);
+
+        var clientOrderId = $"BOOTSTRAP_{DateTime.UtcNow:yyyyMMddHHmmssfff}";
+        var result = await _apiClient.PlaceOrderAsync(new OrderRequest
+        {
+            Symbol = _tradingConfig.Symbol,
+            Side = "buy",
+            OrderType = "market",
+            Quantity = needQty.ToString("F8", CultureInfo.InvariantCulture),
+            ClientOrderId = clientOrderId
+        }, ct);
+
+        if (!result.Success)
+        {
+            // Emit an audit event so "invisible" bootstrap actions are observable.
+            if (_auditActor != null)
+            {
+                try
+                {
+                    await _auditActor.PublishEventAsync(new OrderFailedEvent
+                    {
+                        ClientOrderId = clientOrderId,
+                        DecisionId = "BOOTSTRAP_GUARD",
+                        Symbol = _tradingConfig.Symbol,
+                        Side = "buy",
+                        ErrorCode = result.ErrorCode ?? "UNKNOWN",
+                        ErrorMessage = result.ErrorMessage ?? "Unknown error",
+                        Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+                    }, Aevatar.Agents.EventDirection.Down, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _logger.LogWarning(ex, "Failed to publish startup guard OrderFailedEvent to audit");
+                }
+            }
+
+            throw new InvalidOperationException(
+                $"Startup guard failed: unable to top up {baseAsset} to >= {minUsd} USDT. " +
+                $"Error={result.ErrorCode} {result.ErrorMessage}");
+        }
+
+        _logger.LogInformation(
+            "Startup guard BUY submitted: orderId={OrderId}, clientOrderId={ClientOrderId}",
+            result.OrderId, result.ClientOrderId);
+
+        // Emit an audit event so "invisible" bootstrap actions are observable in trade-audit.
+        if (_auditActor != null)
+        {
+            try
+            {
+                await _auditActor.PublishEventAsync(new OrderExecutedEvent
+                {
+                    OrderId = result.OrderId ?? "",
+                    ClientOrderId = result.ClientOrderId ?? clientOrderId,
+                    DecisionId = "BOOTSTRAP_GUARD",
+                    Symbol = _tradingConfig.Symbol,
+                    Side = "buy",
+                    Quantity = needQty,
+                    FilledPrice = last,
+                    Status = "BOOTSTRAP_SUBMITTED",
+                    Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+                }, Aevatar.Agents.EventDirection.Down, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "Failed to publish startup guard OrderExecutedEvent to audit");
+            }
+        }
+    }
+
+    private static bool TryParseBaseQuote(string symbol, out string baseAsset, out string quoteAsset)
+    {
+        baseAsset = "";
+        quoteAsset = "";
+        if (string.IsNullOrWhiteSpace(symbol))
+            return false;
+
+        var s = symbol.Trim();
+        var lower = s.ToLowerInvariant();
+
+        // Normalize common shapes:
+        // - cmt_btcusdt
+        // - BTCUSDT_SPBL
+        // - btcusdt
+        lower = lower.Replace("cmt_", "", StringComparison.OrdinalIgnoreCase);
+        lower = lower.Replace("_spbl", "", StringComparison.OrdinalIgnoreCase);
+
+        // Remove separators if any.
+        lower = lower.Replace("-", "").Replace("_", "");
+
+        if (lower.EndsWith("usdt", StringComparison.OrdinalIgnoreCase))
+        {
+            baseAsset = lower[..^4].ToUpperInvariant();
+            quoteAsset = "USDT";
+            return !string.IsNullOrWhiteSpace(baseAsset);
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -276,16 +482,39 @@ public class TradingSystem : IAsyncDisposable
     /// </summary>
     public async Task<TradingSystemStatus> GetStatusAsync()
     {
+        static string NotInitialized(string name) =>
+            $"{name}: not initialized (call POST /api/trading/initialize)";
+
+        async Task<string> SafeDescAsync(IGAgentActor? actor, string name, string fallback)
+        {
+            if (actor == null)
+                return fallback;
+
+            try
+            {
+                return await actor.GetDescriptionAsync();
+            }
+            catch (Exception ex)
+            {
+                // Keep status endpoint resilient; surface errors as text instead of throwing 500.
+                return $"{name}: error ({ex.GetType().Name}): {ex.Message}";
+            }
+        }
+
+        var auditFallback = _auditConfig.Enabled ? NotInitialized("TradeAudit") : "TradeAudit: disabled";
+        var uploaderWanted = _aiWarsConfig.Enabled || _auditConfig.RequestAiwarsUpload;
+        var uploaderFallback = uploaderWanted ? NotInitialized("AiWarsUploader") : "AiWarsUploader: disabled";
+
         return new TradingSystemStatus
         {
-            DataCollector = await _dataCollectorActor!.GetDescriptionAsync(),
-            SentimentAnalyst = await _sentimentActor!.GetDescriptionAsync(),
-            TechnicalAnalyst = await _technicalActor!.GetDescriptionAsync(),
-            Coordinator = await _coordinatorActor!.GetDescriptionAsync(),
-            RiskManager = await _riskManagerActor!.GetDescriptionAsync(),
-            Executor = await _executorActor!.GetDescriptionAsync(),
-            TradeAudit = _auditActor != null ? await _auditActor.GetDescriptionAsync() : "TradeAudit: disabled",
-            AiWarsUploader = _aiWarsUploaderActor != null ? await _aiWarsUploaderActor.GetDescriptionAsync() : "AiWarsUploader: disabled"
+            DataCollector = await SafeDescAsync(_dataCollectorActor, "DataCollector", NotInitialized("DataCollector")),
+            SentimentAnalyst = await SafeDescAsync(_sentimentActor, "SentimentAnalyst", NotInitialized("SentimentAnalyst")),
+            TechnicalAnalyst = await SafeDescAsync(_technicalActor, "TechnicalAnalyst", NotInitialized("TechnicalAnalyst")),
+            Coordinator = await SafeDescAsync(_coordinatorActor, "Coordinator", NotInitialized("Coordinator")),
+            RiskManager = await SafeDescAsync(_riskManagerActor, "RiskManager", NotInitialized("RiskManager")),
+            Executor = await SafeDescAsync(_executorActor, "Executor", NotInitialized("Executor")),
+            TradeAudit = await SafeDescAsync(_auditActor, "TradeAudit", auditFallback),
+            AiWarsUploader = await SafeDescAsync(_aiWarsUploaderActor, "AiWarsUploader", uploaderFallback)
         };
     }
 

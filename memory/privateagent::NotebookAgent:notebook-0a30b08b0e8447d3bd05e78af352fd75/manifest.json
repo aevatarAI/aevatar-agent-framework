@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "memoryId": "privateagent::NotebookAgent:notebook-0a30b08b0e8447d3bd05e78af352fd75",
+  "scopeType": "PrivateAgent",
+  "scopeId": "NotebookAgent:notebook-0a30b08b0e8447d3bd05e78af352fd75",
+  "entryCount": 4,
+  "latestAtUtc": "2026-01-02T13:54:57.630558+00:00",
+  "files": {
+    "entriesBinary": "entries.pb",
+    "manifest": "manifest.json"
+  }
+}

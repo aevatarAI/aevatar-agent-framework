@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "executionId": "notebook-report-40eee9fa7adb4f3a80ed8cb1ca587e16",
+  "kind": "Custom",
+  "status": "Succeeded",
+  "name": "notebook.report",
+  "exportedAtUtc": "2026-01-03T06:31:50.163703+00:00",
+  "files": {
+    "traceBinary": "trace.pb",
+    "traceJson": "trace.json",
+    "manifest": "manifest.json",
+    "artifactsDir": "artifacts"
+  }
+}

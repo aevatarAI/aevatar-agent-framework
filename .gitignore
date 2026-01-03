@@ -492,6 +492,7 @@ appsettings.secrets.json.bak*
 runs/
 output/
 uploads/
+trade-audit/
 
 # Script temp files
 scripts/.pids/

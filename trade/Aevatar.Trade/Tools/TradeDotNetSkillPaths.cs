@@ -18,6 +18,9 @@ public static class TradeDotNetSkillPaths
 
     public static IReadOnlyList<string> WeexAiWarsAll => EnumerateUnder("ai-wars");
 
+    // AI Wars: Upload AI Log (POST /capi/v2/order/uploadAiLog)
+    public static string WeexAiWarsUploadAiLog => Resolve("ai-wars/upload/weex_ai_order_upload_ai_log.cs");
+
     private static string Resolve(string relativePath)
     {
         // Primary: copied to output directory by csproj (Tools/DotNetSkills -> <bin>/DotNetSkills)

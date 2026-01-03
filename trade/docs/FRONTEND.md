@@ -13,13 +13,13 @@ trade/frontend/
 ├── tsconfig.json
 ├── index.html
 └── src/
-    ├── App.tsx          # Tabs：Trading / WEEX Tools
+    ├── App.tsx          # Tabs：Trading / WEEX Tools / AI Wars APIs
     ├── main.tsx         # React 入口
     ├── api.ts           # fetch 封装（统一错误处理）
     ├── types.ts         # 后端 DTO（只定义 UI 用到的字段）
     ├── styles.css       # 轻量 UI（无额外 UI 依赖）
     ├── components/      # Button / Panel / StatusPill
-    └── pages/           # TradingPage / WeexPage
+    └── pages/           # TradingPage（Auto Trading Dashboard）/ WeexPage / AiWarsPage
 ```
 
 ## 联调原则（让特殊情况消失）
@@ -44,6 +44,10 @@ trade/frontend/
 - `POST /api/trading/sync-account`
 - `GET /api/trading/status`
 - `GET /api/agents`
+- `GET /api/meta`                      # 安全配置快照（symbol/interval/mode，无 secrets）
+- `GET /api/audit/latest?maxBytes=...` # 最新策略日志（Markdown tail）
+- `GET /api/audit/files`               # 审计文件列表
+- `GET /api/audit/tail?name=...`       # 读取指定文件尾部（md/jsonl）
 
 ### WEEX Tools（调试工具箱）
 
@@ -53,9 +57,14 @@ trade/frontend/
 - `POST /api/weex-test/place-order`
 - `POST /api/weex-test/cancel-order?symbol=...&orderId=...&clientOrderId=...`
 
+### AI Wars APIs（DotNetSkills 可视化）
+
+- `GET /api/ai-wars`                 # 工具索引（每个 tool 对应一个 WEEX AI Wars endpoint）
+- `POST /api/ai-wars/{toolName}`     # 执行某个 tool（危险/需要确认：加 `?confirm=true`）
+
 ## 改进建议（下一步）
 
-- **可观测性时间线**：把决策/风控/执行事件串成 Timeline（演示效果最强）
+- ✅ **可观测性时间线**：已在 Dashboard 中以 `trade-audit/*.md` 的方式呈现（按 cycle 汇总）
 - **安全护栏**：在 UI 层增加 “Live 下单” 二次确认（默认提示风险）
 - **状态推送**：未来可通过 SSE/WebSocket 推送状态，而不是手动刷新
 

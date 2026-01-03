@@ -42,6 +42,11 @@ trade/Aevatar.Trade/Tools/DotNetSkills/ai-wars/
 这些脚本会在运行时由 `RiskManagerAgent` 扫描并注册（见 `TradeDotNetSkillPaths.WeexAiWarsAll`）。  
 你也可以单独用 `dotnet run --file <path>` 手动验证。
 
+另外，为了“可见可调”，后端也会把这些 skills 暴露为 HTTP endpoints（Swagger/前端可直接点）：
+
+- `GET /api/ai-wars`：列出所有 toolName / 参数 / route
+- `POST /api/ai-wars/{toolName}`：执行某个 tool（危险/需要确认：加 `?confirm=true`）
+
 ## 变更记录
 
 - 2025-12-28：新增 `ai-wars/` 全量 endpoint skills（Market/Account/Trade/Upload AI log），并在 agent 启动时自动注册。

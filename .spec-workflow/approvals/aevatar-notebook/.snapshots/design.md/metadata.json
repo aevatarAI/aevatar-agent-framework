@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/aevatar-notebook/design.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2025-12-31T09:45:17.763Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767174317751_ki23hymd4",
+      "approvalTitle": "Approve design for spec aevatar-notebook"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2025-12-31T09:49:13.819Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767174317751_ki23hymd4",
+      "approvalTitle": "Approve design for spec aevatar-notebook"
+    }
+  ]
+}

@@ -75,11 +75,13 @@ public class ExecutorAgent : GAgentBase<ExecutorState>
     [EventHandler]
     public async Task HandleApprovedTrade(ApprovedTradeEvent evt)
     {
+        var clientOrderId = GenerateClientOrderId(evt.DecisionId);
+
         // Live mode depends on API Client; DryRun can run safely without API keys
         if (_executionMode == TradeExecutionMode.Live && _apiClient == null)
         {
             Logger.LogError("[Executor] API client not configured");
-            await PublishOrderFailed(evt, "API_NOT_CONFIGURED", "API client not configured");
+            await PublishOrderFailed(evt, clientOrderId, "API_NOT_CONFIGURED", "API client not configured");
             return;
         }
 
@@ -87,7 +89,7 @@ public class ExecutorAgent : GAgentBase<ExecutorState>
             "[Executor] Executing trade: {DecisionId}, {Side} {Symbol}, Qty={Qty}",
             evt.DecisionId, evt.Side, evt.Symbol, evt.Quantity);
 
-        await ExecuteTradeAsync(evt);
+        await ExecuteTradeAsync(evt, clientOrderId);
     }
 
     /// <summary>
@@ -105,10 +107,8 @@ public class ExecutorAgent : GAgentBase<ExecutorState>
 
     // ============ Trade Execution ============
 
-    private async Task ExecuteTradeAsync(ApprovedTradeEvent trade)
+    private async Task ExecuteTradeAsync(ApprovedTradeEvent trade, string clientOrderId)
     {
-        var clientOrderId = GenerateClientOrderId(trade.DecisionId);
-        
         // ------------------------------------------------------------
         //  DryRun: Do not place real orders, only publish simulated events to ensure full-chain observability
         // ------------------------------------------------------------
@@ -198,6 +198,7 @@ public class ExecutorAgent : GAgentBase<ExecutorState>
 
                 await PublishOrderFailed(
                     trade, 
+                    clientOrderId,
                     result.ErrorCode ?? "UNKNOWN", 
                     result.ErrorMessage ?? "Unknown error");
             }
@@ -207,7 +208,7 @@ public class ExecutorAgent : GAgentBase<ExecutorState>
             State.OrdersFailed++;
             State.LastExecution = Timestamp.FromDateTime(DateTime.UtcNow);
             Logger.LogError(ex, "[Executor] Order execution exception");
-            await PublishOrderFailed(trade, "EXCEPTION", ex.Message);
+            await PublishOrderFailed(trade, clientOrderId, "EXCEPTION", ex.Message);
         }
     }
 
@@ -269,11 +270,11 @@ public class ExecutorAgent : GAgentBase<ExecutorState>
         await Task.CompletedTask;
     }
 
-    private async Task PublishOrderFailed(ApprovedTradeEvent trade, string code, string message)
+    private async Task PublishOrderFailed(ApprovedTradeEvent trade, string clientOrderId, string code, string message)
     {
         await PublishAsync(new OrderFailedEvent
         {
-            ClientOrderId = trade.DecisionId,
+            ClientOrderId = clientOrderId,
             DecisionId = trade.DecisionId,
             Symbol = trade.Symbol,
             Side = trade.Side,

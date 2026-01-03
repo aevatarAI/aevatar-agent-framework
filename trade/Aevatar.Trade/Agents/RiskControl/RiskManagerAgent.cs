@@ -82,6 +82,7 @@ public class RiskManagerAgent : AIGAgentBase
     private double _maxDailyLossPct = 5.0;      // Maximum daily loss 5%
     private int _maxConsecutiveLosses = 3;      // Consecutive loss circuit breaker
     private int _cooldownMinutes = 60;          // Circuit breaker cooldown time
+    private int _minConfidenceToTrade = 60;     // Coordinator gating (avoid accidental trading on low-confidence decisions)
 
     // ============ Lifecycle ============
 
@@ -136,7 +137,8 @@ public class RiskManagerAgent : AIGAgentBase
         double maxLossPerTrade = 2.0,
         double maxDailyLossPct = 5.0,
         int maxConsecutiveLosses = 3,
-        int cooldownMinutes = 60)
+        int cooldownMinutes = 60,
+        int minConfidenceToTrade = 60)
     {
         _maxPositionPct = maxPositionPct;
         _maxTotalPositionPct = maxTotalPositionPct;
@@ -144,11 +146,12 @@ public class RiskManagerAgent : AIGAgentBase
         _maxDailyLossPct = maxDailyLossPct;
         _maxConsecutiveLosses = maxConsecutiveLosses;
         _cooldownMinutes = cooldownMinutes;
+        _minConfidenceToTrade = minConfidenceToTrade;
 
         Logger.LogInformation(
             "[RiskManager] Configured: MaxPos={MaxPos}%, MaxTotal={MaxTotal}%, " +
-            "MaxLoss={MaxLoss}%, MaxDaily={MaxDaily}%",
-            maxPositionPct, maxTotalPositionPct, maxLossPerTrade, maxDailyLossPct);
+            "MaxLoss={MaxLoss}%, MaxDaily={MaxDaily}%, MinConf={MinConf}%",
+            maxPositionPct, maxTotalPositionPct, maxLossPerTrade, maxDailyLossPct, minConfidenceToTrade);
     }
 
     /// <summary>
@@ -180,6 +183,27 @@ public class RiskManagerAgent : AIGAgentBase
         Logger.LogInformation(
             "[RiskManager] Evaluating decision: {DecisionId}, {Direction} {Symbol}",
             evt.DecisionId, evt.Direction, evt.Symbol);
+
+        // ------------------------------------------------------------
+        //  "No trade" fast path
+        //
+        //  We intentionally emit a TradeRejectedEvent so TradeAudit can
+        //  render a human-readable reason in trade-audit (*.md).
+        // ------------------------------------------------------------
+        if (string.Equals(evt.Direction, "HOLD", StringComparison.OrdinalIgnoreCase))
+        {
+            await RejectTrade(evt, new List<string> { "No trade: Coordinator decision is HOLD" }, "LOW");
+            return;
+        }
+
+        if (evt.Confidence < _minConfidenceToTrade)
+        {
+            await RejectTrade(
+                evt,
+                new List<string> { $"No trade: confidence {evt.Confidence} < min {_minConfidenceToTrade}" },
+                "LOW");
+            return;
+        }
 
         // First perform hard rule checks
         var hardCheckResult = PerformHardRuleCheck(evt);
@@ -368,8 +392,32 @@ public class RiskManagerAgent : AIGAgentBase
         _riskState.TradesApproved++;
         _riskState.LastUpdate = Timestamp.FromDateTime(DateTime.UtcNow);
 
-        // Calculate actual stop loss and take profit prices
+        // ------------------------------------------------------------
+        //  Price snapshot (required)
+        //
+        //  - Coordinator should attach SuggestedPrice from MarketTickEvent.
+        //  - RiskManager must NOT guess size without a price; reject if missing.
+        // ------------------------------------------------------------
         var currentPrice = decision.SuggestedPrice > 0 ? decision.SuggestedPrice : 0;
+        if (currentPrice <= 0)
+        {
+            await RejectTrade(
+                decision,
+                new List<string> { "Missing current price (TradingDecisionEvent.suggested_price <= 0)" },
+                riskLevel: "HIGH");
+            return;
+        }
+
+        if (_riskState.TotalEquity <= 0)
+        {
+            await RejectTrade(
+                decision,
+                new List<string> { "Account equity is unknown (sync-account not completed yet)" },
+                riskLevel: "HIGH");
+            return;
+        }
+
+        // Calculate actual stop loss and take profit prices
         var stopLoss = decision.Direction == "BUY" 
             ? currentPrice * (1 - evaluation.StopLossPct / 100)
             : currentPrice * (1 + evaluation.StopLossPct / 100);
@@ -377,13 +425,28 @@ public class RiskManagerAgent : AIGAgentBase
             ? currentPrice * (1 + evaluation.TakeProfitPct / 100)
             : currentPrice * (1 - evaluation.TakeProfitPct / 100);
 
+        // ------------------------------------------------------------
+        //  Order policy (AI Wars demo friendly)
+        //  - Prefer LIMIT at current price so it becomes a real "挂单" workflow.
+        // ------------------------------------------------------------
+        var orderType = "limit";
+        var quantity = CalculateQuantity(decision.Symbol, evaluation.AdjustedPositionPct, currentPrice);
+        if (quantity <= 0)
+        {
+            await RejectTrade(
+                decision,
+                new List<string> { "Calculated order quantity <= 0 (check equity/positionPct/price)" },
+                riskLevel: "HIGH");
+            return;
+        }
+
         var approved = new ApprovedTradeEvent
         {
             DecisionId = decision.DecisionId,
             Symbol = decision.Symbol,
             Side = decision.Direction.ToLower(),
-            OrderType = "market",
-            Quantity = CalculateQuantity(decision.Symbol, evaluation.AdjustedPositionPct),
+            OrderType = orderType,
+            Quantity = quantity,
             Price = currentPrice,
             StopLoss = stopLoss,
             TakeProfit = takeProfit,
@@ -426,12 +489,28 @@ public class RiskManagerAgent : AIGAgentBase
             decision.DecisionId, string.Join(", ", violations));
     }
 
-    private double CalculateQuantity(string symbol, double positionPct)
+    private double CalculateQuantity(string symbol, double positionPct, double currentPrice)
     {
-        // Simplified calculation: Calculate quantity based on position percentage and total equity
-        var positionValue = _riskState.TotalEquity * (positionPct / 100);
-        // Should actually divide by current price, here returns USDT value
-        return positionValue;
+        // ------------------------------------------------------------
+        //  Position sizing (contract "size" uses base asset quantity)
+        //
+        //  Example:
+        //  - equity=1000 USDT, positionPct=10%, price=100000 => qty=0.001 BTC
+        //
+        //  NOTE:
+        //  - StepSize rounding is handled by WeexContractApiClient before placing the order.
+        // ------------------------------------------------------------
+        if (_riskState.TotalEquity <= 0) return 0;
+        if (positionPct <= 0) return 0;
+        if (currentPrice <= 0) return 0;
+
+        var positionValueUsdt = _riskState.TotalEquity * (positionPct / 100);
+        if (positionValueUsdt <= 0) return 0;
+
+        var qty = positionValueUsdt / currentPrice;
+        if (qty <= 0) return 0;
+
+        return Math.Round(qty, 8, MidpointRounding.AwayFromZero);
     }
 
     /// <summary>

@@ -21,11 +21,29 @@
 ### 2. Store 抽象（DI 边界）
 
 - **接口**：`src/Aevatar.Agents.Abstractions/Memory/IMemoryGraphStore.cs`
-- 默认实现（Core / file）：
+- 默认实现（Core / file，零外部依赖）：
   - `src/Aevatar.Agents.Core/MemoryGraph/FileMemoryGraphStore.cs`
   - 写入位置（Trace Bundle v1 扩展）：
     - `${AEVATAR_TRACE_DIR}/<executionId>/artifacts/memory_graph.pb`
     - `${AEVATAR_TRACE_DIR}/<executionId>/artifacts/memory_graph.json`
+
+- Neo4j 实现（可替换）：
+  - `src/Aevatar.Agents.Persistence.Neo4j.MemoryGraph/Stores/Neo4jMemoryGraphStore.cs`
+  - 适用：希望把 MemoryGraph 当成“真实可查询图谱”而非 file artifact 的场景（Axiom reasoning / GraphRAG）。
+
+#### 2.1 Neo4j 存储模型（约定）
+
+- Graph Meta Node
+  - label：`AevatarMemoryGraph`
+  - key：`graphId`
+- Graph Node
+  - label：`AevatarMemoryGraphNode`
+  - key：`graphId + nodeId`
+- Graph Edge
+  - relationship type：`AEVATAR_MEMORY_GRAPH_EDGE`
+  - key：`graphId + edgeId`
+
+> 说明：`labels`（map）以 JSON 字符串 `labelsJson` 存储，避免 Neo4j property 类型限制引入复杂性。
 
 ---
 
@@ -63,5 +81,24 @@
 - `memoryId = "execution::<executionId>"`
 
 即使 embeddings 不可用，也会退化到 `IMemoryStore` 的 substring 搜索（best-effort）。
+
+---
+
+### 6. 如何启用 Neo4j GraphStore（替换默认 FileMemoryGraphStore）
+
+```csharp
+using Aevatar.Agents.Core.Extensions;
+using Aevatar.Agents.Persistence.Neo4j.MemoryGraph.DependencyInjection;
+using Aevatar.Agents.Persistence.Neo4j.MemoryGraph.Stores;
+
+// 1) 注册 Neo4j MemoryGraphStore（会复用/注册 Neo4j.Driver 基础设施）
+services.AddAevatarMemoryGraphNeo4j("bolt://localhost:7687", "neo4j", "password");
+
+// 2) 替换默认 IMemoryGraphStore
+services.AddAevatarAgentSystem(options =>
+{
+    options.MemoryGraphStoreType = typeof(Neo4jMemoryGraphStore);
+});
+```
 
 

@@ -34,9 +34,10 @@ public static class ServiceCollectionExtensions
         if (weex.Mode == WeexApiMode.Spot)
         {
             services.AddHttpClient<IWeexApiClient, WeexSpotApiClient>((sp, client) =>
-            {
+        {
                 client.BaseAddress = new Uri(weex.BaseUrl);
                 client.DefaultRequestHeaders.Add("Accept", "application/json");
+                client.DefaultRequestHeaders.UserAgent.ParseAdd("Aevatar.Trade/1.0");
             });
         }
         else
@@ -45,8 +46,9 @@ public static class ServiceCollectionExtensions
             services.AddHttpClient<IWeexApiClient, WeexContractApiClient>((sp, client) =>
             {
                 client.BaseAddress = new Uri(weex.BaseUrl);
-                client.DefaultRequestHeaders.Add("Accept", "application/json");
-            });
+            client.DefaultRequestHeaders.Add("Accept", "application/json");
+                client.DefaultRequestHeaders.UserAgent.ParseAdd("Aevatar.Trade/1.0");
+        });
         }
 
         services.AddHttpClient<IWeexAiWarsLogClient, WeexAiWarsLogClient>((sp, client) =>

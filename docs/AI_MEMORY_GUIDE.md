@@ -38,19 +38,20 @@
 #### Layer 4：Memory Store（资源化 append-only 记忆）
 - **载体**：`IMemoryStore` + `MemoryEntry`（Protobuf，跨 runtime 可序列化）
 - **用途**：把“记忆”从 Agent 私有 state 升级为可共享资源（private/session/run/...），便于治理与后续向量/图谱索引
-- **默认行为**：框架默认注册 file store（best-effort；`${AEVATAR_MEMORY_DIR}`，否则 `<repoRoot>/memory`），但 **AIGAgentBase 默认不会自动写入**：需要显式开启 `EnableMemoryStoreAppend = true`（`memory_id` 默认由 scope 派生：`{scope_type}::{scope_id}`，例如 `privateagent::<agentId>` / `session::<sessionId>` / `execution::<executionId>`；也可用 `MemoryStoreScopeType` / `MemoryStoreScopeIdOverride` / `MemoryIdOverride` 覆写）
+- **默认行为**：框架默认注册 file store（best-effort），但 **AIGAgentBase 默认不会自动写入**（需要显式开启开关）
 - 详见：`docs/MEMORY_STORE.md`
 
 #### Layer 4.1：Vector Index（持久化语义检索索引）
 - **载体**：`IMemoryVectorIndex` + `MemoryVectorRecord`（Protobuf）
 - **用途**：把语义检索从“一次性 rerank”升级为可持久化 top‑k 召回（跨进程/跨 run）
-- **默认行为**：框架默认注册 file index（best-effort；`${AEVATAR_MEMORY_VECTOR_DIR}` 或与 `${AEVATAR_MEMORY_DIR}` 共址），但写入与使用都 **默认关闭**：需要显式开启 `EnableMemoryVectorIndexAppend = true`（且 embedding generator 可用）
+- **默认行为**：框架默认注册 file index（best-effort），写入与使用都 **默认关闭**（需要显式开启）
 - 详见：`docs/MEMORY_VECTOR_INDEX.md`
 
 #### Layer 4.2：Memory Graph（ExecutionTrace → 图谱）
 - **载体**：`IMemoryGraphStore` + `MemoryGraph`（Protobuf）
 - **用途**：把执行过程（trace）转成可导航的实体/边，支撑“为什么这么做”的可解释回忆（GraphRAG 工程骨架）
-- **默认行为**：默认 `IExecutionTraceStore`（File 实现）会被 `ProjectingExecutionTraceStore` 装饰：`SaveAsync(trace)` 后 best-effort 投影产出 `MemoryGraph`（trace bundle artifact）+ execution‑scoped `MemoryEntry`（`memory_id = execution::<executionId>`）
+- **默认行为**：`IExecutionTraceStore.SaveAsync` 后 best-effort 投影产出 graph artifact + execution‑scoped `MemoryEntry`
+- **可选**：可用 Neo4j 替换默认 file graph store，把 MemoryGraph 落到可查询图数据库（适合 axiom reasoning / GraphRAG）
 - 详见：`docs/MEMORY_GRAPH.md`
 
 ---
@@ -114,20 +115,15 @@
 两条推荐路线（二选一或组合）：
 
 - **路线 A：让模型自己决定“何时回忆”**（工具化）
-  - 启用内置工具 `search_memory`（实现：`src/Aevatar.Agents.AI.Core/WithTool/Tools/BuiltIn/AevatarMemorySearchTool.cs`）
-  - 参数：
-    - `memoryType`：`all` / `working` / `conversation`
-    - `memoryId`：限定检索的资源（格式 `{scope_type}::{scope_id}`；默认 `privateagent::<agentId>`；执行回放：`execution::<executionId>`）
-  - 安全策略（工具执行）：
-    - 工具执行会受 `ToolExecutionContext` 的 `AllowInternalTools` / `AllowDangerousTools` 约束；标准策略默认 `AllowInternalTools=true`、`AllowDangerousTools=false`（危险/需确认工具不会执行）
+  - 启用内置工具 `search_memory`
   - 模型需要回忆时调用 tool
   - tool 的优先级是（best-effort）：
     - **长期记忆（可持久化）**：
-      - `IMemoryVectorIndex` + `ToolContext.GenerateEmbeddingsAsync` 可用时：先走向量 top‑k（`memory_vector`）
-      - 否则：走 `IMemoryStore.SearchAsync` lexical/substring（`memory_store`）
-    - 再查 CQRS read-model（优先 `IStateQueryService.QueryAsync`，失败降级 `GetByIdAsync` + state scan；返回 `cqrs_state`）
-    - 再搜 `State.Context["history_summary"]`（`conversation_summary`）和 `State.History`（`conversation`）（无 IO）
-    - 若以上都没有任何 lexical 命中：再 best-effort 做一次 state 语义检索/rerank（需要 embedding callback；有成本，上层已做“无命中才触发”的保护）
+      - embeddings + `IMemoryVectorIndex` 可用时：先走向量 top‑k（`memory_vector`）
+      - 否则：走 `IMemoryStore` substring（`memory_store`）
+      - 可选参数 `memoryId` 可把检索范围限定到某个资源（默认：`privateagent::<agentId>`；执行回放：`execution::<executionId>`）
+    - 再查 CQRS read-model（`cqrs_state`，如果已接入）
+    - 再搜 `State.Context["history_summary"]` 和 `State.History`（无 IO）
 
 - **路线 B：由 Agent 决策预取（规则化）**
   - 仅在出现明确意图时读外部检索（例如：用户问“上次你说的 X”/“我的偏好是什么”/“继续上次未完成任务”）
@@ -179,26 +175,25 @@
 - **对话/状态记忆**：`State.History`（滑窗）+ `history_summary`（滚动摘要）+ CQRS read-model（投影查询）+ 工具化 `search_memory`
 - **执行/回放记忆**：统一的 `ExecutionTrace`（跨边界 Protobuf，bundle 导出，适合审计/回放/对比）
 
-目前的落地状态（按性价比排序）：
+但仍有明确提升空间（按性价比排序）：
 
-- **P0（已实现）：把检索从“子串 contains”升级为“可用的全文检索”**
-  - `search_memory` 已优先走 CQRS 的 `QueryAsync`（best-effort；实现方可用 Lucene/QueryString/FTS），并在 CQRS 不可用时降级到 `GetByIdAsync` + state scan。
-  - 仍建议：投影层（CQRS Projector）增加面向检索的扁平字段（例如 `historyText/contextText/historySummary`），减少“复杂 JSON 字符串”对检索质量的伤害。
+- **P0：把检索从“子串 contains”升级为“可用的全文检索”**
+  - `search_memory` 优先走 CQRS 的 `QueryAsync`（Lucene/QueryString/FTS），并在 CQRS 不可用时降级到 `GetByIdAsync` + state scan（best-effort）。
+  - 投影层（CQRS Projector）应增加面向检索的扁平字段（例如 `historyText/contextText/historySummary`），减少“复杂 JSON 字符串”对检索质量的伤害。
 
-- **P1（已实现）：语义检索（向量）落地到工具链**
-  - 当 `IMemoryVectorIndex` + embedding callback 可用时，`search_memory` 会优先走向量 top‑k（默认 File + brute-force cosine，无外部依赖）。
-  - 写入默认关闭：`AIGAgentBase.EnableMemoryVectorIndexAppend = true` 才会把对话写入向量索引（best-effort）。
-  - embeddings 不可用时：退化为 `IMemoryStore` lexical/substring + CQRS/State scan（best-effort）。
+- **P1：语义检索（向量）落地到工具链**
+  - 当 embedding generator 可用时，`search_memory` 会优先走 `IMemoryVectorIndex` 的 top‑k 召回（无外部依赖默认 File + brute-force cosine），提升“同义改写/换句话说”的召回，并能跨进程持久化。
+  - embeddings 不可用时，会退化为 `IMemoryStore` 的 substring 搜索 + CQRS/State scan（best-effort）。
   - 关键原则：向量索引是“外部层”，不要塞进 Agent State（避免 state 膨胀与跨 runtime payload 爆炸）。
 
-- **P2（已实现）：用“图”承载关系（轻量图谱即可）**
+- **P2：用“图”承载关系（轻量图谱即可）**
   - `ExecutionTrace` 天然是一棵树（并可带 labels/metrics/decisions/alerts），非常适合做“可解释的记忆图谱”输入。
   - 现在框架会在 `SaveAsync(trace)` 后 best-effort 投影出：
     - `MemoryGraph`（trace artifact，保存在 trace bundle 的 artifacts 下）
     - `MemoryEntry`（scope=execution，可用 `search_memory(memoryId="execution::<executionId>")` 检索）
   - 下一步可以把图谱与向量召回组合：向量找“相关片段”，图谱解释“关系路径/选择原因”。
 
-- **P3（规划中）：把“记忆处理”显式化为 Pipeline（ECL 对齐）**
+- **P3：把“记忆处理”显式化为 Pipeline（ECL 对齐）**
   - Extract：从 `ExecutionTrace` / `WorkflowStepEvent` / Agent 对话、工具输出抽取候选记忆条目（append-only）。
   - Cognify：做结构化总结/去重/归一化（可 LLM、也可 token-free 规则）。
   - Load：写入 Memory Store + FTS/Vector/Graph 索引（异步投影，失败可重试，保证主流程不被拖慢）。

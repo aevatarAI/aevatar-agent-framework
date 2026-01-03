@@ -3,6 +3,7 @@ using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Core;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
+using System.Threading;
 
 namespace Aevatar.Trade.Agents.Analysts;
 
@@ -74,7 +75,10 @@ public class TechnicalAnalystAgent : AIGAgentBase
 
     private readonly TechnicalAnalystState _techState = new();
     private readonly List<KlineUpdateEvent> _klineBuffer = new();
+    private DateTime _lastAnalysisUtc = DateTime.MinValue;
+    private int _analysisRunning;
     private const int KlineBufferSize = 200;
+    private const int MinAnalysisIntervalSeconds = 1;
 
     // ============ Lifecycle ============
 
@@ -106,11 +110,22 @@ public class TechnicalAnalystAgent : AIGAgentBase
         if (_klineBuffer.Count > KlineBufferSize)
             _klineBuffer.RemoveAt(0);
 
-        // Analyze every N klines received
-        if (_klineBuffer.Count % 5 == 0 && _klineBuffer.Count >= 60)
-        {
-            await AnalyzeTechnicalAsync(evt.Symbol);
-        }
+        // 高频模式（用户要求）：只要有 K 线输入，就尽可能频繁地产出技术分析，
+        // 但用“1秒节流 + 互斥”避免并发堆积。
+        await TryAnalyzeAsync(string.IsNullOrWhiteSpace(evt.Symbol) ? "UNKNOWN" : evt.Symbol);
+    }
+
+    /// <summary>
+    /// High-frequency trigger: MarketTick also drives technical analysis.
+    /// This keeps Coordinator's technical snapshot from becoming stale when kline interval is large (e.g. 5m/15m).
+    /// </summary>
+    [EventHandler]
+    public async Task HandleMarketTick(MarketTickEvent evt)
+    {
+        if (string.IsNullOrWhiteSpace(evt.Symbol))
+            return;
+
+        await TryAnalyzeAsync(evt.Symbol);
     }
 
     // ============ Analysis Methods ============
@@ -144,7 +159,10 @@ public class TechnicalAnalystAgent : AIGAgentBase
             _techState.LastAnalysis = Timestamp.FromDateTime(DateTime.UtcNow);
 
             // Publish analysis results
-            await PublishAsync(analysis);
+            // IMPORTANT:
+            // - TechnicalAgent and Coordinator are siblings under DataCollector.
+            // - Publish Up so DataCollector can fan-out the analysis to all siblings (including Coordinator).
+            await PublishAsync(analysis, Aevatar.Agents.EventDirection.Up);
 
             Logger.LogInformation(
                 "[TechnicalAgent] Analysis completed for {Symbol}: Trend={Trend}, Signal={Signal}",
@@ -153,6 +171,29 @@ public class TechnicalAnalystAgent : AIGAgentBase
         catch (Exception ex)
         {
             Logger.LogError(ex, "[TechnicalAgent] Analysis failed for {Symbol}", symbol);
+        }
+    }
+
+    private async Task TryAnalyzeAsync(string symbol)
+    {
+        if (_klineBuffer.Count < 60)
+            return;
+
+        var now = DateTime.UtcNow;
+        if ((now - _lastAnalysisUtc).TotalSeconds < MinAnalysisIntervalSeconds)
+            return;
+
+        if (Interlocked.Exchange(ref _analysisRunning, 1) == 1)
+            return;
+
+        _lastAnalysisUtc = now;
+        try
+        {
+            await AnalyzeTechnicalAsync(symbol);
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _analysisRunning, 0);
         }
     }
 

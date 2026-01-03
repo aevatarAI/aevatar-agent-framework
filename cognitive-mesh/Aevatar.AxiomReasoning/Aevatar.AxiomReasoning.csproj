@@ -17,6 +17,7 @@
     <ProjectReference Include="..\..\src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
     <ProjectReference Include="..\..\src\Aevatar.Agents.AI.MEAI\Aevatar.Agents.AI.MEAI.csproj" />
     <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.MongoDB\Aevatar.Agents.Persistence.MongoDB.csproj" />
+    <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.MongoDB.GAgent\Aevatar.Agents.Persistence.MongoDB.GAgent.csproj" />
     <ProjectReference Include="..\..\plugins\Aevatar.Agents.Plugins.MassTransit\Aevatar.Agents.Plugins.MassTransit.csproj" />
 
     <!-- Cognitive DSL 系统 -->

@@ -78,4 +78,77 @@ export type OrderInfo = {
   updateTime?: string | null;
 };
 
+export type PositionInfo = {
+  symbol: string;
+  side: string;
+  size: number;
+  entryPrice?: number | null;
+  markPrice?: number | null;
+  unrealizedPnl?: number | null;
+  notional?: number | null;
+  leverage?: number | null;
+};
+
+export type FillInfo = {
+  ts?: number | null;
+  timeUtc?: string | null;
+  symbol?: string | null;
+  side: string;
+  price?: number | null;
+  quantity?: number | null;
+  orderId?: string | null;
+  fee?: number | null;
+};
+
+// =============================================================================
+// Dashboard / Audit
+// =============================================================================
+
+export type MetaResponse = {
+  trading: {
+    symbol: string;
+    interval: string;
+    executionMode: string; // "DryRun" | "Live" (stringified)
+    minConfidenceToTrade: number;
+    maxPositionPct: number;
+    maxTotalPositionPct: number;
+  };
+  weex: {
+    mode: string; // "Contract" | "Spot"
+    baseUrl: string;
+    marketDataBaseUrl: string;
+    tradingBaseUrl: string;
+    publicWebSocketUrl: string;
+    webSocketOrigin: string;
+  };
+  audit: {
+    enabled: boolean;
+    outputDir: string;
+    includeMarketData: boolean;
+    requestAiWarsUpload: boolean;
+  };
+  aiWars: {
+    enabled: boolean;
+    baseUrl: string;
+    uploadPath: string;
+  };
+};
+
+export type AuditLatestResponse = {
+  directory: string;
+  file: string | null;
+  runId: string | null;
+  updatedAtUtc: string | null;
+  content: string;
+};
+
+export type AuditFileListResponse = {
+  directory: string | null;
+  files: Array<{
+    name: string;
+    sizeBytes: number;
+    lastWriteTimeUtc: string;
+  }>;
+};
+
 

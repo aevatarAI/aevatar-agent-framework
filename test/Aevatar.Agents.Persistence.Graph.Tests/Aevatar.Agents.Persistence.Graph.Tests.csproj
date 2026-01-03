@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Moq" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\\..\\src\\Aevatar.Agents.Persistence.Graph\\Aevatar.Agents.Persistence.Graph.csproj" />
+    <ProjectReference Include="..\\..\\src\\Aevatar.Agents.Persistence.Neo4j\\Aevatar.Agents.Persistence.Neo4j.csproj" />
+    <ProjectReference Include="..\\..\\src\\Aevatar.Agents.Persistence.Neo4j.Graph\\Aevatar.Agents.Persistence.Neo4j.Graph.csproj" />
+    <ProjectReference Include="..\\..\\src\\Aevatar.Agents.Persistence.InMemory.Graph\\Aevatar.Agents.Persistence.InMemory.Graph.csproj" />
+  </ItemGroup>
+
+</Project>

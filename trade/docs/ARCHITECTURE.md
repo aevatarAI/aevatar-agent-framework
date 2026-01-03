@@ -111,6 +111,10 @@ trade/
 │   └── ARCHITECTURE.md                # 本文档
 │   └── FRONTEND.md                    # 前端（演示 UI）说明
 │   └── AI_WARS_DOTNET_SKILLS.md        # AI Wars API → DotNet File Skills 索引
+│   └── TRADING_WORKFLOW.md             # 面向客户：多智能体交易闭环与“谁在何时如何下单”
+│
+├── scripts/                           # 工具脚本（开发/运维）
+│   └── test_dotnet_skills.py           # DotNet file skills 巡检（走 /api/ai-wars/*）
 │
 ├── frontend/                          # ✅ 演示 UI（Vite + React + TS）
 │   ├── README.md                      # 启动/联调说明
@@ -138,10 +142,16 @@ trade/
 │       └── WeexApi/
 │           ├── IWeexApiClient.cs
 │           ├── WeexApiClientBase.cs
-│           ├── WeexContractApiClient.cs
 │           ├── WeexSpotApiClient.cs
 │           ├── WeexApiConfig.cs
 │           ├── WeexApiException.cs
+│           ├── WeexContractApiClient.cs            # 合约客户端入口（partial，文件很薄）
+│           ├── Contract/                           # ✅ 合约客户端分区（每文件 < 800 行）
+│           │   ├── WeexContractApiClient.Market.cs  # 行情
+│           │   ├── WeexContractApiClient.Account.cs # 账户/模式
+│           │   ├── WeexContractApiClient.Trading.cs # 下单/撤单/查询
+│           │   ├── WeexContractApiClient.Rules.cs   # stepSize/对齐规则
+│           │   └── WeexContractApiClient.Json.cs    # Json 解析/DTO
 │           └── WeexWebSocketClient.cs
 │
 │   └── Tools/
@@ -156,9 +166,13 @@ trade/
 ├── Aevatar.Trade.Api/                 # Web API Host
 │   ├── Aevatar.Trade.Api.csproj
 │   ├── Program.cs
+│   ├── AiWarsSkillEndpoints.cs         # ✅ 把 Tools/DotNetSkills/ai-wars/** 映射为 HTTP endpoints（Swagger 可见）
 │   ├── appsettings.json
 │   ├── Controllers/
-│   │   └── TradingController.cs
+│   │   ├── TradingController.cs         # 系统控制 + Agent 状态
+│   │   ├── WeexTestController.cs        # WEEX 联调工具（ticker/balances/orders）
+│   │   ├── AuditController.cs           # 读取 trade-audit/*.md/*.jsonl（给前端展示/下载）
+│   │   └── MetaController.cs            # 安全配置快照（不给 secrets）
 │   └── Extensions/
 │       ├── ServiceDefaultsExtensions.cs
 │       ├── ObservabilityExtensions.cs
@@ -175,6 +189,8 @@ trade/
 ## 变更记录
 
 - **2025-12-28**：拆分 `WeexApiClient` → `WeexContractApiClient`（AI Wars 合约）+ `WeexSpotApiClient`（Spot），通过 `Weex:Mode` 在 DI 层选择；默认使用 **Contract**（合约）。
+- **2025-12-29**：TradeAudit 追加 `trade-audit/*.md` 人类可读策略日志；新增 `AuditController`/`MetaController` 供前端 Dashboard 展示策略/余额/订单闭环。
+- **2025-12-29**：新增 `AiWarsSkillEndpoints`：自动扫描 `Tools/DotNetSkills/ai-wars/**`，并将每个 endpoint 以 `/api/ai-wars/{toolName}` 暴露到 Swagger（便于“看得见、点得动”）。
 
 ---
 

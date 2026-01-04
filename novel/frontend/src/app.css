@@ -1,15 +1,18 @@
 :root {
-  --bg: #0d1117;
-  --panel: #0f1623;
-  --panel-2: #0b1220;
-  --text: #e6edf3;
-  --muted: #94a3b8;
-  --border: rgba(255, 255, 255, 0.08);
-  --accent: #7c3aed;
-  --accent-2: #22c55e;
+  /* Light theme (FeelFish-ish) */
+  --bg: #f6f7fb;
+  --panel: #ffffff;
+  --panel-2: #f3f4f6;
+  --text: #0f172a;
+  --muted: #64748b;
+  --border: rgba(15, 23, 42, 0.12);
+  --accent: #16a34a;
+  --accent-2: #2563eb;
   --danger: #ef4444;
   --warn: #f59e0b;
-  --shadow: rgba(0, 0, 0, 0.45);
+  --shadow: rgba(15, 23, 42, 0.18);
+  --overlay: rgba(15, 23, 42, 0.04);
+  --overlay-2: rgba(15, 23, 42, 0.08);
 
   --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Display",
     "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
@@ -51,7 +54,7 @@ body {
   align-items: center;
   gap: 10px;
   padding: 0 12px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent);
+  background: var(--panel);
   border-bottom: 1px solid var(--border);
 }
 
@@ -85,7 +88,7 @@ body {
   justify-content: space-between;
   padding: 0 10px;
   border-bottom: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--panel-2);
 }
 
 .PanelHeaderTitle {
@@ -97,7 +100,7 @@ body {
 
 .Btn {
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--panel-2);
   color: var(--text);
   padding: 6px 10px;
   border-radius: 8px;
@@ -106,18 +109,23 @@ body {
 }
 
 .Btn:hover {
-  border-color: rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(15, 23, 42, 0.2);
+  background: var(--overlay-2);
+}
+
+.Btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .BtnPrimary {
-  border-color: rgba(124, 58, 237, 0.45);
-  background: rgba(124, 58, 237, 0.14);
+  border-color: rgba(22, 163, 74, 0.35);
+  background: rgba(22, 163, 74, 0.12);
 }
 
 .BtnPrimary:hover {
-  border-color: rgba(124, 58, 237, 0.65);
-  background: rgba(124, 58, 237, 0.22);
+  border-color: rgba(22, 163, 74, 0.55);
+  background: rgba(22, 163, 74, 0.18);
 }
 
 .BtnDanger {
@@ -138,7 +146,7 @@ body {
   padding: 0 10px;
   font-size: 12px;
   color: var(--muted);
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--panel);
   border-top: 1px solid var(--border);
 }
 
@@ -149,7 +157,7 @@ body {
   padding: 2px 8px;
   border-radius: 999px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--panel-2);
   color: var(--muted);
 }
 
@@ -158,7 +166,7 @@ body {
   height: 8px;
   border-radius: 999px;
   background: var(--muted);
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
 }
 
 .DotOk {
@@ -180,7 +188,7 @@ body {
   gap: 1px;
   align-items: stretch;
   border-bottom: 1px solid var(--border);
-  background: rgba(0, 0, 0, 0.18);
+  background: var(--panel-2);
 }
 
 .Tab {
@@ -197,7 +205,7 @@ body {
 
 .TabActive {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--panel);
 }
 
 .TabDirty {
@@ -205,6 +213,21 @@ body {
   height: 8px;
   border-radius: 999px;
   background: var(--warn);
+}
+
+.TabLoading {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 2px solid rgba(15, 23, 42, 0.18);
+  border-top-color: rgba(22, 163, 74, 0.75);
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .TabClose {
@@ -238,14 +261,14 @@ body {
 }
 
 .TreeRow:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--overlay);
   color: var(--text);
 }
 
 .TreeRowActive {
-  background: rgba(124, 58, 237, 0.16);
+  background: rgba(22, 163, 74, 0.12);
   color: var(--text);
-  border: 1px solid rgba(124, 58, 237, 0.25);
+  border: 1px solid rgba(22, 163, 74, 0.25);
 }
 
 .TreeIndent {
@@ -268,7 +291,7 @@ body {
 .Overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(15, 23, 42, 0.28);
   backdrop-filter: blur(6px);
   display: flex;
   align-items: flex-start;
@@ -280,7 +303,7 @@ body {
   width: min(720px, calc(100% - 32px));
   border: 1px solid var(--border);
   border-radius: 14px;
-  background: rgba(15, 22, 35, 0.92);
+  background: var(--panel);
   box-shadow: 0 18px 70px var(--shadow);
   overflow: hidden;
 }
@@ -292,7 +315,7 @@ body {
   padding: 14px 14px;
   font-size: 14px;
   color: var(--text);
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--panel-2);
   font-family: var(--font-sans);
 }
 
@@ -307,11 +330,11 @@ body {
   justify-content: space-between;
   padding: 10px 14px;
   cursor: pointer;
-  border-top: 1px solid rgba(255, 255, 255, 0.04);
+  border-top: 1px solid var(--border);
 }
 
 .PaletteItem:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--overlay);
 }
 
 .PaletteItemMain {
@@ -334,8 +357,8 @@ body {
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--muted);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border);
+  background: var(--panel-2);
   border-radius: 8px;
   padding: 2px 8px;
 }
@@ -353,6 +376,39 @@ body {
   min-height: 0;
 }
 
+.EditorLoading {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--muted);
+}
+
+.EditorLoadingSpinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 2px solid rgba(15, 23, 42, 0.16);
+  border-top-color: rgba(22, 163, 74, 0.75);
+  animation: spin 0.9s linear infinite;
+}
+
+.EditorLoadingText {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.EditorLoadingSub {
+  font-size: 12px;
+  color: var(--muted);
+  max-width: min(720px, calc(100% - 40px));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .Welcome {
   height: 100%;
   display: flex;
@@ -364,9 +420,441 @@ body {
 .WelcomeCard {
   width: min(720px, calc(100% - 32px));
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--panel);
   border-radius: 14px;
   padding: 18px;
+}
+
+/* Resize handle */
+.ResizeHandle {
+  width: 4px;
+  background: var(--border);
+}
+
+/* Inputs */
+.Input {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 13px;
+  outline: none;
+}
+
+.Input:focus {
+  border-color: rgba(22, 163, 74, 0.45);
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12);
+}
+
+.Textarea {
+  width: 100%;
+  min-height: 42px;
+  max-height: 120px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  padding: 9px 10px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  outline: none;
+  font-family: var(--font-sans);
+}
+
+.Textarea:focus {
+  border-color: rgba(22, 163, 74, 0.45);
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12);
+}
+
+/* Alerts */
+.Alert {
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  border-radius: 12px;
+  padding: 10px;
+}
+
+.AlertDanger {
+  border-color: rgba(239, 68, 68, 0.25);
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.AlertTitle {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.AlertText {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.EmptyHint {
+  color: var(--muted);
+  font-size: 13px;
+  padding: 10px;
+}
+
+/* ============================================================
+   Library Panel
+   ============================================================ */
+
+.LibraryBody {
+  height: calc(100% - 34px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  min-height: 0;
+}
+
+.LibraryRoot {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.LibraryTabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.LibraryTab {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+  padding: 8px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.LibraryTab:hover {
+  background: var(--overlay-2);
+}
+
+.LibraryTabActive {
+  border-color: rgba(22, 163, 74, 0.35);
+  background: rgba(22, 163, 74, 0.08);
+}
+
+.LibraryTabCount {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.LibrarySearch {
+  margin-top: 2px;
+}
+
+.LibraryList {
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 14px;
+  padding: 6px;
+}
+
+.ListRow {
+  padding: 8px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.ListRow:hover {
+  background: var(--overlay);
+}
+
+.ListRowActive {
+  background: rgba(22, 163, 74, 0.1);
+  border: 1px solid rgba(22, 163, 74, 0.22);
+}
+
+.ListRowTitle {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ListRowSub {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ============================================================
+   Chat Panel (v1 stub)
+   ============================================================ */
+
+.ChatBody {
+  height: calc(100% - 34px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  min-height: 0;
+}
+
+.ChatContext {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 12px;
+  padding: 8px 10px;
+}
+
+.ChatContextLabel {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ChatContextValue {
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ChatHeaderMeta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ChatScroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 14px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ChatMsg {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.ChatMsgUser {
+  align-items: flex-end;
+}
+
+.ChatMsgMeta {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ChatMsgRole {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ChatMsgBubble {
+  max-width: 92%;
+  white-space: pre-wrap;
+  line-height: 1.55;
+  font-size: 13px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+}
+
+.ChatMsgBubbleUser {
+  border-color: rgba(15, 23, 42, 0.12);
+  background: #ffffff;
+}
+
+.ChatMsgBubbleAssistant {
+  border-color: rgba(22, 163, 74, 0.22);
+  background: rgba(22, 163, 74, 0.08);
+}
+
+.ChatMsgBubbleSystem {
+  border-color: rgba(37, 99, 235, 0.18);
+  background: rgba(37, 99, 235, 0.06);
+}
+
+.ChatPlain {
+  white-space: pre-wrap;
+}
+
+.ChatComposer {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.ChatComposerInputWrap {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ============================================================
+   Markdown view (chat)
+   ============================================================ */
+
+.Md {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text);
+}
+
+.MdP {
+  margin: 0 0 10px 0;
+  white-space: pre-wrap;
+}
+
+.MdH {
+  margin: 10px 0 8px 0;
+  line-height: 1.25;
+}
+
+.MdH1 {
+  font-size: 18px;
+}
+.MdH2 {
+  font-size: 16px;
+}
+.MdH3 {
+  font-size: 15px;
+}
+
+.MdUl,
+.MdOl {
+  margin: 0 0 10px 18px;
+  padding: 0;
+}
+
+.MdUl li,
+.MdOl li {
+  margin: 4px 0;
+}
+
+.MdHr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 12px 0;
+}
+
+.MdInlineCode {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.06);
+  border: 1px solid rgba(15, 23, 42, 0.12);
+}
+
+.MdCode {
+  margin: 0 0 10px 0;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: rgba(15, 23, 42, 0.04);
+  overflow: hidden;
+}
+
+.MdCodeHeader {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.12);
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.MdCode code {
+  display: block;
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre;
+  overflow: auto;
+}
+
+.MdStrong {
+  font-weight: 700;
+}
+
+.MdLink {
+  color: rgba(37, 99, 235, 0.95);
+  text-decoration: underline;
+  text-decoration-thickness: from-font;
+  text-underline-offset: 2px;
+}
+
+/* ============================================================
+   Plain editor fallback (when Monaco cannot load)
+   ============================================================ */
+
+.PlainEditorWrap {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.PlainEditorBanner {
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 10px;
+}
+
+.PlainEditor {
+  flex: 1;
+  min-height: 0;
+  border: none;
+  outline: none;
+  resize: none;
+  padding: 14px 16px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--panel);
 }
 
 .WelcomeTitle {

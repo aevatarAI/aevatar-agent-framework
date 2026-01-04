@@ -23,6 +23,7 @@ export default function Tabs(props: Props) {
           title={f.path}
         >
           {f.isDirty ? <span className="TabDirty" title="未保存" /> : null}
+          {f.isLoading ? <span className="TabLoading" title="加载中" /> : null}
           <span>{f.name}</span>
           <button
             className="TabClose"

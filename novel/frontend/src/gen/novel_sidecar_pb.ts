@@ -16,7 +16,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file novel_sidecar.proto.
  */
 export const file_novel_sidecar: GenFile = /*@__PURE__*/
-  fileDesc("ChNub3ZlbF9zaWRlY2FyLnByb3RvEg1BZXZhdGFyLk5vdmVsItMBCg9Qcm9qZWN0Um9vdEluZm8SFAoMcHJvamVjdF9yb290GAEgASgJEg4KBmV4aXN0cxgCIAEoCBIvCgtvYnNlcnZlZF9hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASOgoGbGFiZWxzGGQgAygLMiouQWV2YXRhci5Ob3ZlbC5Qcm9qZWN0Um9vdEluZm8uTGFiZWxzRW50cnkaLQoLTGFiZWxzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASItChVTZXRQcm9qZWN0Um9vdFJlcXVlc3QSFAoMcHJvamVjdF9yb290GAEgASgJIkYKFlNldFByb2plY3RSb290UmVzcG9uc2USLAoEaW5mbxgBIAEoCzIeLkFldmF0YXIuTm92ZWwuUHJvamVjdFJvb3RJbmZvIuQCChNTc3RGaWxlQ2hhbmdlZEV2ZW50EhAKCGV2ZW50X2lkGAEgASgJEi0KCXRpbWVzdGFtcBgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASFAoMcHJvamVjdF9yb290GAMgASgJEhEKCWZ1bGxfcGF0aBgEIAEoCRIVCg1yZWxhdGl2ZV9wYXRoGAUgASgJEisKBGtpbmQYBiABKA4yHS5BZXZhdGFyLk5vdmVsLkZpbGVDaGFuZ2VLaW5kEhUKDW9sZF9mdWxsX3BhdGgYByABKAkSGQoRb2xkX3JlbGF0aXZlX3BhdGgYCCABKAkSPgoGbGFiZWxzGGQgAygLMi4uQWV2YXRhci5Ob3ZlbC5Tc3RGaWxlQ2hhbmdlZEV2ZW50LkxhYmVsc0VudHJ5Gi0KC0xhYmVsc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEi+wEKF1Byb2plY3RSb290Q2hhbmdlZEV2ZW50EhAKCGV2ZW50X2lkGAEgASgJEi0KCXRpbWVzdGFtcBgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLAoEaW5mbxgDIAEoCzIeLkFldmF0YXIuTm92ZWwuUHJvamVjdFJvb3RJbmZvEkIKBmxhYmVscxhkIAMoCzIyLkFldmF0YXIuTm92ZWwuUHJvamVjdFJvb3RDaGFuZ2VkRXZlbnQuTGFiZWxzRW50cnkaLQoLTGFiZWxzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASLzAgoXVW5pdFRlc3RzQ29tcGxldGVkRXZlbnQSEAoIZXZlbnRfaWQYASABKAkSLQoJdGltZXN0YW1wGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIUCgxwcm9qZWN0X3Jvb3QYAyABKAkSEAoIc3RvcnlfaWQYCiABKAkSEgoKY2hhcHRlcl9pZBgLIAEoCRI3CgdzdW1tYXJ5GBQgASgLMiYuQWV2YXRhci5Ob3ZlbC5OYXJyYXRpdmVUZXN0UnVuU3VtbWFyeRIvCgt0ZXN0X3JlcG9ydBgVIAEoCzIaLkFldmF0YXIuTm92ZWwuQXJ0aWZhY3RSZWYSQgoGbGFiZWxzGGQgAygLMjIuQWV2YXRhci5Ob3ZlbC5Vbml0VGVzdHNDb21wbGV0ZWRFdmVudC5MYWJlbHNFbnRyeRotCgtMYWJlbHNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBItwDCgxTaWRlY2FyRXZlbnQSEAoIZXZlbnRfaWQYASABKAkSLQoJdGltZXN0YW1wGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBI6CgxmaWxlX2NoYW5nZWQYCiABKAsyIi5BZXZhdGFyLk5vdmVsLlNzdEZpbGVDaGFuZ2VkRXZlbnRIABJGChRwcm9qZWN0X3Jvb3RfY2hhbmdlZBgLIAEoCzImLkFldmF0YXIuTm92ZWwuUHJvamVjdFJvb3RDaGFuZ2VkRXZlbnRIABJGChR1bml0X3Rlc3RzX2NvbXBsZXRlZBgMIAEoCzImLkFldmF0YXIuTm92ZWwuVW5pdFRlc3RzQ29tcGxldGVkRXZlbnRIABJTCht3cml0aW5nX3Nlc3Npb25fbG9nX3VwZGF0ZWQYDSABKAsyLC5BZXZhdGFyLk5vdmVsLldyaXRpbmdTZXNzaW9uTG9nVXBkYXRlZEV2ZW50SAASXwoaZGV2aWF0aW9uX2ltcGFjdF9jb21wbGV0ZWQYDiABKAsyOS5BZXZhdGFyLk5vdmVsLlN0b3J5RGV2aWF0aW9uSW1wYWN0QW5hbHlzaXNDb21wbGV0ZWRFdmVudEgAQgkKB3BheWxvYWQigQEKCUZpbGVFbnRyeRIVCg1yZWxhdGl2ZV9wYXRoGAEgASgJEhQKDGlzX2RpcmVjdG9yeRgCIAEoCBISCgpzaXplX2J5dGVzGAMgASgDEjMKD2xhc3Rfd3JpdGVfdGltZRgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAihAEKFExpc3REaXJlY3RvcnlSZXF1ZXN0EhUKDXJlbGF0aXZlX3BhdGgYASABKAkSGwoTaW5jbHVkZV9kaXJlY3RvcmllcxgCIAEoCBIVCg1pbmNsdWRlX2ZpbGVzGAMgASgIEiEKGW9ubHlfc3VwcG9ydGVkX3RleHRfZmlsZXMYBCABKAgiygEKFUxpc3REaXJlY3RvcnlSZXNwb25zZRIVCg1yZWxhdGl2ZV9wYXRoGAEgASgJEikKB2VudHJpZXMYAiADKAsyGC5BZXZhdGFyLk5vdmVsLkZpbGVFbnRyeRJACgZsYWJlbHMYZCADKAsyMC5BZXZhdGFyLk5vdmVsLkxpc3REaXJlY3RvcnlSZXNwb25zZS5MYWJlbHNFbnRyeRotCgtMYWJlbHNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIkYKE1JlYWRUZXh0RmlsZVJlcXVlc3QSFQoNcmVsYXRpdmVfcGF0aBgBIAEoCRIYChBtYXhfaW5saW5lX2J5dGVzGAIgASgFIrkCChRSZWFkVGV4dEZpbGVSZXNwb25zZRIVCg1yZWxhdGl2ZV9wYXRoGAEgASgJEg4KBmV4aXN0cxgCIAEoCBISCgpzaXplX2J5dGVzGAMgASgDEjMKD2xhc3Rfd3JpdGVfdGltZRgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASFAoMY29udGVudF9oYXNoGAUgASgJEisKB2NvbnRlbnQYCiABKAsyGi5BZXZhdGFyLk5vdmVsLlRleHRQYXlsb2FkEj8KBmxhYmVscxhkIAMoCzIvLkFldmF0YXIuTm92ZWwuUmVhZFRleHRGaWxlUmVzcG9uc2UuTGFiZWxzRW50cnkaLQoLTGFiZWxzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASJ5ChRXcml0ZVRleHRGaWxlUmVxdWVzdBIVCg1yZWxhdGl2ZV9wYXRoGAEgASgJEisKB2NvbnRlbnQYAiABKAsyGi5BZXZhdGFyLk5vdmVsLlRleHRQYXlsb2FkEh0KFWV4cGVjdGVkX2NvbnRlbnRfaGFzaBgDIAEoCSKgAgoVV3JpdGVUZXh0RmlsZVJlc3BvbnNlEhUKDXJlbGF0aXZlX3BhdGgYASABKAkSDwoHc3VjY2VzcxgCIAEoCBIPCgdtZXNzYWdlGAMgASgJEhIKCnNpemVfYnl0ZXMYBCABKAMSMwoPbGFzdF93cml0ZV90aW1lGAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIUCgxjb250ZW50X2hhc2gYBiABKAkSQAoGbGFiZWxzGGQgAygLMjAuQWV2YXRhci5Ob3ZlbC5Xcml0ZVRleHRGaWxlUmVzcG9uc2UuTGFiZWxzRW50cnkaLQoLTGFiZWxzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASqqAQoORmlsZUNoYW5nZUtpbmQSIAocRklMRV9DSEFOR0VfS0lORF9VTlNQRUNJRklFRBAAEhwKGEZJTEVfQ0hBTkdFX0tJTkRfQ1JFQVRFRBABEhwKGEZJTEVfQ0hBTkdFX0tJTkRfQ0hBTkdFRBACEhwKGEZJTEVfQ0hBTkdFX0tJTkRfREVMRVRFRBADEhwKGEZJTEVfQ0hBTkdFX0tJTkRfUkVOQU1FRBAEQhqqAhdBZXZhdGFyLk5vdmVsLkNvbnRyYWN0c2IGcHJvdG8z", [file_google_protobuf_timestamp, file_novel_assets, file_novel_pipeline]);
+  fileDesc("ChNub3ZlbF9zaWRlY2FyLnByb3RvEg1BZXZhdGFyLk5vdmVsItMBCg9Qcm9qZWN0Um9vdEluZm8SFAoMcHJvamVjdF9yb290GAEgASgJEg4KBmV4aXN0cxgCIAEoCBIvCgtvYnNlcnZlZF9hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASOgoGbGFiZWxzGGQgAygLMiouQWV2YXRhci5Ob3ZlbC5Qcm9qZWN0Um9vdEluZm8uTGFiZWxzRW50cnkaLQoLTGFiZWxzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASItChVTZXRQcm9qZWN0Um9vdFJlcXVlc3QSFAoMcHJvamVjdF9yb290GAEgASgJIkYKFlNldFByb2plY3RSb290UmVzcG9uc2USLAoEaW5mbxgBIAEoCzIeLkFldmF0YXIuTm92ZWwuUHJvamVjdFJvb3RJbmZvIuQCChNTc3RGaWxlQ2hhbmdlZEV2ZW50EhAKCGV2ZW50X2lkGAEgASgJEi0KCXRpbWVzdGFtcBgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASFAoMcHJvamVjdF9yb290GAMgASgJEhEKCWZ1bGxfcGF0aBgEIAEoCRIVCg1yZWxhdGl2ZV9wYXRoGAUgASgJEisKBGtpbmQYBiABKA4yHS5BZXZhdGFyLk5vdmVsLkZpbGVDaGFuZ2VLaW5kEhUKDW9sZF9mdWxsX3BhdGgYByABKAkSGQoRb2xkX3JlbGF0aXZlX3BhdGgYCCABKAkSPgoGbGFiZWxzGGQgAygLMi4uQWV2YXRhci5Ob3ZlbC5Tc3RGaWxlQ2hhbmdlZEV2ZW50LkxhYmVsc0VudHJ5Gi0KC0xhYmVsc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEi+wEKF1Byb2plY3RSb290Q2hhbmdlZEV2ZW50EhAKCGV2ZW50X2lkGAEgASgJEi0KCXRpbWVzdGFtcBgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLAoEaW5mbxgDIAEoCzIeLkFldmF0YXIuTm92ZWwuUHJvamVjdFJvb3RJbmZvEkIKBmxhYmVscxhkIAMoCzIyLkFldmF0YXIuTm92ZWwuUHJvamVjdFJvb3RDaGFuZ2VkRXZlbnQuTGFiZWxzRW50cnkaLQoLTGFiZWxzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASLzAgoXVW5pdFRlc3RzQ29tcGxldGVkRXZlbnQSEAoIZXZlbnRfaWQYASABKAkSLQoJdGltZXN0YW1wGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIUCgxwcm9qZWN0X3Jvb3QYAyABKAkSEAoIc3RvcnlfaWQYCiABKAkSEgoKY2hhcHRlcl9pZBgLIAEoCRI3CgdzdW1tYXJ5GBQgASgLMiYuQWV2YXRhci5Ob3ZlbC5OYXJyYXRpdmVUZXN0UnVuU3VtbWFyeRIvCgt0ZXN0X3JlcG9ydBgVIAEoCzIaLkFldmF0YXIuTm92ZWwuQXJ0aWZhY3RSZWYSQgoGbGFiZWxzGGQgAygLMjIuQWV2YXRhci5Ob3ZlbC5Vbml0VGVzdHNDb21wbGV0ZWRFdmVudC5MYWJlbHNFbnRyeRotCgtMYWJlbHNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIpcGCgxTaWRlY2FyRXZlbnQSEAoIZXZlbnRfaWQYASABKAkSLQoJdGltZXN0YW1wGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBI6CgxmaWxlX2NoYW5nZWQYCiABKAsyIi5BZXZhdGFyLk5vdmVsLlNzdEZpbGVDaGFuZ2VkRXZlbnRIABJGChRwcm9qZWN0X3Jvb3RfY2hhbmdlZBgLIAEoCzImLkFldmF0YXIuTm92ZWwuUHJvamVjdFJvb3RDaGFuZ2VkRXZlbnRIABJGChR1bml0X3Rlc3RzX2NvbXBsZXRlZBgMIAEoCzImLkFldmF0YXIuTm92ZWwuVW5pdFRlc3RzQ29tcGxldGVkRXZlbnRIABJTCht3cml0aW5nX3Nlc3Npb25fbG9nX3VwZGF0ZWQYDSABKAsyLC5BZXZhdGFyLk5vdmVsLldyaXRpbmdTZXNzaW9uTG9nVXBkYXRlZEV2ZW50SAASXwoaZGV2aWF0aW9uX2ltcGFjdF9jb21wbGV0ZWQYDiABKAsyOS5BZXZhdGFyLk5vdmVsLlN0b3J5RGV2aWF0aW9uSW1wYWN0QW5hbHlzaXNDb21wbGV0ZWRFdmVudEgAEkgKFWNhbm9uX2NoYW5nZV9yZWNvcmRlZBgPIAEoCzInLkFldmF0YXIuTm92ZWwuQ2Fub25DaGFuZ2VSZWNvcmRlZEV2ZW50SAASSgoWcmV3cml0ZV9icmFuY2hfY3JlYXRlZBgQIAEoCzIoLkFldmF0YXIuTm92ZWwuUmV3cml0ZUJyYW5jaENyZWF0ZWRFdmVudEgAEkgKFXJld3JpdGVfYnJhbmNoX21lcmdlZBgRIAEoCzInLkFldmF0YXIuTm92ZWwuUmV3cml0ZUJyYW5jaE1lcmdlZEV2ZW50SAASWQobc2V0dXBfcGF5b2ZmX3NjYW5fY29tcGxldGVkGBIgASgLMjIuQWV2YXRhci5Ob3ZlbC5TZXR1cFBheW9mZkxlZGdlclNjYW5Db21wbGV0ZWRFdmVudEgAQgkKB3BheWxvYWQizwIKGENhbm9uQ2hhbmdlUmVjb3JkZWRFdmVudBIQCghldmVudF9pZBgBIAEoCRItCgl0aW1lc3RhbXAYAiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhQKDHByb2plY3Rfcm9vdBgDIAEoCRIQCghzdG9yeV9pZBgEIAEoCRIdChVjaGFuZ2VkX3JlbGF0aXZlX3BhdGgYCiABKAkSNwoTY2Fub25fY2hhbmdlX3JlY29yZBgUIAEoCzIaLkFldmF0YXIuTm92ZWwuQXJ0aWZhY3RSZWYSQwoGbGFiZWxzGGQgAygLMjMuQWV2YXRhci5Ob3ZlbC5DYW5vbkNoYW5nZVJlY29yZGVkRXZlbnQuTGFiZWxzRW50cnkaLQoLTGFiZWxzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASKKAgoRUmV3cml0ZUJyYW5jaEluZm8SGwoTc3RvcnlfcmVsYXRpdmVfcGF0aBgBIAEoCRIRCglicmFuY2hfaWQYAiABKAkSDAoEbmFtZRgDIAEoCRIaChJiYXNlZF9vbl9icmFuY2hfaWQYBCABKAkSLgoKY3JlYXRlZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASPAoGbGFiZWxzGGQgAygLMiwuQWV2YXRhci5Ob3ZlbC5SZXdyaXRlQnJhbmNoSW5mby5MYWJlbHNFbnRyeRotCgtMYWJlbHNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBImMKGkNyZWF0ZVJld3JpdGVCcmFuY2hSZXF1ZXN0EhsKE3N0b3J5X3JlbGF0aXZlX3BhdGgYASABKAkSDAoEbmFtZRgCIAEoCRIaChJiYXNlZF9vbl9icmFuY2hfaWQYAyABKAki+wEKG0NyZWF0ZVJld3JpdGVCcmFuY2hSZXNwb25zZRIwCgZicmFuY2gYASABKAsyIC5BZXZhdGFyLk5vdmVsLlJld3JpdGVCcmFuY2hJbmZvEjMKD2JyYW5jaF9tYW5pZmVzdBgCIAEoCzIaLkFldmF0YXIuTm92ZWwuQXJ0aWZhY3RSZWYSRgoGbGFiZWxzGGQgAygLMjYuQWV2YXRhci5Ob3ZlbC5DcmVhdGVSZXdyaXRlQnJhbmNoUmVzcG9uc2UuTGFiZWxzRW50cnkaLQoLTGFiZWxzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASI5ChpMaXN0UmV3cml0ZUJyYW5jaGVzUmVxdWVzdBIbChNzdG9yeV9yZWxhdGl2ZV9wYXRoGAEgASgJIuUBChtMaXN0UmV3cml0ZUJyYW5jaGVzUmVzcG9uc2USGwoTc3RvcnlfcmVsYXRpdmVfcGF0aBgBIAEoCRIyCghicmFuY2hlcxgCIAMoCzIgLkFldmF0YXIuTm92ZWwuUmV3cml0ZUJyYW5jaEluZm8SRgoGbGFiZWxzGGQgAygLMjYuQWV2YXRhci5Ob3ZlbC5MaXN0UmV3cml0ZUJyYW5jaGVzUmVzcG9uc2UuTGFiZWxzRW50cnkaLQoLTGFiZWxzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASJgChhEaWZmQnJhbmNoQ2hhcHRlclJlcXVlc3QSGwoTc3RvcnlfcmVsYXRpdmVfcGF0aBgBIAEoCRIRCglicmFuY2hfaWQYAiABKAkSFAoMY2hhcHRlcl9maWxlGAMgASgJIoACChlEaWZmQnJhbmNoQ2hhcHRlclJlc3BvbnNlEhsKE3N0b3J5X3JlbGF0aXZlX3BhdGgYASABKAkSEQoJYnJhbmNoX2lkGAIgASgJEhQKDGNoYXB0ZXJfZmlsZRgDIAEoCRIoCgRkaWZmGAogASgLMhouQWV2YXRhci5Ob3ZlbC5UZXh0UGF5bG9hZBJECgZsYWJlbHMYZCADKAsyNC5BZXZhdGFyLk5vdmVsLkRpZmZCcmFuY2hDaGFwdGVyUmVzcG9uc2UuTGFiZWxzRW50cnkaLQoLTGFiZWxzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASJ4ChlNZXJnZUJyYW5jaENoYXB0ZXJSZXF1ZXN0EhsKE3N0b3J5X3JlbGF0aXZlX3BhdGgYASABKAkSEQoJYnJhbmNoX2lkGAIgASgJEhQKDGNoYXB0ZXJfZmlsZRgDIAEoCRIVCg1jcmVhdGVfYmFja3VwGAQgASgIIuYBChpNZXJnZUJyYW5jaENoYXB0ZXJSZXNwb25zZRIPCgdzdWNjZXNzGAEgASgIEg8KB21lc3NhZ2UYAiABKAkSMAoMbWVyZ2VfcmVjb3JkGAogASgLMhouQWV2YXRhci5Ob3ZlbC5BcnRpZmFjdFJlZhJFCgZsYWJlbHMYZCADKAsyNS5BZXZhdGFyLk5vdmVsLk1lcmdlQnJhbmNoQ2hhcHRlclJlc3BvbnNlLkxhYmVsc0VudHJ5Gi0KC0xhYmVsc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiuAIKGVJld3JpdGVCcmFuY2hDcmVhdGVkRXZlbnQSEAoIZXZlbnRfaWQYASABKAkSLQoJdGltZXN0YW1wGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIwCgZicmFuY2gYCiABKAsyIC5BZXZhdGFyLk5vdmVsLlJld3JpdGVCcmFuY2hJbmZvEjMKD2JyYW5jaF9tYW5pZmVzdBgLIAEoCzIaLkFldmF0YXIuTm92ZWwuQXJ0aWZhY3RSZWYSRAoGbGFiZWxzGGQgAygLMjQuQWV2YXRhci5Ob3ZlbC5SZXdyaXRlQnJhbmNoQ3JlYXRlZEV2ZW50LkxhYmVsc0VudHJ5Gi0KC0xhYmVsc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiyQIKGFJld3JpdGVCcmFuY2hNZXJnZWRFdmVudBIQCghldmVudF9pZBgBIAEoCRItCgl0aW1lc3RhbXAYAiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjAKBmJyYW5jaBgKIAEoCzIgLkFldmF0YXIuTm92ZWwuUmV3cml0ZUJyYW5jaEluZm8SFAoMY2hhcHRlcl9maWxlGAsgASgJEjAKDG1lcmdlX3JlY29yZBgMIAEoCzIaLkFldmF0YXIuTm92ZWwuQXJ0aWZhY3RSZWYSQwoGbGFiZWxzGGQgAygLMjMuQWV2YXRhci5Ob3ZlbC5SZXdyaXRlQnJhbmNoTWVyZ2VkRXZlbnQuTGFiZWxzRW50cnkaLQoLTGFiZWxzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASLaAwojU2V0dXBQYXlvZmZMZWRnZXJTY2FuQ29tcGxldGVkRXZlbnQSEAoIZXZlbnRfaWQYASABKAkSLQoJdGltZXN0YW1wGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIUCgxwcm9qZWN0X3Jvb3QYAyABKAkSEAoIc3RvcnlfaWQYBCABKAkSHQoVdHJpZ2dlcl9yZWxhdGl2ZV9wYXRoGAogASgJEioKBmxlZGdlchgUIAEoCzIaLkFldmF0YXIuTm92ZWwuQXJ0aWZhY3RSZWYSKgoGcmVwb3J0GBUgASgLMhouQWV2YXRhci5Ob3ZlbC5BcnRpZmFjdFJlZhISCgpvcGVuX2NvdW50GB4gASgFEhIKCnBhaWRfY291bnQYHyABKAUSFAoMYnJva2VuX2NvdW50GCAgASgFEhYKDmR1ZV9zb29uX2NvdW50GCEgASgFEk4KBmxhYmVscxhkIAMoCzI+LkFldmF0YXIuTm92ZWwuU2V0dXBQYXlvZmZMZWRnZXJTY2FuQ29tcGxldGVkRXZlbnQuTGFiZWxzRW50cnkaLQoLTGFiZWxzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASKBAQoJRmlsZUVudHJ5EhUKDXJlbGF0aXZlX3BhdGgYASABKAkSFAoMaXNfZGlyZWN0b3J5GAIgASgIEhIKCnNpemVfYnl0ZXMYAyABKAMSMwoPbGFzdF93cml0ZV90aW1lGAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCKEAQoUTGlzdERpcmVjdG9yeVJlcXVlc3QSFQoNcmVsYXRpdmVfcGF0aBgBIAEoCRIbChNpbmNsdWRlX2RpcmVjdG9yaWVzGAIgASgIEhUKDWluY2x1ZGVfZmlsZXMYAyABKAgSIQoZb25seV9zdXBwb3J0ZWRfdGV4dF9maWxlcxgEIAEoCCLKAQoVTGlzdERpcmVjdG9yeVJlc3BvbnNlEhUKDXJlbGF0aXZlX3BhdGgYASABKAkSKQoHZW50cmllcxgCIAMoCzIYLkFldmF0YXIuTm92ZWwuRmlsZUVudHJ5EkAKBmxhYmVscxhkIAMoCzIwLkFldmF0YXIuTm92ZWwuTGlzdERpcmVjdG9yeVJlc3BvbnNlLkxhYmVsc0VudHJ5Gi0KC0xhYmVsc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiRgoTUmVhZFRleHRGaWxlUmVxdWVzdBIVCg1yZWxhdGl2ZV9wYXRoGAEgASgJEhgKEG1heF9pbmxpbmVfYnl0ZXMYAiABKAUiuQIKFFJlYWRUZXh0RmlsZVJlc3BvbnNlEhUKDXJlbGF0aXZlX3BhdGgYASABKAkSDgoGZXhpc3RzGAIgASgIEhIKCnNpemVfYnl0ZXMYAyABKAMSMwoPbGFzdF93cml0ZV90aW1lGAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIUCgxjb250ZW50X2hhc2gYBSABKAkSKwoHY29udGVudBgKIAEoCzIaLkFldmF0YXIuTm92ZWwuVGV4dFBheWxvYWQSPwoGbGFiZWxzGGQgAygLMi8uQWV2YXRhci5Ob3ZlbC5SZWFkVGV4dEZpbGVSZXNwb25zZS5MYWJlbHNFbnRyeRotCgtMYWJlbHNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBInkKFFdyaXRlVGV4dEZpbGVSZXF1ZXN0EhUKDXJlbGF0aXZlX3BhdGgYASABKAkSKwoHY29udGVudBgCIAEoCzIaLkFldmF0YXIuTm92ZWwuVGV4dFBheWxvYWQSHQoVZXhwZWN0ZWRfY29udGVudF9oYXNoGAMgASgJIqACChVXcml0ZVRleHRGaWxlUmVzcG9uc2USFQoNcmVsYXRpdmVfcGF0aBgBIAEoCRIPCgdzdWNjZXNzGAIgASgIEg8KB21lc3NhZ2UYAyABKAkSEgoKc2l6ZV9ieXRlcxgEIAEoAxIzCg9sYXN0X3dyaXRlX3RpbWUYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhQKDGNvbnRlbnRfaGFzaBgGIAEoCRJACgZsYWJlbHMYZCADKAsyMC5BZXZhdGFyLk5vdmVsLldyaXRlVGV4dEZpbGVSZXNwb25zZS5MYWJlbHNFbnRyeRotCgtMYWJlbHNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIskCChRTbWFydENvbnRpbnVlUmVxdWVzdBIcChR0YXJnZXRfcmVsYXRpdmVfcGF0aBgBIAEoCRISCgpkcmFmdF90ZXh0GAIgASgJEhMKC2luc3RydWN0aW9uGAMgASgJEhgKEG1heF9vdXRwdXRfY2hhcnMYCiABKAUSGQoRbWF4X2NvbnRleHRfY2hhcnMYCyABKAUSFwoPaW5jbHVkZV9vYmplY3RzGBQgASgIEhUKDWluY2x1ZGVfcm9sZXMYFSABKAgSFQoNaW5jbHVkZV9ydWxlcxgWIAEoCBI/CgZsYWJlbHMYZCADKAsyLy5BZXZhdGFyLk5vdmVsLlNtYXJ0Q29udGludWVSZXF1ZXN0LkxhYmVsc0VudHJ5Gi0KC0xhYmVsc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEi0QEKFVNtYXJ0Q29udGludWVSZXNwb25zZRIPCgdzdWNjZXNzGAEgASgIEg8KB21lc3NhZ2UYAiABKAkSFgoOZ2VuZXJhdGVkX3RleHQYAyABKAkSDQoFbW9kZWwYBCABKAkSQAoGbGFiZWxzGGQgAygLMjAuQWV2YXRhci5Ob3ZlbC5TbWFydENvbnRpbnVlUmVzcG9uc2UuTGFiZWxzRW50cnkaLQoLTGFiZWxzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASqqAQoORmlsZUNoYW5nZUtpbmQSIAocRklMRV9DSEFOR0VfS0lORF9VTlNQRUNJRklFRBAAEhwKGEZJTEVfQ0hBTkdFX0tJTkRfQ1JFQVRFRBABEhwKGEZJTEVfQ0hBTkdFX0tJTkRfQ0hBTkdFRBACEhwKGEZJTEVfQ0hBTkdFX0tJTkRfREVMRVRFRBADEhwKGEZJTEVfQ0hBTkdFX0tJTkRfUkVOQU1FRBAEQhqqAhdBZXZhdGFyLk5vdmVsLkNvbnRyYWN0c2IGcHJvdG8z", [file_google_protobuf_timestamp, file_novel_assets, file_novel_pipeline]);
 
 /**
  * @generated from message Aevatar.Novel.ProjectRootInfo
@@ -284,6 +284,30 @@ export type SidecarEvent = Message<"Aevatar.Novel.SidecarEvent"> & {
      */
     value: StoryDeviationImpactAnalysisCompletedEvent;
     case: "deviationImpactCompleted";
+  } | {
+    /**
+     * @generated from field: Aevatar.Novel.CanonChangeRecordedEvent canon_change_recorded = 15;
+     */
+    value: CanonChangeRecordedEvent;
+    case: "canonChangeRecorded";
+  } | {
+    /**
+     * @generated from field: Aevatar.Novel.RewriteBranchCreatedEvent rewrite_branch_created = 16;
+     */
+    value: RewriteBranchCreatedEvent;
+    case: "rewriteBranchCreated";
+  } | {
+    /**
+     * @generated from field: Aevatar.Novel.RewriteBranchMergedEvent rewrite_branch_merged = 17;
+     */
+    value: RewriteBranchMergedEvent;
+    case: "rewriteBranchMerged";
+  } | {
+    /**
+     * @generated from field: Aevatar.Novel.SetupPayoffLedgerScanCompletedEvent setup_payoff_scan_completed = 18;
+     */
+    value: SetupPayoffLedgerScanCompletedEvent;
+    case: "setupPayoffScanCompleted";
   } | { case: undefined; value?: undefined };
 };
 
@@ -293,6 +317,494 @@ export type SidecarEvent = Message<"Aevatar.Novel.SidecarEvent"> & {
  */
 export const SidecarEventSchema: GenMessage<SidecarEvent> = /*@__PURE__*/
   messageDesc(file_novel_sidecar, 6);
+
+/**
+ * @generated from message Aevatar.Novel.CanonChangeRecordedEvent
+ */
+export type CanonChangeRecordedEvent = Message<"Aevatar.Novel.CanonChangeRecordedEvent"> & {
+  /**
+   * @generated from field: string event_id = 1;
+   */
+  eventId: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp timestamp = 2;
+   */
+  timestamp?: Timestamp;
+
+  /**
+   * @generated from field: string project_root = 3;
+   */
+  projectRoot: string;
+
+  /**
+   * @generated from field: string story_id = 4;
+   */
+  storyId: string;
+
+  /**
+   * The canon file that was changed (relative to project_root).
+   *
+   * @generated from field: string changed_relative_path = 10;
+   */
+  changedRelativePath: string;
+
+  /**
+   * Governance record (derived artifact).
+   *
+   * @generated from field: Aevatar.Novel.ArtifactRef canon_change_record = 20;
+   */
+  canonChangeRecord?: ArtifactRef;
+
+  /**
+   * @generated from field: map<string, string> labels = 100;
+   */
+  labels: { [key: string]: string };
+};
+
+/**
+ * Describes the message Aevatar.Novel.CanonChangeRecordedEvent.
+ * Use `create(CanonChangeRecordedEventSchema)` to create a new message.
+ */
+export const CanonChangeRecordedEventSchema: GenMessage<CanonChangeRecordedEvent> = /*@__PURE__*/
+  messageDesc(file_novel_sidecar, 7);
+
+/**
+ * @generated from message Aevatar.Novel.RewriteBranchInfo
+ */
+export type RewriteBranchInfo = Message<"Aevatar.Novel.RewriteBranchInfo"> & {
+  /**
+   * relative to project_root
+   *
+   * @generated from field: string story_relative_path = 1;
+   */
+  storyRelativePath: string;
+
+  /**
+   * @generated from field: string branch_id = 2;
+   */
+  branchId: string;
+
+  /**
+   * @generated from field: string name = 3;
+   */
+  name: string;
+
+  /**
+   * "" means main
+   *
+   * @generated from field: string based_on_branch_id = 4;
+   */
+  basedOnBranchId: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp created_at = 5;
+   */
+  createdAt?: Timestamp;
+
+  /**
+   * @generated from field: map<string, string> labels = 100;
+   */
+  labels: { [key: string]: string };
+};
+
+/**
+ * Describes the message Aevatar.Novel.RewriteBranchInfo.
+ * Use `create(RewriteBranchInfoSchema)` to create a new message.
+ */
+export const RewriteBranchInfoSchema: GenMessage<RewriteBranchInfo> = /*@__PURE__*/
+  messageDesc(file_novel_sidecar, 8);
+
+/**
+ * @generated from message Aevatar.Novel.CreateRewriteBranchRequest
+ */
+export type CreateRewriteBranchRequest = Message<"Aevatar.Novel.CreateRewriteBranchRequest"> & {
+  /**
+   * @generated from field: string story_relative_path = 1;
+   */
+  storyRelativePath: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string based_on_branch_id = 3;
+   */
+  basedOnBranchId: string;
+};
+
+/**
+ * Describes the message Aevatar.Novel.CreateRewriteBranchRequest.
+ * Use `create(CreateRewriteBranchRequestSchema)` to create a new message.
+ */
+export const CreateRewriteBranchRequestSchema: GenMessage<CreateRewriteBranchRequest> = /*@__PURE__*/
+  messageDesc(file_novel_sidecar, 9);
+
+/**
+ * @generated from message Aevatar.Novel.CreateRewriteBranchResponse
+ */
+export type CreateRewriteBranchResponse = Message<"Aevatar.Novel.CreateRewriteBranchResponse"> & {
+  /**
+   * @generated from field: Aevatar.Novel.RewriteBranchInfo branch = 1;
+   */
+  branch?: RewriteBranchInfo;
+
+  /**
+   * file://.../branches/<id>/branch.md
+   *
+   * @generated from field: Aevatar.Novel.ArtifactRef branch_manifest = 2;
+   */
+  branchManifest?: ArtifactRef;
+
+  /**
+   * @generated from field: map<string, string> labels = 100;
+   */
+  labels: { [key: string]: string };
+};
+
+/**
+ * Describes the message Aevatar.Novel.CreateRewriteBranchResponse.
+ * Use `create(CreateRewriteBranchResponseSchema)` to create a new message.
+ */
+export const CreateRewriteBranchResponseSchema: GenMessage<CreateRewriteBranchResponse> = /*@__PURE__*/
+  messageDesc(file_novel_sidecar, 10);
+
+/**
+ * @generated from message Aevatar.Novel.ListRewriteBranchesRequest
+ */
+export type ListRewriteBranchesRequest = Message<"Aevatar.Novel.ListRewriteBranchesRequest"> & {
+  /**
+   * @generated from field: string story_relative_path = 1;
+   */
+  storyRelativePath: string;
+};
+
+/**
+ * Describes the message Aevatar.Novel.ListRewriteBranchesRequest.
+ * Use `create(ListRewriteBranchesRequestSchema)` to create a new message.
+ */
+export const ListRewriteBranchesRequestSchema: GenMessage<ListRewriteBranchesRequest> = /*@__PURE__*/
+  messageDesc(file_novel_sidecar, 11);
+
+/**
+ * @generated from message Aevatar.Novel.ListRewriteBranchesResponse
+ */
+export type ListRewriteBranchesResponse = Message<"Aevatar.Novel.ListRewriteBranchesResponse"> & {
+  /**
+   * @generated from field: string story_relative_path = 1;
+   */
+  storyRelativePath: string;
+
+  /**
+   * @generated from field: repeated Aevatar.Novel.RewriteBranchInfo branches = 2;
+   */
+  branches: RewriteBranchInfo[];
+
+  /**
+   * @generated from field: map<string, string> labels = 100;
+   */
+  labels: { [key: string]: string };
+};
+
+/**
+ * Describes the message Aevatar.Novel.ListRewriteBranchesResponse.
+ * Use `create(ListRewriteBranchesResponseSchema)` to create a new message.
+ */
+export const ListRewriteBranchesResponseSchema: GenMessage<ListRewriteBranchesResponse> = /*@__PURE__*/
+  messageDesc(file_novel_sidecar, 12);
+
+/**
+ * @generated from message Aevatar.Novel.DiffBranchChapterRequest
+ */
+export type DiffBranchChapterRequest = Message<"Aevatar.Novel.DiffBranchChapterRequest"> & {
+  /**
+   * @generated from field: string story_relative_path = 1;
+   */
+  storyRelativePath: string;
+
+  /**
+   * @generated from field: string branch_id = 2;
+   */
+  branchId: string;
+
+  /**
+   * e.g. "001-ch1.txt"
+   *
+   * @generated from field: string chapter_file = 3;
+   */
+  chapterFile: string;
+};
+
+/**
+ * Describes the message Aevatar.Novel.DiffBranchChapterRequest.
+ * Use `create(DiffBranchChapterRequestSchema)` to create a new message.
+ */
+export const DiffBranchChapterRequestSchema: GenMessage<DiffBranchChapterRequest> = /*@__PURE__*/
+  messageDesc(file_novel_sidecar, 13);
+
+/**
+ * @generated from message Aevatar.Novel.DiffBranchChapterResponse
+ */
+export type DiffBranchChapterResponse = Message<"Aevatar.Novel.DiffBranchChapterResponse"> & {
+  /**
+   * @generated from field: string story_relative_path = 1;
+   */
+  storyRelativePath: string;
+
+  /**
+   * @generated from field: string branch_id = 2;
+   */
+  branchId: string;
+
+  /**
+   * @generated from field: string chapter_file = 3;
+   */
+  chapterFile: string;
+
+  /**
+   * format=MARKDOWN, inline_text contains ```diff block
+   *
+   * @generated from field: Aevatar.Novel.TextPayload diff = 10;
+   */
+  diff?: TextPayload;
+
+  /**
+   * @generated from field: map<string, string> labels = 100;
+   */
+  labels: { [key: string]: string };
+};
+
+/**
+ * Describes the message Aevatar.Novel.DiffBranchChapterResponse.
+ * Use `create(DiffBranchChapterResponseSchema)` to create a new message.
+ */
+export const DiffBranchChapterResponseSchema: GenMessage<DiffBranchChapterResponse> = /*@__PURE__*/
+  messageDesc(file_novel_sidecar, 14);
+
+/**
+ * @generated from message Aevatar.Novel.MergeBranchChapterRequest
+ */
+export type MergeBranchChapterRequest = Message<"Aevatar.Novel.MergeBranchChapterRequest"> & {
+  /**
+   * @generated from field: string story_relative_path = 1;
+   */
+  storyRelativePath: string;
+
+  /**
+   * @generated from field: string branch_id = 2;
+   */
+  branchId: string;
+
+  /**
+   * @generated from field: string chapter_file = 3;
+   */
+  chapterFile: string;
+
+  /**
+   * @generated from field: bool create_backup = 4;
+   */
+  createBackup: boolean;
+};
+
+/**
+ * Describes the message Aevatar.Novel.MergeBranchChapterRequest.
+ * Use `create(MergeBranchChapterRequestSchema)` to create a new message.
+ */
+export const MergeBranchChapterRequestSchema: GenMessage<MergeBranchChapterRequest> = /*@__PURE__*/
+  messageDesc(file_novel_sidecar, 15);
+
+/**
+ * @generated from message Aevatar.Novel.MergeBranchChapterResponse
+ */
+export type MergeBranchChapterResponse = Message<"Aevatar.Novel.MergeBranchChapterResponse"> & {
+  /**
+   * @generated from field: bool success = 1;
+   */
+  success: boolean;
+
+  /**
+   * @generated from field: string message = 2;
+   */
+  message: string;
+
+  /**
+   * file://.../branches/_merges/<id>_merge.md
+   *
+   * @generated from field: Aevatar.Novel.ArtifactRef merge_record = 10;
+   */
+  mergeRecord?: ArtifactRef;
+
+  /**
+   * @generated from field: map<string, string> labels = 100;
+   */
+  labels: { [key: string]: string };
+};
+
+/**
+ * Describes the message Aevatar.Novel.MergeBranchChapterResponse.
+ * Use `create(MergeBranchChapterResponseSchema)` to create a new message.
+ */
+export const MergeBranchChapterResponseSchema: GenMessage<MergeBranchChapterResponse> = /*@__PURE__*/
+  messageDesc(file_novel_sidecar, 16);
+
+/**
+ * @generated from message Aevatar.Novel.RewriteBranchCreatedEvent
+ */
+export type RewriteBranchCreatedEvent = Message<"Aevatar.Novel.RewriteBranchCreatedEvent"> & {
+  /**
+   * @generated from field: string event_id = 1;
+   */
+  eventId: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp timestamp = 2;
+   */
+  timestamp?: Timestamp;
+
+  /**
+   * @generated from field: Aevatar.Novel.RewriteBranchInfo branch = 10;
+   */
+  branch?: RewriteBranchInfo;
+
+  /**
+   * @generated from field: Aevatar.Novel.ArtifactRef branch_manifest = 11;
+   */
+  branchManifest?: ArtifactRef;
+
+  /**
+   * @generated from field: map<string, string> labels = 100;
+   */
+  labels: { [key: string]: string };
+};
+
+/**
+ * Describes the message Aevatar.Novel.RewriteBranchCreatedEvent.
+ * Use `create(RewriteBranchCreatedEventSchema)` to create a new message.
+ */
+export const RewriteBranchCreatedEventSchema: GenMessage<RewriteBranchCreatedEvent> = /*@__PURE__*/
+  messageDesc(file_novel_sidecar, 17);
+
+/**
+ * @generated from message Aevatar.Novel.RewriteBranchMergedEvent
+ */
+export type RewriteBranchMergedEvent = Message<"Aevatar.Novel.RewriteBranchMergedEvent"> & {
+  /**
+   * @generated from field: string event_id = 1;
+   */
+  eventId: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp timestamp = 2;
+   */
+  timestamp?: Timestamp;
+
+  /**
+   * @generated from field: Aevatar.Novel.RewriteBranchInfo branch = 10;
+   */
+  branch?: RewriteBranchInfo;
+
+  /**
+   * @generated from field: string chapter_file = 11;
+   */
+  chapterFile: string;
+
+  /**
+   * @generated from field: Aevatar.Novel.ArtifactRef merge_record = 12;
+   */
+  mergeRecord?: ArtifactRef;
+
+  /**
+   * @generated from field: map<string, string> labels = 100;
+   */
+  labels: { [key: string]: string };
+};
+
+/**
+ * Describes the message Aevatar.Novel.RewriteBranchMergedEvent.
+ * Use `create(RewriteBranchMergedEventSchema)` to create a new message.
+ */
+export const RewriteBranchMergedEventSchema: GenMessage<RewriteBranchMergedEvent> = /*@__PURE__*/
+  messageDesc(file_novel_sidecar, 18);
+
+/**
+ * @generated from message Aevatar.Novel.SetupPayoffLedgerScanCompletedEvent
+ */
+export type SetupPayoffLedgerScanCompletedEvent = Message<"Aevatar.Novel.SetupPayoffLedgerScanCompletedEvent"> & {
+  /**
+   * @generated from field: string event_id = 1;
+   */
+  eventId: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp timestamp = 2;
+   */
+  timestamp?: Timestamp;
+
+  /**
+   * @generated from field: string project_root = 3;
+   */
+  projectRoot: string;
+
+  /**
+   * @generated from field: string story_id = 4;
+   */
+  storyId: string;
+
+  /**
+   * Relative file path that triggered the scan (chapter or ledger file).
+   *
+   * @generated from field: string trigger_relative_path = 10;
+   */
+  triggerRelativePath: string;
+
+  /**
+   * artifacts/ledger/setup_payoff_ledger.md
+   *
+   * @generated from field: Aevatar.Novel.ArtifactRef ledger = 20;
+   */
+  ledger?: ArtifactRef;
+
+  /**
+   * artifacts/ledger/reports/<run_id>_setup_payoff_report.md
+   *
+   * @generated from field: Aevatar.Novel.ArtifactRef report = 21;
+   */
+  report?: ArtifactRef;
+
+  /**
+   * @generated from field: int32 open_count = 30;
+   */
+  openCount: number;
+
+  /**
+   * @generated from field: int32 paid_count = 31;
+   */
+  paidCount: number;
+
+  /**
+   * @generated from field: int32 broken_count = 32;
+   */
+  brokenCount: number;
+
+  /**
+   * @generated from field: int32 due_soon_count = 33;
+   */
+  dueSoonCount: number;
+
+  /**
+   * @generated from field: map<string, string> labels = 100;
+   */
+  labels: { [key: string]: string };
+};
+
+/**
+ * Describes the message Aevatar.Novel.SetupPayoffLedgerScanCompletedEvent.
+ * Use `create(SetupPayoffLedgerScanCompletedEventSchema)` to create a new message.
+ */
+export const SetupPayoffLedgerScanCompletedEventSchema: GenMessage<SetupPayoffLedgerScanCompletedEvent> = /*@__PURE__*/
+  messageDesc(file_novel_sidecar, 19);
 
 /**
  * @generated from message Aevatar.Novel.FileEntry
@@ -324,7 +836,7 @@ export type FileEntry = Message<"Aevatar.Novel.FileEntry"> & {
  * Use `create(FileEntrySchema)` to create a new message.
  */
 export const FileEntrySchema: GenMessage<FileEntry> = /*@__PURE__*/
-  messageDesc(file_novel_sidecar, 7);
+  messageDesc(file_novel_sidecar, 20);
 
 /**
  * @generated from message Aevatar.Novel.ListDirectoryRequest
@@ -360,7 +872,7 @@ export type ListDirectoryRequest = Message<"Aevatar.Novel.ListDirectoryRequest">
  * Use `create(ListDirectoryRequestSchema)` to create a new message.
  */
 export const ListDirectoryRequestSchema: GenMessage<ListDirectoryRequest> = /*@__PURE__*/
-  messageDesc(file_novel_sidecar, 8);
+  messageDesc(file_novel_sidecar, 21);
 
 /**
  * @generated from message Aevatar.Novel.ListDirectoryResponse
@@ -387,7 +899,7 @@ export type ListDirectoryResponse = Message<"Aevatar.Novel.ListDirectoryResponse
  * Use `create(ListDirectoryResponseSchema)` to create a new message.
  */
 export const ListDirectoryResponseSchema: GenMessage<ListDirectoryResponse> = /*@__PURE__*/
-  messageDesc(file_novel_sidecar, 9);
+  messageDesc(file_novel_sidecar, 22);
 
 /**
  * @generated from message Aevatar.Novel.ReadTextFileRequest
@@ -412,7 +924,7 @@ export type ReadTextFileRequest = Message<"Aevatar.Novel.ReadTextFileRequest"> &
  * Use `create(ReadTextFileRequestSchema)` to create a new message.
  */
 export const ReadTextFileRequestSchema: GenMessage<ReadTextFileRequest> = /*@__PURE__*/
-  messageDesc(file_novel_sidecar, 10);
+  messageDesc(file_novel_sidecar, 23);
 
 /**
  * @generated from message Aevatar.Novel.ReadTextFileResponse
@@ -463,7 +975,7 @@ export type ReadTextFileResponse = Message<"Aevatar.Novel.ReadTextFileResponse">
  * Use `create(ReadTextFileResponseSchema)` to create a new message.
  */
 export const ReadTextFileResponseSchema: GenMessage<ReadTextFileResponse> = /*@__PURE__*/
-  messageDesc(file_novel_sidecar, 11);
+  messageDesc(file_novel_sidecar, 24);
 
 /**
  * @generated from message Aevatar.Novel.WriteTextFileRequest
@@ -496,7 +1008,7 @@ export type WriteTextFileRequest = Message<"Aevatar.Novel.WriteTextFileRequest">
  * Use `create(WriteTextFileRequestSchema)` to create a new message.
  */
 export const WriteTextFileRequestSchema: GenMessage<WriteTextFileRequest> = /*@__PURE__*/
-  messageDesc(file_novel_sidecar, 12);
+  messageDesc(file_novel_sidecar, 25);
 
 /**
  * @generated from message Aevatar.Novel.WriteTextFileResponse
@@ -545,7 +1057,111 @@ export type WriteTextFileResponse = Message<"Aevatar.Novel.WriteTextFileResponse
  * Use `create(WriteTextFileResponseSchema)` to create a new message.
  */
 export const WriteTextFileResponseSchema: GenMessage<WriteTextFileResponse> = /*@__PURE__*/
-  messageDesc(file_novel_sidecar, 13);
+  messageDesc(file_novel_sidecar, 26);
+
+/**
+ * @generated from message Aevatar.Novel.SmartContinueRequest
+ */
+export type SmartContinueRequest = Message<"Aevatar.Novel.SmartContinueRequest"> & {
+  /**
+   * Target file relative to project_root (e.g. "chapters/vol1/001.md").
+   *
+   * @generated from field: string target_relative_path = 1;
+   */
+  targetRelativePath: string;
+
+  /**
+   * If provided, sidecar will prefer this as the latest draft (unsaved edits in UI).
+   *
+   * @generated from field: string draft_text = 2;
+   */
+  draftText: string;
+
+  /**
+   * Optional author instruction (style / direction / constraints).
+   *
+   * @generated from field: string instruction = 3;
+   */
+  instruction: string;
+
+  /**
+   * Output length hint (in characters, best-effort).
+   *
+   * @generated from field: int32 max_output_chars = 10;
+   */
+  maxOutputChars: number;
+
+  /**
+   * Context budget hint (in characters, best-effort).
+   *
+   * @generated from field: int32 max_context_chars = 11;
+   */
+  maxContextChars: number;
+
+  /**
+   * @generated from field: bool include_objects = 20;
+   */
+  includeObjects: boolean;
+
+  /**
+   * @generated from field: bool include_roles = 21;
+   */
+  includeRoles: boolean;
+
+  /**
+   * @generated from field: bool include_rules = 22;
+   */
+  includeRules: boolean;
+
+  /**
+   * @generated from field: map<string, string> labels = 100;
+   */
+  labels: { [key: string]: string };
+};
+
+/**
+ * Describes the message Aevatar.Novel.SmartContinueRequest.
+ * Use `create(SmartContinueRequestSchema)` to create a new message.
+ */
+export const SmartContinueRequestSchema: GenMessage<SmartContinueRequest> = /*@__PURE__*/
+  messageDesc(file_novel_sidecar, 27);
+
+/**
+ * @generated from message Aevatar.Novel.SmartContinueResponse
+ */
+export type SmartContinueResponse = Message<"Aevatar.Novel.SmartContinueResponse"> & {
+  /**
+   * @generated from field: bool success = 1;
+   */
+  success: boolean;
+
+  /**
+   * @generated from field: string message = 2;
+   */
+  message: string;
+
+  /**
+   * @generated from field: string generated_text = 3;
+   */
+  generatedText: string;
+
+  /**
+   * @generated from field: string model = 4;
+   */
+  model: string;
+
+  /**
+   * @generated from field: map<string, string> labels = 100;
+   */
+  labels: { [key: string]: string };
+};
+
+/**
+ * Describes the message Aevatar.Novel.SmartContinueResponse.
+ * Use `create(SmartContinueResponseSchema)` to create a new message.
+ */
+export const SmartContinueResponseSchema: GenMessage<SmartContinueResponse> = /*@__PURE__*/
+  messageDesc(file_novel_sidecar, 28);
 
 /**
  * @generated from enum Aevatar.Novel.FileChangeKind

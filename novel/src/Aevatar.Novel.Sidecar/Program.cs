@@ -3,6 +3,7 @@ using Aevatar.Agents.Runtime.Local;
 using Aevatar.Novel.Contracts;
 using Aevatar.Novel.Sidecar.Api;
 using Aevatar.Novel.Sidecar.Services;
+using Aevatar.Novel.Sidecar.Services.Ai;
 using Aevatar.Novel.Sidecar.Services.Aevatar;
 using Aevatar.Novel.Sidecar.Services.Branches;
 using Aevatar.Novel.Sidecar.Services.CanonGovernance;
@@ -32,11 +33,25 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
 
+// ------------------------------------------------------------
+//  CORS (local sidecar <-> frontend)
+//  - Frontend runs on a different origin (Vite/Tauri), so we must allow it.
+//  - No auth/cookies here (v1), so permissive CORS is fine for localhost.
+// ------------------------------------------------------------
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(p => p
+        .AllowAnyOrigin()
+        .AllowAnyHeader()
+        .AllowAnyMethod());
+});
+
 // ---------- Aevatar (Local runtime for v1) ----------
 builder.Services.AddAevatarAgentSystem(b => b.UseLocalRuntime());
 
 // ---------- Options ----------
 builder.Services.Configure<NovelOptions>(builder.Configuration.GetSection(NovelOptions.SectionName));
+builder.Services.Configure<NovelAiOptions>(builder.Configuration.GetSection(NovelAiOptions.SectionName));
 
 // ---------- Core services ----------
 builder.Services.AddSingleton<SidecarEventHub>();
@@ -44,6 +59,7 @@ builder.Services.AddSingleton<ProjectRootManager>();
 builder.Services.AddSingleton<NarrativeTestRunner>();
 builder.Services.AddSingleton<NovelAgentRuntime>();
 builder.Services.AddSingleton<SstFileSystemService>();
+builder.Services.AddSingleton<NovelSmartWriter>();
 builder.Services.AddSingleton<ChapterRevisionStore>();
 builder.Services.AddSingleton<DeviationImpactAnalyzer>();
 builder.Services.AddSingleton<CanonAssetRevisionStore>();
@@ -59,6 +75,8 @@ builder.Services.AddHostedService<CanonGovernanceOrchestratorHostedService>();
 builder.Services.AddHostedService<SetupPayoffOrchestratorHostedService>();
 
 var app = builder.Build();
+
+app.UseCors();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 
@@ -91,6 +109,19 @@ app.MapPost("/api/novel/fs/read", async (
 {
     var input = await ProtoJsonHttp.ReadJsonAsync<ReadTextFileRequest>(request, ct);
     var resp = await fs.ReadTextFileAsync(input, ct);
+    return ProtoJsonHttp.Json(resp);
+});
+
+// ------------------------------------------------------------
+//  Smart Writing (LLM): Continue
+// ------------------------------------------------------------
+app.MapPost("/api/novel/ai/continue", async (
+    HttpRequest request,
+    NovelSmartWriter writer,
+    CancellationToken ct) =>
+{
+    var input = await ProtoJsonHttp.ReadJsonAsync<SmartContinueRequest>(request, ct);
+    var resp = await writer.ContinueAsync(input, ct);
     return ProtoJsonHttp.Json(resp);
 });
 

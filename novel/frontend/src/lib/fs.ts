@@ -78,8 +78,9 @@ function toTreeNodes(entries: DirEntry[]): TreeNode[] {
 }
 
 export async function loadProjectTree(projectRoot: string): Promise<TreeNode> {
-  // `readDir` is recursive in the Tauri fs plugin (v2).
-  const entries = (await readDir(projectRoot)) as unknown as DirEntry[];
+  // Tauri fs plugin requires `recursive: true` to populate nested `children`.
+  // Without it, directories won't have `children` and will be filtered out by `toTreeNodes`.
+  const entries = (await readDir(projectRoot, { recursive: true })) as unknown as DirEntry[];
   return {
     name: projectRoot.split(/[/\\]+/g).pop() || projectRoot,
     path: projectRoot,

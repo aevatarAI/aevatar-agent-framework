@@ -62,7 +62,8 @@ cd novel/src/Aevatar.Novel.Sidecar
 dotnet run
 ```
 
-默认监听一般是 `http://127.0.0.1:5000`（也可通过 `ASPNETCORE_URLS` 覆盖）。
+默认监听一般是 `http://127.0.0.1:5678`（也可通过 `ASPNETCORE_URLS` 覆盖）。
+（推荐用 `http://localhost:5678`，避免少数环境下 IPv4/IPv6 loopback 差异。）
 
 ### 2) 启动 Tauri 前端
 
@@ -75,8 +76,31 @@ npm run dev
 如果 sidecar 不在默认地址，设置环境变量：
 
 ```bash
-export VITE_NOVEL_SIDECAR_URL="http://127.0.0.1:5000"
+export VITE_NOVEL_SIDECAR_URL="http://localhost:5678"
 ```
+
+---
+
+## 智能创作（Smart Continue，v1）
+
+前端右侧「智能体」面板支持 **智能续写一段**：会把 `rules/objects/roles` + 当前文件草稿尾部作为上下文交给 LLM，然后返回一段续写内容并自动插入到当前文件末尾（不自动保存）。
+
+### 1) 配置 API Key（推荐用环境变量）
+
+Sidecar 读取 `NovelAI` 配置（`novel/src/Aevatar.Novel.Sidecar/appsettings.json`），也支持用环境变量覆盖：
+
+```bash
+# OpenAI-compatible endpoint (DeepSeek/OpenAI/自建网关等)
+export NovelAI__Endpoint="https://api.deepseek.com"
+export NovelAI__ApiKey="YOUR_KEY"
+export NovelAI__Model="deepseek-chat"
+```
+
+### 2) 使用方式
+
+- **打开一个正文/设定/规则文件**
+- 在右侧输入作者指令，按 Enter 或点「续写」
+- 或直接点「智能续写」（不带指令）
 
 ---
 

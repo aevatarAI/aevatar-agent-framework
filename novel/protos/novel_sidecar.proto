@@ -288,4 +288,39 @@ message WriteTextFileResponse {
   map<string, string> labels = 100;
 }
 
+// ============================================================
+//  Smart Writing (UI ↔ Sidecar)
+// ============================================================
+
+message SmartContinueRequest {
+  // Target file relative to project_root (e.g. "chapters/vol1/001.md").
+  string target_relative_path = 1;
+
+  // If provided, sidecar will prefer this as the latest draft (unsaved edits in UI).
+  string draft_text = 2;
+
+  // Optional author instruction (style / direction / constraints).
+  string instruction = 3;
+
+  // Output length hint (in characters, best-effort).
+  int32 max_output_chars = 10;
+
+  // Context budget hint (in characters, best-effort).
+  int32 max_context_chars = 11;
+
+  bool include_objects = 20;
+  bool include_roles = 21;
+  bool include_rules = 22;
+
+  map<string, string> labels = 100;
+}
+
+message SmartContinueResponse {
+  bool success = 1;
+  string message = 2;
+  string generated_text = 3;
+  string model = 4;
+  map<string, string> labels = 100;
+}
+
 

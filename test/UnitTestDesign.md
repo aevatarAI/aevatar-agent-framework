@@ -572,9 +572,9 @@ dotnet test --collect:"XPlat Code Coverage"
 - **ConvertToFunctionParameters_ShouldMapTypesCorrectly**: 测试参数类型转换
 
 #### Built-in Tools Tests
-- **AevatarEventPublisherTool_ShouldPublishEventCorrectly**: 验证事件发布工具
-- **AevatarMemorySearchTool_ShouldSearchMemory**: 测试内存搜索工具
+- **EventPublisherTool_ShouldPublishEventCorrectly**: 验证事件发布工具
 - **EventPublisherTool_ValidateParameters_ShouldRequireEventType**: 验证事件发布参数验证
+- **AevatarMemorySearchTool_ShouldSearchMemory**: 测试内存搜索工具
 - **StateQueryTool_ShouldQueryAgentState**: 测试状态查询工具
 
 ### 13.4 Strategy Implementation Tests

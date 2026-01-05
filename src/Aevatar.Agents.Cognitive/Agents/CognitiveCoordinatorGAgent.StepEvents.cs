@@ -10,14 +10,14 @@ namespace Aevatar.Agents.Cognitive.Agents;
 //  CognitiveCoordinatorGAgent - Step Events (UI/Observability)
 //
 //  WHY:
-//  - 让“执行引擎”和“可视化事件”分离，避免巨型文件失控。
-//  - 事件必须线程安全：vote streaming / fan_out 会并发触发回调。
+//  - Separate "execution engine" and "visualization events" to avoid giant file getting out of control.
+//  - Events must be thread-safe: vote streaming / fan_out will trigger callbacks concurrently.
 // ============================================================
 
 public partial class CognitiveCoordinatorGAgent
 {
     /// <summary>
-    /// 设置步骤事件回调（用于实时可视化）
+    /// Set step event callback (for real-time visualization)
     /// </summary>
     public void SetStepEventCallback(Action<WorkflowStepEvent> callback)
     {
@@ -25,13 +25,13 @@ public partial class CognitiveCoordinatorGAgent
     }
 
     /// <summary>
-    /// 获取所有步骤事件（用于回放）
+    /// Get all step events (for replay)
     /// </summary>
     public IReadOnlyList<WorkflowStepEvent> GetStepEvents()
     {
         // NOTE:
-        // - vote / fan_out 可能并发写 _stepEvents
-        // - 直接暴露 List 会导致读取端枚举时抛异常或读到撕裂数据
+        // - vote / fan_out may concurrently write _stepEvents
+        // - Directly exposing List will cause reading end to throw exception or read torn data when enumerating
         lock (_stepEventsLock)
         {
             return _stepEvents.ToList();
@@ -51,11 +51,11 @@ public partial class CognitiveCoordinatorGAgent
         int parallelCompleted = 0,
         int parallelFailed = 0,
         string? parentStepId = null,
-        // LLM 对话记录
+        // LLM conversation history
         string? systemPrompt = null,
         string? userPrompt = null,
         string? assistantResponse = null,
-        // Red-Flag 信息
+        // Red-Flag information
         string? redFlagReason = null)
     {
         var now = DateTime.UtcNow;
@@ -92,15 +92,15 @@ public partial class CognitiveCoordinatorGAgent
             DurationMs = durationMs,
             LlmCalls = CustomState.TotalLlmCalls,
             TokensUsed = CustomState.TotalTokensUsed,
-            // LLM 对话记录
+            // LLM conversation history
             SystemPrompt = systemPrompt ?? "",
             UserPrompt = userPrompt ?? "",
             AssistantResponse = assistantResponse ?? "",
-            // Red-Flag 信息
+            // Red-Flag information
             RedFlagReason = redFlagReason ?? ""
         };
 
-        // 多任务并行（vote streaming）时，避免 List 并发写导致内存损坏/卡死
+        // When multiple tasks parallel (vote streaming), avoid List concurrent writes causing memory corruption/hang
         lock (_stepEventsLock)
         {
             _stepEvents.Add(evt);

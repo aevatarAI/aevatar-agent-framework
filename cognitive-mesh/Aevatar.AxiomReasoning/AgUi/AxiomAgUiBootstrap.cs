@@ -1,9 +1,8 @@
-using System.Text.Json;
+using System.Text.RegularExpressions;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Helpers;
-using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
-using Aevatar.Agents.Abstractions.Extensions;
+using Aevatar.Agents.AGUI;
 using Aevatar.Agents.Cognitive.Agents;
 using Aevatar.AxiomReasoning.Models;
 using Aevatar.AxiomReasoning.Services;
@@ -57,103 +56,23 @@ public static class AxiomAgUiBootstrap
             return new AgUiBootstrapMessages { Messages = messages, ExtraEvents = extra };
         }
 
-        // ============================================================
-        //  Collect per-step conversation from agents
-        //
-        //  - Coordinator/Workers ids are deterministic: derived from session_id
-        //  - We read State.History via RPC (GetState) so this works across runtimes
-        //  - AIMemory (optional) is used as long-term append-only log
-        // ============================================================
-
-        var threadId = session.Id;
         var workerCount = ComputeWorkerCount(session);
-
-        var stableSessionKey = session.Id;
-        var coordinatorRawId = DeterministicGuid
-            .FromString($"cognitive:{stableSessionKey}:coordinator")
-            .ToString("D");
-
-        var stableWorkerRawIds = new List<string>(capacity: workerCount);
-        for (var i = 0; i < workerCount; i++)
-        {
-            stableWorkerRawIds.Add(
-                DeterministicGuid
-                    .FromString($"cognitive:{stableSessionKey}:worker:{i}")
-                    .ToString("D"));
-        }
-
-        var steps = new Dictionary<string, StepConversation>(StringComparer.Ordinal);
-
-        // Coordinator (also contains vote proposal LLM calls that map to logical workers)
-        await TryCollectFromActorAsync(
+        var actors = BuildCognitiveActors(session.Id, workerCount);
+        var agentMessages = await AgUiBootstrap.CollectAssistantMessagesAsync(
             actorManager,
             memoryFactory,
-            coordinatorRawId,
-            agentKind: "cognitive_coordinator",
-            workerCount,
-            steps,
+            actors,
+            new AgUiMessageSnapshotOptions
+            {
+                ThreadId = session.Id,
+                MaxAssistantMessages = maxAssistantMessages,
+                ResolveLaneId = (stepId, metadata, defaultLaneId) =>
+                    ResolveWorkerLaneId(stepId, defaultLaneId, workerCount)
+            },
             ct);
 
-        // Workers (fan_out)
-        for (var i = 0; i < stableWorkerRawIds.Count; i++)
-        {
-            ct.ThrowIfCancellationRequested();
-            await TryCollectFromActorAsync(
-                actorManager,
-                memoryFactory,
-                stableWorkerRawIds[i],
-                agentKind: "cognitive_worker",
-                workerCount,
-                steps,
-                ct);
-        }
-
-        // Sort by timestamp, take tail, then emit in chronological order
-        var ordered = steps.Values
-            .Where(s => !string.IsNullOrWhiteSpace(s.AssistantResponse))
-            .OrderBy(s => s.Timestamp)
-            .ToList();
-
-        if (ordered.Count > maxAssistantMessages)
-        {
-            ordered = ordered.Skip(Math.Max(0, ordered.Count - maxAssistantMessages)).ToList();
-        }
-
-        var emitted = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var s in ordered)
-        {
-            ct.ThrowIfCancellationRequested();
-
-            var workerId = string.IsNullOrWhiteSpace(s.WorkerId) ? "coordinator" : s.WorkerId.Trim();
-            var stepId = string.IsNullOrWhiteSpace(s.StepId) ? "main" : s.StepId.Trim();
-
-            var messageId = $"msg:{threadId}:{workerId}:{stepId}";
-            if (!emitted.Add(messageId))
-                continue;
-
-            messages.Add(new AgUiMessage
-            {
-                Id = messageId,
-                Role = "assistant",
-                Content = s.AssistantResponse ?? ""
-            });
-
-            // Emit per-message meta so Workers UI can restore system/user prompts on refresh.
-            extra.Add(new CustomEvent
-            {
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                Name = "aevatar.axiom.message_meta",
-                Value = new
-                {
-                    messageId,
-                    workerId,
-                    stepId = s.StepId,
-                    stepType = s.StepType,
-                    systemPrompt = s.SystemPrompt,
-                    userPrompt = s.UserPrompt
-                }
-            });
-        }
+        // Add agent messages to the list
+        messages.AddRange(agentMessages);
 
         return new AgUiBootstrapMessages { Messages = messages, ExtraEvents = extra };
     }
@@ -268,17 +187,6 @@ public static class AxiomAgUiBootstrap
                """;
     }
 
-    private sealed class StepConversation
-    {
-        public string StepId { get; init; } = "";
-        public string StepType { get; set; } = "";
-        public string WorkerId { get; init; } = "";
-        public DateTimeOffset Timestamp { get; set; } = DateTimeOffset.UtcNow;
-        public string? SystemPrompt { get; set; }
-        public string? UserPrompt { get; set; }
-        public string? AssistantResponse { get; set; }
-    }
-
     private static int ComputeWorkerCount(AxiomSession session)
     {
         // Must match AxiomReasoningService.BuildReasoningOptions()
@@ -286,269 +194,90 @@ public static class AxiomAgUiBootstrap
         return Math.Clamp(2 * k - 1, 1, 15);
     }
 
-    private static async Task TryCollectFromActorAsync(
-        IGAgentActorManager actorManager,
-        IAevatarAIMemoryFactory? memoryFactory,
-        string actorRawId,
-        string agentKind,
-        int workerCount,
-        Dictionary<string, StepConversation> steps,
-        CancellationToken ct)
+    private static List<AgUiActor> BuildCognitiveActors(string sessionId, int workerCount)
     {
-        if (string.IsNullOrWhiteSpace(actorRawId))
+        // Stable Actor IDs derived from sessionId (aligned with CognitiveStrategy session-aware AgentId).
+        // NOTE: These are runtime IDs, not UI semantics.
+        const string agentIdPrefix = "cognitive";
+
+        var stableSessionKey = sessionId;
+        var coordinatorRawId = DeterministicGuid
+            .FromString($"{agentIdPrefix}:{stableSessionKey}:coordinator")
+            .ToString("D");
+
+        var actors = new List<AgUiActor>(capacity: Math.Max(1, workerCount + 1))
         {
-            return;
-        }
-
-        actorRawId = actorRawId.Trim();
-
-        // ActorManager stores actors by Actor.Id.
-        // - Orleans: "AgentTypeShortName:RawId"
-        // - Local/Proto: "RawId"
-        // We try both formats to keep this collector runtime-agnostic.
-        var actorTypeName = agentKind == "cognitive_coordinator"
-            ? typeof(CognitiveCoordinatorGAgent).Name
-            : typeof(CognitiveWorkerGAgent).Name;
-        var orleansStyleId = $"{actorTypeName}:{actorRawId}";
-
-        IGAgentActor? actor = await actorManager.GetActorAsync(orleansStyleId);
-        actor ??= await actorManager.GetActorAsync(actorRawId);
-        if (actor == null)
-        {
-            // Best-effort: re-create actor so it can load persisted state (if StateStore is configured).
-            try
+            new()
             {
-                actor = agentKind == "cognitive_coordinator"
-                    ? await actorManager.CreateAndRegisterAsync<CognitiveCoordinatorGAgent>(actorRawId, ct)
-                    : await actorManager.CreateAndRegisterAsync<CognitiveWorkerGAgent>(actorRawId, ct);
+                ActorId = coordinatorRawId,
+                ActorTypeName = typeof(CognitiveCoordinatorGAgent).Name,
+                LaneId = "coordinator",
+                CreateAsync = async (mgr, ct) =>
+                    await mgr.CreateAndRegisterAsync<CognitiveCoordinatorGAgent>(coordinatorRawId, ct)
             }
-            catch
+        };
+
+        for (var i = 0; i < workerCount; i++)
+        {
+            var workerRawId = DeterministicGuid
+                .FromString($"{agentIdPrefix}:{stableSessionKey}:worker:{i}")
+                .ToString("D");
+
+            var laneId = $"worker-{i}";
+            actors.Add(new AgUiActor
             {
-                return;
-            }
+                ActorId = workerRawId,
+                ActorTypeName = typeof(CognitiveWorkerGAgent).Name,
+                LaneId = laneId,
+                CreateAsync = async (mgr, ct) =>
+                    await mgr.CreateAndRegisterAsync<CognitiveWorkerGAgent>(workerRawId, ct)
+            });
         }
 
-        // 1) Short-term: State.History
-        try
-        {
-            var state = await actor.InvokeAsync<AevatarAIAgentState>("GetState");
-            MergeFromStateHistory(state, agentKind, workerCount, steps);
-        }
-        catch
-        {
-            // ignored (best-effort)
-        }
-
-        // 2) Long-term: AIMemory (optional)
-        if (memoryFactory != null)
-        {
-            try
-            {
-                var memory = memoryFactory.Create(actor.Id);
-                var history = await memory.GetHistoryAsync(limit: 800, cancellationToken: ct);
-                MergeFromMemoryHistory(history, workerCount, steps);
-            }
-            catch
-            {
-                // ignored (best-effort)
-            }
-        }
+        return actors;
     }
 
-    private static void MergeFromStateHistory(
-        AevatarAIAgentState state,
-        string agentKind,
-        int workerCount,
-        Dictionary<string, StepConversation> steps)
+    private static string ResolveWorkerLaneId(string stepId, string defaultLaneId, int workerCount)
     {
-        if (state?.History == null || state.History.Count == 0)
-            return;
+        // Only remap when the message originates from the coordinator lane.
+        // For worker lanes, keep the lane stable to match live-stream worker grouping.
+        if (!string.Equals(defaultLaneId, "coordinator", StringComparison.Ordinal))
+            return defaultLaneId;
 
-        foreach (var m in state.History)
-        {
-            if (m == null) continue;
+        if (string.IsNullOrWhiteSpace(stepId) || workerCount <= 0)
+            return "coordinator";
 
-            var stepId = TryGetMeta(m, "step_id");
-            if (string.IsNullOrWhiteSpace(stepId)) continue;
-
-            var stepType = TryGetMeta(m, "step_type") ?? "llm_call";
-            var workerId = NormalizeWorkerId(stepId, workerCount);
-
-            var key = $"{workerId}|{stepId}";
-            if (!steps.TryGetValue(key, out var s))
-            {
-                s = new StepConversation
-                {
-                    StepId = stepId,
-                    StepType = stepType,
-                    WorkerId = workerId
-                };
-                steps[key] = s;
-            }
-
-            if (!string.IsNullOrWhiteSpace(stepType) && string.IsNullOrWhiteSpace(s.StepType))
-                s.StepType = stepType;
-
-            var ts = m.Timestamp?.ToDateTimeOffset() ?? DateTimeOffset.UtcNow;
-            if (ts > s.Timestamp) s.Timestamp = ts;
-
-            var content = (m.Content ?? string.Empty).Trim();
-            if (string.IsNullOrWhiteSpace(content)) continue;
-
-            switch (m.Role)
-            {
-                case AevatarChatRole.System:
-                    s.SystemPrompt ??= content;
-                    break;
-                case AevatarChatRole.User:
-                    s.UserPrompt ??= content;
-                    break;
-                case AevatarChatRole.Assistant:
-                    s.AssistantResponse ??= content;
-                    break;
-            }
-        }
-    }
-
-    private static void MergeFromMemoryHistory(
-        IReadOnlyList<AevatarConversationEntry> history,
-        int workerCount,
-        Dictionary<string, StepConversation> steps)
-    {
-        if (history == null || history.Count == 0)
-            return;
-
-        foreach (var e in history)
-        {
-            var raw = (e.Content ?? string.Empty).Trim();
-            if (string.IsNullOrWhiteSpace(raw)) continue;
-            if (!raw.StartsWith('{')) continue;
-
-            try
-            {
-                using var doc = JsonDocument.Parse(raw);
-                var root = doc.RootElement;
-                if (root.ValueKind != JsonValueKind.Object) continue;
-
-                if (!root.TryGetProperty("kind", out var kindEl) || kindEl.ValueKind != JsonValueKind.String)
-                    continue;
-                if (!string.Equals(kindEl.GetString(), "aevatar.cognitive.llm_interaction.v1", StringComparison.Ordinal))
-                    continue;
-
-                var stepId = root.TryGetProperty("stepId", out var sid) && sid.ValueKind == JsonValueKind.String
-                    ? sid.GetString() ?? ""
-                    : "";
-                if (string.IsNullOrWhiteSpace(stepId)) continue;
-
-                var stepType = root.TryGetProperty("stepType", out var st) && st.ValueKind == JsonValueKind.String
-                    ? st.GetString() ?? "llm_call"
-                    : "llm_call";
-
-                var systemPrompt = root.TryGetProperty("systemPrompt", out var sp) && sp.ValueKind == JsonValueKind.String
-                    ? sp.GetString()
-                    : null;
-                var userPrompt = root.TryGetProperty("userPrompt", out var up) && up.ValueKind == JsonValueKind.String
-                    ? up.GetString()
-                    : null;
-                var assistantResponse = root.TryGetProperty("assistantResponse", out var ar) && ar.ValueKind == JsonValueKind.String
-                    ? ar.GetString()
-                    : null;
-
-                var workerId = NormalizeWorkerId(stepId, workerCount);
-                var key = $"{workerId}|{stepId}";
-                if (!steps.TryGetValue(key, out var s))
-                {
-                    s = new StepConversation
-                    {
-                        StepId = stepId,
-                        StepType = stepType,
-                        WorkerId = workerId
-                    };
-                    steps[key] = s;
-                }
-
-                s.SystemPrompt ??= systemPrompt;
-                s.UserPrompt ??= userPrompt;
-                s.AssistantResponse ??= assistantResponse;
-            }
-            catch
-            {
-                // ignore malformed entries
-            }
-        }
-    }
-
-    private static string? TryGetMeta(AevatarChatMessage msg, string key)
-    {
-        try
-        {
-            return msg.Metadata.TryGetValue(key, out var v) ? v : null;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static string NormalizeWorkerId(string stepId, int workerCount)
-    {
-        if (string.IsNullOrEmpty(stepId)) return "coordinator";
-
+        stepId = stepId.Trim();
         var lower = stepId.ToLowerInvariant();
 
-        // Coordinator patterns: check_atomic, compose, vote steps
+        // Keep coordinator-lane steps in coordinator.
         if (lower.Contains("check_atomic") ||
             lower.Contains("coordinator") ||
-            (lower.Contains("compose") && !lower.Contains("gen[")) ||
-            lower.EndsWith(".vote"))
+            lower.EndsWith(".vote") ||
+            (lower.Contains("compose") && !lower.Contains("gen[")))
         {
             return "coordinator";
         }
 
-        // Worker patterns: gen[index] -> worker-{(index-1) % workerCount}
-        var match = System.Text.RegularExpressions.Regex.Match(stepId, @"gen\[(\d+)\]");
-        if (match.Success && int.TryParse(match.Groups[1].Value, out var genIndex))
+        // Pattern 1: gen[n] (1-based)
+        var gen = Regex.Match(stepId, @"gen\[(\d+)\]");
+        if (gen.Success && int.TryParse(gen.Groups[1].Value, out var genIndex))
         {
-            var workerIndex = workerCount > 0 ? (genIndex - 1) % workerCount : 0;
-            return $"worker-{workerIndex}";
+            var idx = (genIndex - 1) % workerCount;
+            if (idx < 0) idx = 0;
+            return $"worker-{idx}";
         }
 
-        // Fan-out patterns: "{stepIdPrefix}[i]" -> worker-{i % workerCount}
-        var bracketStart = stepId.IndexOf('[');
-        if (bracketStart > 0)
+        // Pattern 2: trailing [i] (0-based)
+        var tail = Regex.Match(stepId, @"\[(\d+)\]$");
+        if (tail.Success && int.TryParse(tail.Groups[1].Value, out var i))
         {
-            var bracketEnd = stepId.IndexOf(']', bracketStart + 1);
-            if (bracketEnd > bracketStart + 1)
-            {
-                var prefix = stepId[..bracketStart];
-                var indexText = stepId[(bracketStart + 1)..bracketEnd];
-                if (IsFanOutPrefix(prefix) && int.TryParse(indexText, out var i))
-                {
-                    var workerIndex = workerCount > 0 ? i % workerCount : 0;
-                    return $"worker-{workerIndex}";
-                }
-            }
+            var idx = i % workerCount;
+            if (idx < 0) idx = 0;
+            return $"worker-{idx}";
         }
 
         return "coordinator";
-    }
-
-    private static bool IsFanOutPrefix(string prefix)
-    {
-        if (string.IsNullOrWhiteSpace(prefix)) return false;
-
-        // Keep this list aligned with CognitiveStrategy.FanOutStepPrefixes.
-        // NOTE: We intentionally keep it conservative; unknown prefixes fall back to coordinator.
-        return prefix is
-            "prove_with_workers" or
-            "refute_scout" or
-            "prove_or_refute_with_workers" or
-            "execute_subtasks" or
-            "solve_subtasks" or
-            "decompose_thoughts" or
-            "synthesize" or
-            "synthesize_candidates" or
-            "evaluate_candidates";
     }
 }
 

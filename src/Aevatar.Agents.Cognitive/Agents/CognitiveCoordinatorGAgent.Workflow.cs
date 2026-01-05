@@ -11,14 +11,14 @@ namespace Aevatar.Agents.Cognitive.Agents;
 //  CognitiveCoordinatorGAgent - Workflow lifecycle
 //
 //  WHY:
-//  - 把“启动/失败/输出构建/主循环”从巨型文件里拆出来。
-//  - 让核心执行逻辑更容易被复用为 AevatarKit 的 Run Orchestrator。
+//  - Extract "start/failure/output building/main loop" from giant file.
+//  - Make core execution logic easier to reuse as AevatarKit's Run Orchestrator.
 // ============================================================
 
 public partial class CognitiveCoordinatorGAgent
 {
     /// <summary>
-    /// 直接启动工作流执行（API 调用）
+    /// Directly start workflow execution (API call)
     /// </summary>
     public Task StartWorkflowAsync(string workflowName, Dictionary<string, object>? variables = null)
     {
@@ -35,7 +35,7 @@ public partial class CognitiveCoordinatorGAgent
     }
 
     /// <summary>
-    /// 启动工作流执行 (Protobuf 事件)
+    /// Start workflow execution (Protobuf event)
     /// </summary>
     [EventHandler]
     public async Task HandleStartWorkflowRequest(StartWorkflowRequestEvent request)
@@ -50,7 +50,7 @@ public partial class CognitiveCoordinatorGAgent
 
         try
         {
-            // 获取工作流定义
+            // Get workflow definition
             var workflow = _workflowRegistry.Get(request.WorkflowName);
             if (workflow == null)
             {
@@ -58,10 +58,10 @@ public partial class CognitiveCoordinatorGAgent
                 return;
             }
 
-            // 注入初始变量
+            // Inject initial variables
             _workflowVariables.Clear();
 
-            // 1. 先应用 inputs 的默认值
+            // 1. Apply inputs' default values first
             foreach (var input in workflow.Inputs)
             {
                 if (input.DefaultValue != null)
@@ -70,22 +70,22 @@ public partial class CognitiveCoordinatorGAgent
                 }
             }
 
-            // 2. 再覆盖为传入的变量（传入的优先级更高）
+            // 2. Override with passed variables (passed variables have higher priority)
             foreach (var (key, value) in request.Variables)
             {
                 _workflowVariables[key] = ProtoValueConverter.FromProto(value);
             }
 
             // ============================================================
-            //  输入驱动的 MaxDepth（消灭硬编码）
+            //  Input-driven MaxDepth (eliminate hardcoding)
             //
-            //  约定：
-            //  - 统一使用 `max_depth` 作为工作流递归深度控制输入
-            //  - 若未提供，则保留 OnActivateAsync 的默认值或 YAML input 默认值
+            //  Convention:
+            //  - Use `max_depth` uniformly as workflow recursion depth control input
+            //  - If not provided, keep OnActivateAsync default value or YAML input default value
             // ============================================================
             if (TryGetPositiveInt(_workflowVariables, "max_depth", out var inputMaxDepth))
             {
-                // 安全阀：避免配置错误导致极端深度把系统打爆
+                // Safety valve: avoid configuration errors causing extreme depth to crash system
                 CustomState.MaxDepth = Math.Clamp(inputMaxDepth, 1, 200);
             }
 
@@ -98,10 +98,10 @@ public partial class CognitiveCoordinatorGAgent
                     taskLen);
             }
 
-            // 执行工作流
+            // Execute workflow
             await ExecuteWorkflowAsync(workflow);
 
-            // 完成
+            // Complete
             CustomState.Status = ExecutionStatus.EsCompleted;
             CustomState.CurrentPhase = "Completed";
 
@@ -140,7 +140,7 @@ public partial class CognitiveCoordinatorGAgent
                 throw new Exception($"Step '{step.Id}' failed: {result.Error}");
             }
 
-            // 存储结果
+            // Store result
             if (!string.IsNullOrEmpty(step.Store))
             {
                 Logger.LogInformation(
@@ -161,7 +161,7 @@ public partial class CognitiveCoordinatorGAgent
             }
         }
 
-        // 构建输出
+        // Build output
         _workflowVariables["_output"] = BuildOutput(workflow.Output);
     }
 
@@ -172,8 +172,8 @@ public partial class CognitiveCoordinatorGAgent
         CustomState.Error = error;
 
         // IMPORTANT:
-        // - 之前这里不打日志，导致“后端没有报错但系统停了”的错觉
-        // - 失败必须在日志里可见（至少包含 executionId / 当前 step）
+        // - Previously no logging here, causing illusion of "backend didn't error but system stopped"
+        // - Failures must be visible in logs (at least include executionId / current step)
         Logger.LogError("[WORKFLOW] Failed (executionId={ExecutionId}, step={StepId}, phase={Phase}): {Error}",
             CustomState.ExecutionId, CustomState.CurrentStepId, CustomState.CurrentPhase, error);
 

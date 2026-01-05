@@ -14,14 +14,14 @@ namespace Aevatar.Agents.Cognitive.Agents;
 //  CognitiveCoordinatorGAgent - LLM execution (Coordinator-side)
 //
 //  WHY:
-//  - 这段代码天然会膨胀（streaming + guardrails + UI events）。
-//  - 独立成文件，避免污染核心编排逻辑。
+//  - This code naturally expands (streaming + guardrails + UI events).
+//  - Separate into file to avoid polluting core orchestration logic.
 // ============================================================
 
 public partial class CognitiveCoordinatorGAgent
 {
     // ============================================================
-    //  简单步骤 - Coordinator 直接执行
+    //  Simple Steps - Coordinator executes directly
     // ============================================================
 
     private async Task<PrimitiveResult> ExecuteLlmCallDirectAsync(
@@ -29,7 +29,7 @@ public partial class CognitiveCoordinatorGAgent
         string? preRenderedPrompt = null,
         string? preRenderedSystem = null)
     {
-        // 使用预渲染的 prompt（如果提供），否则现场渲染
+        // Use pre-rendered prompt (if provided), otherwise render on-the-fly
         var prompt = preRenderedPrompt ?? _templateEngine.Render(
             step.Parameters.GetValueOrDefault("prompt")?.ToString() ?? "",
             _workflowVariables);
@@ -48,8 +48,8 @@ public partial class CognitiveCoordinatorGAgent
     }
 
     /// <summary>
-    /// 执行 LLM 调用，streaming 事件发送到指定的步骤
-    /// 用于 vote 并行生成时，每个提案有独立的事件流
+    /// Execute LLM call, streaming events sent to specified step
+    /// Used when vote parallel generation, each proposal has independent event stream
     /// </summary>
     private async Task<PrimitiveResult> ExecuteLlmCallWithStreamingAsync(
         StepDefinition generator,
@@ -58,10 +58,10 @@ public partial class CognitiveCoordinatorGAgent
         string userPrompt)
     {
         // ============================================================
-        //  可靠性护栏：
-        //  - vote 会并行发起多个 LLM 调用
-        //  - 任一调用卡住不返回，会让 vote 卡死在 Task.WhenAll
-        //  - 这里统一做：超时 + 异常收敛（超时/异常→返回失败 PrimitiveResult）
+        //  Reliability guardrails:
+        //  - vote will initiate multiple LLM calls in parallel
+        //  - Any call stuck without returning will cause vote to deadlock at Task.WhenAll
+        //  - Unified handling here: timeout + exception convergence (timeout/exception → return failed PrimitiveResult)
         // ============================================================
 
         Logger.LogInformation("[LLM] ▶ ExecuteLlmCallWithStreamingAsync ENTER for {StepId} (promptLen={Len})",
@@ -82,7 +82,7 @@ public partial class CognitiveCoordinatorGAgent
         var strictParse = ResolveBoolParameter(generator.Parameters, "strict_parse", true);
 
         // NOTE:
-        // - 不绑定外部 CancellationToken（当前 Coordinator 执行链路未贯通），至少保证不会无限挂死
+        // - Don't bind external CancellationToken (current Coordinator execution chain not connected), at least ensure won't hang indefinitely
         // - Use AIGAgentBase.ChatStreamAsync/ChatAsync for provider/tool loop/unified behavior.
         var callTimeout = TimeSpan.FromSeconds(timeoutSeconds);
         var idleTimeout = TimeSpan.FromSeconds(idleTimeoutSeconds);
@@ -179,13 +179,13 @@ public partial class CognitiveCoordinatorGAgent
                         sb.Append(delta);
                         output = sb.ToString();
 
-                        // 防止输出爆炸导致内存/渲染/日志被打穿（这类“卡住”看起来像死循环）
+                        // Prevent output explosion causing memory/rendering/logs to be overwhelmed (this kind of "stuck" looks like infinite loop)
                         if (output.Length > maxLength)
                         {
                             return PrimitiveResult.Fail($"redflag-length>{maxLength}");
                         }
 
-                        // 流式事件发送到指定的步骤（每个提案独立显示）
+                        // Streaming events sent to specified step (each proposal displayed independently)
                         var now = DateTimeOffset.UtcNow;
                         var isFirst = chunkIndex == 0;
                         var shouldPublish =

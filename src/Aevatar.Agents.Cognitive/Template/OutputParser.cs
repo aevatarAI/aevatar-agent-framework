@@ -4,35 +4,35 @@ using System.Text.RegularExpressions;
 namespace Aevatar.Agents.Cognitive.Template;
 
 // ============================================================
-//  输出解析器接口
+//  Output Parser Interfaces
 // ============================================================
 
 /// <summary>
-/// 输出解析器接口
+/// Output parser interface
 /// </summary>
 public interface IOutputParser
 {
-    /// <summary>解析 LLM 输出</summary>
+    /// <summary>Parse LLM output</summary>
     object? Parse(string content);
 }
 
 /// <summary>
-/// 泛型输出解析器接口
+/// Generic output parser interface
 /// </summary>
 public interface IOutputParser<out T> : IOutputParser
 {
-    /// <summary>解析 LLM 输出</summary>
+    /// <summary>Parse LLM output</summary>
     new T? Parse(string content);
     
     object? IOutputParser.Parse(string content) => Parse(content);
 }
 
 // ============================================================
-//  输出解析器工厂
+//  Output Parser Factory
 // ============================================================
 
 /// <summary>
-/// 输出解析器工厂
+/// Output parser factory
 /// </summary>
 public partial class OutputParserFactory
 {
@@ -43,12 +43,12 @@ public partial class OutputParserFactory
     };
     
     /// <summary>
-    /// 根据输出类型创建解析器
+    /// Create parser based on output type
     /// </summary>
-    /// <param name="outputType">输出类型字符串，如 "text", "json", "json_array", "regex(...)"</param>
+    /// <param name="outputType">Output type string, e.g., "text", "json", "json_array", "regex(...)"</param>
     public IOutputParser Create(string outputType)
     {
-        // 解析类型字符串
+        // Parse type string
         var trimmed = outputType.Trim().ToLowerInvariant();
         
         // text
@@ -63,14 +63,14 @@ public partial class OutputParserFactory
         if (trimmed == "code_block")
             return new CodeBlockOutputParser();
         
-        // json 或 json<TypeName>
+        // json or json<TypeName>
         if (trimmed.StartsWith("json"))
         {
             // json_array<TypeName>
             if (trimmed.StartsWith("json_array"))
                 return new JsonArrayOutputParser();
             
-            // json<TypeName> 或 json
+            // json<TypeName> or json
             return new JsonOutputParser();
         }
         
@@ -82,12 +82,12 @@ public partial class OutputParserFactory
             return new RegexOutputParser(pattern);
         }
         
-        // 默认返回文本解析器
+        // Default return text parser
         return new TextOutputParser();
     }
     
     /// <summary>
-    /// 创建泛型解析器
+    /// Create generic parser
     /// </summary>
     public IOutputParser<T> Create<T>()
     {
@@ -107,11 +107,11 @@ public partial class OutputParserFactory
 }
 
 // ============================================================
-//  具体解析器实现
+//  Concrete Parser Implementations
 // ============================================================
 
 /// <summary>
-/// 文本解析器 - 直接返回原文
+/// Text parser - Return original text directly
 /// </summary>
 public class TextOutputParser : IOutputParser<string>
 {
@@ -119,7 +119,7 @@ public class TextOutputParser : IOutputParser<string>
 }
 
 /// <summary>
-/// 首行解析器 - 返回第一行
+/// First line parser - Return first line
 /// </summary>
 public class FirstLineOutputParser : IOutputParser<string>
 {
@@ -134,7 +134,7 @@ public class FirstLineOutputParser : IOutputParser<string>
 }
 
 /// <summary>
-/// 代码块解析器 - 提取 ``` 包裹的内容
+/// Code block parser - Extract content wrapped in ```
 /// </summary>
 public partial class CodeBlockOutputParser : IOutputParser<string>
 {
@@ -152,8 +152,8 @@ public partial class CodeBlockOutputParser : IOutputParser<string>
 }
 
 /// <summary>
-/// JSON 对象解析器
-/// 返回 Dictionary 以便模板引擎可以访问属性
+/// JSON object parser
+/// Returns Dictionary so template engine can access properties
 /// </summary>
 public partial class JsonOutputParser : IOutputParser<object>
 {
@@ -167,7 +167,7 @@ public partial class JsonOutputParser : IOutputParser<object>
         if (string.IsNullOrWhiteSpace(content))
             return null;
         
-        // 尝试提取 JSON（可能包裹在代码块中）
+        // Try extracting JSON (may be wrapped in code block)
         var json = ExtractJson(content);
         
         try
@@ -177,10 +177,10 @@ public partial class JsonOutputParser : IOutputParser<object>
         }
         catch (JsonException)
         {
-            // 解析失败：尝试修复常见的 LLM “伪 JSON”问题（尤其是 proof 里的 LaTeX 反斜杠）
+            // Parse failed: Try repairing common LLM "pseudo JSON" issues (especially LaTeX backslashes in proof)
             // NOTE:
-            // - 不能把失败的 JSON 当成 string 返回，否则下游会把 state 当字符串继续跑，
-            //   最终在 conditional 访问 state.xxx 时崩溃（表现为“原因不明中断”）
+            // - Cannot return failed JSON as string, otherwise downstream will treat state as string and continue,
+            //   eventually crash when conditional accesses state.xxx (manifesting as "unexplained interruption")
             var repaired = TryRepairJson(json);
             if (repaired != null)
             {
@@ -289,7 +289,7 @@ public partial class JsonOutputParser : IOutputParser<object>
     }
     
     /// <summary>
-    /// 将 JsonElement 转换为 CLR 类型（字典/列表/原始值）
+    /// Convert JsonElement to CLR types (dictionary/list/primitive values)
     /// </summary>
     private static object ConvertJsonElement(JsonElement element)
     {
@@ -311,12 +311,12 @@ public partial class JsonOutputParser : IOutputParser<object>
     
     private static string ExtractJson(string content)
     {
-        // 尝试提取代码块中的 JSON
+        // Try extracting JSON from code block
         var codeBlockMatch = JsonCodeBlockPattern().Match(content);
         if (codeBlockMatch.Success)
             return codeBlockMatch.Groups[1].Value.Trim();
         
-        // 尝试找到 JSON 对象边界
+        // Try finding JSON object boundaries
         var start = content.IndexOf('{');
         var end = content.LastIndexOf('}');
         
@@ -331,8 +331,8 @@ public partial class JsonOutputParser : IOutputParser<object>
 }
 
 /// <summary>
-/// JSON 数组解析器
-/// 返回 List&lt;Dictionary&gt; 以便模板引擎可以访问属性（如 item.description）
+/// JSON array parser
+/// Returns List&lt;Dictionary&gt; so template engine can access properties (e.g., item.description)
 /// </summary>
 public partial class JsonArrayOutputParser : IOutputParser<List<object>>
 {
@@ -346,7 +346,7 @@ public partial class JsonArrayOutputParser : IOutputParser<List<object>>
         if (string.IsNullOrWhiteSpace(content))
             return null;
         
-        // 尝试提取 JSON 数组
+        // Try extracting JSON array
         var json = ExtractJsonArray(content);
         
         try
@@ -354,7 +354,7 @@ public partial class JsonArrayOutputParser : IOutputParser<List<object>>
             var array = JsonSerializer.Deserialize<JsonElement>(json, Options);
             if (array.ValueKind == JsonValueKind.Array)
             {
-                // 转换为字典列表，以便模板引擎可以访问属性
+                // Convert to dictionary list so template engine can access properties
                 return array.EnumerateArray()
                     .Select(ConvertJsonElement)
                     .ToList();
@@ -363,10 +363,10 @@ public partial class JsonArrayOutputParser : IOutputParser<List<object>>
         }
         catch (JsonException)
         {
-            // 解析失败：尝试修复常见的 LLM “伪 JSON”问题（尤其是 LaTeX 反斜杠）
+            // Parse failed: Try repairing common LLM "pseudo JSON" issues (especially LaTeX backslashes)
             // NOTE:
-            // - json_array 常用于 proposed_b / candidate pools；这些字符串经常包含 "\mathcal{H}" 之类的内容
-            // - 若不修复，会导致 strict_parse=true 时直接 redflag-parse-null，流程在 conditional 内“看似无关地”失败
+            // - json_array often used for proposed_b / candidate pools; these strings often contain "\mathcal{H}" etc.
+            // - If not repaired, will cause strict_parse=true to directly redflag-parse-null, workflow fails "seemingly unrelatedly" in conditional
             var repaired = TryRepairJson(json);
             if (repaired != null)
             {
@@ -484,7 +484,7 @@ public partial class JsonArrayOutputParser : IOutputParser<List<object>>
     }
     
     /// <summary>
-    /// 将 JsonElement 转换为 CLR 类型（字典/列表/原始值）
+    /// Convert JsonElement to CLR types (dictionary/list/primitive values)
     /// </summary>
     private static object ConvertJsonElement(JsonElement element)
     {
@@ -506,12 +506,12 @@ public partial class JsonArrayOutputParser : IOutputParser<List<object>>
     
     private static string ExtractJsonArray(string content)
     {
-        // 尝试提取代码块中的 JSON
+        // Try extracting JSON from code block
         var codeBlockMatch = JsonCodeBlockPattern().Match(content);
         if (codeBlockMatch.Success)
             return codeBlockMatch.Groups[1].Value.Trim();
         
-        // 尝试找到 JSON 数组边界
+        // Try finding JSON array boundaries
         var start = content.IndexOf('[');
         var end = content.LastIndexOf(']');
         
@@ -526,7 +526,7 @@ public partial class JsonArrayOutputParser : IOutputParser<List<object>>
 }
 
 /// <summary>
-/// 正则表达式解析器
+/// Regular expression parser
 /// </summary>
 public class RegexOutputParser : IOutputParser<string>
 {
@@ -546,8 +546,8 @@ public class RegexOutputParser : IOutputParser<string>
         if (!match.Success)
             return null;
         
-        // 如果有捕获组，返回第一个捕获组
-        // 否则返回整个匹配
+        // If there are capture groups, return first capture group
+        // Otherwise return entire match
         return match.Groups.Count > 1 
             ? match.Groups[1].Value 
             : match.Value;
@@ -555,7 +555,7 @@ public class RegexOutputParser : IOutputParser<string>
 }
 
 /// <summary>
-/// 回退解析器 - 按顺序尝试多个解析器
+/// Fallback parser - Try multiple parsers in order
 /// </summary>
 public class FallbackOutputParser : IOutputParser
 {
@@ -578,7 +578,7 @@ public class FallbackOutputParser : IOutputParser
             }
             catch
             {
-                // 继续尝试下一个解析器
+                // Continue trying next parser
             }
         }
         

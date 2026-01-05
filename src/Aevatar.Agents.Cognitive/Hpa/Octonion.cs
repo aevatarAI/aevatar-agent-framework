@@ -3,16 +3,16 @@ using System.Runtime.CompilerServices;
 namespace Aevatar.Agents.Cognitive.Hpa;
 
 // ============================================================
-//  Octonion (八元数) - 最小可用实现
+//  Octonion - Minimal usable implementation
 //
-//  设计目标：
-//  - deterministic：同输入必得同输出（用于推理系统的“几何证据层”）
-//  - 小而直：只实现我们需要的运算（乘法 / 共轭 / 范数 / 结合子）
+//  Design goals:
+//  - deterministic: Same input must yield same output (for reasoning system's "geometric evidence layer")
+//  - Small and straightforward: Only implement operations we need (multiplication / conjugate / norm / associator)
 //
-//  乘法约定：
-//  - 基底：1, e1..e7
+//  Multiplication convention:
+//  - Basis: 1, e1..e7
 //  - e_i^2 = -1 (i=1..7)
-//  - 乘法由 Fano 平面有向三元组定义（与论文示例一致）：
+//  - Multiplication defined by Fano plane directed triples (consistent with paper examples):
 //      (1,2,3), (1,4,5), (1,7,6), (2,4,6),
 //      (2,5,7), (3,4,7), (3,6,5)
 // ============================================================
@@ -137,7 +137,7 @@ public readonly struct Octonion
                 var k = MulBasis[idx];
                 if (s == 0)
                 {
-                    // 乘法表若缺项，说明上面的 Fano 三元组填充有误
+                    // If multiplication table is missing entries, it means the Fano triple filling above is incorrect
                     throw new InvalidOperationException($"Octonion mul table missing entry: e{i}*e{j}");
                 }
                 rv[k] += s * xi * yj;

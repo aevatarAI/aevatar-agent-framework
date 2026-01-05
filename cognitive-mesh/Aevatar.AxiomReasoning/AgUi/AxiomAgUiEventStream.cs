@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text;
+using Aevatar.Agents.AGUI;
 using Aevatar.AxiomReasoning.Models;
 
 namespace Aevatar.AxiomReasoning.AgUi;

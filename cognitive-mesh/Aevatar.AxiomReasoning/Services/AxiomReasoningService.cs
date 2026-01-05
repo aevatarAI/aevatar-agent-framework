@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI.Abstractions;
+using Aevatar.Agents.AGUI;
 using Aevatar.AxiomReasoning.AgUi;
 using Aevatar.AxiomReasoning.Models;
 using Aevatar.CognitiveMesh.Abstractions;

@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging;
 namespace Aevatar.Agents.Core.Factory;
 
 /// <summary>
-/// GAgent Actor 工厂的抽象基类，包含通用逻辑
+/// Abstract base class for GAgent Actor factory, contains common logic
 /// </summary>
 public abstract class GAgentActorFactoryBase : IGAgentActorFactory
 {
@@ -32,12 +32,12 @@ public abstract class GAgentActorFactoryBase : IGAgentActorFactory
         where TAgent : IGAgent
     {
         // ============================================================
-        //  AgentId 规范化
+        //  AgentId Normalization
         //
-        //  - 输入：允许 RawId（通常 Guid string）或已拼好的 ActorId
-        //  - 输出：统一 ActorId = "AgentTypeShortName:RawId"
+        //  - Input: Allows RawId (usually Guid string) or already concatenated ActorId
+        //  - Output: Unified ActorId = "AgentTypeShortName:RawId"
         //
-        //  这样 Manager/Stream/Hierarchy 三者的 key 永远一致，跨运行时不再“猜格式”。
+        //  This ensures Manager/Stream/Hierarchy keys are always consistent, no more "guessing format" across runtimes.
         // ============================================================
         var inputId = string.IsNullOrWhiteSpace(id) ? Guid.NewGuid().ToString("D") : id.Trim();
 

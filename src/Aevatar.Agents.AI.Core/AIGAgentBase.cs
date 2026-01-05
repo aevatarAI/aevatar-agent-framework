@@ -590,7 +590,6 @@ Open questions:
 
     /// <summary>
     /// Creates LLM Provider from custom configuration.
-    /// 从自定义配置创建LLM Provider
     /// </summary>
     protected virtual async Task<IAevatarLLMProvider> CreateLLMProviderFromConfigAsync(
         LLMProviderConfig providerConfig,
@@ -754,7 +753,6 @@ Open questions:
 
     /// <summary>
     /// Process a chat request and return a response.
-    /// 处理聊天请求并返回响应
     /// </summary>
     /// <param name="request">Chat request</param>
     /// <param name="cancellationToken">Cancellation token</param>
@@ -935,7 +933,6 @@ Open questions:
 
     /// <summary>
     /// Get LLM settings from chat request.
-    /// 从聊天请求获取 LLM 设置
     /// </summary>
     protected virtual AevatarLLMSettings GetLLMSettings(ChatRequest request)
     {
@@ -955,7 +952,6 @@ Open questions:
 
     /// <summary>
     /// Create a chat request with the given message.
-    /// 使用给定的消息创建聊天请求
     /// </summary>
     public virtual ChatRequest CreateChatRequest(string message)
     {
@@ -964,7 +960,6 @@ Open questions:
 
     /// <summary>
     /// Generate a response to a message (convenience method).
-    /// 生成消息的响应（便捷方法）
     /// </summary>
     public virtual Task<ChatResponse> GenerateResponseAsync(
         string message,
@@ -976,7 +971,6 @@ Open questions:
 
     /// <summary>
     /// Generate a streaming response to a chat request.
-    /// 生成聊天请求的流式响应
     /// </summary>
     public virtual async IAsyncEnumerable<string> ChatStreamAsync(
         ChatRequest request,

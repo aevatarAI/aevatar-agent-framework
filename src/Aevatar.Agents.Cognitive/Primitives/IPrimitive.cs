@@ -1,36 +1,36 @@
 namespace Aevatar.Agents.Cognitive.Primitives;
 
 // ============================================================
-//  原语执行上下文
+//  Primitive Execution Context
 // ============================================================
 
 /// <summary>
-/// 原语执行上下文，包含变量、取消令牌、进度报告等
+/// Primitive execution context, containing variables, cancellation token, progress reporting, etc.
 /// </summary>
 public class PrimitiveContext
 {
-    /// <summary>工作流变量存储</summary>
+    /// <summary>Workflow variable storage</summary>
     public Dictionary<string, object> Variables { get; } = new();
     
-    /// <summary>取消令牌</summary>
+    /// <summary>Cancellation token</summary>
     public CancellationToken CancellationToken { get; init; }
     
-    /// <summary>进度报告器</summary>
+    /// <summary>Progress reporter</summary>
     public IProgress<WorkflowProgress>? Progress { get; init; }
     
-    /// <summary>当前递归深度</summary>
+    /// <summary>Current recursion depth</summary>
     public int CurrentDepth { get; init; }
     
-    /// <summary>最大递归深度</summary>
+    /// <summary>Maximum recursion depth</summary>
     public int MaxDepth { get; init; } = 10;
     
-    /// <summary>运行 ID</summary>
+    /// <summary>Run ID</summary>
     public string RunId { get; init; } = string.Empty;
     
-    /// <summary>当前步骤 ID</summary>
+    /// <summary>Current step ID</summary>
     public string CurrentStepId { get; set; } = string.Empty;
     
-    /// <summary>克隆上下文（用于子任务）</summary>
+    /// <summary>Clone context (for subtasks)</summary>
     public PrimitiveContext Clone()
     {
         var clone = new PrimitiveContext
@@ -53,52 +53,52 @@ public class PrimitiveContext
 }
 
 // ============================================================
-//  原语执行结果
+//  Primitive Execution Result
 // ============================================================
 
 /// <summary>
-/// 原语执行结果
+/// Primitive execution result
 /// </summary>
 public record PrimitiveResult
 {
-    /// <summary>是否成功</summary>
+    /// <summary>Whether successful</summary>
     public bool Success { get; init; }
     
-    /// <summary>返回值</summary>
+    /// <summary>Return value</summary>
     public object? Value { get; init; }
     
-    /// <summary>错误信息</summary>
+    /// <summary>Error message</summary>
     public string? Error { get; init; }
     
-    /// <summary>使用的 Token 数</summary>
+    /// <summary>Number of tokens used</summary>
     public int TokensUsed { get; init; }
     
-    /// <summary>提示词 Token 数</summary>
+    /// <summary>Prompt token count</summary>
     public int PromptTokens { get; init; }
     
-    /// <summary>补全 Token 数</summary>
+    /// <summary>Completion token count</summary>
     public int CompletionTokens { get; init; }
     
-    /// <summary>LLM 调用次数</summary>
+    /// <summary>LLM call count</summary>
     public int LlmCalls { get; init; }
     
-    /// <summary>执行时长</summary>
+    /// <summary>Execution duration</summary>
     public TimeSpan Duration { get; init; }
     
     // ─────────────────────────────────────────────────────────
-    //  LLM 对话记录 (用于前端可视化)
+    //  LLM Conversation History (for frontend visualization)
     // ─────────────────────────────────────────────────────────
     
-    /// <summary>系统提示词</summary>
+    /// <summary>System prompt</summary>
     public string? SystemPrompt { get; init; }
     
-    /// <summary>用户提示词</summary>
+    /// <summary>User prompt</summary>
     public string? UserPrompt { get; init; }
     
-    /// <summary>助手响应</summary>
+    /// <summary>Assistant response</summary>
     public string? AssistantResponse { get; init; }
     
-    /// <summary>创建成功结果</summary>
+    /// <summary>Create success result</summary>
     public static PrimitiveResult Ok(object? value = null, int tokensUsed = 0, int llmCalls = 0) => new()
     {
         Success = true,
@@ -107,7 +107,7 @@ public record PrimitiveResult
         LlmCalls = llmCalls
     };
     
-    /// <summary>创建失败结果</summary>
+    /// <summary>Create failure result</summary>
     public static PrimitiveResult Fail(string error) => new()
     {
         Success = false,
@@ -116,11 +116,11 @@ public record PrimitiveResult
 }
 
 // ============================================================
-//  工作流进度
+//  Workflow Progress
 // ============================================================
 
 /// <summary>
-/// 工作流进度报告
+/// Workflow progress report
 /// </summary>
 public record WorkflowProgress
 {
@@ -129,10 +129,10 @@ public record WorkflowProgress
     public float ProgressPercent { get; init; }
     public string? Message { get; init; }
     
-    // 投票进度
+    // Voting progress
     public VotingProgressInfo? Voting { get; init; }
     
-    // Fan-out 进度
+    // Fan-out progress
     public FanOutProgressInfo? FanOut { get; init; }
 }
 
@@ -153,30 +153,30 @@ public record FanOutProgressInfo
 }
 
 // ============================================================
-//  原语接口
+//  Primitive Interface
 // ============================================================
 
 /// <summary>
-/// 原语接口 - 所有 DSL 步骤类型的统一抽象
+/// Primitive interface - Unified abstraction for all DSL step types
 /// </summary>
 public interface IPrimitive
 {
-    /// <summary>原语类型名</summary>
+    /// <summary>Primitive type name</summary>
     string Type { get; }
     
-    /// <summary>执行原语</summary>
+    /// <summary>Execute primitive</summary>
     Task<PrimitiveResult> ExecuteAsync(
         PrimitiveContext context,
         Dictionary<string, object?> parameters);
 }
 
 // ============================================================
-//  参数辅助扩展
+//  Parameter Helper Extensions
 // ============================================================
 
 public static class ParameterExtensions
 {
-    /// <summary>获取必需参数</summary>
+    /// <summary>Get required parameter</summary>
     public static T GetRequired<T>(this Dictionary<string, object?> parameters, string key)
     {
         if (!parameters.TryGetValue(key, out var value) || value == null)
@@ -185,7 +185,7 @@ public static class ParameterExtensions
         if (value is T typed)
             return typed;
         
-        // 尝试转换
+        // Try conversion
         try
         {
             return (T)Convert.ChangeType(value, typeof(T));
@@ -196,7 +196,7 @@ public static class ParameterExtensions
         }
     }
     
-    /// <summary>获取可选参数</summary>
+    /// <summary>Get optional parameter</summary>
     public static T? GetOptional<T>(this Dictionary<string, object?> parameters, string key, T? defaultValue = default)
     {
         if (!parameters.TryGetValue(key, out var value) || value == null)
@@ -205,7 +205,7 @@ public static class ParameterExtensions
         if (value is T typed)
             return typed;
         
-        // 尝试转换
+        // Try conversion
         try
         {
             return (T)Convert.ChangeType(value, typeof(T));
@@ -219,7 +219,7 @@ public static class ParameterExtensions
 
 public static class VariableExtensions
 {
-    /// <summary>从上下文变量获取必需值</summary>
+    /// <summary>Get required value from context variables</summary>
     public static T GetRequired<T>(this Dictionary<string, object> variables, string key)
     {
         if (!variables.TryGetValue(key, out var value))

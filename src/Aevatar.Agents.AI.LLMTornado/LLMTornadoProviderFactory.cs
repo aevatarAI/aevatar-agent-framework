@@ -35,7 +35,7 @@ public sealed class LLMTornadoProviderFactory : LLMProviderFactoryBase
         var endpoint = providerConfig.Endpoint;
         var model = providerConfig.Model;
 
-        // 本地部署（Ollama, vLLM, LocalAI）不需要 ApiKey
+        // Local deployments (Ollama, vLLM, LocalAI) don't require ApiKey
         var isLocalProvider = providerTypeStr is "ollama" or "vllm" or "localai";
         var apiKey = providerConfig.ApiKey ??
                      (isLocalProvider ? "ollama" : throw new ArgumentException("ApiKey is required"));
@@ -45,8 +45,8 @@ public sealed class LLMTornadoProviderFactory : LLMProviderFactoryBase
 
         if (providerTypeStr == "ollama")
         {
-            // Ollama: OpenAI-compatible API，默认端口 11434/v1
-            // Ollama 的 OpenAI 兼容端点是 /v1
+            // Ollama: OpenAI-compatible API, default port 11434/v1
+            // Ollama's OpenAI-compatible endpoint is /v1
             var ollamaEndpoint = !string.IsNullOrEmpty(endpoint)
                 ? endpoint
                 : AevatarLLMTornadoConstants.OllamaDefaultEndpoint;

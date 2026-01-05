@@ -49,6 +49,12 @@ public static class Program
             .CreateLogger("SkillsMCPUnifiedDemo");
         var actorFactory = host.Services.GetRequiredService<IGAgentActorFactory>();
 
+        // Provide a stable "workspace root" hint for dotnet-file tools (inherited by child processes).
+        // Default to current working directory (repo root when run via `dotnet run --project ...`).
+        var demoRoot = Directory.GetCurrentDirectory();
+        Environment.SetEnvironmentVariable("AEVATAR_DEMO_ROOT", demoRoot);
+        logger.LogInformation("AEVATAR_DEMO_ROOT = {Root}", demoRoot);
+
         logger.LogInformation("╔════════════════════════════════════════════╗");
         logger.LogInformation("║       Skills + MCP Unified Demo            ║");
         logger.LogInformation("╚════════════════════════════════════════════╝");
@@ -79,8 +85,31 @@ public static class Program
         logger.LogInformation("✅ LLM initialized.");
 
         // Scripted prompts (shows: skills_list/skills_load -> allowlist -> dotnet-file tool)
-        await RunChatAsync(logger, agent, "请先调用 skills_list，然后 skills_load 加载 time-helper skill，再按 skill 的步骤回答：现在几点？");
-        await RunChatAsync(logger, agent, "用 system_info 给我一个系统信息摘要（os/framework/pid）。");
+        // await RunChatAsync(logger, agent, "请先调用 skills_list，然后 skills_load 加载 time-helper skill，再按 skill 的步骤回答：现在几点？");
+        // await RunChatAsync(logger, agent, "用 system_info 给我一个系统信息摘要（os/framework/pid）。");
+        // await RunChatAsync(logger, agent, "请先调用 skills_list，然后 skills_load 加载 env-helper skill，再按 skill 的步骤回答：我的 SHELL 环境变量是什么？");
+        // await RunChatAsync(logger, agent,
+        //     "请先调用 skills_list，然后 skills_load 加载 file-searcher skill，再按 skill 的步骤回答：在仓库里搜索 'RegisterDotNetFileSkillAsync' 出现在哪些文件？");
+        // await RunChatAsync(logger, agent,
+        //     "请先调用 skills_list，然后 skills_load 加载 json-pretty skill，把这个 JSON 格式化后返回：{\"a\":1,\"b\":{\"c\":2,\"d\":[3,4]}}");
+        // await RunChatAsync(logger, agent,
+        //     "请先调用 skills_list，然后 skills_load 加载 slugify-helper skill，把 'Hello, Aevatar Agent Framework!' 转成 slug。");
+
+        // Optional MCP demo: Context7 (if tools are present)
+        var tools = await agent.GetRegisteredToolsAsync();
+        var hasContext7 =
+            tools.Any(t => string.Equals(t.Name, "resolve-library-id", StringComparison.OrdinalIgnoreCase)) &&
+            tools.Any(t => string.Equals(t.Name, "get-library-docs", StringComparison.OrdinalIgnoreCase));
+
+        if (hasContext7)
+        {
+            await RunChatAsync(logger, agent,
+                "请先调用 skills_list，然后 skills_load 加载 context7-docs skill：查询 Orleans 文档里关于 streaming 的用法要点（给出要点列表）。");
+        }
+        else
+        {
+            logger.LogInformation("Context7 MCP tools not present, skipping Context7 scripted prompt.");
+        }
 
         logger.LogInformation("\n▶ Interactive chat (type 'exit' to quit) ...");
         while (true)

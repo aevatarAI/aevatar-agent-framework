@@ -9,7 +9,7 @@ namespace Aevatar.Agents.Cognitive.Execution;
 //  TransformExecutor (token-free)
 //
 //  WHY:
-//  - 避免让 LLM 做 map/filter/reduce 这种确定性数据处理（纯浪费 token）
+//  - Avoid letting LLM do deterministic data processing like map/filter/reduce (pure token waste)
 //
 //  DSL:
 //    - id: aggregate
@@ -28,9 +28,9 @@ namespace Aevatar.Agents.Cognitive.Execution;
 //          key: "statement"
 //          store: b_candidates
 //
-//  设计原则：
-//  - 只做确定性、可测试的变换
-//  - 参数尽量小：op + from + store + 少量字段
+//  Design principles:
+//  - Only do deterministic, testable transformations
+//  - Keep parameters minimal: op + from + store + few fields
 // ============================================================
 
 public sealed class TransformExecutor

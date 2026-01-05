@@ -10,13 +10,13 @@ namespace Aevatar.Agents.Cognitive.Agents;
 //  CognitiveAIGAgentBase
 //
 //  WHY:
-//  - CognitiveCoordinator/Worker 都需要：
-//    1) 复用 AIGAgentBase.ChatAsync/ChatStreamAsync（避免手写 Provider 调用链）
-//    2) State.History 仅用于 UI hydration（不参与下一次 LLM prompt 构建）
-//    3) 每步写入稳定 metadata（step_id/step_type/...）以支持并行/重放/刷新恢复
+//  - CognitiveCoordinator/Worker both need:
+//    1) Reuse AIGAgentBase.ChatAsync/ChatStreamAsync (avoid manual Provider call chain)
+//    2) State.History only for UI hydration (not involved in next LLM prompt construction)
+//    3) Write stable metadata per step (step_id/step_type/...) to support parallel/replay/refresh recovery
 //
 //  NOTE:
-//  - 这个基类只做“LLM 请求形态 + 历史落盘策略”的统一，不碰业务编排。
+//  - This base class only unifies "LLM request form + history persistence strategy", doesn't touch business orchestration.
 // ============================================================
 public abstract class CognitiveAIGAgentBase<TCustomState> : AIGAgentBase<TCustomState>
     where TCustomState : class, IMessage<TCustomState>, new()
@@ -25,8 +25,8 @@ public abstract class CognitiveAIGAgentBase<TCustomState> : AIGAgentBase<TCustom
     //  History compaction policy (no extra LLM calls)
     //
     //  WHY:
-    //  - AIGAgentBase 默认 compaction 可能调用 LLM 做 summary
-    //  - Cognitive workflow 有严格预算；隐藏 LLM 调用不可接受
+    //  - AIGAgentBase default compaction may call LLM to do summary
+    //  - Cognitive workflow has strict budget; hidden LLM calls unacceptable
     // ============================================================
     protected override Task<string?> UpdateHistorySummaryAsync(
         string? existingSummary,
@@ -40,7 +40,7 @@ public abstract class CognitiveAIGAgentBase<TCustomState> : AIGAgentBase<TCustom
     //  Tools policy
     //
     //  WHY:
-    //  - Cognitive DSL 是 prompt-driven，Function Calling 会污染 prompt 语义
+    //  - Cognitive DSL is prompt-driven, Function Calling would pollute prompt semantics
     // ============================================================
     protected override Task RegisterToolsAsync(CancellationToken cancellationToken = default)
     {
@@ -52,8 +52,8 @@ public abstract class CognitiveAIGAgentBase<TCustomState> : AIGAgentBase<TCustom
     //  Prompt policy: keep requests stateless
     //
     //  WHY:
-    //  - State.History 只用于 UI hydration（短期窗口），不能 replay 回 LLM
-    //  - Cognitive prompt 已经包含工作流变量/上下文；replay history 只会放大 token + 噪音
+    //  - State.History only for UI hydration (short window), cannot replay to LLM
+    //  - Cognitive prompt already contains workflow variables/context; replaying history only amplifies tokens + noise
     // ============================================================
     protected override AevatarLLMRequest BuildLLMRequest(ChatRequest request)
     {

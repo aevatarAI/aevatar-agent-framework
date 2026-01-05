@@ -12,7 +12,6 @@ namespace Aevatar.Agents.AI.WithProcessStrategy;
 
 /// <summary>
 /// Strategy decision from LLM meta-reasoning
-/// LLM元推理的策略决策
 /// </summary>
 public class StrategyDecision
 {
@@ -24,9 +23,8 @@ public class StrategyDecision
 
 /// <summary>
 /// Level 3: AI Agent with advanced processing strategies.
-/// 第三级：具有高级处理策略的AI代理
-/// 在 AIGAgentBase（已内置工具能力）基础上增加了让LLM进行策略性回答的功能
-/// 支持多种处理策略（如Chain-of-Thought、ReAct、Tree-of-Thoughts等）
+/// Builds on AIGAgentBase (which already has built-in tool capabilities) by adding functionality for LLM strategic responses.
+/// Supports multiple processing strategies (e.g., Chain-of-Thought, ReAct, Tree-of-Thoughts, etc.)
 /// </summary>
 /// <typeparam name="TState">The agent state type (must be Protobuf)</typeparam>
 public abstract class AIGAgentWithProcessStrategy<TState> : AIGAgentBase<TState>
@@ -39,7 +37,6 @@ public abstract class AIGAgentWithProcessStrategy<TState> : AIGAgentBase<TState>
 
     /// <summary>
     /// Meta-reasoning prompt template for strategy selection
-    /// 用于策略选择的元推理提示词模板
     /// </summary>
     private const string _metaReasoningPromptTemplate = @"
 You are an AI strategy selector. Your task is to analyze the user's request and select the most appropriate processing strategy.
@@ -75,13 +72,11 @@ Strategy Decision:";
 
     /// <summary>
     /// Gets available processing strategies.
-    /// 获取可用的处理策略
     /// </summary>
     protected IReadOnlyDictionary<string, IAevatarAIProcessingStrategy> Strategies => _strategies;
 
     /// <summary>
     /// Gets the strategy factory used to create strategies.
-    /// 获取用于创建策略的策略工厂
     /// </summary>
     protected IAevatarAIProcessingStrategyFactory StrategyFactory
     {
@@ -98,7 +93,6 @@ Strategy Decision:";
 
     /// <summary>
     /// Initializes a new instance of the AIGAgentWithProcessStrategy class.
-    /// 初始化AIGAgentWithProcessStrategy类的新实例
     /// </summary>
     protected AIGAgentWithProcessStrategy() : base()
     {
@@ -107,7 +101,6 @@ Strategy Decision:";
 
     /// <summary>
     /// Initializes a new instance with dependency injection.
-    /// 使用依赖注入初始化新实例
     /// </summary>
     protected AIGAgentWithProcessStrategy(
         IAevatarAIProcessingStrategyFactory strategyFactory)
@@ -122,7 +115,6 @@ Strategy Decision:";
 
     /// <summary>
     /// Initialize processing strategies.
-    /// 初始化处理策略
     /// </summary>
     protected virtual Dictionary<string, IAevatarAIProcessingStrategy> InitializeStrategies()
     {
@@ -139,7 +131,6 @@ Strategy Decision:";
 
     /// <summary>
     /// Ensure strategy factory is initialized.
-    /// 确保策略工厂已初始化
     /// </summary>
     private void EnsureStrategyFactoryInitialized()
     {
@@ -157,7 +148,6 @@ Strategy Decision:";
 
     /// <summary>
     /// Create the strategy factory. Override to customize.
-    /// 创建策略工厂。重写以自定义
     /// </summary>
     protected virtual IAevatarAIProcessingStrategyFactory CreateStrategyFactory()
     {
@@ -166,7 +156,6 @@ Strategy Decision:";
 
     /// <summary>
     /// Select the appropriate strategy for a request using LLM meta-reasoning.
-    /// 使用LLM元推理为请求选择适当的策略
     /// </summary>
     protected virtual async Task<string> SelectStrategyAsync(Aevatar.Agents.AI.ChatRequest request)
     {
@@ -228,7 +217,6 @@ Strategy Decision:";
 
     /// <summary>
     /// Parse strategy decision from LLM JSON response.
-    /// 从LLM JSON响应中解析策略决策
     /// </summary>
     private StrategyDecision ParseStrategyDecision(string jsonResponse)
     {

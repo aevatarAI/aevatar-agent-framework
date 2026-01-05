@@ -6,13 +6,13 @@ namespace Aevatar.PaperReview.Tests;
 
 // ============================================================
 //  REVIEW SESSION TESTS
-//  验证评审会话模型的状态管理
+//  Verify review session model state management
 // ============================================================
 
 public class ReviewSessionTests
 {
     // ─────────────────────────────────────────────────────────
-    //  初始化测试
+    //  Initialization Tests
     // ─────────────────────────────────────────────────────────
 
     [Fact]
@@ -70,7 +70,7 @@ public class ReviewSessionTests
     }
 
     // ─────────────────────────────────────────────────────────
-    //  属性测试
+    //  Property Tests
     // ─────────────────────────────────────────────────────────
 
     [Fact]
@@ -109,7 +109,7 @@ public class ReviewSessionTests
     }
 
     // ─────────────────────────────────────────────────────────
-    //  Timeline 测试
+    //  Timeline Tests
     // ─────────────────────────────────────────────────────────
 
     [Fact]
@@ -126,7 +126,7 @@ public class ReviewSessionTests
     }
 
     // ─────────────────────────────────────────────────────────
-    //  Files 测试
+    //  Files Tests
     // ─────────────────────────────────────────────────────────
 
     [Fact]
@@ -142,7 +142,7 @@ public class ReviewSessionTests
     }
 
     // ─────────────────────────────────────────────────────────
-    //  EventChannel 测试
+    //  EventChannel Tests
     // ─────────────────────────────────────────────────────────
 
     [Fact]
@@ -165,7 +165,7 @@ public class ReviewSessionTests
     }
 
     // ─────────────────────────────────────────────────────────
-    //  CancellationToken 测试
+    //  CancellationToken Tests
     // ─────────────────────────────────────────────────────────
 
     [Fact]
@@ -181,7 +181,7 @@ public class ReviewSessionTests
     }
 
     // ─────────────────────────────────────────────────────────
-    //  统计属性测试
+    //  Statistics Property Tests
     // ─────────────────────────────────────────────────────────
 
     [Fact]
@@ -204,7 +204,7 @@ public class ReviewSessionTests
 
 // ============================================================
 //  REVIEW EVENT TESTS
-//  验证评审事件模型
+//  Verify review event model
 // ============================================================
 
 public class ReviewEventTests

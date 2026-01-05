@@ -14,10 +14,10 @@ public abstract partial class AIGAgentBase
     // ============================================================
     //  Agent Skills (agentskills.io) integration
     //
-    //  思路：
-    //  - Skill 是一个目录，包含 SKILL.md（YAML front matter + 指令正文）以及脚本/资源文件
-    //  - AIGAgentBase 通过内置 tools 让 LLM “按需加载” skill（避免把所有指令塞进 system prompt）
-    //  - 可选：在 load 时自动导入 skill 目录内的 dotnet-file tools（C# 单文件 + /*aevatar_tool*/ manifest）
+    //  Approach:
+    //  - Skill is a directory containing SKILL.md (YAML front matter + instruction body) and script/resource files
+    //  - AIGAgentBase enables LLM to "load on demand" skills via built-in tools (avoiding stuffing all instructions into system prompt)
+    //  - Optional: Automatically import dotnet-file tools in skill directory on load (C# single file + /*aevatar_tool*/ manifest)
     // ============================================================
 
     private const string DefaultSkillEntryFileName = "SKILL.md";

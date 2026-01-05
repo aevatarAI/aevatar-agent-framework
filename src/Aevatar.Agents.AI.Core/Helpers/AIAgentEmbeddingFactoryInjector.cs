@@ -5,7 +5,7 @@ using Aevatar.Agents.AI.Core.Embeddings;
 namespace Aevatar.Agents.AI.Core.Helpers;
 
 /// <summary>
-/// 自动注入 IAIAgentEmbeddingFactory
+/// Automatically inject IAIAgentEmbeddingFactory
 /// </summary>
 public static class AIAgentEmbeddingFactoryInjector
 {

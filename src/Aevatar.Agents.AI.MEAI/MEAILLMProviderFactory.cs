@@ -17,7 +17,7 @@ namespace Aevatar.Agents.AI.MEAI;
 
 // ReSharper disable InconsistentNaming
 /// <summary>
-/// Microsoft.Extensions.AI 实现的 LLM 提供商工厂
+/// LLM provider factory implemented using Microsoft.Extensions.AI
 /// </summary>
 public sealed class MEAILLMProviderFactory : LLMProviderFactoryBase
 {

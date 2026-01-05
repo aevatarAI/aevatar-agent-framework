@@ -16,7 +16,7 @@ namespace Aevatar.Agents.Cognitive.Agents;
 public partial class CognitiveCoordinatorGAgent
 {
     /// <summary>
-    /// 处理 Worker 完成事件 (Protobuf 事件)
+    /// Handle Worker completion event (Protobuf event)
     /// </summary>
     [EventHandler]
     public Task HandleStepCompletedEvent(StepCompletedEventProto evt)
@@ -25,12 +25,12 @@ public partial class CognitiveCoordinatorGAgent
             evt.StepId, evt.WorkerId);
 
         // fan_out completion semantics:
-        // - streaming 中间态：Success=false && Error=""（不计入完成）
-        // - 终态完成：Success=true 或 Success=false 且 Error!= ""（失败也算“完成”，否则 fan_out 会无意义卡住）
+        // - streaming intermediate state: Success=false && Error="" (not counted as completion)
+        // - terminal completion: Success=true or Success=false && Error!= "" (failure also counts as "completion", otherwise fan_out would meaninglessly hang)
         var isStreaming = !evt.Success && string.IsNullOrEmpty(evt.Error);
         var isTerminal = evt.Success || (!evt.Success && !string.IsNullOrEmpty(evt.Error));
 
-        // 更新统计（只计入终态事件，避免 streaming 中间态反复累计导致爆炸）
+        // Update statistics (only count terminal events, avoid repeated accumulation of streaming intermediate states causing explosion)
         if (isTerminal)
         {
             lock (_statsLock)
@@ -40,7 +40,7 @@ public partial class CognitiveCoordinatorGAgent
             }
         }
 
-        // 收集结果
+        // Collect results
         _collectedResults[evt.RequestId] = evt;
 
         _fanOutChildTypes.TryGetValue(evt.RequestId, out var childType);
@@ -52,7 +52,7 @@ public partial class CognitiveCoordinatorGAgent
             _fanOutSystemPrompts.TryRemove(evt.RequestId, out _);
         }
 
-        // 子任务完成事件（用于前端并行可视化）
+        // Subtask completion event (for frontend parallel visualization)
         if (!string.IsNullOrEmpty(evt.StepId) && !string.IsNullOrEmpty(childType))
         {
             var childDef = new StepDefinition
@@ -80,7 +80,7 @@ public partial class CognitiveCoordinatorGAgent
                 userPrompt: userPrompt);
         }
 
-        // 发送并行进度事件
+        // Send parallel progress event
         if (_currentFanOutStep != null)
         {
             var succeeded = _collectedResults.Values.Count(r => r.Success);
@@ -91,16 +91,16 @@ public partial class CognitiveCoordinatorGAgent
                 $"Progress: {terminal}/{_expectedResults} (ok: {succeeded}, failed: {failed})",
                 progress: (float)terminal / _expectedResults,
                 parallelTotal: _expectedResults,
-                // parallelCompleted 表示“终态完成数”（成功+失败），避免失败导致永远不满格
+                // parallelCompleted means "terminal completion count" (success + failure), avoid failure causing never reaching full
                 parallelCompleted: terminal,
                 parallelFailed: failed);
         }
 
-        // 检查是否所有结果已收集
-        // 终态完成（成功或失败）都算“收集完毕”
+        // Check if all results collected
+        // Terminal completion (success or failure) both count as "collected"
         if (_collectedResults.Values.Count(r => r.Success || !string.IsNullOrEmpty(r.Error)) >= _expectedResults)
         {
-            _currentFanOutStep = null; // 清除当前 fan-out 步骤
+            _currentFanOutStep = null; // Clear current fan-out step
             _fanOutCompletionSource?.TrySetResult(true);
         }
 
@@ -108,12 +108,12 @@ public partial class CognitiveCoordinatorGAgent
     }
 
     // ============================================================
-    //  并行步骤 - 分发给 Workers (真正的 Actor 并行)
+    //  Parallel Steps - Distribute to Workers (True Actor Parallelism)
     // ============================================================
 
     private async Task<PrimitiveResult> ExecuteFanOutAsync(StepDefinition step)
     {
-        // 获取迭代列表
+        // Get iteration list
         var forEachVar = step.ForEach ?? "";
         if (!_workflowVariables.TryGetValue(forEachVar, out var itemsObj))
         {
@@ -132,11 +132,11 @@ public partial class CognitiveCoordinatorGAgent
             return PrimitiveResult.Fail("fan_out requires 'step' definition");
         }
 
-        // workflow_call 类型需要 Coordinator 自己处理（递归），不能分发给 Worker
-        // Worker 只支持 llm_call
+        // workflow_call type needs Coordinator to handle itself (recursion), cannot distribute to Worker
+        // Worker only supports llm_call
         var isWorkflowCall = childStep.Type == "workflow_call";
 
-        // 检查是否有 Workers（只有 llm_call 才分发）
+        // Check if Workers available (only llm_call gets distributed)
         if (_workerIds.Count == 0 || isWorkflowCall)
         {
             if (isWorkflowCall)
@@ -154,7 +154,7 @@ public partial class CognitiveCoordinatorGAgent
         Logger.LogInformation("Fan-out executing {Count} items across {Workers} workers",
             items.Count, _workerIds.Count);
 
-        // 准备收集结果
+        // Prepare to collect results
         _collectedResults.Clear();
         _expectedResults = items.Count;
         _fanOutCompletionSource = new TaskCompletionSource<bool>();
@@ -164,19 +164,19 @@ public partial class CognitiveCoordinatorGAgent
         _fanOutSystemPrompts.Clear();
         _fanOutOutputTypes.Clear();
 
-        // 发送 fan-out 开始事件
+        // Send fan-out start event
         EmitStepEvent(step, StepStatus.Running,
             $"Distributing {items.Count} tasks to {_workerIds.Count} workers",
             progress: 0,
             parallelTotal: items.Count, parallelCompleted: 0);
 
-        // 分发任务给 Workers（真正的 Actor 并行）
+        // Distribute tasks to Workers (true Actor parallelism)
         for (int i = 0; i < items.Count; i++)
         {
             var item = items[i];
             var targetWorker = _workerIds[i % _workerIds.Count];
 
-            // 构建子上下文
+            // Build child context
             var childVariables = new Dictionary<string, object>(_workflowVariables)
             {
                 ["item"] = item,
@@ -186,7 +186,7 @@ public partial class CognitiveCoordinatorGAgent
                 ["__target_worker"] = targetWorker
             };
 
-            // 创建 Protobuf 请求事件
+            // Create Protobuf request event
             var request = new ExecuteStepRequestEvent
             {
                 RequestId = $"{CustomState.ExecutionId}-{step.Id}-{i}",
@@ -194,7 +194,7 @@ public partial class CognitiveCoordinatorGAgent
                 StepType = childStep.Type
             };
 
-            // 转换参数和变量为 Protobuf
+            // Convert parameters and variables to Protobuf
             foreach (var (key, value) in childStep.Parameters)
             {
                 request.Parameters[key] = ProtoValueConverter.ToProto(value);
@@ -213,7 +213,7 @@ public partial class CognitiveCoordinatorGAgent
             _fanOutOutputTypes[request.RequestId] =
                 childStep.Parameters.GetValueOrDefault("output")?.ToString() ?? "text";
 
-            // 预渲染子任务的 prompt，后续用于前端展示
+            // Pre-render subtask prompt for frontend display
             var renderedPrompt = childStep.Parameters.GetValueOrDefault("prompt")?.ToString() ?? "";
             var renderedSystem = childStep.Parameters.GetValueOrDefault("system")?.ToString();
             renderedPrompt = _templateEngine.Render(renderedPrompt, childVariables);
@@ -228,7 +228,7 @@ public partial class CognitiveCoordinatorGAgent
                 _fanOutSystemPrompts[request.RequestId] = renderedSystem;
             }
 
-            // 为子任务发送开始事件（用于前端并行可视化）
+            // Send start event for subtask (for frontend parallel visualization)
             var childDef = new StepDefinition
             {
                 Id = request.StepId,
@@ -240,12 +240,12 @@ public partial class CognitiveCoordinatorGAgent
                 systemPrompt: renderedSystem,
                 userPrompt: renderedPrompt);
 
-            // 发送给 Workers（向下广播，所有 Children 都会收到）
-            // Workers 根据 RequestId 判断是否处理
+            // Send to Workers (downward broadcast, all Children will receive)
+            // Workers determine whether to process based on RequestId
             await PublishAsync(request, EventDirection.Down);
         }
 
-        // 等待所有 Worker 完成（事件驱动，非阻塞等待）
+        // Wait for all Workers to complete (event-driven, non-blocking wait)
         var timeoutSeconds = ResolveIntParameter(step.Parameters, "timeout_seconds", 600);
         timeoutSeconds = Math.Clamp(timeoutSeconds, 5, 3600);
         var timeout = TimeSpan.FromSeconds(timeoutSeconds);
@@ -258,7 +258,7 @@ public partial class CognitiveCoordinatorGAgent
             return PrimitiveResult.Fail($"Fan-out timed out after {timeout}");
         }
 
-        // 收集并解析结果：
+        // Collect and parse results:
         // - Worker returns RAW assistant response in StepCompletedEventProto.Result (string)
         // - Coordinator parses it according to the declared output type (json/json_array/first_line/...)
         // - Optionally keep failures as items (include_failures=true) to enable deterministic aggregation
@@ -311,7 +311,7 @@ public partial class CognitiveCoordinatorGAgent
             }
         }
 
-        // 汇聚
+        // Aggregate
         var reducer = step.Reduce ?? "collect";
         var reduced = ApplyReducer(results, reducer);
 
@@ -322,17 +322,17 @@ public partial class CognitiveCoordinatorGAgent
     }
 
     /// <summary>
-    /// Coordinator 内部串行执行（用于 workflow_call 或无 Worker 场景）
+    /// Coordinator internal sequential execution (for workflow_call or no Worker scenarios)
     /// 
-    /// ⚠️ Orleans 兼容：
-    /// - Grain 是 turn-based 单线程，不能用 Task.Run
-    /// - 状态修改必须在 Grain 线程内
-    /// - 真正的并行需要分发给 Worker Grains
+    /// ⚠️ Orleans compatibility:
+    /// - Grain is turn-based single-threaded, cannot use Task.Run
+    /// - State modifications must be within Grain thread
+    /// - True parallelism requires distributing to Worker Grains
     /// </summary>
     private async Task<PrimitiveResult> ExecuteFanOutSequentialAsync(
         StepDefinition step, List<object> items, StepDefinition childStep)
     {
-        // 发送 fan-out 开始事件
+        // Send fan-out start event
         EmitStepEvent(step, StepStatus.Running,
             $"Executing {items.Count} subtasks (sequential in Coordinator)",
             progress: 0,
@@ -343,15 +343,15 @@ public partial class CognitiveCoordinatorGAgent
         var totalTokens = 0;
         var totalCalls = 0;
 
-        // 串行执行每个子任务（Orleans 兼容）
+        // Sequentially execute each subtask (Orleans compatible)
         for (int i = 0; i < items.Count; i++)
         {
             var item = items[i];
 
-            // 为子任务发送开始事件
+            // Send start event for subtask
             var childDef = new StepDefinition { Id = $"{step.Id}[{i}]", Type = childStep.Type };
 
-            // 预渲染 prompt（使用临时变量）
+            // Pre-render prompt (using temporary variables)
             var tempVars = new Dictionary<string, object>(_workflowVariables)
             {
                 ["item"] = item,
@@ -368,7 +368,7 @@ public partial class CognitiveCoordinatorGAgent
                 systemPrompt: systemPrompt,
                 userPrompt: userPrompt);
 
-            // 临时设置变量
+            // Temporarily set variables
             _workflowVariables["item"] = item;
             _workflowVariables["index"] = i;
 
@@ -379,14 +379,14 @@ public partial class CognitiveCoordinatorGAgent
                 totalTokens += result.TokensUsed;
                 totalCalls += result.LlmCalls;
 
-                // 发送子任务完成事件
+                // Send subtask completion event
                 EmitStepEvent(childDef, result.Success ? StepStatus.Completed : StepStatus.Failed,
                     result.Success ? $"Subtask {i + 1} completed" : $"Subtask {i + 1} failed: {result.Error}",
                     progress: 1,
                     parentStepId: step.Id,
                     assistantResponse: result.AssistantResponse);
 
-                // DEBUG: 检查子任务结果
+                // DEBUG: Check subtask result
                 Logger.LogInformation(
                     "[DEBUG][FanOut] Subtask {Index} result: Success={Success}, Value is null={IsNull}, Value type={Type}",
                     i, result.Success, result.Value == null, result.Value?.GetType().FullName ?? "null");
@@ -423,7 +423,7 @@ public partial class CognitiveCoordinatorGAgent
                     });
                 }
 
-                // 发送进度事件
+                // Send progress event
                 EmitStepEvent(step, StepStatus.Running,
                     $"Progress: {i + 1}/{items.Count} subtasks completed",
                     progress: (float)(i + 1) / items.Count,
@@ -431,13 +431,13 @@ public partial class CognitiveCoordinatorGAgent
             }
             finally
             {
-                // 清理临时变量
+                // Clean up temporary variables
                 _workflowVariables.Remove("item");
                 _workflowVariables.Remove("index");
             }
         }
 
-        // 发送 fan-out 完成事件
+        // Send fan-out completion event
         EmitStepEvent(step, StepStatus.Completed,
             $"All {items.Count} subtasks completed",
             progress: 1,
@@ -457,7 +457,7 @@ public partial class CognitiveCoordinatorGAgent
             return PrimitiveResult.Ok(new Dictionary<string, object?>());
         }
 
-        // 如果没有 Workers，顺序执行
+        // If no Workers, execute sequentially
         if (_workerIds.Count == 0)
         {
             var outputs = new Dictionary<string, object?>();
@@ -480,7 +480,7 @@ public partial class CognitiveCoordinatorGAgent
             return PrimitiveResult.Ok(outputs, totalTokens, totalCalls);
         }
 
-        // 有 Workers 时并行执行
+        // Parallel execution when Workers available
         _collectedResults.Clear();
         _expectedResults = steps.Count;
         _fanOutCompletionSource = new TaskCompletionSource<bool>();
@@ -509,10 +509,10 @@ public partial class CognitiveCoordinatorGAgent
             await PublishAsync(request, EventDirection.Down);
         }
 
-        // 等待完成
+        // Wait for completion
         await _fanOutCompletionSource.Task;
 
-        // 汇总结果
+        // Aggregate results
         var outputs2 = new Dictionary<string, object?>();
         foreach (var result in _collectedResults.Values.Where(r => r.Success))
         {

@@ -3,6 +3,7 @@ using Aevatar.Agents.AI.WithTool.MCP;
 using Aevatar.Agents.AI.WithTool.MCP.Configuration;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using SkillsMCPUnifiedDemo.Tools;
 
 namespace SkillsMCPUnifiedDemo;
 
@@ -37,10 +38,19 @@ public sealed class UnifiedAgent : AIGAgentBase
     {
         await base.RegisterToolsAsync(cancellationToken);
 
+        // Local (in-proc) AI tools
+        await RegisterToolAsync(new TextStatsTool(), cancellationToken: cancellationToken);
+        await RegisterToolAsync(new JsonPrettifyTool(), cancellationToken: cancellationToken);
+        await RegisterToolAsync(new SlugifyTool(), cancellationToken: cancellationToken);
+
         // dotnet-file tools (skills/*.cs)
         var skillsDir = Path.Combine(AppContext.BaseDirectory, "skills");
         await RegisterDotNetFileSkillAsync(Path.Combine(skillsDir, "get_time.cs"), cancellationToken);
         await RegisterDotNetFileSkillAsync(Path.Combine(skillsDir, "system_info.cs"), cancellationToken);
+        await RegisterDotNetFileSkillAsync(Path.Combine(skillsDir, "get_env.cs"), cancellationToken);
+        await RegisterDotNetFileSkillAsync(Path.Combine(skillsDir, "file_read.cs"), cancellationToken);
+        await RegisterDotNetFileSkillAsync(Path.Combine(skillsDir, "file_search.cs"), cancellationToken);
+        await RegisterDotNetFileSkillAsync(Path.Combine(skillsDir, "bazi_chart.cs"), cancellationToken);
 
         // MCP servers (best-effort)
         await RegisterMcpServersBestEffortAsync(cancellationToken);
@@ -51,11 +61,27 @@ public sealed class UnifiedAgent : AIGAgentBase
         // 1) Docker filesystem MCP (optional)
         try
         {
-            var dockerConfig = MCPServerConfig.CreateDockerConfig(
-                imageName: "mcp/server-filesystem:latest",
-                name: "Docker Filesystem MCP",
-                args: new List<string> { "/tmp" } // inside container
-            );
+            // NOTE:
+            // - We mount AEVATAR_DEMO_ROOT (or current dir) into the container so the filesystem MCP is actually useful.
+            // - If docker is not installed, we'll just skip (best-effort).
+            var hostRoot = Environment.GetEnvironmentVariable("AEVATAR_DEMO_ROOT");
+            if (string.IsNullOrWhiteSpace(hostRoot))
+            {
+                hostRoot = Directory.GetCurrentDirectory();
+            }
+
+            var dockerArgs = new List<string>
+            {
+                "run", "-i", "--rm",
+                "-v", $"{hostRoot}:/workspace",
+                "mcp/server-filesystem:latest",
+                "/workspace"
+            };
+
+            var dockerConfig = MCPServerConfig.CreateStdioConfig(
+                command: "docker",
+                args: dockerArgs,
+                name: "Docker Filesystem MCP");
 
             var dockerClient = await MCPClientWrapper.CreateAsync(dockerConfig, Logger, cancellationToken);
             await ToolManager.RegisterMCPServerAsync("docker-fs", dockerClient, dockerConfig, Logger, cancellationToken);
@@ -98,6 +124,31 @@ public sealed class UnifiedAgent : AIGAgentBase
         catch (Exception ex)
         {
             Logger?.LogWarning("Skipping Context7 MCP (optional): {Message}", ex.Message);
+        }
+
+        // 3) GitHub MCP via npx (optional)
+        // Set env var GITHUB_TOKEN to enable.
+        try
+        {
+            var token = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                Logger?.LogInformation("GITHUB_TOKEN not set, skipping GitHub MCP.");
+                return;
+            }
+
+            var env = new Dictionary<string, string> { ["GITHUB_TOKEN"] = token };
+            var githubConfig = MCPServerConfig.CreateNpxConfig(
+                packageName: "@modelcontextprotocol/server-github",
+                name: "GitHub MCP",
+                env: env);
+
+            var githubClient = await MCPClientWrapper.CreateAsync(githubConfig, Logger, cancellationToken);
+            await ToolManager.RegisterMCPServerAsync("github", githubClient, githubConfig, Logger, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            Logger?.LogWarning("Skipping GitHub MCP (optional): {Message}", ex.Message);
         }
     }
 }

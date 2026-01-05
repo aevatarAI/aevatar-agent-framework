@@ -8,8 +8,8 @@ using Xunit.Abstractions;
 namespace Aevatar.Agents.Core.Tests;
 
 /// <summary>
-/// BaseSubscriptionManager基础逻辑测试
-/// 使用MockSubscriptionManager来测试抽象基类的功能
+/// BaseSubscriptionManager basic logic tests
+/// Uses MockSubscriptionManager to test abstract base class functionality
 /// </summary>
 public class BaseSubscriptionManagerTests : IDisposable
 {
@@ -53,7 +53,7 @@ public class BaseSubscriptionManagerTests : IDisposable
         subscription.ChildId.ShouldBe(childId);
         _manager.CreateCallCount.ShouldBe(1);
 
-        // 验证订阅在活跃列表中
+        // Verify subscription is in active list
         var activeSubscriptions = await _manager.GetActiveSubscriptionsAsync();
         activeSubscriptions.Count.ShouldBe(1);
         activeSubscriptions[0].SubscriptionId.ShouldBe(subscription.SubscriptionId);
@@ -69,14 +69,14 @@ public class BaseSubscriptionManagerTests : IDisposable
         var subscription = await _manager.SubscribeWithRetryAsync(
             parentId, childId, async (_) => await Task.CompletedTask);
 
-        // Act - 健康检查应该通过
+        // Act - Health check should pass
         var isHealthy = await _manager.IsSubscriptionHealthyAsync(subscription);
 
         // Assert
         isHealthy.ShouldBeTrue();
         _manager.HealthCheckCallCount.ShouldBe(1);
 
-        // Act - 设置健康检查失败
+        // Act - Set health check to fail
         _manager.ShouldFailOnHealthCheck = true;
         isHealthy = await _manager.IsSubscriptionHealthyAsync(subscription);
 
@@ -95,18 +95,18 @@ public class BaseSubscriptionManagerTests : IDisposable
         var subscription = await _manager.SubscribeWithRetryAsync(
             parentId, childId, async (_) => await Task.CompletedTask);
 
-        // 验证订阅存在
+        // Verify subscription exists
         var activeSubscriptions = await _manager.GetActiveSubscriptionsAsync();
         activeSubscriptions.Count.ShouldBe(1);
 
-        // Act - 取消订阅
+        // Act - Unsubscribe
         await _manager.UnsubscribeAsync(subscription);
 
         // Assert
         activeSubscriptions = await _manager.GetActiveSubscriptionsAsync();
         activeSubscriptions.Count.ShouldBe(0);
 
-        // 验证MockStreamSubscription的UnsubscribeAsync被调用
+        // Verify MockStreamSubscription's UnsubscribeAsync was called
         if (subscription is ISubscriptionHandle handle &&
             handle.StreamSubscription is MockStreamSubscription mockSub)
         {
@@ -124,8 +124,8 @@ public class BaseSubscriptionManagerTests : IDisposable
         _manager.ShouldFailOnCreate = true;
 
         var retryPolicy = new ExponentialBackoffRetryPolicy(
-            maxRetries: 2, // 减少重试次数避免第4次直接抛出异常
-            initialDelay: TimeSpan.FromMilliseconds(10), // 短延迟用于测试
+            maxRetries: 2, // Reduce retry count to avoid throwing exception on 4th attempt
+            initialDelay: TimeSpan.FromMilliseconds(10), // Short delay for testing
             maxDelay: TimeSpan.FromMilliseconds(100));
 
         // Act & Assert  
@@ -137,11 +137,11 @@ public class BaseSubscriptionManagerTests : IDisposable
                 retryPolicy);
         });
 
-        // 验证异常消息
+        // Verify exception message
         exception.Message.ShouldContain("Failed to create subscription after 3 attempts");
         exception.InnerException.ShouldBeOfType<TimeoutException>();
 
-        // 应该尝试了3次（1次初始 + 2次重试）
+        // Should have attempted 3 times (1 initial + 2 retries)
         _manager.CreateCallCount.ShouldBe(3);
     }
 
@@ -153,17 +153,17 @@ public class BaseSubscriptionManagerTests : IDisposable
         var childId = Guid.NewGuid().ToString();
         var attemptCount = 0;
 
-        // 创建自定义的MockManager，前两次失败，第三次成功
+        // Create custom MockManager, fails first two times, succeeds on third
         var customManager = new MockSubscriptionManager(
             _loggerFactory.CreateLogger<MockSubscriptionManager>())
         {
             ShouldFailOnCreate = true
         };
 
-        // 重写CreateStreamSubscriptionAsync行为
+        // Override CreateStreamSubscriptionAsync behavior
         var originalCreate = customManager.CreateCallCount;
 
-        // 监听创建调用，第3次时取消失败标志
+        // Listen to creation calls, remove failure flag on 3rd attempt
         Task<IMessageStreamSubscription?> CreateWithRetry(
             string pId, string cId, Func<EventEnvelope, Task> handler, CancellationToken ct)
         {
@@ -183,7 +183,7 @@ public class BaseSubscriptionManagerTests : IDisposable
             maxDelay: TimeSpan.FromMilliseconds(100));
 
         // Act
-        customManager.ShouldFailOnCreate = false; // 让第一次成功，简化测试
+        customManager.ShouldFailOnCreate = false; // Let first attempt succeed, simplify test
         var subscription = await customManager.SubscribeWithRetryAsync(
             parentId, childId,
             async (_) => await Task.CompletedTask,
@@ -204,13 +204,13 @@ public class BaseSubscriptionManagerTests : IDisposable
         var subscription = await _manager.SubscribeWithRetryAsync(
             parentId, childId, async (_) => await Task.CompletedTask);
 
-        // Act - 重连订阅
+        // Act - Reconnect subscription
         await _manager.ReconnectSubscriptionAsync(subscription);
 
         // Assert
         _manager.ReconnectCallCount.ShouldBe(1);
 
-        // 验证订阅仍然健康
+        // Verify subscription is still healthy
         var isHealthy = await _manager.IsSubscriptionHealthyAsync(subscription);
         isHealthy.ShouldBeTrue();
     }
@@ -239,7 +239,7 @@ public class BaseSubscriptionManagerTests : IDisposable
     [Fact(DisplayName = "Should not fail when unsubscribing null subscription")]
     public async Task Should_Not_Fail_When_Unsubscribing_Null()
     {
-        // Act & Assert - 不应该抛出异常
+        // Act & Assert - Should not throw exception
         await _manager.UnsubscribeAsync(null!);
     }
 
@@ -265,36 +265,36 @@ public class BaseSubscriptionManagerTests : IDisposable
 
         var initialActivity = subscription.LastActivityAt;
 
-        // 等待一小段时间
+        // Wait a short time
         await Task.Delay(50);
 
-        // Act - 执行健康检查
+        // Act - Execute health check
         await _manager.IsSubscriptionHealthyAsync(subscription);
 
-        // Assert - LastActivityAt应该被更新
+        // Assert - LastActivityAt should be updated
         subscription.LastActivityAt.ShouldBeGreaterThan(initialActivity);
     }
 
     [Fact(DisplayName = "Should filter unhealthy subscriptions from active list")]
     public async Task Should_Filter_Unhealthy_Subscriptions()
     {
-        // Arrange - 创建两个订阅
+        // Arrange - Create two subscriptions
         var subscription1 = await _manager.SubscribeWithRetryAsync(
             Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), async (_) => await Task.CompletedTask);
 
         var subscription2 = await _manager.SubscribeWithRetryAsync(
             Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), async (_) => await Task.CompletedTask);
 
-        // 验证两个都是活跃的
+        // Verify both are active
         var activeSubscriptions = await _manager.GetActiveSubscriptionsAsync();
         activeSubscriptions.Count.ShouldBe(2);
 
-        // Act - 使一个订阅不健康
+        // Act - Make one subscription unhealthy
         _manager.ShouldFailOnHealthCheck = true;
         await _manager.IsSubscriptionHealthyAsync(subscription1);
-        _manager.ShouldFailOnHealthCheck = false; // 重置以免影响其他测试
+        _manager.ShouldFailOnHealthCheck = false; // Reset to avoid affecting other tests
 
-        // Assert - 只有一个订阅应该在活跃列表中
+        // Assert - Only one subscription should be in active list
         activeSubscriptions = await _manager.GetActiveSubscriptionsAsync();
         activeSubscriptions.Count.ShouldBe(1);
         activeSubscriptions[0].SubscriptionId.ShouldBe(subscription2.SubscriptionId);

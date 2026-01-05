@@ -7,12 +7,12 @@ using Scriban.Runtime;
 namespace Aevatar.Agents.Cognitive.Template;
 
 // ============================================================
-//  模板引擎 - 基于 Scriban
+//  Template Engine - Based on Scriban
 // ============================================================
 
 /// <summary>
-/// 模板引擎，用于渲染 prompt 模板
-/// 支持 Mustache/Handlebars 风格语法
+/// Template engine for rendering prompt templates
+/// Supports Mustache/Handlebars-style syntax
 /// </summary>
 public partial class TemplateEngine
 {
@@ -27,14 +27,14 @@ public partial class TemplateEngine
     };
     
     /// <summary>
-    /// 渲染模板
+    /// Render template
     /// </summary>
     public string Render(string template, Dictionary<string, object> variables)
     {
-        // 预处理：将 {{var}} 转换为 Scriban 的 {{ var }}
+        // Preprocess: Convert {{var}} to Scriban's {{ var }}
         var processedTemplate = PreprocessTemplate(template);
         
-        // 解析模板
+        // Parse template
         var scribanTemplate = Scriban.Template.Parse(processedTemplate);
         if (scribanTemplate.HasErrors)
         {
@@ -42,25 +42,25 @@ public partial class TemplateEngine
                 $"Template parse error: {string.Join(", ", scribanTemplate.Messages)}");
         }
         
-        // 创建上下文
+        // Create context
         var scriptObject = new ScriptObject();
         
-        // 注入变量
+        // Inject variables
         foreach (var (key, value) in variables)
         {
             scriptObject[key] = ConvertValue(value);
         }
         
-        // 注入内置函数
+        // Inject built-in functions
         RegisterBuiltinFunctions(scriptObject);
         
         var context = new TemplateContext();
         context.PushGlobal(scriptObject);
         
-        // 渲染
+        // Render
         var result = scribanTemplate.Render(context);
         
-        // DEBUG: 如果渲染结果中包含空的 Task，输出调试信息
+        // DEBUG: If rendering result contains empty Task, output debug info
         if (result.Contains("Task:") && result.Contains("Task: \n"))
         {
             System.Diagnostics.Debug.WriteLine($"[TemplateEngine] Empty Task detected!");
@@ -78,23 +78,23 @@ public partial class TemplateEngine
     }
     
     /// <summary>
-    /// 解析表达式（用于条件判断）
+    /// Evaluate expression (for conditional evaluation)
     /// </summary>
     public object? Evaluate(string expression, Dictionary<string, object> variables)
     {
-        // 检查表达式是否已被 {{ }} 包裹
+        // Check if expression is already wrapped in {{ }}
         var trimmed = expression.Trim();
         var template = trimmed.StartsWith("{{") && trimmed.EndsWith("}}")
-            ? trimmed                              // 已包裹，直接使用
-            : $"{{{{ {expression} }}}}";           // 未包裹，添加包裹
+            ? trimmed                              // Already wrapped, use directly
+            : $"{{{{ {expression} }}}}";           // Not wrapped, add wrapping
         
         var result = Render(template, variables);
         
-        // 尝试解析为 bool
+        // Try parsing as bool
         if (bool.TryParse(result.Trim(), out var boolResult))
             return boolResult;
         
-        // 尝试解析为数字
+        // Try parsing as number
         if (double.TryParse(result.Trim(), out var numResult))
             return numResult;
         
@@ -102,14 +102,14 @@ public partial class TemplateEngine
     }
     
     /// <summary>
-    /// 解析变量引用（如 {{items}} → 变量名 "items"）
+    /// Resolve variable reference (e.g., {{items}} → variable name "items")
     /// </summary>
     public object? ResolveValue(object? value, Dictionary<string, object> variables)
     {
         if (value is not string strValue)
             return value;
         
-        // 检查是否是简单的变量引用
+        // Check if it's a simple variable reference
         var match = SimpleVariableRegex().Match(strValue);
         if (match.Success)
         {
@@ -118,25 +118,25 @@ public partial class TemplateEngine
                 return resolved;
         }
         
-        // 否则作为模板渲染
+        // Otherwise render as template
         return Render(strValue, variables);
     }
     
     // ============================================================
-    //  私有方法
+    //  Private Methods
     // ============================================================
     
     /// <summary>
-    /// 预处理模板：将各种模板语法转换为 Scriban 的统一语法
-    /// 支持: Mustache ({{var}}), Handlebars ({{#if}}), Liquid/Jinja2 ({% if %})
+    /// Preprocess template: Convert various template syntaxes to Scriban's unified syntax
+    /// Supports: Mustache ({{var}}), Handlebars ({{#if}}), Liquid/Jinja2 ({% if %})
     /// </summary>
     private static string PreprocessTemplate(string template)
     {
         var result = template;
         
         // ─────────────────────────────────────────────────────────
-        //  1. Liquid/Jinja2 风格 {% if %} / {% endif %}
-        //     转换为 Scriban 的 {{ if }} / {{ end }}
+        //  1. Liquid/Jinja2 style {% if %} / {% endif %}
+        //     Convert to Scriban's {{ if }} / {{ end }}
         // ─────────────────────────────────────────────────────────
         result = LiquidIfRegex().Replace(result, "{{ if $1 }}");
         result = LiquidElseRegex().Replace(result, "{{ else }}");
@@ -145,7 +145,7 @@ public partial class TemplateEngine
         result = LiquidEndForRegex().Replace(result, "{{ end }}");
         
         // ─────────────────────────────────────────────────────────
-        //  2. Handlebars 风格 {{#if}} / {{/if}}
+        //  2. Handlebars style {{#if}} / {{/if}}
         // ─────────────────────────────────────────────────────────
         result = IfBlockRegex().Replace(result, "{{ if $1 }}");
         result = EachBlockRegex().Replace(result, "{{ for item in $1 }}");
@@ -153,12 +153,12 @@ public partial class TemplateEngine
         result = ElseBlockRegex().Replace(result, "{{ else }}");
         
         // ─────────────────────────────────────────────────────────
-        //  3. Liquid 过滤器参数语法 `| filter: arg` → `| filter arg`
+        //  3. Liquid filter argument syntax `| filter: arg` → `| filter arg`
         // ─────────────────────────────────────────────────────────
         result = LiquidFilterArgRegex().Replace(result, "$1 ");
         
         // ─────────────────────────────────────────────────────────
-        //  4. 管道过滤器和简单变量
+        //  4. Pipe filters and simple variables
         // ─────────────────────────────────────────────────────────
         result = PipeFilterRegex().Replace(result, "{{ $1 | $2 }}");
         result = SimpleVarRegex().Replace(result, "{{ $1 }}");
@@ -167,18 +167,18 @@ public partial class TemplateEngine
     }
     
     /// <summary>
-    /// 转换值为 Scriban 兼容格式
-    /// 关键：字典必须转换为 ScriptObject 才能支持 item.property 语法
+    /// Convert value to Scriban-compatible format
+    /// Key: Dictionaries must be converted to ScriptObject to support item.property syntax
     /// </summary>
     private static object? ConvertValue(object? value)
     {
         if (value == null) return null;
         
-        // 优先检查字典类型（必须在 IEnumerable 之前，因为字典也实现 IEnumerable）
+        // Check dictionary type first (must be before IEnumerable, because dictionaries also implement IEnumerable)
         if (value is IDictionary<string, object> dict)
             return ConvertDictToScriptObject(dict);
         
-        // 检查非泛型字典（兼容不同的字典类型）
+        // Check non-generic dictionary (compatible with different dictionary types)
         if (value is System.Collections.IDictionary nonGenericDict)
             return ConvertNonGenericDictToScriptObject(nonGenericDict);
         
@@ -192,7 +192,7 @@ public partial class TemplateEngine
             double d => d,
             decimal m => (double)m,
             DateTime dt => dt,
-            ScriptObject so => so, // 已经是 ScriptObject，直接返回
+            ScriptObject so => so, // Already ScriptObject, return directly
             IEnumerable<object> list => list.Select(ConvertValue).ToList(),
             System.Collections.IEnumerable enumerable => enumerable.Cast<object>().Select(ConvertValue).ToList(),
             _ => ConvertComplexObject(value)
@@ -200,7 +200,7 @@ public partial class TemplateEngine
     }
     
     /// <summary>
-    /// 将非泛型字典转换为 ScriptObject
+    /// Convert non-generic dictionary to ScriptObject
     /// </summary>
     private static ScriptObject ConvertNonGenericDictToScriptObject(System.Collections.IDictionary dict)
     {
@@ -214,7 +214,7 @@ public partial class TemplateEngine
     }
     
     /// <summary>
-    /// 将字典转换为 Scriban ScriptObject，支持 item.property 语法
+    /// Convert dictionary to Scriban ScriptObject, supports item.property syntax
     /// </summary>
     private static ScriptObject ConvertDictToScriptObject(IDictionary<string, object> dict)
     {
@@ -227,7 +227,7 @@ public partial class TemplateEngine
     }
     
     /// <summary>
-    /// 转换复杂对象为 ScriptObject
+    /// Convert complex object to ScriptObject
     /// </summary>
     private static ScriptObject ConvertComplexObject(object value)
     {
@@ -253,15 +253,15 @@ public partial class TemplateEngine
     }
     
     /// <summary>
-    /// 注册内置函数
+    /// Register built-in functions
     /// </summary>
     private static void RegisterBuiltinFunctions(ScriptObject scriptObject)
     {
-        // json 过滤器
+        // json filter
         scriptObject.Import("json", new Func<object?, string>(obj => 
             JsonSerializer.Serialize(obj, JsonOptions)));
         
-        // length 过滤器
+        // length filter
         scriptObject.Import("length", new Func<object?, int>(obj => obj switch
         {
             string s => s.Length,
@@ -270,19 +270,19 @@ public partial class TemplateEngine
             _ => 0
         }));
         
-        // truncate 过滤器
+        // truncate filter
         scriptObject.Import("truncate", new Func<string?, int, string>((s, len) => 
             s == null ? "" : s.Length <= len ? s : s[..len] + "..."));
         
-        // uppercase/lowercase 过滤器
+        // uppercase/lowercase filter
         scriptObject.Import("uppercase", new Func<string?, string>(s => s?.ToUpperInvariant() ?? ""));
         scriptObject.Import("lowercase", new Func<string?, string>(s => s?.ToLowerInvariant() ?? ""));
         
-        // is_atomic 函数（用于 MAKER 判断任务是否原子）
+        // is_atomic function (for MAKER to determine if task is atomic)
         scriptObject.Import("is_atomic", new Func<string?, bool>(task => 
             task != null && task.Length < 200 && !task.Contains("and") && !task.Contains("then")));
         
-        // consensus_k 函数（根据可靠性返回 K 值）
+        // consensus_k function (returns K value based on reliability)
         scriptObject.Import("consensus_k", new Func<string?, int>(reliability => reliability?.ToLowerInvariant() switch
         {
             "low" => 1,
@@ -291,18 +291,18 @@ public partial class TemplateEngine
             _ => 2
         }));
         
-        // contains 函数 - 字符串包含检查
-        // 用法: {{ atomic_check | contains 'ATOMIC' }}
+        // contains function - string contains check
+        // Usage: {{ atomic_check | contains 'ATOMIC' }}
         scriptObject.Import("contains", new Func<string?, string?, bool>((str, substring) => 
             str != null && substring != null && str.Contains(substring, StringComparison.OrdinalIgnoreCase)));
         
-        // default 函数 - 默认值
-        // 用法: {{ value | default 'fallback' }}
+        // default function - default value
+        // Usage: {{ value | default 'fallback' }}
         scriptObject.Import("default", new Func<object?, object?, object?>((value, defaultValue) => 
             value is null or "" ? defaultValue : value));
         
-        // size 函数 - 集合大小
-        // 用法: {{ items | size }}
+        // size function - collection size
+        // Usage: {{ items | size }}
         scriptObject.Import("size", new Func<object?, int>(obj => obj switch
         {
             string s => s.Length,
@@ -313,10 +313,10 @@ public partial class TemplateEngine
     }
     
     // ============================================================
-    //  正则表达式
+    //  Regular Expressions
     // ============================================================
     
-    // Liquid/Jinja2 风格: {% if %}, {% else %}, {% endif %}, {% for %}, {% endfor %}
+    // Liquid/Jinja2 style: {% if %}, {% else %}, {% endif %}, {% for %}, {% endfor %}
     [GeneratedRegex(@"\{%\s*if\s+(.+?)\s*%\}")]
     private static partial Regex LiquidIfRegex();
     
@@ -332,7 +332,7 @@ public partial class TemplateEngine
     [GeneratedRegex(@"\{%\s*endfor\s*%\}")]
     private static partial Regex LiquidEndForRegex();
     
-    // Handlebars 风格: {{#if}}, {{/if}}
+    // Handlebars style: {{#if}}, {{/if}}
     [GeneratedRegex(@"\{\{#if\s+(.+?)\}\}")]
     private static partial Regex IfBlockRegex();
     
@@ -354,8 +354,8 @@ public partial class TemplateEngine
     [GeneratedRegex(@"\{\{(.+?)\s*(?<!\|)\|(?!\|)\s*(.+?)\}\}")]
     private static partial Regex PipeFilterRegex();
     
-    // 转换 Liquid 风格的过滤器参数: `filter: arg` → `filter arg`
-    // 匹配: `contains: 'ATOMIC'` → `contains 'ATOMIC'`
+    // Convert Liquid-style filter arguments: `filter: arg` → `filter arg`
+    // Matches: `contains: 'ATOMIC'` → `contains 'ATOMIC'`
     [GeneratedRegex(@"(\|\s*\w+):\s*")]
     private static partial Regex LiquidFilterArgRegex();
     
@@ -367,7 +367,7 @@ public partial class TemplateEngine
 }
 
 // ============================================================
-//  异常
+//  Exceptions
 // ============================================================
 
 public class TemplateParseException : Exception

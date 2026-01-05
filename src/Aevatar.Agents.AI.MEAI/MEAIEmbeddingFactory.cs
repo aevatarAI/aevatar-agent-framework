@@ -48,7 +48,7 @@ public sealed class MEAIEmbeddingFactory : IAIAgentEmbeddingFactory
         LLMProviderConfig providerConfig,
         LLMEmbeddingConfig embeddingConfig)
     {
-        // 优先使用 embedding 配置中的 ProviderType，如果为空则回退到主配置的 ProviderType
+        // Prefer ProviderType from embedding config, fall back to main config's ProviderType if empty
         var providerType = (!string.IsNullOrWhiteSpace(embeddingConfig.ProviderType) 
             ? embeddingConfig.ProviderType 
             : providerConfig.ProviderType).ToLowerInvariant();

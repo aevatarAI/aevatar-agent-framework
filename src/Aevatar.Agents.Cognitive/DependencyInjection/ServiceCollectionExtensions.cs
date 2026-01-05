@@ -6,12 +6,12 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Aevatar.Agents.Cognitive.DependencyInjection;
 
 /// <summary>
-/// 依赖注入扩展
+/// Dependency injection extensions
 /// </summary>
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// 添加 Cognitive Agent 服务
+    /// Add Cognitive Agent services
     /// </summary>
     public static IServiceCollection AddCognitiveAgents(
         this IServiceCollection services,
@@ -20,25 +20,25 @@ public static class ServiceCollectionExtensions
         var options = new CognitiveAgentOptions();
         configure?.Invoke(options);
         
-        // 注册模板引擎
+        // Register template engine
         services.AddSingleton<TemplateEngine>();
         services.AddSingleton<OutputParserFactory>();
         
-        // 注册工作流解析器
+        // Register workflow parser
         services.AddSingleton<WorkflowParser>();
         
-        // 注册工作流注册表
+        // Register workflow registry
         services.AddSingleton<IWorkflowRegistry>(sp =>
         {
             var registry = new InMemoryWorkflowRegistry();
             
-            // 加载内置工作流
+            // Load built-in workflows
             if (options.LoadBuiltInWorkflows)
             {
                 LoadBuiltInWorkflows(registry);
             }
             
-            // 从目录加载工作流
+            // Load workflows from directory
             if (!string.IsNullOrEmpty(options.WorkflowsDirectory))
             {
                 var parser = sp.GetRequiredService<WorkflowParser>();
@@ -56,12 +56,12 @@ public static class ServiceCollectionExtensions
     
     private static void LoadBuiltInWorkflows(InMemoryWorkflowRegistry registry)
     {
-        // Direct 策略
+        // Direct strategy
         registry.Register(new WorkflowDefinition
         {
             Name = "direct",
             Version = "1.0",
-            Description = "单次 LLM 调用",
+            Description = "Single LLM call",
             Inputs =
             [
                 new InputParameter { Name = "task", Type = "string", Required = true },
@@ -91,16 +91,16 @@ public static class ServiceCollectionExtensions
 }
 
 /// <summary>
-/// Cognitive Agent 配置选项
+/// Cognitive Agent configuration options
 /// </summary>
 public class CognitiveAgentOptions
 {
-    /// <summary>是否加载内置工作流</summary>
+    /// <summary>Whether to load built-in workflows</summary>
     public bool LoadBuiltInWorkflows { get; set; } = true;
     
-    /// <summary>工作流目录（用于热加载）</summary>
+    /// <summary>Workflow directory (for hot reload)</summary>
     public string? WorkflowsDirectory { get; set; }
     
-    /// <summary>默认最大递归深度</summary>
+    /// <summary>Default maximum recursion depth</summary>
     public int MaxRecursionDepth { get; set; } = 10;
 }

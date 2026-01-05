@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging;
 Console.WriteLine("🌌 Aevatar Agent Framework - Simple Demo");
 Console.WriteLine("=========================================\n");
 
-// 设置依赖注入
+// Setup dependency injection
 var services = new ServiceCollection();
 services.AddLogging(builder =>
 {
@@ -24,71 +24,71 @@ services.AddAevatarAgentSystem(builder =>
 
 var serviceProvider = services.BuildServiceProvider();
 
-// 获取工厂
+// Get factory
 var factory = serviceProvider.GetRequiredService<IGAgentActorFactory>();
 
-Console.WriteLine("📊 创建 Calculator Agent...");
+Console.WriteLine("📊 Creating Calculator Agent...");
 var calculatorId = Guid.NewGuid().ToString();
 var calculatorActor = await factory.CreateGAgentActorAsync<CalculatorAgent>(calculatorId);
-Console.WriteLine($"✅ Calculator Agent 创建成功! ID: {calculatorActor.Id}\n");
+Console.WriteLine($"✅ Calculator Agent created successfully! ID: {calculatorActor.Id}\n");
 
-// 通过 Actor 获取 Agent 并执行操作
+// Get Agent through Actor and execute operations
 var calculator = (CalculatorAgent)calculatorActor.GetAgent();
 
-Console.WriteLine("🔢 执行计算操作:");
+Console.WriteLine("🔢 Executing calculations:");
 Console.WriteLine("─────────────────");
 
-// 加法
+// Addition
 var sum = await calculator.AddAsync(10, 5);
 Console.WriteLine($"  10 + 5 = {sum}");
 
-// 减法
+// Subtraction
 var difference = await calculator.SubtractAsync(20, 8);
 Console.WriteLine($"  20 - 8 = {difference}");
 
-// 乘法
+// Multiplication
 var product = await calculator.MultiplyAsync(6, 7);
 Console.WriteLine($"  6 × 7 = {product}");
 
-// 除法
+// Division
 var quotient = await calculator.DivideAsync(100, 4);
 Console.WriteLine($"  100 ÷ 4 = {quotient}");
 
-Console.WriteLine($"\n📝 计算历史:");
+Console.WriteLine($"\n📝 Calculation history:");
 var history = calculator.GetHistory();
 foreach (var item in history)
 {
     Console.WriteLine($"  {item}");
 }
 
-Console.WriteLine($"\n✨ 最后结果: {calculator.GetLastResult()}");
-Console.WriteLine($"📈 操作次数: {calculator.GetState().OperationCount}");
+Console.WriteLine($"\n✨ Last result: {calculator.GetLastResult()}");
+Console.WriteLine($"📈 Operation count: {calculator.GetState().OperationCount}");
 
-// 测试Weather Agent
-Console.WriteLine("\n\n🌤️  创建 Weather Agent...");
+// Test Weather Agent
+Console.WriteLine("\n\n🌤️  Creating Weather Agent...");
 var weatherId = Guid.NewGuid().ToString();
 var weatherActor = await factory.CreateGAgentActorAsync<WeatherAgent>(weatherId);
-Console.WriteLine($"✅ Weather Agent 创建成功! ID: {weatherActor.Id}\n");
+Console.WriteLine($"✅ Weather Agent created successfully! ID: {weatherActor.Id}\n");
 
 var weather = (WeatherAgent)weatherActor.GetAgent();
 
-Console.WriteLine("🌍 查询天气:");
+Console.WriteLine("🌍 Querying weather:");
 Console.WriteLine("─────────────────");
 
-var cities = new[] { "北京", "上海", "广州", "深圳" };
+var cities = new[] { "Beijing", "Shanghai", "Guangzhou", "Shenzhen" };
 foreach (var city in cities)
 {
     var weatherInfo = await weather.GetWeatherAsync(city);
     Console.WriteLine($"  {city}: {weatherInfo}");
 }
 
-Console.WriteLine($"\n📊 查询次数: {weather.GetQueryCount()}");
+Console.WriteLine($"\n📊 Query count: {weather.GetQueryCount()}");
 
-// 清理
-Console.WriteLine("\n\n🧹 清理资源...");
+// Cleanup
+Console.WriteLine("\n\n🧹 Cleaning up resources...");
 await calculatorActor.DeactivateAsync();
 await weatherActor.DeactivateAsync();
 
-Console.WriteLine("✅ Demo 完成!");
-Console.WriteLine("\n示例运行成功！");
+Console.WriteLine("✅ Demo completed!");
+Console.WriteLine("\nExample ran successfully!");
 

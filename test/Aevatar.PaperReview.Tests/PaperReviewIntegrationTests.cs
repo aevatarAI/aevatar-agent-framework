@@ -18,7 +18,7 @@ namespace Aevatar.PaperReview.Tests;
 
 // ============================================================
 //  PAPER REVIEW INTEGRATION TESTS
-//  端到端测试：验证完整的论文评审流程
+//  End-to-end tests: Verify complete paper review workflow
 // ============================================================
 
 public class PaperReviewIntegrationTests : IDisposable
@@ -34,36 +34,36 @@ public class PaperReviewIntegrationTests : IDisposable
     {
         _output = output;
 
-        // 配置 Mock LLM - 返回 MAKER 工作流所需的响应
+        // Configure Mock LLM - Returns responses required by MAKER workflow
         _mockLlm = new MockLLMProvider().WithMakerWorkflowResponses();
         
-        // 配置 Mock Embedding - 让所有内容语义相同，保证投票总是通过
+        // Configure Mock Embedding - Make all content semantically identical, ensuring votes always pass
         _mockEmbedding = new MockEmbeddingFactory();
 
-        // 构建服务容器
+        // Build service container
         var services = new ServiceCollection();
         
-        // 添加日志
+        // Add logging
         services.AddLogging(builder =>
         {
             builder.SetMinimumLevel(LogLevel.Debug);
             builder.AddProvider(new XunitLoggerProvider(output));
         });
 
-        // 添加 Local Runtime
+        // Add Local Runtime
         services.AddAevatarLocalRuntime();
 
-        // 添加 Mock LLM 和 Embedding - 必须注册到 DI 以便 Agent 可以获取
+        // Add Mock LLM and Embedding - Must register to DI so Agents can access
         services.AddSingleton(_mockLlm);
         services.AddSingleton<ILLMProviderFactory>(new MockLLMProviderFactory(_mockLlm));
         services.AddSingleton<IAIAgentEmbeddingFactory>(_mockEmbedding);
 
         _serviceProvider = services.BuildServiceProvider();
 
-        // 获取 Actor Manager
+        // Get Actor Manager
         _actorManager = _serviceProvider.GetRequiredService<IGAgentActorManager>();
 
-        // 创建 CognitiveStrategy - 带 Mock Embedding 实现语义聚类
+        // Create CognitiveStrategy - With Mock Embedding for semantic clustering
         var loggerFactory = _serviceProvider.GetRequiredService<ILoggerFactory>();
         var config = new ConfigurationBuilder().Build();
         _strategy = new CognitiveStrategy(
@@ -71,7 +71,7 @@ public class PaperReviewIntegrationTests : IDisposable
             new MockLLMProviderFactory(_mockLlm),
             config,
             loggerFactory.CreateLogger<CognitiveStrategy>(),
-            _mockEmbedding);  // 传入 Mock Embedding 工厂
+            _mockEmbedding);  // Pass Mock Embedding factory
     }
 
     public void Dispose()
@@ -80,7 +80,7 @@ public class PaperReviewIntegrationTests : IDisposable
     }
 
     // ─────────────────────────────────────────────────────────
-    //  基础流程测试
+    //  Basic Flow Tests
     // ─────────────────────────────────────────────────────────
 
     [Fact]
@@ -159,7 +159,7 @@ public class PaperReviewIntegrationTests : IDisposable
             _output.WriteLine($"Content:\n{preview}");
         }
 
-        // 验证结果
+        // Verify results
         result.Success.ShouldBeTrue($"Review should complete successfully. Error: {result.Error}");
         result.Content.ShouldNotBeNullOrEmpty("Review should produce content");
         _mockLlm.CallCount.ShouldBeGreaterThan(0, "Mock LLM should have been called");
@@ -197,13 +197,13 @@ public class PaperReviewIntegrationTests : IDisposable
         // Assert
         _output.WriteLine($"Phases observed: {string.Join(", ", phases)}");
 
-        // 验证关键阶段被执行
-        // 注意：具体阶段名称取决于工作流定义
+        // Verify key phases are executed
+        // NOTE: Specific phase names depend on workflow definition
         phases.Count.ShouldBeGreaterThan(0, "Should have observed at least one phase");
     }
 
     // ─────────────────────────────────────────────────────────
-    //  ReviewEventBridge 集成测试
+    //  ReviewEventBridge Integration Tests
     // ─────────────────────────────────────────────────────────
 
     [Fact]
@@ -220,7 +220,7 @@ public class PaperReviewIntegrationTests : IDisposable
             Type = ReviewType.Standard
         };
 
-        // 模拟一系列进度事件
+        // Simulate a series of progress events
         var progressSequence = new[]
         {
             new ReasoningProgress { Phase = "START", Message = "Initializing review" },
@@ -285,7 +285,7 @@ public class PaperReviewIntegrationTests : IDisposable
             bridge.HandleProgress(session, p);
         }
 
-        // 收集所有事件
+        // Collect all events
         var events = new List<ReviewEvent>();
         while (session.EventChannel.Reader.TryRead(out var evt))
         {
@@ -296,13 +296,13 @@ public class PaperReviewIntegrationTests : IDisposable
         // Assert
         events.ShouldNotBeEmpty("Should have generated UI events");
         
-        // 验证关键事件类型
+        // Verify key event types
         events.OfType<StageLogEvent>().ShouldNotBeEmpty("Should have stage log events");
         events.OfType<PhaseChangeEvent>().ShouldNotBeEmpty("Should have phase change events");
         events.OfType<WorkerStartedEvent>().ShouldNotBeEmpty("Should have worker started events");
         events.OfType<LlmStreamingEvent>().ShouldNotBeEmpty("Should have streaming events");
         
-        // 验证 Worker ID 规范化（应该使用 K 值循环）
+        // Verify Worker ID normalization (should use K value cycling)
         var workerEvents = events.OfType<WorkerStartedEvent>().ToList();
         foreach (var we in workerEvents)
         {
@@ -312,7 +312,7 @@ public class PaperReviewIntegrationTests : IDisposable
     }
 
     // ─────────────────────────────────────────────────────────
-    //  MAKER 参数验证测试
+    //  MAKER Parameter Validation Tests
     // ─────────────────────────────────────────────────────────
 
     [Theory]
@@ -330,7 +330,7 @@ public class PaperReviewIntegrationTests : IDisposable
         k.ShouldBe(expectedK, $"K for {type}");
         n.ShouldBe(expectedN, $"N for {type}");
         
-        // 验证 MAKER 论文公式: N = 2K - 1
+        // Verify MAKER paper formula: N = 2K - 1
         n.ShouldBe(2 * k - 1, "N should equal 2K - 1 (MAKER formula)");
         
         _output.WriteLine($"{type}: K={k}, N={n} ({desc})");
@@ -339,7 +339,7 @@ public class PaperReviewIntegrationTests : IDisposable
 
 // ============================================================
 //  XUNIT LOGGER PROVIDER
-//  用于在测试中输出日志
+//  Used for outputting logs in tests
 // ============================================================
 
 public class XunitLoggerProvider : ILoggerProvider

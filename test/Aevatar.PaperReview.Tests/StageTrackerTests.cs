@@ -6,13 +6,13 @@ namespace Aevatar.PaperReview.Tests;
 
 // ============================================================
 //  STAGE TRACKER TESTS
-//  验证阶段跟踪器的统计和状态管理
+//  Verify stage tracker statistics and state management
 // ============================================================
 
 public class StageTrackerTests
 {
     // ─────────────────────────────────────────────────────────
-    //  初始化测试
+    //  Initialization Tests
     // ─────────────────────────────────────────────────────────
 
     [Fact]
@@ -32,7 +32,7 @@ public class StageTrackerTests
     }
 
     // ─────────────────────────────────────────────────────────
-    //  StartStage 测试
+    //  StartStage Tests
     // ─────────────────────────────────────────────────────────
 
     [Fact]
@@ -53,7 +53,7 @@ public class StageTrackerTests
     {
         var tracker = new StageTracker();
         
-        // 先添加一些数据
+        // Add some data first
         tracker.LlmCalls = 5;
         tracker.Tokens = 1000;
         tracker.VotingRounds = 3;
@@ -63,10 +63,10 @@ public class StageTrackerTests
         tracker.WorkerOutputs.Add(new WorkerOutput { WorkerId = "w1" });
         tracker.WinnerContent = "winner";
         
-        // 开始新阶段
+        // Start new stage
         tracker.StartStage("Decomposing");
         
-        // 验证统计被重置
+        // Verify statistics are reset
         tracker.CurrentStage.ShouldBe("Decomposing");
         tracker.LlmCalls.ShouldBe(0);
         tracker.Tokens.ShouldBe(0);
@@ -79,7 +79,7 @@ public class StageTrackerTests
     }
 
     // ─────────────────────────────────────────────────────────
-    //  Reset 测试
+    //  Reset Tests
     // ─────────────────────────────────────────────────────────
 
     [Fact]
@@ -94,18 +94,18 @@ public class StageTrackerTests
         
         tracker.Reset();
         
-        // 统计被清除
+        // Statistics are cleared
         tracker.LlmCalls.ShouldBe(0);
         tracker.Tokens.ShouldBe(0);
         tracker.VotingRounds.ShouldBe(0);
         tracker.Candidates.ShouldBeEmpty();
         
-        // 但 CurrentStage 不变（Reset 不修改 CurrentStage）
+        // But CurrentStage remains unchanged (Reset doesn't modify CurrentStage)
         tracker.CurrentStage.ShouldBe("Voting");
     }
 
     // ─────────────────────────────────────────────────────────
-    //  BuildStats 测试
+    //  BuildStats Tests
     // ─────────────────────────────────────────────────────────
 
     [Fact]
@@ -130,7 +130,7 @@ public class StageTrackerTests
     }
 
     // ─────────────────────────────────────────────────────────
-    //  BuildDetails 测试
+    //  BuildDetails Tests
     // ─────────────────────────────────────────────────────────
 
     [Fact]
@@ -188,7 +188,7 @@ public class StageTrackerTests
     }
 
     // ─────────────────────────────────────────────────────────
-    //  累计统计测试
+    //  Accumulated Statistics Tests
     // ─────────────────────────────────────────────────────────
 
     [Fact]
@@ -197,7 +197,7 @@ public class StageTrackerTests
         var tracker = new StageTracker();
         tracker.StartStage("Solving");
         
-        // 模拟多个 Worker 完成工作
+        // Simulate multiple Workers completing work
         for (var i = 0; i < 5; i++)
         {
             tracker.LlmCalls++;
@@ -224,12 +224,12 @@ public class StageTrackerTests
         var tracker = new StageTracker();
         tracker.StartStage("Voting");
         
-        // 第一轮投票
+        // First voting round
         tracker.VotingRounds = 1;
         tracker.Candidates.Add(new CandidateDetail { Id = "c1", Votes = 2 });
         tracker.Candidates.Add(new CandidateDetail { Id = "c2", Votes = 1 });
         
-        // 第二轮投票
+        // Second voting round
         tracker.VotingRounds = 2;
         tracker.Candidates.Clear();
         tracker.Candidates.Add(new CandidateDetail { Id = "c1", Votes = 3, IsWinner = true });

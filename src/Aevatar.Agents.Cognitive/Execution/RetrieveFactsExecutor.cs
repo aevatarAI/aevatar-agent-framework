@@ -9,7 +9,7 @@ namespace Aevatar.Agents.Cognitive.Execution;
 //  RetrieveFactsExecutor (token-free default)
 //
 //  WHY:
-//  - 把“相关事实选择”从 LLM 里拿出来，减少 prompt 膨胀
+//  - Extract "relevant fact selection" from LLM to reduce prompt bloat
 //
 //  DSL:
 //    - id: retrieve_facts
@@ -23,8 +23,8 @@ namespace Aevatar.Agents.Cognitive.Execution;
 //      store: relevant_facts
 //
 //  NOTE:
-//  - lexical 模式不调用任何模型，0 token。
-//  - embedding 模式（未来）可用 embedding generator 做语义检索，但会产生额外调用。
+//  - lexical mode doesn't call any model, 0 tokens.
+//  - embedding mode (future) can use embedding generator for semantic retrieval, but will generate additional calls.
 // ============================================================
 
 public sealed class RetrieveFactsExecutor

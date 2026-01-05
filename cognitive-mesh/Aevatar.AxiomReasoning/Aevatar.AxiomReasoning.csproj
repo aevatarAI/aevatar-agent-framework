@@ -21,6 +21,9 @@
 
     <!-- Cognitive DSL 系统 -->
     <ProjectReference Include="..\..\src\Aevatar.Agents.Cognitive\Aevatar.Agents.Cognitive.csproj" />
+    
+    <!-- AG-UI 集成 -->
+    <ProjectReference Include="..\..\src\Aevatar.Agents.AGUI\Aevatar.Agents.AGUI.csproj" />
   </ItemGroup>
 
   <ItemGroup>

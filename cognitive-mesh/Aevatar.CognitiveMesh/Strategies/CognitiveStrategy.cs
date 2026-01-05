@@ -18,18 +18,18 @@ namespace Aevatar.CognitiveMesh.Strategies;
 
 // ============================================================
 //  COGNITIVE DSL STRATEGY
-//  DSL 驱动的认知策略 - Coordinator + Worker 真正并行
+//  DSL-driven cognitive strategy - Coordinator + Worker true parallelism
 // ============================================================
 
 /// <summary>
-/// Cognitive DSL 策略适配器。
-/// 使用 YAML 定义的工作流，通过 CognitiveCoordinatorGAgent 执行。
+/// Cognitive DSL strategy adapter.
+/// Uses YAML-defined workflows, executed via CognitiveCoordinatorGAgent.
 /// 
-/// 特点：
-/// - DSL 定义工作流（YAML）
-/// - Coordinator + Worker 真正的 Actor 并行
-/// - 语义聚类投票（可选）
-/// - 支持递归工作流调用
+/// Features:
+/// - DSL-defined workflows (YAML)
+/// - Coordinator + Worker true Actor parallelism
+/// - Semantic clustering voting (optional)
+/// - Supports recursive workflow calls
 /// </summary>
 public sealed class CognitiveStrategy : IReasoningStrategy
 {
@@ -44,7 +44,7 @@ public sealed class CognitiveStrategy : IReasoningStrategy
     private IEmbeddingGenerator<string, Embedding<float>>? _embeddingGenerator;
     private bool _embeddingInitialized;
     
-    // 工作流注册表
+    // Workflow registry
     private readonly InMemoryWorkflowRegistry _workflowRegistry = new();
     private bool _workflowsLoaded;
 
@@ -61,18 +61,18 @@ public sealed class CognitiveStrategy : IReasoningStrategy
         _configuration = configuration;
         _logger = logger;
         
-        // 工作流文件路径查找（按优先级）
+        // Workflow file path search (by priority)
         var searchPaths = new[]
         {
-            // 1. 执行目录下的 workflows
+            // 1. workflows under execution directory
             Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "workflows"),
-            // 2. 当前目录下的 workflows
+            // 2. workflows under current directory
             Path.Combine(Directory.GetCurrentDirectory(), "workflows"),
-            // 3. 源代码路径 (开发时)
+            // 3. Source code path (during development)
             Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "src", "Aevatar.Agents.Cognitive", "workflows"),
-            // 4. 相对于 cognitive-mesh 的源代码路径
+            // 4. Source code path relative to cognitive-mesh
             Path.Combine(Directory.GetCurrentDirectory(), "..", "src", "Aevatar.Agents.Cognitive", "workflows"),
-            // 5. 绝对路径回退
+            // 5. Absolute path fallback
             "/Users/zhaoyiqi/Code/aevatar-agent-framework/src/Aevatar.Agents.Cognitive/workflows"
         };
         
@@ -85,11 +85,11 @@ public sealed class CognitiveStrategy : IReasoningStrategy
 
     public StrategyKind Kind => StrategyKind.Cognitive;
     public string DisplayName => "Cognitive DSL";
-    public string Description => "DSL 定义工作流，Actor 真正并行";
+    public string Description => "DSL-defined workflows, true Actor parallelism";
 
     public ValidationResult ValidateOptions(ReasoningOptions options)
     {
-        // Cognitive 策略需要指定工作流名称
+        // Cognitive strategy requires workflow name to be specified
         if (string.IsNullOrEmpty(options.CognitiveWorkflow))
         {
             return ValidationResult.Failed("CognitiveWorkflow", "Cognitive strategy requires a workflow name");
@@ -108,10 +108,10 @@ public sealed class CognitiveStrategy : IReasoningStrategy
         
         try
         {
-            // ─── 阶段 0：初始化 Embedding Generator（语义聚类） ───
+            // ─── Phase 0: Initialize Embedding Generator (semantic clustering) ───
             await EnsureEmbeddingInitializedAsync(ct);
             
-            // ─── 阶段 1：加载工作流 ───
+            // ─── Phase 1: Load workflows ───
             progress?.Report(new ReasoningProgress
             {
                 Phase = "LOADING",
@@ -134,7 +134,7 @@ public sealed class CognitiveStrategy : IReasoningStrategy
             
             _logger.LogInformation("Executing workflow: {Name} v{Version}", workflow.Name, workflow.Version);
             
-            // ─── 阶段 2：创建 Coordinator ───
+            // ─── Phase 2: Create Coordinator ───
             progress?.Report(new ReasoningProgress
             {
                 Phase = "INITIALIZING",
@@ -156,7 +156,7 @@ public sealed class CognitiveStrategy : IReasoningStrategy
                 ? DeterministicGuid.FromString($"cognitive:{stableSessionKey}:coordinator").ToString("D")
                 : Guid.NewGuid().ToString("D");
 
-            // NOTE: 返回的 actor.Id 是规范化后的完整 ActorId: "CognitiveCoordinatorGAgent:RawId"
+            // NOTE: Returned actor.Id is normalized full ActorId: "CognitiveCoordinatorGAgent:RawId"
             var coordinatorActor = await _actorManager.CreateAndRegisterAsync<CognitiveCoordinatorGAgent>(rawCoordinatorId, ct);
             var coordinator = coordinatorActor.GetAgent() as CognitiveCoordinatorGAgent;
             
@@ -165,11 +165,11 @@ public sealed class CognitiveStrategy : IReasoningStrategy
                 return ReasoningResult.Failed("Failed to create Coordinator agent", DateTime.UtcNow - startTime);
             }
             
-            // 初始化 AI Agent（设置 LLM Provider）
+            // Initialize AI Agent (set LLM Provider)
             var providerName = options.ProviderName ?? AevatarAgentsConstants.DefaultProviderName;
             await coordinator.InitializeAsync(providerName, cancellationToken: ct);
             
-            // 配置 Coordinator
+            // Configure Coordinator
             coordinator.SetActorManager(_actorManager);
 
             // ============================================================
@@ -194,22 +194,22 @@ public sealed class CognitiveStrategy : IReasoningStrategy
                 coordinator.ArchiveCompactedHistoryToAIMemory = false;
             }
             
-            // 配置语义聚类投票（如果有）
+            // Configure semantic clustering voting (if available)
             if (_embeddingGenerator != null)
             {
                 coordinator.SetEmbeddingGenerator(_embeddingGenerator, options.CognitiveSemanticSimilarity ?? 0.85f);
             }
             
             // Track streaming state per step
-            // - 用于识别“首 token / 末 token”，避免 per-token 打日志导致卡死
-            // - 注意：StepEvent 回调可能并发触发，HashSet 非线程安全，会导致 IndexOutOfRangeException（内部数组被并发写破坏）
+            // - Used to identify "first token / last token", avoid per-token logging causing hang
+            // - Note: StepEvent callbacks may trigger concurrently, HashSet is not thread-safe, will cause IndexOutOfRangeException (internal array corrupted by concurrent writes)
             var streamingStarted = new ConcurrentDictionary<string, byte>();
 
-            // 设置步骤事件回调 - 转发给 progress reporter
+            // Set step event callback - forward to progress reporter
             coordinator.SetStepEventCallback(stepEvent =>
             {
-                // Phase 格式: "{PHASE_PREFIX}:{stepId}"
-                // 与 MakerPhase 枚举对应: Assessing/Decomposing/Solving/Composing
+                // Phase format: "{PHASE_PREFIX}:{stepId}"
+                // Corresponds to MakerPhase enum: Assessing/Decomposing/Solving/Composing
                 var phasePrefix = GetPhasePrefix(stepEvent.StepId, stepEvent.StepType);
                 
                 // Build StreamingTokenProgress for real-time display
@@ -217,8 +217,8 @@ public sealed class CognitiveStrategy : IReasoningStrategy
                 var isRunning = stepEvent.Status == global::Aevatar.Agents.Cognitive.Messages.StepStatus.Running;
                 var isCompleted = stepEvent.Status == global::Aevatar.Agents.Cognitive.Messages.StepStatus.Completed;
                 
-                // Worker 数量必须使用“真实 Worker Pool Size”，不能用 ParallelTotal（它可能是 fan_out 数量或 vote batchSize）。
-                // 否则会导致同一个 gen[N] 在不同事件里映射到不同 worker（UI 会出现某个 worker 永远空 / 串台）。
+                // Worker count must use "real Worker Pool Size", cannot use ParallelTotal (it may be fan_out count or vote batchSize).
+                // Otherwise same gen[N] will map to different workers in different events (UI will show some worker always empty / cross-talk).
                 var n = options.CognitiveWorkerCount ?? 5;
                 
                 // Normalize worker ID: coordinator for main tasks, worker-{(index-1) % N} for gen[index]
@@ -243,7 +243,7 @@ public sealed class CognitiveStrategy : IReasoningStrategy
                         ProviderName = options.ProviderName ?? "deepseek"
                     };
 
-                    // 只在“首 token / 末 token”打一次日志：否则 streaming 会把 stdout 打爆
+                    // Only log once at "first token / last token": otherwise streaming will flood stdout
                     if (stepEvent.StepId.Contains("gen[") && (isFirst || isCompleted))
                     {
                         _logger.LogDebug(
@@ -297,14 +297,14 @@ public sealed class CognitiveStrategy : IReasoningStrategy
                     ProgressPercent = 0.2f + 0.7f * stepEvent.Progress,
                     TaskId = normalizedWorkerId,  // Use normalized ID for frontend aggregation
                     // ============================================================
-                    //  MAKER 递归深度（关键字段）
+                    //  MAKER recursion depth (critical field)
                     //
                     //  WHY:
-                    //  - PaperReview 的 Atomic Points 树依赖 Depth 来构建 parent/child
-                    //  - Depth 缺失会导致：
-                    //    1) 多级 decompose 全部被当成 root（只显示第一级）
-                    //    2) solve_atomic/compose 的共识无法归属到 point（DONE 但无结论）
-                    //    3) 深层 execute_subtasks[i] “串到”第一级（ID 冲突/覆盖）
+                    //  - PaperReview's Atomic Points tree depends on Depth to build parent/child
+                    //  - Missing Depth will cause:
+                    //    1) Multi-level decompose all treated as root (only first level shown)
+                    //    2) solve_atomic/compose consensus cannot be attributed to point (DONE but no conclusion)
+                    //    3) Deep execute_subtasks[i] "cascading" to first level (ID conflict/override)
                     // ============================================================
                     Depth = stepEvent.Depth,
                     StepId = stepEvent.StepId,
@@ -336,14 +336,14 @@ public sealed class CognitiveStrategy : IReasoningStrategy
                 });
             });
             
-            // 注册工作流
+            // Register workflows
             foreach (var wf in _workflowRegistry.List())
             {
                 var w = _workflowRegistry.Get(wf);
                 if (w != null) coordinator.RegisterWorkflow(w);
             }
             
-            // 创建 Worker 池
+            // Create Worker pool
             var workerPoolSize = options.CognitiveWorkerCount > 0 ? options.CognitiveWorkerCount.Value : 5;
             
             IReadOnlyList<Guid>? stableWorkerIds = null;
@@ -361,7 +361,7 @@ public sealed class CognitiveStrategy : IReasoningStrategy
             
             _logger.LogInformation("Created Coordinator {Id} with {Workers} workers", coordinatorActor.Id, workerPoolSize);
             
-            // ─── 阶段 3：执行工作流 ───
+            // ─── Phase 3: Execute workflow ───
             progress?.Report(new ReasoningProgress
             {
                 Phase = "EXECUTING",
@@ -369,22 +369,22 @@ public sealed class CognitiveStrategy : IReasoningStrategy
                 ProgressPercent = 0.2f
             });
             
-            // 设置完成回调
+            // Set completion callback
             var completionSource = new TaskCompletionSource<WorkflowCompletedEventProto>();
             
-            // 订阅完成事件（通过检查状态）
-            // 注意：由于是事件驱动，我们需要轮询或使用事件订阅
+            // Subscribe to completion event (by checking status)
+            // Note: Since it's event-driven, we need polling or event subscription
             
-            // 构建初始变量
-            // context 包含原始任务内容，递归时子任务可以访问
+            // Build initial variables
+            // context contains original task content, child tasks can access it during recursion
             var initialVariables = new Dictionary<string, object>
             {
                 ["task"] = task,
-                ["context"] = task  // 递归时子任务通过 context 访问原始内容
+                ["context"] = task  // Child tasks access original content via context during recursion
             };
 
-            // 添加额外参数
-            // 默认 K=3，可被外部显式配置覆盖
+            // Add extra parameters
+            // Default K=3, can be explicitly overridden externally
             if (options.CognitiveConsensusK is > 0)
             {
                 initialVariables["k"] = options.CognitiveConsensusK.Value;

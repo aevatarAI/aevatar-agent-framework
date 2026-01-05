@@ -20,10 +20,10 @@ public class AIGAgentFactory : IGAgentFactory
 
     public IGAgent CreateGAgent(string id, Type agentType, CancellationToken ct = default)
     {
-        // 创建 Agent 实例，支持多种构造函数模式
+        // Create Agent instance, support multiple constructor patterns
         IGAgent agent;
 
-        // 尝试找到合适的构造函数
+        // Try to find suitable constructor
         var constructors = agentType.GetConstructors();
 
         var ctorWithOptionalString = constructors.FirstOrDefault(c =>

@@ -12,7 +12,7 @@ using Proto;
 namespace Aevatar.Agents.ProtoActor.Tests.Streaming;
 
 /// <summary>
-/// ProtoActor Stream机制测试
+/// ProtoActor Stream mechanism tests
 /// </summary>
 public class ProtoActorStreamTests : IDisposable
 {
@@ -35,8 +35,8 @@ public class ProtoActorStreamTests : IDisposable
         services.AddSingleton(_actorSystem);
         services.AddSingleton<ProtoActorMessageStreamRegistry>();
         services.AddSingleton<ProtoActorGAgentActorFactory>();
-        services.AddGAgentActorFactoryProvider();  // 添加工厂提供者
-        services.AddSingleton<IGAgentFactory, AIGAgentFactory>();  // 添加Agent工厂
+        services.AddGAgentActorFactoryProvider();  // Add factory provider
+        services.AddSingleton<IGAgentFactory, AIGAgentFactory>();  // Add Agent factory
         
         _serviceProvider = services.BuildServiceProvider();
         _factory = _serviceProvider.GetRequiredService<ProtoActorGAgentActorFactory>();
@@ -51,7 +51,7 @@ public class ProtoActorStreamTests : IDisposable
     }
     
     /// <summary>
-    /// 测试ProtoActor的父子关系订阅
+    /// Test ProtoActor parent-child relationship subscription
     /// </summary>
     [Fact]
     public async Task ProtoActor_Parent_Child_Subscription_Works()
@@ -68,29 +68,29 @@ public class ProtoActorStreamTests : IDisposable
         var child2Actor = await _manager.CreateAndRegisterAsync<ProtoTestChildAgent>(
             child2Id, CancellationToken.None);
         
-        // Act - 建立父子关系 (use actor.Id for Manager operations)
+        // Act - Establish parent-child relationship (use actor.Id for Manager operations)
         await _manager.LinkParentChildAsync(parentActor.Id, child1Actor.Id);
         await _manager.LinkParentChildAsync(parentActor.Id, child2Actor.Id);
         
-        // Child1发送UP事件（应该广播给所有siblings）
+        // Child1 sends UP event (should broadcast to all siblings)
         var child1Agent = child1Actor.GetAgent() as ProtoTestChildAgent;
         await child1Agent!.SendUpMessage("Hello from Child1");
         
-        // 等待消息传播
+        // Wait for message propagation
         await Task.Delay(200);
         
         // Assert
         var child2Agent = child2Actor.GetAgent() as ProtoTestChildAgent;
         var parentAgent = parentActor.GetAgent() as ProtoTestParentAgent;
         
-        // 验证所有节点都收到消息
+        // Verify all nodes received the message
         Assert.Contains("Hello from Child1", child1Agent.ReceivedMessages);
         Assert.Contains("Hello from Child1", child2Agent!.ReceivedMessages);
         Assert.Contains("Hello from Child1", parentAgent!.ReceivedMessages);
     }
     
     /// <summary>
-    /// 测试ProtoActor的消息路由
+    /// Test ProtoActor message routing
     /// </summary>
     [Fact]
     public async Task ProtoActor_Message_Routing_Works_Correctly()
@@ -99,7 +99,7 @@ public class ProtoActorStreamTests : IDisposable
         var rootContext = _actorSystem.Root;
         var registry = new ProtoActorMessageStreamRegistry(rootContext);
         
-        // 创建Actor PIDs
+        // Create Actor PIDs
         var parentPid = rootContext.Spawn(Props.FromFunc(ctx => Task.CompletedTask));
         var childPid = rootContext.Spawn(Props.FromFunc(ctx => Task.CompletedTask));
         
@@ -108,14 +108,14 @@ public class ProtoActorStreamTests : IDisposable
         
         var receivedMessages = new List<string>();
         
-        // Act - 订阅stream
+        // Act - Subscribe to stream
         await parentStream.SubscribeAsync<EventEnvelope>(async envelope =>
         {
             receivedMessages.Add(envelope.Message);
             await Task.CompletedTask;
         });
         
-        // 发送消息
+        // Send message
         await parentStream.ProduceAsync(new EventEnvelope 
         { 
             Message = "Proto Message 1",
@@ -129,7 +129,7 @@ public class ProtoActorStreamTests : IDisposable
     }
     
     /// <summary>
-    /// 测试ProtoActor的Resume机制
+    /// Test ProtoActor Resume mechanism
     /// </summary>
     [Fact]
     public async Task ProtoActor_Resume_Works_After_Pause()
@@ -151,13 +151,13 @@ public class ProtoActorStreamTests : IDisposable
         await stream.ProduceAsync(new EventEnvelope { Message = "Before pause" });
         await Task.Delay(50);
         
-        // 暂停
+        // Pause
         await subscription.UnsubscribeAsync();
         
         await stream.ProduceAsync(new EventEnvelope { Message = "During pause" });
         await Task.Delay(50);
         
-        // 恢复
+        // Resume
         await subscription.ResumeAsync();
         
         await stream.ProduceAsync(new EventEnvelope { Message = "After resume" });
@@ -165,17 +165,17 @@ public class ProtoActorStreamTests : IDisposable
         
         // Assert
         Assert.Contains("Before pause", receivedMessages);
-        Assert.DoesNotContain("During pause", receivedMessages); // 暂停期间的消息不应收到
+        Assert.DoesNotContain("During pause", receivedMessages); // Messages during pause should not be received
         Assert.Contains("After resume", receivedMessages);
     }
     
     /// <summary>
-    /// 测试多层级的事件传播
+    /// Test multi-level event propagation
     /// </summary>
     [Fact]
     public async Task ProtoActor_Multi_Level_Propagation_Works()
     {
-        // Arrange - 创建三层结构
+        // Arrange - Create three-level structure
         var grandparentId = Guid.NewGuid().ToString();
         var parentId = Guid.NewGuid().ToString();
         var childId = Guid.NewGuid().ToString();
@@ -187,11 +187,11 @@ public class ProtoActorStreamTests : IDisposable
         var child = await _manager.CreateAndRegisterAsync<ProtoTestChildAgent>(
             childId, CancellationToken.None);
         
-        // 建立层级关系 (use actor.Id for Manager operations)
+        // Establish hierarchy relationship (use actor.Id for Manager operations)
         await _manager.LinkParentChildAsync(grandparent.Id, parent.Id);
         await _manager.LinkParentChildAsync(parent.Id, child.Id);
         
-        // Act - child发送UP事件
+        // Act - child sends UP event
         var childAgent = child.GetAgent() as ProtoTestChildAgent;
         await childAgent!.SendUpMessage("Bubble up from bottom");
         

@@ -4,8 +4,8 @@ namespace Aevatar.Agents.Cognitive.Primitives;
 //  Workflow / Step data model (DSL runtime core)
 //
 //  WHY:
-//  - WorkflowParser 需要一个稳定的 C# 数据模型来承载 YAML DSL。
-//  - 这些类型不跨 Actor 边界传输（运行时内存结构），不要求 Protobuf。
+//  - WorkflowParser needs a stable C# data model to carry YAML DSL.
+//  - These types don't cross Actor boundaries (runtime memory structures), don't require Protobuf.
 // ============================================================
 
 public sealed class WorkflowDefinition

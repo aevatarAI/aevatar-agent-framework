@@ -51,48 +51,48 @@ message ToolExecutionResult {
 // =====================================================
 
 message AevatarAIAgentConfig {
-  // --- 1. 核心人设 (The Soul) ---
+  // --- 1. Core Persona (The Soul) ---
   string system_prompt = 1;
 
-  // --- 2. 模型选择 (Model Selection) ---
-  // 如果为空，使用全局默认配置
+  // --- 2. Model Selection ---
+  // If empty, use global default configuration
   optional string model = 2; 
   
-  // --- 3. 核心推理参数 (Inference Parameters - MEAI Compatible) ---
-  // 使用 optional 以支持 "未设置则继承默认" 的逻辑
+  // --- 3. Core Inference Parameters (MEAI Compatible) ---
+  // Use optional to support "inherit default if not set" logic
   
-  // 控制随机性 (0.0 - 2.0)
+  // Control randomness (0.0 - 2.0)
   optional float temperature = 3; 
   
-  // 核采样 (0.0 - 1.0)
+  // Nucleus sampling (0.0 - 1.0)
   optional float top_p = 4; 
   
-  // 最大输出长度
+  // Maximum output length
   optional int32 max_output_tokens = 5; 
   
-  // 存在惩罚 (-2.0 - 2.0)
+  // Presence penalty (-2.0 - 2.0)
   optional float presence_penalty = 6; 
   
-  // 频率惩罚 (-2.0 - 2.0)
+  // Frequency penalty (-2.0 - 2.0)
   optional float frequency_penalty = 7;
   
-  // 停止序列
+  // Stop sequences
   repeated string stop_sequences = 8;
   
-  // 随机种子 (用于复现)
+  // Random seed (for reproducibility)
   optional int64 seed = 9;
 
-  // --- 4. 高级行为控制 (Advanced Control) ---
+  // --- 4. Advanced Behavior Control ---
   
-  // 是否允许并行工具调用 (Default: true)
+  // Whether to allow parallel tool calls (Default: true)
   // MEAI: AllowMultipleToolCalls
   optional bool allow_multiple_tool_calls = 10; 
 
-  // 响应格式: "text" or "json_object"
+  // Response format: "text" or "json_object"
   // MEAI: ResponseFormat
   optional string response_format = 11;
 
-  // --- 5. 业务扩展 (Business Extension) ---
+  // --- 5. Business Extension ---
   google.protobuf.Any custom_config = 100;
 }
 
@@ -112,15 +112,15 @@ enum AevatarChatRole {
 // AI Agent Configuration (Framework Level)
 // =====================================================
 
-// AI Agent框架配置（包含AI行为相关的配置）
+// AI Agent framework configuration (contains AI behavior-related configuration)
 message AevatarAIAgentConfiguration {
-  string model = 1;                      // 模型名称
-  double temperature = 2;                // 温度参数
-  int32 max_tokens = 3;                  // 最大token数
-  int32 max_history = 4;                 // 对话历史最大长度
-  double top_p = 5;                      // top_p采样
-  double frequency_penalty = 6;          // 频率惩罚
-  double presence_penalty = 7;           // 存在惩罚
+  string model = 1;                      // Model name
+  double temperature = 2;                // Temperature parameter
+  int32 max_tokens = 3;                  // Maximum token count
+  int32 max_history = 4;                 // Maximum conversation history length
+  double top_p = 5;                      // Top-p sampling
+  double frequency_penalty = 6;          // Frequency penalty
+  double presence_penalty = 7;           // Presence penalty
 }
 
 // =====================================================
@@ -138,7 +138,7 @@ message ConversationSummary {
 // Processing Messages
 // =====================================================
 
-// Token使用情况
+// Token usage
 message AevatarTokenUsage {
   int32 prompt_tokens = 1;
   int32 completion_tokens = 2;
@@ -150,7 +150,7 @@ message AevatarTokenUsage {
 // Memory Events
 // =====================================================
 
-// 记忆存储事件
+// Memory storage event
 message AevatarMemoryStoredEvent {
   string agent_id = 1;
   string memory_type = 2; // short_term, long_term, working
@@ -159,7 +159,7 @@ message AevatarMemoryStoredEvent {
   google.protobuf.Timestamp timestamp = 5;
 }
 
-// 记忆检索事件
+// Memory retrieval event
 message AevatarMemoryRetrievedEvent {
   string agent_id = 1;
   string memory_type = 2;
@@ -168,7 +168,7 @@ message AevatarMemoryRetrievedEvent {
   google.protobuf.Timestamp timestamp = 5;
 }
 
-// 记忆清理事件
+// Memory cleanup event
 message AevatarMemoryCleanupEvent {
   string agent_id = 1;
   string memory_type = 2;

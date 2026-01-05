@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Aevatar Memory Demo</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div>
+        <h1>Aevatar Memory Demo</h1>
+        <div class="sub">State.History · Compaction(history_summary) · IAevatarAIMemory · search_memory</div>
+      </div>
+      <div class="status">
+        <div id="statusBadge" class="badge">loading...</div>
+        <button id="resetBtn" class="btn btn-secondary">Reset Agent</button>
+      </div>
+    </header>
+
+    <section class="panel">
+      <div class="panel-title">Chat</div>
+      <div id="chatLog" class="chat-log"></div>
+      <div class="row">
+        <input id="chatInput" class="input" placeholder="输入一句话，聊到超过 8 条会触发 compaction..." />
+        <button id="sendBtn" class="btn">Send</button>
+      </div>
+      <div class="hint">
+        Tip：先告诉它一个“关键词/事实”，然后连续聊 10 轮，把它挤出 history，再用 Search Memory 搜回来。
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="panel">
+        <div class="panel-title">Short-term (State.History)</div>
+        <div class="row row-tight">
+          <button id="refreshStateBtn" class="btn btn-secondary">Refresh</button>
+        </div>
+        <pre id="stateBox" class="pre"></pre>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Rolling Summary (history_summary)</div>
+        <pre id="summaryBox" class="pre"></pre>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Long-term (IAevatarAIMemory)</div>
+        <div class="row row-tight">
+          <button id="loadLongtermBtn" class="btn btn-secondary">Load History</button>
+        </div>
+        <pre id="longtermBox" class="pre"></pre>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">search_memory (tool)</div>
+        <div class="row row-tight">
+          <input id="searchInput" class="input" placeholder="query..." />
+          <button id="searchBtn" class="btn btn-secondary">Search</button>
+        </div>
+        <pre id="searchBox" class="pre"></pre>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <div>Source: <code>examples/MemoryDemo</code></div>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
+
+

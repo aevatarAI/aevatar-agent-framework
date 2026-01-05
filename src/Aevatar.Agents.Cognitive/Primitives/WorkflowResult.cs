@@ -1,11 +1,11 @@
 namespace Aevatar.Agents.Cognitive.Primitives;
 
 // ============================================================
-//  工作流执行结果
+//  Workflow Execution Result
 // ============================================================
 
 /// <summary>
-/// 工作流执行结果
+/// Workflow execution result
 /// </summary>
 public sealed class WorkflowResult
 {
@@ -32,11 +32,11 @@ public sealed class WorkflowResult
 }
 
 // ============================================================
-//  工作流注册表
+//  Workflow Registry
 // ============================================================
 
 /// <summary>
-/// 内存工作流注册表
+/// In-memory workflow registry
 /// </summary>
 public sealed class InMemoryWorkflowRegistry : IWorkflowRegistry
 {

@@ -20,7 +20,7 @@ using Xunit;
 namespace Aevatar.Agents.Orleans.Tests.Streaming;
 
 /// <summary>
-/// Orleans Stream机制集成测试
+/// Orleans Stream mechanism integration tests
 /// </summary>
 public class OrleansStreamTests : IClassFixture<OrleansStreamTests.ClusterFixture>
 {
@@ -34,7 +34,7 @@ public class OrleansStreamTests : IClassFixture<OrleansStreamTests.ClusterFixtur
     }
 
     /// <summary>
-    /// 测试Orleans grain的父子关系订阅
+    /// Test Orleans grain parent-child relationship subscription
     /// </summary>
     [Fact]
     public async Task Orleans_SetParent_Should_Subscribe_To_Parent_Stream()
@@ -46,15 +46,15 @@ public class OrleansStreamTests : IClassFixture<OrleansStreamTests.ClusterFixtur
         var parentGrain = _grainFactory.GetGrain<IGAgentGrain>(parentId.ToString());
         var childGrain = _grainFactory.GetGrain<IGAgentGrain>(childId.ToString());
 
-        // 激活grains (使用Orleans测试的实际Agent类型)
+        // Activate grains (use actual Agent type for Orleans tests)
         await parentGrain.InitializeAgentAsync("Aevatar.Agents.Orleans.Tests.OrleansTestAgent");
         await childGrain.InitializeAgentAsync("Aevatar.Agents.Orleans.Tests.OrleansTestAgent");
 
-        // Act - 建立父子关系
+        // Act - Establish parent-child relationship
         await childGrain.SetParentAsync(parentId);
         await parentGrain.AddChildAsync(childId);
 
-        // 父节点发布DOWN事件
+        // Parent node publishes DOWN event
         var testEvent = new EventEnvelope
         {
             Id = Guid.NewGuid().ToString(),
@@ -64,17 +64,17 @@ public class OrleansStreamTests : IClassFixture<OrleansStreamTests.ClusterFixtur
         };
         await parentGrain.HandleEventAsync(testEvent.ToByteArray());
 
-        // 等待stream传播
+        // Wait for stream propagation
         await Task.Delay(500);
 
-        // Assert - 通过查询子节点状态验证（实际测试中需要具体实现）
-        // 这里简化为验证关系建立
+        // Assert - Verify by querying child node state (actual test needs specific implementation)
+        // Simplified here to verify relationship establishment
         var childParent = await childGrain.GetParentAsync();
         Assert.Equal(parentId, childParent);
     }
 
     /// <summary>
-    /// 测试Orleans的Resume机制
+    /// Test Orleans Resume mechanism
     /// </summary>
     [Fact]
     public async Task Orleans_Resume_Should_Work_After_Subscription_Failure()
@@ -89,22 +89,22 @@ public class OrleansStreamTests : IClassFixture<OrleansStreamTests.ClusterFixtur
         var receivedMessages = new List<string>();
         var orleansStream = new OrleansMessageStream(Guid.NewGuid().ToString(), stream);
 
-        // Act - 订阅
+        // Act - Subscribe
         var subscription = await orleansStream.SubscribeAsync<EventEnvelope>(async envelope =>
         {
             receivedMessages.Add(envelope.Message);
             await Task.CompletedTask;
         });
 
-        // 发送消息
+        // Send message
         await orleansStream.ProduceAsync(new EventEnvelope { Message = "Message 1" });
         await Task.Delay(200);
 
-        // 暂停并恢复
+        // Pause and resume
         await subscription.UnsubscribeAsync();
         await subscription.ResumeAsync();
 
-        // 再次发送消息
+        // Send message again
         await orleansStream.ProduceAsync(new EventEnvelope { Message = "Message 2" });
         await Task.Delay(200);
 
@@ -114,7 +114,7 @@ public class OrleansStreamTests : IClassFixture<OrleansStreamTests.ClusterFixtur
     }
 
     /// <summary>
-    /// 测试Orleans Stream的类型过滤
+    /// Test Orleans Stream type filtering
     /// </summary>
     [Fact]
     public async Task Orleans_Stream_Type_Filter_Should_Work()
@@ -129,16 +129,16 @@ public class OrleansStreamTests : IClassFixture<OrleansStreamTests.ClusterFixtur
         var orleansStream = new OrleansMessageStream(Guid.NewGuid().ToString(), stream);
         var filteredMessages = new List<string>();
 
-        // Act - 带过滤器订阅
+        // Act - Subscribe with filter
         await orleansStream.SubscribeAsync<EventEnvelope>(
             async envelope =>
             {
                 filteredMessages.Add(envelope.Message);
                 await Task.CompletedTask;
             },
-            envelope => envelope.Direction == EventDirection.Up); // 只接收UP事件
+            envelope => envelope.Direction == EventDirection.Up); // Only receive UP events
 
-        // 发送不同方向的事件
+        // Send events in different directions
         await orleansStream.ProduceAsync(new EventEnvelope
         {
             Message = "UP Event",
@@ -153,13 +153,13 @@ public class OrleansStreamTests : IClassFixture<OrleansStreamTests.ClusterFixtur
 
         await Task.Delay(200);
 
-        // Assert - 只应该收到UP事件
+        // Assert - Should only receive UP events
         Assert.Single(filteredMessages);
         Assert.Contains("UP Event", filteredMessages);
         Assert.DoesNotContain("DOWN Event", filteredMessages);
     }
 
-    // Test Cluster配置
+    // Test Cluster configuration
     public class ClusterFixture : IDisposable
     {
         public TestCluster Cluster { get; private set; }

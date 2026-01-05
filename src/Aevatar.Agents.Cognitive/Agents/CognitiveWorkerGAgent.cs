@@ -16,19 +16,19 @@ namespace Aevatar.Agents.Cognitive.Agents;
 
 // ============================================================
 //  Cognitive Worker Agent
-//  真正执行 LLM 调用的 Actor
-//  每个 Worker 独立运行在 Actor Runtime 上
+//  Actor that actually executes LLM calls
+//  Each Worker runs independently on Actor Runtime
 // ============================================================
 
 /// <summary>
-/// Cognitive Worker Agent - 实际执行 LLM 调用
+/// Cognitive Worker Agent - Actually executes LLM calls
 /// 
-/// 架构：
-/// - Coordinator 通过 Protobuf 事件分发任务
-/// - Worker 独立执行，Actor Runtime 调度
-/// - 完成后发送 Protobuf 事件回 Coordinator
+/// Architecture:
+/// - Coordinator distributes tasks via Protobuf events
+/// - Worker executes independently, scheduled by Actor Runtime
+/// - Sends Protobuf events back to Coordinator after completion
 /// 
-/// 这是真正的 Actor 并行，不是进程内伪并发
+/// This is true Actor parallelism, not in-process pseudo-concurrency
 /// </summary>
 public class CognitiveWorkerGAgent : CognitiveAIGAgentBase<CognitiveWorkerState>
 {
@@ -47,14 +47,14 @@ public class CognitiveWorkerGAgent : CognitiveAIGAgentBase<CognitiveWorkerState>
     }
 
     // ============================================================
-    //  生命周期
+    //  Lifecycle
     // ============================================================
 
     protected override async Task OnActivateAsync(CancellationToken ct = default)
     {
         await base.OnActivateAsync(ct);
 
-        // 初始化 Worker 状态
+        // Initialize Worker state
         var rawId = AgentId.ExtractRawId(Id);
         var compact = rawId.Replace("-", "", StringComparison.Ordinal);
         CustomState.WorkerId = compact.Length > 8 ? compact[..8] : compact;
@@ -68,11 +68,11 @@ public class CognitiveWorkerGAgent : CognitiveAIGAgentBase<CognitiveWorkerState>
     }
 
     // ============================================================
-    //  事件处理
+    //  Event Handling
     // ============================================================
 
     /// <summary>
-    /// 处理执行步骤请求 (Protobuf 事件)
+    /// Handle execute step request (Protobuf event)
     /// </summary>
     [EventHandler]
     public async Task HandleExecuteStepRequest(ExecuteStepRequestEvent request)
@@ -104,7 +104,7 @@ public class CognitiveWorkerGAgent : CognitiveAIGAgentBase<CognitiveWorkerState>
             CustomState.Status = WorkerStatus.WsIdle;
             CustomState.TotalStepsCompleted++;
 
-            // 发送完成事件给 Coordinator (向上传播)
+            // Send completion event to Coordinator (propagate upward)
             await PublishAsync(new StepCompletedEventProto
             {
                 RequestId = request.RequestId,
@@ -138,7 +138,7 @@ public class CognitiveWorkerGAgent : CognitiveAIGAgentBase<CognitiveWorkerState>
     }
 
     // ============================================================
-    //  步骤执行
+    //  Step Execution
     // ============================================================
 
     private async Task<PrimitiveResult> ExecuteStepAsync(ExecuteStepRequestEvent request)
@@ -152,11 +152,11 @@ public class CognitiveWorkerGAgent : CognitiveAIGAgentBase<CognitiveWorkerState>
 
     private async Task<PrimitiveResult> ExecuteLlmCallAsync(ExecuteStepRequestEvent request)
     {
-        // 从 Protobuf Value 转换参数
+        // Convert parameters from Protobuf Value
         var parameters = ConvertFromProtoMap(request.Parameters);
         var variables = ConvertFromProtoMap(request.Variables);
 
-        // 解析参数
+        // Parse parameters
         var prompt = parameters.GetValueOrDefault("prompt")?.ToString() ?? "";
         var systemPrompt = parameters.GetValueOrDefault("system")?.ToString();
         var outputType = parameters.GetValueOrDefault("output")?.ToString() ?? "text";
@@ -172,7 +172,7 @@ public class CognitiveWorkerGAgent : CognitiveAIGAgentBase<CognitiveWorkerState>
         var idleTimeoutSeconds = ResolveInt(parameters.GetValueOrDefault("idle_timeout_seconds"), 30);
         idleTimeoutSeconds = Math.Clamp(idleTimeoutSeconds, 1, timeoutSeconds);
 
-        // 渲染模板
+        // Render template
         prompt = _templateEngine.Render(prompt, variables);
         if (systemPrompt != null)
         {
@@ -261,7 +261,7 @@ public class CognitiveWorkerGAgent : CognitiveAIGAgentBase<CognitiveWorkerState>
                         sb.Append(delta);
                         finalContent = sb.ToString();
 
-                        // Red-flag：长度（尽早停止，避免输出爆炸导致内存/渲染被打穿）
+                        // Red-flag: Length (stop early, avoid output explosion causing memory/rendering to be overwhelmed)
                         if (finalContent.Length > maxLength)
                         {
                             return new PrimitiveResult { Success = false, Error = $"redflag-length>{maxLength}" };
@@ -288,8 +288,8 @@ public class CognitiveWorkerGAgent : CognitiveAIGAgentBase<CognitiveWorkerState>
                                 Result = finalContent,
                                 Error = "",
                                 // IMPORTANT:
-                                // - 这是 streaming 中间态事件，Coordinator 只用于 UI 展示
-                                // - TokensUsed/LlmCalls 不应累计（否则会被反复加总，导致统计爆炸）
+                                // - This is streaming intermediate state event, Coordinator only uses for UI display
+                                // - TokensUsed/LlmCalls should not accumulate (otherwise will be repeatedly summed, causing statistics explosion)
                                 TokensUsed = 0,
                                 LlmCalls = 0,
                                 DurationMs = 0
@@ -365,13 +365,13 @@ public class CognitiveWorkerGAgent : CognitiveAIGAgentBase<CognitiveWorkerState>
             };
         }
 
-        // Red-flag：长度（兜底）
+        // Red-flag: Length (fallback)
         if (finalContent.Length > maxLength)
         {
             return new PrimitiveResult { Success = false, Error = $"redflag-length>{maxLength}" };
         }
 
-        // 解析输出（与 Coordinator 语义对齐：text 不解析；非 text 可 strict/loose）
+        // Parse output (aligned with Coordinator semantics: text not parsed; non-text can be strict/loose)
         object? parsedValue;
         if (string.Equals(outputType, "text", StringComparison.OrdinalIgnoreCase))
         {
@@ -490,11 +490,11 @@ public class CognitiveWorkerGAgent : CognitiveAIGAgentBase<CognitiveWorkerState>
     }
 
     // ============================================================
-    //  辅助方法
+    //  Helper Methods
     // ============================================================
 
     /// <summary>
-    /// 将 Protobuf Value Map 转换为普通字典
+    /// Convert Protobuf Value Map to regular dictionary
     /// </summary>
     private static Dictionary<string, object> ConvertFromProtoMap(
         Google.Protobuf.Collections.MapField<string, Value> protoMap)

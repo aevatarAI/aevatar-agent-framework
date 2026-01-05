@@ -36,5 +36,9 @@
     </None>
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="refs\" />
+  </ItemGroup>
+
 </Project>
 

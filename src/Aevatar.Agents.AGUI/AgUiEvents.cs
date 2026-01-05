@@ -1,15 +1,15 @@
-namespace Aevatar.AxiomReasoning.AgUi;
+namespace Aevatar.Agents.AGUI;
 
 // ============================================================
 //  AG-UI EVENTS (minimal subset)
 //
-//  目标：
-//  - 让 AxiomReasoning 的 SSE 输出对齐 AG-UI Protocol（事件流接口标准化）
-//  - 保持实现极简：只实现本项目需要的事件类型 + CUSTOM 扩展
+//  Goals:
+//  - Align Agent system's SSE output with AG-UI Protocol (standardized event stream interface)
+//  - Keep implementation minimal: only implement event types needed by this project + CUSTOM extensions
 //
 //  NOTE:
-//  - JSON 序列化使用 camelCase（在 Program.cs 里配置），所以这里用 PascalCase 命名即可。
-//  - Timestamp 采用 Unix epoch milliseconds（与 AG-UI SDK 示例一致）。
+//  - JSON serialization uses camelCase (configured in Program.cs), so PascalCase naming here is fine.
+//  - Timestamp uses Unix epoch milliseconds (consistent with AG-UI SDK examples).
 // ============================================================
 
 public abstract record AgUiEvent

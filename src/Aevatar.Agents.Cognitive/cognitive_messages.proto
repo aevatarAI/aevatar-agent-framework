@@ -255,7 +255,7 @@ message FanOutProgress {
 //  Coordinator-Worker Communication Events
 // ============================================================
 
-// Coordinator → Worker: 执行步骤请求
+// Coordinator → Worker: Execute step request
 message ExecuteStepRequestEvent {
     string request_id = 1;
     string step_id = 2;
@@ -264,7 +264,7 @@ message ExecuteStepRequestEvent {
     map<string, google.protobuf.Value> variables = 5;
 }
 
-// Worker → Coordinator: 步骤完成事件
+// Worker → Coordinator: Step completion event
 message StepCompletedEventProto {
     string request_id = 1;
     string step_id = 2;
@@ -277,13 +277,13 @@ message StepCompletedEventProto {
     int32 duration_ms = 9;
 }
 
-// External → Coordinator: 启动工作流请求
+// External → Coordinator: Start workflow request
 message StartWorkflowRequestEvent {
     string workflow_name = 1;
     map<string, google.protobuf.Value> variables = 2;
 }
 
-// Coordinator → External: 工作流完成事件
+// Coordinator → External: Workflow completion event
 message WorkflowCompletedEventProto {
     string execution_id = 1;
     bool success = 2;
@@ -295,7 +295,7 @@ message WorkflowCompletedEventProto {
 //  Workflow Visualization Events (for Frontend)
 // ============================================================
 
-// 步骤执行事件 - 用于前端可视化
+// Step execution event - for frontend visualization
 message WorkflowStepEvent {
     string run_id = 1;
     string workflow_name = 2;
@@ -306,36 +306,36 @@ message WorkflowStepEvent {
     string message = 7;
     google.protobuf.Timestamp timestamp = 8;
     
-    // 步骤元信息
-    string parent_step_id = 9;      // 嵌套步骤的父 ID
-    int32 depth = 10;               // 递归深度
+    // Step metadata
+    string parent_step_id = 9;      // Parent ID of nested step
+    int32 depth = 10;               // Recursion depth
     
-    // 投票特定
+    // Vote-specific
     int32 vote_round = 11;
     int32 vote_max_rounds = 12;
     int32 vote_k = 13;
     int32 vote_current_votes = 14;
     
-    // fan_out 特定
+    // fan_out-specific
     int32 parallel_total = 15;
     int32 parallel_completed = 16;
     int32 parallel_failed = 17;
     
-    // 耗时统计
+    // Time statistics
     int32 duration_ms = 18;
     int32 llm_calls = 19;
     int32 tokens_used = 20;
     
-    // LLM 对话记录 (用于前端可视化)
+    // LLM conversation history (for frontend visualization)
     string system_prompt = 21;
     string user_prompt = 22;
     string assistant_response = 23;
     
-    // Red-Flag 信息 (论文 Section 3.3)
+    // Red-Flag information (Paper Section 3.3)
     string red_flag_reason = 24;
 }
 
-// 工作流结构（用于前端渲染图）
+// Workflow structure (for frontend graph rendering)
 message WorkflowStructure {
     string name = 1;
     string version = 2;
@@ -349,11 +349,11 @@ message WorkflowStepNode {
     string label = 3;
     bool is_parallel = 4;
     bool is_conditional = 5;
-    repeated WorkflowStepNode children = 6;  // 嵌套子步骤
+    repeated WorkflowStepNode children = 6;  // Nested child steps
 }
 
 message WorkflowEdge {
     string from_id = 1;
     string to_id = 2;
-    string condition = 3;  // 条件分支时的条件描述
+    string condition = 3;  // Condition description for conditional branches
 }

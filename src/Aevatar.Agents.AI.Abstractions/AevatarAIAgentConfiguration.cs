@@ -1,7 +1,7 @@
 namespace Aevatar.Agents.AI.Abstractions;
 
 /// <summary>
-/// AI Agent配置
+/// AI Agent configuration
 /// </summary>
 public class AevatarAIAgentConfiguration
 {

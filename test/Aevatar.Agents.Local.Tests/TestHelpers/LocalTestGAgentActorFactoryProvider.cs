@@ -6,8 +6,8 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Aevatar.Agents.Local.Tests.TestHelpers;
 
 /// <summary>
-/// 测试用的Agent工厂提供者
-/// 为测试提供简单的工厂实现，避免需要复杂的DI配置
+/// Agent factory provider for testing
+/// Provides simple factory implementation for tests, avoiding complex DI configuration
 /// </summary>
 public class LocalTestGAgentActorFactoryProvider : IGAgentActorFactoryProvider
 {
@@ -24,26 +24,26 @@ public class LocalTestGAgentActorFactoryProvider : IGAgentActorFactoryProvider
     public void RegisterFactory<TAgent>(Func<IGAgentActorFactory, string, CancellationToken, Task<IGAgentActor>> factory)
         where TAgent : IGAgent
     {
-        // 测试中不需要注册，自动创建
+        // No registration needed in tests, auto-create
     }
 
     public void RegisterFactory(Type agentType, Func<IGAgentActorFactory, string, CancellationToken, Task<IGAgentActor>> factory)
     {
-        // 测试中不需要注册，自动创建
+        // No registration needed in tests, auto-create
     }
 
     public Func<IGAgentActorFactory, string, CancellationToken, Task<IGAgentActor>>? GetFactory(Type agentType)
     {
-        // 为所有测试Agent提供简单的工厂实现
+        // Provide simple factory implementation for all test Agents
         return async (factory, id, ct) =>
         {
-            // 检查是否已存在
+            // Check if already exists
             if (_streamRegistry.StreamExists(id))
             {
                 throw new InvalidOperationException($"Agent with id {id} already exists");
             }
 
-            // 创建Agent实例 - 直接使用Activator
+            // Create Agent instance - directly use Activator
             var agent = Activator.CreateInstance(agentType, id) as IGAgent;
             if (agent == null)
             {

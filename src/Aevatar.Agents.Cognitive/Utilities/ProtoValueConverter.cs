@@ -3,17 +3,17 @@ using Google.Protobuf.WellKnownTypes;
 namespace Aevatar.Agents.Cognitive.Utilities;
 
 // ============================================================
-//  Protobuf Value 转换器
-//  职责：在 C# 对象和 Protobuf Value 之间转换
+//  Protobuf Value Converter
+//  Responsibility: Convert between C# objects and Protobuf Value
 // ============================================================
 
 /// <summary>
-/// Protobuf Value 转换工具。
+/// Protobuf Value conversion utility.
 /// </summary>
 public static class ProtoValueConverter
 {
     /// <summary>
-    /// 将 Protobuf Value 转换为 C# 对象。
+    /// Convert Protobuf Value to C# object.
     /// </summary>
     public static object FromProto(Value value) => value.KindCase switch
     {
@@ -27,7 +27,7 @@ public static class ProtoValueConverter
     };
     
     /// <summary>
-    /// 将 Protobuf Struct 转换为 Dictionary。
+    /// Convert Protobuf Struct to Dictionary.
     /// </summary>
     public static Dictionary<string, object> FromProtoStruct(Struct protoStruct)
     {
@@ -40,7 +40,7 @@ public static class ProtoValueConverter
     }
     
     /// <summary>
-    /// 将 C# 对象转换为 Protobuf Value。
+    /// Convert C# object to Protobuf Value.
     /// </summary>
     public static Value ToProto(object? value) => value switch
     {
@@ -57,7 +57,7 @@ public static class ProtoValueConverter
     };
     
     /// <summary>
-    /// 将 Dictionary 转换为 Protobuf Value (Struct)。
+    /// Convert Dictionary to Protobuf Value (Struct).
     /// </summary>
     public static Value ToProtoStruct(IDictionary<string, object> dict)
     {

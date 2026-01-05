@@ -13,8 +13,8 @@ namespace Aevatar.Agents.Cognitive.Execution;
 //  HpaExecutor (token-free, coordinator-only)
 //
 //  WHY:
-//  - 把 HPA 的“几何/相位/扫描”计算从 LLM 里拿出来（0 token）
-//  - 给 workflow 提供可验证的数值指标：scan_target / embedding / gap / associator 等
+//  - Extract HPA's "geometry/phase/scan" calculations from LLM (0 tokens)
+//  - Provide verifiable numerical metrics for workflow: scan_target / embedding / gap / associator etc.
 // ============================================================
 
 public sealed class HpaExecutor

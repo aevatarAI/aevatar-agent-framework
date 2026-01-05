@@ -180,7 +180,7 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
     }
 
     /// <summary>
-    /// 创建 Worker 池
+    /// Create Worker pool
     /// </summary>
     public async Task CreateWorkerPoolAsync(int poolSize = 5, IReadOnlyList<Guid>? workerIds = null)
     {
@@ -218,10 +218,10 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
 
         for (var i = 0; i < ids.Count; i++)
         {
-            // 创建 Worker Actor
+            // Create Worker Actor
             var rawWorkerId = ids[i].ToString("D");
             var workerActor = await _actorManager.CreateAndRegisterAsync<CognitiveWorkerGAgent>(rawWorkerId);
-            var workerActorId = workerActor.Id; // 规范化后的完整 ActorId: "CognitiveWorkerGAgent:RawId"
+            var workerActorId = workerActor.Id; // Normalized full ActorId: "CognitiveWorkerGAgent:RawId"
 
             if (workerActor.GetAgent() is CognitiveWorkerGAgent worker)
             {
@@ -232,14 +232,14 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
                 worker.ChatHistorySummaryMaxChars = ChatHistorySummaryMaxChars;
                 worker.ArchiveCompactedHistoryToAIMemory = ArchiveCompactedHistoryToAIMemory;
 
-                // 初始化 Worker 的 LLM Provider（否则 Worker.LLMProvider 会抛异常）
+                // Initialize Worker's LLM Provider (otherwise Worker.LLMProvider will throw exception)
                 if (!string.IsNullOrWhiteSpace(providerName))
                 {
                     await worker.InitializeAsync(providerName!, cancellationToken: CancellationToken.None);
                 }
             }
 
-            // 设置父子关系（Worker 订阅 Coordinator 的流）
+            // Set parent-child relationship (Worker subscribes to Coordinator's stream)
             await _actorManager.LinkParentChildAsync(Id, workerActorId);
 
             _workerIds.Add(workerActorId);
@@ -251,7 +251,7 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
     }
 
     /// <summary>
-    /// 注册工作流
+    /// Register workflow
     /// </summary>
     public void RegisterWorkflow(WorkflowDefinition workflow)
     {
@@ -259,7 +259,7 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
     }
 
     /// <summary>
-    /// 获取执行结果
+    /// Get execution result
     /// </summary>
     public WorkflowResult GetResult() => new()
     {
@@ -271,12 +271,12 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
     };
 
     // ============================================================
-    //  事件处理
+    //  Event Handling
     // ============================================================
 
     private async Task<PrimitiveResult> ExecuteStepAsync(StepDefinition step)
     {
-        // 预渲染 prompt 用于开始事件（确保 WORKERS 面板能显示完整提示词）
+        // Pre-render prompt for start event (ensure WORKERS panel can display complete prompt)
         string? preRenderedPrompt = null;
         string? preRenderedSystem = null;
 
@@ -289,7 +289,7 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
             if (rawSystem != null)
                 preRenderedSystem = _templateEngine.Render(rawSystem, _workflowVariables);
 
-            // 调试：如果 task 变量为空，记录警告
+            // Debug: If task variable is empty, log warning
             if (rawPrompt.Contains("{{task}}") &&
                 string.IsNullOrWhiteSpace(_workflowVariables.GetValueOrDefault("task")?.ToString()))
             {
@@ -298,7 +298,7 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
             }
         }
 
-        // 发送开始事件（包含预渲染的 prompt）
+        // Send start event (includes pre-rendered prompt)
         EmitStepEvent(step, StepStatus.Running,
             userPrompt: preRenderedPrompt,
             systemPrompt: preRenderedSystem);
@@ -307,15 +307,15 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
         {
             var result = step.Type switch
             {
-                // 简单步骤：Coordinator 直接执行（传递预渲染的 prompt 避免重复渲染）
+                // Simple step: Coordinator executes directly (pass pre-rendered prompt to avoid duplicate rendering)
                 "llm_call" => await ExecuteLlmCallDirectAsync(step, preRenderedPrompt, preRenderedSystem),
                 "conditional" => await ExecuteConditionalAsync(step),
 
-                // 并行步骤：分发给 Workers (真正的 Actor 并行)
+                // Parallel step: Distribute to Workers (true Actor parallelism)
                 "fan_out" => await ExecuteFanOutAsync(step),
                 "parallel" => await ExecuteParallelAsync(step),
 
-                // 其他
+                // Others
                 "vote" => await ExecuteVoteAsync(step),
                 "workflow_call" => await ExecuteWorkflowCallAsync(step),
                 "checkpoint" => await ExecuteCheckpointAsync(step),
@@ -327,7 +327,7 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
                 _ => PrimitiveResult.Fail($"Unknown step type: {step.Type}")
             };
 
-            // 发送完成/失败事件（包含对话记录）
+            // Send completion/failure event (includes conversation history)
             EmitStepEvent(step,
                 result.Success ? StepStatus.Completed : StepStatus.Failed,
                 result.Success ? null : result.Error,
@@ -365,8 +365,8 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
         //  HPA (token-free, coordinator-only)
         //
         //  WHY:
-        //  - 把 HPA 的“可计算几何层”从 prompt 中剥离出来
-        //  - 让 workflow 可以用 deterministic 指标做分流/调度，而不是让 LLM 自己讲故事
+        //  - Extract HPA's "computable geometric layer" from prompt
+        //  - Allow workflow to use deterministic metrics for routing/scheduling, instead of letting LLM tell stories
         // ============================================================
         _hpaExecutor ??= new HpaExecutor(_templateEngine, Logger);
         var result = _hpaExecutor.Execute(step, _workflowVariables);
@@ -374,7 +374,7 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
     }
 
     // ============================================================
-    //  其他步骤
+    //  Other Steps
     // ============================================================
 
     private async Task<PrimitiveResult> ExecuteConditionalAsync(StepDefinition step)
@@ -389,9 +389,9 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
         catch (Exception ex)
         {
             // IMPORTANT:
-            // - conditional 是控制流关键节点（stop_or_continue / ensure_state）
-            // - 这里抛异常会直接 FailExecutionAsync，表现为“系统彻底停了”
-            // - 策略：默认走 if_false（继续执行），并把错误记录下来（可从 UI/日志看到）
+            // - conditional is a critical control flow node (stop_or_continue / ensure_state)
+            // - Throwing exception here will directly FailExecutionAsync, manifesting as "system completely stopped"
+            // - Strategy: Default to if_false (continue execution), and record the error (visible in UI/logs)
             conditionResult = false;
             evalError = $"conditional-eval-error: {ex.Message}";
             Logger.LogWarning(ex, "[Conditional] Evaluate failed at step {StepId}: {Expr}", step.Id, conditionExpr);
@@ -414,7 +414,7 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
             return PrimitiveResult.Ok();
         }
 
-        // 执行分支
+        // Execute branch
         Logger.LogInformation("[DEBUG][Conditional] Executing branch with {Count} steps: [{Steps}]",
             branch.Count, string.Join(", ", branch.Select(s => s.Id)));
 
@@ -473,15 +473,15 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
         }
 
         // ============================================================
-        //  对单次 workflow_call 允许覆盖 max_depth
+        //  Allow overriding max_depth for single workflow_call
         //
         //  WHY:
-        //  - YAML 既支持 workflow 输入 max_depth，也可能在 workflow_call.params 里传 max_depth
-        //  - Coordinator 内部执行 workflow_call 不走 StartWorkflowRequest，因此需要在这里显式处理
+        //  - YAML supports both workflow input max_depth and passing max_depth in workflow_call.params
+        //  - Coordinator's internal workflow_call execution doesn't go through StartWorkflowRequest, so need explicit handling here
         // ============================================================
         var savedMaxDepth = CustomState.MaxDepth;
 
-        // 检查递归深度
+        // Check recursion depth
         CustomState.CurrentDepth++;
         if (CustomState.CurrentDepth > CustomState.MaxDepth)
         {
@@ -491,7 +491,7 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
 
         try
         {
-            // 构建子上下文
+            // Build child context
             var childVariables = new Dictionary<string, object>(_workflowVariables);
             if (step.Params != null)
             {
@@ -506,13 +506,13 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
                 }
             }
 
-            // 允许子调用用 params.max_depth 覆盖（仅对本次调用生效）
+            // Allow child call to override with params.max_depth (only effective for this call)
             if (TryGetPositiveInt(childVariables, "max_depth", out var callMaxDepth))
             {
                 CustomState.MaxDepth = Math.Clamp(callMaxDepth, 1, 200);
             }
 
-            // 临时替换变量
+            // Temporarily replace variables
             var savedVariables = new Dictionary<string, object>(_workflowVariables);
             _workflowVariables.Clear();
             foreach (var (key, value) in childVariables)
@@ -520,12 +520,12 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
                 _workflowVariables[key] = value;
             }
 
-            // 执行子工作流
+            // Execute child workflow
             await ExecuteWorkflowAsync(workflow);
 
             var output = _workflowVariables.GetValueOrDefault("_output");
 
-            // DEBUG: 检查子工作流输出
+            // DEBUG: Check child workflow output
             Logger.LogInformation("[DEBUG][WorkflowCall] _output is null: {IsNull}, type: {Type}",
                 output == null, output?.GetType().FullName ?? "null");
             if (output is Dictionary<string, object?> dict)
@@ -537,7 +537,7 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
                 }
             }
 
-            // 恢复变量
+            // Restore variables
             _workflowVariables.Clear();
             foreach (var (key, value) in savedVariables)
             {
@@ -548,14 +548,14 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
         }
         finally
         {
-            // 恢复本次调用前的 maxDepth，避免污染外层流程
+            // Restore maxDepth before this call, avoid polluting outer workflow
             CustomState.MaxDepth = savedMaxDepth;
             CustomState.CurrentDepth--;
         }
     }
 
     // ============================================================
-    //  小工具：从变量表里解析正整数
+    //  Utility: Parse positive integer from variable table
     // ============================================================
     private static bool TryGetPositiveInt(
         Dictionary<string, object> variables,
@@ -676,6 +676,6 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
         };
     }
 
-    // Protobuf 转换：使用 ProtoValueConverter 工具类
+    // Protobuf conversion: Use ProtoValueConverter utility class
 
 }

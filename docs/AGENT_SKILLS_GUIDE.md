@@ -28,6 +28,30 @@
 
 ---
 
+## Skills vs AI tool / MCP tool（实现与维护对比）
+
+先把概念拉直：**Skills 是“知识/流程层”，tools 是“执行层”**。Skills 不替代 AI tool / MCP tool，而是通过 `skills_list/skills_load` 做技能发现与正文按需加载，并可用 `allowed-tools` 在本次 `ChatAsync/ChatStreamAsync` 的 tool-loop 内收紧可用工具集合（见下文“硬约束语义”一节）。
+
+### 对比表（按“实现 & 维护”视角）
+
+| 维度 | Agent Skills（SKILL.md） | AI tool（内置/自定义工具） | MCP tool（MCP Server 工具） |
+| --- | --- | --- | --- |
+| **主要载体** | `SKILL.md`（YAML front matter + 正文 SOP） | 宿主侧 C# 工具实现 + tool schema | MCP server 对外暴露的 tool |
+| **能力定位** | “告诉模型怎么做”：流程、规范、模板、排错步骤 | “让模型能做事”：本地执行动作 | “让模型能做事”：外部系统/远端执行动作 |
+| **如何暴露给模型** | 先注册 `skills_list/skills_load` 两个入口 tool | 通过 `AIGAgentBase.RegisterToolsAsync(...)` 注册 | 通过 `ToolManager.RegisterMCPServerAsync(...)` 注册 server |
+| **是否按需加载** | ✅ 是：`skills_load` 才把正文加载进上下文 | ❌ 否：通常每次请求都提前把工具定义给模型 | ❌ 否：注册后工具定义可见；调用时再执行 |
+| **“不提前注册每个工具”的程度** | ✅ 可：skill 目录内 dotnet-file tools 可在 `skills_load(register_tools=true)` 时自动导入 | ❌ 不行：每个工具都要显式注册/维护 | ❌ 不行：必须先注册 server（工具清单由 server 提供） |
+| **安全与权限** | ✅ `allowed-tools` 可做“硬约束”（仅当前 tool-loop） | 取决于宿主侧权限/拦截/参数校验 | 取决于 server/宿主权限；也可被 Skills allowlist 再次收紧 |
+| **典型场景** | SOP/Runbook、代码规范、故障排查、模板化任务 | 文件操作、内部 API、计算/转换、受控本地能力 | 调用外部 SaaS、企业工具、检索/数据库、跨系统集成 |
+
+### 选型建议（非常实用）
+
+- **优先 Skills**：当问题本质是“流程/规范/模板复用”，且你希望内容可独立迭代（改 `SKILL.md` 即生效）。
+- **使用 AI tool / MCP tool**：当问题需要“真实动作执行”（读写、调用服务、查数据）。
+- **组合使用**：让 Skills 规定“何时调用哪个工具 + 参数规范 + 失败时怎么回退”，并用 `allowed-tools` 把可用工具收紧到最小集合。
+
+---
+
 ## 集成方式（在 AIGAgentBase 里）
 
 ### 代码入口

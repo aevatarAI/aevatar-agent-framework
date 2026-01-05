@@ -8,14 +8,14 @@ namespace Aevatar.Agents.Cognitive.Agents;
 //  CognitiveCoordinatorGAgent - Parameters / Red-Flag / Parsing
 //
 //  WHY:
-//  - 这些方法被 vote / fan_out / llm_call 等多个路径共享。
-//  - 集中管理，避免“同一配置语义”分散在各处造成漂移。
+//  - These methods are shared by multiple paths like vote / fan_out / llm_call.
+//  - Centralized management to avoid "same configuration semantics" scattered causing drift.
 // ============================================================
 
 public partial class CognitiveCoordinatorGAgent
 {
     /// <summary>
-    /// 根据输出类型解析 LLM 返回的内容
+    /// Parse LLM returned content based on output type
     /// </summary>
     private object? ParseOutput(string content, string outputType)
     {
@@ -33,14 +33,14 @@ public partial class CognitiveCoordinatorGAgent
     }
 
     /// <summary>
-    /// 解析步骤级别的 Red-Flag 策略
-    /// DSL 语法：
-    ///   red_flag: english    # 使用英文策略
-    ///   red_flag: chinese    # 使用中文策略
-    ///   red_flag: code       # 使用代码策略
-    ///   red_flag: false      # 禁用
-    ///   red_flag: true       # 使用 Coordinator 默认配置
-    ///   (不写)                # 使用 Coordinator 默认配置
+    /// Resolve step-level Red-Flag strategy
+    /// DSL syntax:
+    ///   red_flag: english    # Use English strategy
+    ///   red_flag: chinese    # Use Chinese strategy
+    ///   red_flag: code       # Use code strategy
+    ///   red_flag: false      # Disable
+    ///   red_flag: true       # Use Coordinator default configuration
+    ///   (not written)        # Use Coordinator default configuration
     /// </summary>
     private IRedFlagStrategy? ResolveRedFlagStrategy(Dictionary<string, object?> parameters)
     {
@@ -48,24 +48,24 @@ public partial class CognitiveCoordinatorGAgent
 
         return redFlagConfig switch
         {
-            // 显式禁用
+            // Explicitly disabled
             false or "false" or "none" or "disabled" => null,
 
-            // 显式启用（使用默认配置）
+            // Explicitly enabled (use default configuration)
             true or "true" or "default" => _redFlagStrategy,
 
-            // 指定策略名称
+            // Specify strategy name
             "english" => new DefaultEnglishRedFlagStrategy(),
             "chinese" => new ChineseRedFlagStrategy(),
             "code" => new CodeAwareRedFlagStrategy(),
 
-            // 嵌套配置对象
+            // Nested configuration object
             Dictionary<string, object?> config => ResolveRedFlagFromConfig(config),
 
-            // 未配置：使用 Coordinator 默认
+            // Not configured: use Coordinator default
             null => _redFlagStrategy,
 
-            // 其他：尝试解析为策略名
+            // Other: try parsing as strategy name
             string name => ResolveRedFlagByName(name),
 
             _ => _redFlagStrategy
@@ -114,7 +114,7 @@ public partial class CognitiveCoordinatorGAgent
     };
 
     // ============================================================
-    //  参数解析辅助方法
+    //  Parameter parsing helper methods
     // ============================================================
 
     private int ResolveIntParameter(Dictionary<string, object?> parameters, string key, int defaultValue)
@@ -150,7 +150,7 @@ public partial class CognitiveCoordinatorGAgent
     }
 
     /// <summary>
-    /// 安全转换为 int，处理 object unboxing
+    /// Safely convert to int, handle object unboxing
     /// </summary>
     private static int ConvertToInt(object? value, int defaultValue) => value switch
     {
@@ -191,7 +191,7 @@ public partial class CognitiveCoordinatorGAgent
     };
 
     /// <summary>
-    /// 安全转换为 float，处理 object unboxing
+    /// Safely convert to float, handle object unboxing
     /// </summary>
     private static float ConvertToFloat(object? value, float defaultValue) => value switch
     {

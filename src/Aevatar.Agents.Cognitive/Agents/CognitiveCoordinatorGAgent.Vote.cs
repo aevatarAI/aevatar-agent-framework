@@ -12,8 +12,8 @@ namespace Aevatar.Agents.Cognitive.Agents;
 //  CognitiveCoordinatorGAgent - Vote (consensus)
 //
 //  WHY:
-//  - vote 是“并行 + streaming + 语义聚类 + 红旗”的复杂节点。
-//  - 独立成文件，避免 Coordinator 主文件继续膨胀。
+//  - vote is a complex node combining "parallelism + streaming + semantic clustering + red-flag".
+//  - Separate into file to avoid Coordinator main file continuing to expand.
 // ============================================================
 
 public partial class CognitiveCoordinatorGAgent
@@ -31,8 +31,8 @@ public partial class CognitiveCoordinatorGAgent
         }
 
         // ─────────────────────────────────────────────
-        //  Red-Flag 策略（可插拔）
-        //  优先级：步骤配置 > Coordinator 默认配置 > null (禁用)
+        //  Red-Flag strategy (pluggable)
+        //  Priority: step configuration > Coordinator default configuration > null (disabled)
         // ─────────────────────────────────────────────
         var redFlagStrategy = ResolveRedFlagStrategy(step.Parameters);
         var redFlagCount = 0;
@@ -48,12 +48,12 @@ public partial class CognitiveCoordinatorGAgent
         }
 
         // ─────────────────────────────────────────────
-        //  使用 MAKER 的语义聚类 VoteEngine
-        //  如果没有配置 embedding generator，自动回退到精确匹配
+        //  Use MAKER's semantic clustering VoteEngine
+        //  If embedding generator not configured, automatically fall back to exact matching
         // ─────────────────────────────────────────────
         using var engine = new VoteEngine(
             k,
-            _embeddingGenerator, // null 时自动回退到精确匹配
+            _embeddingGenerator, // Automatically fall back to exact matching when null
             maxRounds,
             similarity);
 
@@ -66,10 +66,10 @@ public partial class CognitiveCoordinatorGAgent
         var totalCalls = 0;
         VoteResult? consensusResult = null;
         var round = 0;
-        // 记录达成共识的轮次（用于 UI 与日志一致性）
+        // Record round when consensus reached (for UI and log consistency)
         int? consensusReachedAtRound = null;
 
-        // 并行批次大小：每批同时生成 N 个提案（受 Worker 数量和 K 值限制）
+        // Parallel batch size: generate N proposals simultaneously per batch (limited by Worker count and K value)
         var batchSize = Math.Max(1, Math.Min(k + 1, _workerIds.Count > 0 ? _workerIds.Count : 3));
         Logger.LogDebug(
             "[VOTE] batchSize={BatchSize}, k={K}, workers={WorkerCount}",
@@ -77,7 +77,7 @@ public partial class CognitiveCoordinatorGAgent
 
         while (consensusResult == null && round < maxRounds)
         {
-            // 红旗过多时提前终止
+            // Terminate early when too many red flags
             if (redFlagCount >= maxRedFlags)
             {
                 Logger.LogWarning(
@@ -88,14 +88,14 @@ public partial class CognitiveCoordinatorGAgent
 
             var batchRound = round / batchSize + 1;
 
-            // 发送投票进度事件
+            // Send voting progress event
             EmitStepEvent(step, StepStatus.Running,
                 $"Voting batch {batchRound}, generating {batchSize} proposals in parallel",
                 progress: (float)round / maxRounds,
                 voteRound: round, voteMaxRounds: maxRounds, voteK: k,
                 parallelTotal: batchSize, parallelCompleted: 0);
 
-            // 预渲染 prompt（所有并行任务共用）
+            // Pre-render prompt (shared by all parallel tasks)
             var genPrompt = generator.Parameters.GetValueOrDefault("prompt")?.ToString() ?? "";
             var genSystem = generator.Parameters.GetValueOrDefault("system")?.ToString();
 
@@ -111,8 +111,8 @@ public partial class CognitiveCoordinatorGAgent
             }
 
             // ============================================================
-            //  关键诊断：compose 卡住时，最常见是“模板渲染”或“LLM 首 token”卡住
-            //  这里先把模板渲染耗时打出来，便于定位是否卡在 Render()
+            //  Critical diagnosis: When compose hangs, most common causes are "template rendering" or "LLM first token" hanging
+            //  Output template rendering time here first to help locate if stuck at Render()
             // ============================================================
             var renderSw = System.Diagnostics.Stopwatch.StartNew();
             Logger.LogInformation("[VOTE] {StepId}: Rendering generator template...", step.Id);
@@ -123,8 +123,8 @@ public partial class CognitiveCoordinatorGAgent
                 step.Id, renderSw.ElapsedMilliseconds, genPrompt.Length);
 
             // ─────────────────────────────────────────────
-            //  并行生成提案：同时启动多个 LLM 调用
-            //  ⚡ 关键：先发送所有开始事件，实现视觉并行
+            //  Parallel proposal generation: Start multiple LLM calls simultaneously
+            //  ⚡ Key: Send all start events first to achieve visual parallelism
             // ─────────────────────────────────────────────
             var batchTasks = new List<(int index, StepDefinition step, Task<PrimitiveResult> task)>();
 
@@ -137,8 +137,8 @@ public partial class CognitiveCoordinatorGAgent
                 var genStepId = $"{step.Id}.gen[{proposalIndex}]";
                 var genStep = new StepDefinition { Id = genStepId, Type = "llm_call" };
 
-                // 发送开始事件（所有卡片同时出现）
-                // parallelTotal = batchSize，确保前端能正确计算 workerCount
+                // Send start event (all cards appear simultaneously)
+                // parallelTotal = batchSize, ensure frontend can correctly calculate workerCount
                 EmitStepEvent(genStep, StepStatus.Running,
                     $"Generating proposal #{proposalIndex}",
                     progress: 0,
@@ -147,15 +147,15 @@ public partial class CognitiveCoordinatorGAgent
                     systemPrompt: genSystem,
                     userPrompt: genPrompt);
 
-                // 启动 LLM 调用（不 await）
+                // Start LLM call (don't await)
                 var task = ExecuteLlmCallWithStreamingAsync(generator, genStep, genSystem, genPrompt);
                 batchTasks.Add((proposalIndex, genStep, task));
             }
 
-            // 等待所有并行任务完成
+            // Wait for all parallel tasks to complete
             var results = await Task.WhenAll(batchTasks.Select(t => t.task));
 
-            // 处理结果
+            // Process results
             for (int i = 0; i < results.Length; i++)
             {
                 round++;
@@ -165,7 +165,7 @@ public partial class CognitiveCoordinatorGAgent
                 totalTokens += result.TokensUsed;
                 totalCalls += result.LlmCalls;
 
-                // 发送完成事件
+                // Send completion event
                 EmitStepEvent(genStep, result.Success ? StepStatus.Completed : StepStatus.Failed,
                     result.Success ? $"Proposal #{proposalIndex} generated" : $"Generation failed: {result.Error}",
                     progress: 1,
@@ -177,15 +177,15 @@ public partial class CognitiveCoordinatorGAgent
 
                 if (!result.Success) continue;
 
-                // ✅ 已达成共识：仍然要把本批次剩余提案的完成事件都发出去（否则 UI 会出现某个 worker 永远空/卡住），
-                // 但不再继续投票消耗。
+                // ✅ Consensus reached: Still send completion events for remaining proposals in this batch (otherwise UI will show some worker always empty/stuck),
+                // but no longer continue voting consumption.
                 if (consensusResult != null) continue;
 
-                // 使用原始 LLM 响应进行投票（不是解析后的对象）
-                // VoteEngine 需要原始字符串来做语义聚类
+                // Use raw LLM response for voting (not parsed object)
+                // VoteEngine needs raw string for semantic clustering
                 var proposal = result.AssistantResponse ?? result.Value?.ToString() ?? "";
 
-                // Red-Flag 验证
+                // Red-Flag validation
                 if (redFlagStrategy != null)
                 {
                     var proposalId = $"{step.Id}.round{proposalIndex}";
@@ -204,16 +204,16 @@ public partial class CognitiveCoordinatorGAgent
                     }
                 }
 
-                // 提交投票
+                // Submit vote
                 consensusResult = await engine.SubmitVoteAsync(proposal);
                 if (consensusResult != null && consensusReachedAtRound == null)
                 {
-                    // 保留“首次达成共识”的轮次，不被后续（未投票的）提案影响
+                    // Preserve "first consensus reached" round, not affected by subsequent (unvoted) proposals
                     consensusReachedAtRound = proposalIndex;
                 }
             }
 
-            // 发送当前投票状态
+            // Send current voting status
             var currentVotes = consensusResult?.LeaderVotes ?? 0;
             var displayRound = consensusReachedAtRound ?? round;
             EmitStepEvent(step, StepStatus.Running,
@@ -230,10 +230,10 @@ public partial class CognitiveCoordinatorGAgent
             }
         }
 
-        // 添加 embedding 调用计数
+        // Add embedding call count
         var embeddingCalls = engine.EmbeddingCallCount;
 
-        // 获取原始内容
+        // Get raw content
         string rawContent;
         if (consensusResult != null && consensusResult.Success)
         {
@@ -242,7 +242,7 @@ public partial class CognitiveCoordinatorGAgent
         }
         else
         {
-            // 没有达成共识，返回得票最多的
+            // No consensus reached, return most voted
             var bestCandidate = engine.GetBestCandidate();
             rawContent = bestCandidate?.Content ?? "";
 
@@ -252,12 +252,12 @@ public partial class CognitiveCoordinatorGAgent
         }
 
         // ─────────────────────────────────────────────
-        //  关键修复：根据 generator.output 解析结果
-        //  例如 output: json_array 应该返回 List<object>
+        //  Critical fix: Parse result according to generator.output
+        //  For example output: json_array should return List<object>
         // ─────────────────────────────────────────────
         var outputType = generator.Parameters.GetValueOrDefault("output")?.ToString() ?? "text";
 
-        // DEBUG: 检查 rawContent
+        // DEBUG: Check rawContent
         Logger.LogInformation("[DEBUG][Vote] rawContent length: {Len}", rawContent.Length);
         Logger.LogInformation("[DEBUG][Vote] rawContent preview: {Preview}",
             rawContent.Length > 500 ? rawContent[..500] : rawContent);
@@ -269,7 +269,7 @@ public partial class CognitiveCoordinatorGAgent
             return PrimitiveResult.Fail("redflag-parse-null");
         }
 
-        // DEBUG: 检查解析结果
+        // DEBUG: Check parsed result
         Logger.LogInformation("[DEBUG][Vote] parsedResult is null: {IsNull}", parsedResult == null);
         if (parsedResult is System.Collections.IList list)
         {
@@ -277,12 +277,12 @@ public partial class CognitiveCoordinatorGAgent
         }
 
         // ============================================================
-        //  将“最终共识内容”透出到步骤事件（AssistantResponse）
+        //  Expose "final consensus content" to step event (AssistantResponse)
         //
         //  WHY:
-        //  - vote step 本身不是 llm_call，它的 PrimitiveResult 默认不会携带 AssistantResponse
-        //  - 这会导致上层 UI 只能看到 proposals，却不知道最终共识选择了哪一个
-        //  - PaperReview 需要把共识结论绑定到 atomic point 上进行可视化
+        //  - vote step itself is not llm_call, its PrimitiveResult doesn't carry AssistantResponse by default
+        //  - This causes upper UI to only see proposals, but not know which one was finally chosen by consensus
+        //  - PaperReview needs to bind consensus conclusion to atomic point for visualization
         // ============================================================
         return new PrimitiveResult
         {

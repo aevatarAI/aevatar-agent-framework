@@ -5,12 +5,12 @@ using Microsoft.Extensions.Logging;
 namespace Aevatar.Agents.Runtime.Local.Subscription;
 
 /// <summary>
-/// Local runtime的订阅管理器实现
+/// Local runtime subscription manager implementation
 /// </summary>
 public class LocalSubscriptionManager : BaseSubscriptionManager
 {
     private readonly LocalMessageStreamRegistry _streamRegistry;
-    // 保存原始事件处理器以支持重连
+    // Store original event handlers to support reconnection
     private readonly Dictionary<string, Func<EventEnvelope, Task>> _eventHandlers = new();
     
     public LocalSubscriptionManager(
@@ -30,7 +30,7 @@ public class LocalSubscriptionManager : BaseSubscriptionManager
         Logger.LogDebug("Creating Local stream subscription: Child {ChildId} -> Parent {ParentId}",
             childId, parentId);
         
-        // 获取父节点的stream（不自动创建，以便在stream不存在时触发重试）
+        // Get parent node's stream (don't auto-create, so retry is triggered when stream doesn't exist)
         var parentStream = _streamRegistry.GetStream(parentId);
         
         if (parentStream == null)
@@ -38,16 +38,16 @@ public class LocalSubscriptionManager : BaseSubscriptionManager
             throw new InvalidOperationException($"Cannot get stream for parent {parentId}");
         }
         
-        // 创建订阅，包装事件处理器以添加错误处理
+        // Create subscription, wrap event handler to add error handling
         var wrappedHandler = CreateWrappedEventHandler(eventHandler, childId, parentId);
         
-        // 保存原始事件处理器以支持重连（使用wrapped handler）
+        // Store original event handler to support reconnection (using wrapped handler)
         _eventHandlers[childId] = wrappedHandler;
         
-        // 创建过滤器（可选）
+        // Create filter (optional)
         Func<EventEnvelope, bool>? filter = envelope =>
         {
-            // 过滤掉子节点自己发布的事件，避免循环
+            // Filter out events published by child node itself to avoid loops
             if (envelope.PublisherId == childId)
             {
                 Logger.LogTrace("Filtering out self-published event {EventId} for child {ChildId}",
@@ -55,11 +55,11 @@ public class LocalSubscriptionManager : BaseSubscriptionManager
                 return false;
             }
             
-            // 其他过滤逻辑...
+            // Other filter logic...
             return true;
         };
         
-        // 订阅父节点的stream
+        // Subscribe to parent node's stream
         var subscription = await parentStream.SubscribeAsync<EventEnvelope>(
             wrappedHandler, 
             filter, 
@@ -78,7 +78,7 @@ public class LocalSubscriptionManager : BaseSubscriptionManager
             return false;
         }
         
-        // 对于Local runtime，检查stream是否还在registry中
+        // For Local runtime, check if stream is still in registry
         var parentStream = _streamRegistry.GetStream(subscription.ParentId);
         if (parentStream == null)
         {
@@ -86,8 +86,8 @@ public class LocalSubscriptionManager : BaseSubscriptionManager
             return false;
         }
         
-        // 检查订阅是否还活跃
-        // 这里可以添加更多的健康检查逻辑
+        // Check if subscription is still active
+        // More health check logic can be added here
         var isHealthy = subscription.StreamSubscription != null;
         
         if (!isHealthy)
@@ -105,7 +105,7 @@ public class LocalSubscriptionManager : BaseSubscriptionManager
         Logger.LogInformation("Reconnecting Local stream subscription {SubscriptionId}",
             handle.SubscriptionId);
         
-        // 清理旧订阅
+        // Clean up old subscription
         if (handle.StreamSubscription != null)
         {
             try
@@ -118,17 +118,17 @@ public class LocalSubscriptionManager : BaseSubscriptionManager
             }
         }
         
-        // 重新获取父stream
+        // Re-acquire parent stream
         var parentStream = _streamRegistry.GetOrCreateStream(handle.ParentId);
         
-        // 获取保存的事件处理器
+        // Get saved event handler
         if (!_eventHandlers.TryGetValue(handle.ChildId, out var wrappedHandler))
         {
             throw new InvalidOperationException(
                 $"Event handler for child {handle.ChildId} not found. Cannot reconnect.");
         }
         
-        // 创建过滤器（与创建时相同）
+        // Create filter (same as when creating)
         Func<EventEnvelope, bool>? filter = envelope =>
         {
             if (envelope.PublisherId == handle.ChildId)
@@ -140,7 +140,7 @@ public class LocalSubscriptionManager : BaseSubscriptionManager
             return true;
         };
         
-        // 重新订阅
+        // Re-subscribe
         var newSubscription = await parentStream.SubscribeAsync<EventEnvelope>(
             wrappedHandler,
             filter,
@@ -156,7 +156,7 @@ public class LocalSubscriptionManager : BaseSubscriptionManager
     }
 
     /// <summary>
-    /// 清理保存的事件处理器
+    /// Clean up saved event handler
     /// </summary>
     public void CleanupEventHandler(string childId)
     {
@@ -167,7 +167,7 @@ public class LocalSubscriptionManager : BaseSubscriptionManager
     }
 
     /// <summary>
-    /// 创建包装的事件处理器，添加错误处理和日志
+    /// Create wrapped event handler, add error handling and logging
     /// </summary>
     private Func<EventEnvelope, Task> CreateWrappedEventHandler(
         Func<EventEnvelope, Task> originalHandler,
@@ -183,7 +183,7 @@ public class LocalSubscriptionManager : BaseSubscriptionManager
                 
                 await originalHandler(envelope);
                 
-                // 更新订阅活动时间
+                // Update subscription activity time
                 UpdateLastActivity(childId, parentId);
             }
             catch (Exception ex)
@@ -192,14 +192,14 @@ public class LocalSubscriptionManager : BaseSubscriptionManager
                     "Error processing event {EventId} in child {ChildId} from parent {ParentId}",
                     envelope.Id, childId, parentId);
                 
-                // 可以选择是否重新抛出异常
+                // Can choose whether to rethrow exception
                 // throw;
             }
         };
     }
 
     /// <summary>
-    /// 更新最后活动时间
+    /// Update last activity time
     /// </summary>
     private void UpdateLastActivity(string childId, string parentId)
     {
@@ -214,7 +214,7 @@ public class LocalSubscriptionManager : BaseSubscriptionManager
     }
 
     /// <summary>
-    /// 创建带健康检查的订阅
+    /// Create subscription with health monitoring
     /// </summary>
     public async Task<ISubscriptionHandle> SubscribeWithHealthMonitoringAsync(
         string parentId,
@@ -227,7 +227,7 @@ public class LocalSubscriptionManager : BaseSubscriptionManager
         var subscription = await SubscribeWithRetryAsync(
             parentId, childId, eventHandler, retryPolicy, cancellationToken);
         
-        // 启动健康监控任务
+        // Start health monitoring task
         _ = Task.Run(async () =>
         {
             while (!cancellationToken.IsCancellationRequested)
@@ -243,7 +243,7 @@ public class LocalSubscriptionManager : BaseSubscriptionManager
                         Logger.LogWarning("Subscription {SubscriptionId} is unhealthy, attempting to recover",
                             subscription.SubscriptionId);
                         
-                        // 这里可以触发重连或其他恢复操作
+                        // Can trigger reconnection or other recovery operations here
                         // await ReconnectSubscriptionAsync(subscription, cancellationToken);
                     }
                 }

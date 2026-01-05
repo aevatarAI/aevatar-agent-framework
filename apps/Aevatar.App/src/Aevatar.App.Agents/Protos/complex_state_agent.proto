@@ -84,3 +84,4 @@ message UpdateBalanceEvent {
     double amount = 1;
 }
 
+

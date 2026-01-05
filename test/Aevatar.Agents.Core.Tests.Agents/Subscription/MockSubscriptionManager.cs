@@ -9,14 +9,14 @@ using Microsoft.Extensions.Logging;
 namespace Aevatar.Agents.Core.Tests.Subscription;
 
 /// <summary>
-/// 用于测试BaseSubscriptionManager逻辑的Mock实现
+/// Mock implementation for testing BaseSubscriptionManager logic
 /// </summary>
 public class MockSubscriptionManager : BaseSubscriptionManager
 {
     private readonly ConcurrentDictionary<Guid, MockStreamSubscription> _mockSubscriptions = new();
     private readonly ConcurrentDictionary<string, Func<EventEnvelope, Task>> _eventHandlers = new();
     
-    // 用于测试的控制标志
+    // Control flags for testing
     public bool ShouldFailOnCreate { get; set; }
     public bool ShouldFailOnHealthCheck { get; set; }
     public bool ShouldFailOnReconnect { get; set; }
@@ -42,7 +42,7 @@ public class MockSubscriptionManager : BaseSubscriptionManager
             throw new TimeoutException("Mock failure on create");
         }
         
-        await Task.Delay(10, cancellationToken); // 模拟异步操作
+        await Task.Delay(10, cancellationToken); // Simulate async operation
         
         var subscriptionId = Guid.NewGuid();
         var mockSubscription = new MockStreamSubscription(subscriptionId, parentId, childId);

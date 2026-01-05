@@ -5,11 +5,11 @@ using YamlDotNet.Serialization.NamingConventions;
 namespace Aevatar.Agents.Cognitive.Engine;
 
 // ============================================================
-//  工作流解析器 - YAML → WorkflowDefinition
+//  Workflow Parser - YAML → WorkflowDefinition
 // ============================================================
 
 /// <summary>
-/// 工作流解析器 - 将 YAML 文件解析为 WorkflowDefinition
+/// Workflow parser - Parse YAML files into WorkflowDefinition
 /// </summary>
 public class WorkflowParser
 {
@@ -24,7 +24,7 @@ public class WorkflowParser
     }
     
     /// <summary>
-    /// 从 YAML 字符串解析工作流
+    /// Parse workflow from YAML string
     /// </summary>
     public WorkflowDefinition Parse(string yaml)
     {
@@ -33,7 +33,7 @@ public class WorkflowParser
     }
     
     /// <summary>
-    /// 从文件解析工作流
+    /// Parse workflow from file
     /// </summary>
     public WorkflowDefinition ParseFile(string filePath)
     {
@@ -42,7 +42,7 @@ public class WorkflowParser
     }
     
     /// <summary>
-    /// 从目录加载所有工作流
+    /// Load all workflows from directory
     /// </summary>
     public IEnumerable<WorkflowDefinition> ParseDirectory(string directoryPath)
     {
@@ -58,7 +58,7 @@ public class WorkflowParser
             }
             catch
             {
-                // 跳过无效文件
+                // Skip invalid files
             }
             
             if (workflow != null)
@@ -69,7 +69,7 @@ public class WorkflowParser
     }
     
     // ============================================================
-    //  转换方法
+    //  Conversion Methods
     // ============================================================
     
     private static WorkflowDefinition ConvertToWorkflowDefinition(YamlWorkflowDefinition yaml)
@@ -139,7 +139,7 @@ public class WorkflowParser
             }
         }
         
-        // 添加类型特定参数
+        // Add type-specific parameters
         if (!string.IsNullOrEmpty(yaml.Prompt))
             parameters["prompt"] = yaml.Prompt;
         
@@ -293,7 +293,7 @@ public class WorkflowParser
 }
 
 // ============================================================
-//  YAML 数据模型
+//  YAML Data Models
 // ============================================================
 
 internal class YamlWorkflowDefinition
@@ -322,12 +322,12 @@ internal class YamlInputParameter
 
 internal class YamlStepDefinition
 {
-    // 基础字段
+    // Basic fields
     public string? Id { get; set; }
     public string? Type { get; set; }
     public string? Store { get; set; }
     
-    // llm_call 字段
+    // llm_call fields
     public string? Prompt { get; set; }
     public string? System { get; set; }
     public string? Output { get; set; }
@@ -338,12 +338,12 @@ internal class YamlStepDefinition
     public object? TimeoutSeconds { get; set; }         // timeout_seconds
     public object? IdleTimeoutSeconds { get; set; }     // idle_timeout_seconds
     
-    // conditional 字段
+    // conditional fields
     public string? Condition { get; set; }
     public List<YamlStepDefinition>? IfTrue { get; set; }
     public List<YamlStepDefinition>? IfFalse { get; set; }
     
-    // vote 字段 (支持模板变量如 "{{k}}")
+    // vote fields (supports template variables like "{{k}}")
     public object? K { get; set; }
     public object? MaxRounds { get; set; }
     public object? Similarity { get; set; }
@@ -353,7 +353,7 @@ internal class YamlStepDefinition
     public object? RedFlag { get; set; }                // red_flag (bool|string|mapping)
     public object? MaxRedFlags { get; set; }            // max_red_flags
     
-    // fan_out 字段 (支持模板变量)
+    // fan_out fields (supports template variables)
     public string? ForEach { get; set; }
     public YamlStepDefinition? Step { get; set; }
     public string? Reduce { get; set; }
@@ -362,26 +362,26 @@ internal class YamlStepDefinition
     // fan_out: return failures as items (opt-in)
     public bool? IncludeFailures { get; set; }          // include_failures
     
-    // workflow_call 字段 (支持模板变量)
+    // workflow_call fields (supports template variables)
     public string? Workflow { get; set; }
     public Dictionary<string, object?>? Params { get; set; }
     public object? MaxDepth { get; set; }
     
-    // checkpoint 字段
+    // checkpoint fields
     public List<string>? Variables { get; set; }
     
-    // assign 字段
+    // assign fields
     // - from: "recursive_output.state" (supports dotted path)
     public string? From { get; set; }
 
-    // parallel 字段
+    // parallel fields
     public List<YamlStepDefinition>? Steps { get; set; }
 
-    // transform 字段
+    // transform fields
     // - ops: [{ op: "...", ... }]
     public List<Dictionary<string, object?>>? Ops { get; set; }
 
-    // retrieve_facts 字段
+    // retrieve_facts fields
     public string? Query { get; set; }       // template string
     public string? Source { get; set; }      // dotted path to list
     public string? TextField { get; set; }   // default: "statement"

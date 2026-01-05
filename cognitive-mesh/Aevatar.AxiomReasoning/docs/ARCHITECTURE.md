@@ -12,9 +12,9 @@
 ```
 Aevatar.AxiomReasoning/
 ├── AgUi/
-│   ├── AgUiEvents.cs               # AG-UI 事件模型（最小子集）
+│   ├── AgUiEvents.cs               # AG-UI 事件模型（re-export from framework）
 │   ├── AxiomAgUiEventStream.cs     # AxiomEvent → AG-UI 事件流投影
-│   └── AxiomAgUiBootstrap.cs       # 重连快照：messages/status/graph（避免 replay 爆发）
+│   └── AxiomAgUiBootstrap.cs       # 重连快照：messages/status/graph（使用框架层 AgUiBootstrap）
 ├── Infrastructure/
 │   └── BroadcastEventHub.cs        # SSE 广播：多订阅者不抢消息
 ├── Program.cs

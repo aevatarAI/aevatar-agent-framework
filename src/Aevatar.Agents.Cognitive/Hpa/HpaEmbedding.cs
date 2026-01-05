@@ -4,19 +4,19 @@ using System.Text;
 namespace Aevatar.Agents.Cognitive.Hpa;
 
 // ============================================================
-//  HPA Embedding (复相位 + 八元数 lift) - deterministic mapping
+//  HPA Embedding (Complex Phase + Octonion Lift) - deterministic mapping
 //
-//  目标：
-//  - 把“命题依赖集合 depends_on”视作生成元列表（factorization）
-//  - 在 token-free 层计算：
-//      ρ: radial（复杂度/成本）
-//      θ×: multiplicative phase（相位）
-//      Z: ρ·e^{iθ}（复平面嵌入）
-//      U: S^7 unit octonion（八元数相位）
+//  Goals:
+//  - Treat "proposition dependency set depends_on" as generator list (factorization)
+//  - Compute at token-free layer:
+//      ρ: radial (complexity/cost)
+//      θ×: multiplicative phase
+//      Z: ρ·e^{iθ} (complex plane embedding)
+//      U: S^7 unit octonion (octonion phase)
 //
-//  重要：
-//  - 这里不追求“物理正确”，追求“协议一致 + 可复现 + 可度量”。
-//  - 真实语义由 LLM/证明系统给出；HPA 层只提供几何证据与调度信号。
+//  Important:
+//  - Not pursuing "physical correctness" here, pursuing "protocol consistency + reproducible + measurable".
+//  - Real semantics provided by LLM/proof system; HPA layer only provides geometric evidence and scheduling signals.
 // ============================================================
 
 public enum HpaBetaModel
@@ -89,7 +89,7 @@ public static class HpaEmbedding
         var factors = NormalizeFactorSequence(dependsOn, factorSequence);
         if (factors.Count == 0)
         {
-            // 空生成元：把它当作 1（单位元）
+            // Empty generator: treat it as 1 (identity element)
             return new HpaNodeEmbedding(
                 LogRho: 0.0,
                 Rho: 1.0,

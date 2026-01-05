@@ -14,17 +14,21 @@ public class MassTransitStreamOptions
     public string TopicPrefix { get; set; } = "agent-events";
 
     /// <summary>
-    /// 动态 Topic 映射表
+    /// 动态 Topic 映射表（用于 Producer 路由）
     /// Key: Category (Agent Type Name)
     /// Value: Kafka Topic Name
     /// </summary>
     public Dictionary<string, string> TopicMapping { get; set; } = new();
 
     /// <summary>
-    /// 需要监听的额外 Topic 列表（用于多租户或多业务类型隔离）
-    /// 注意：如果配置了 TopicMapping，Silo 启动时会自动将 Mapping 中的 Values 加入监听列表，无需重复在此配置。
+    /// Producer 配置
     /// </summary>
-    public List<string> Topics { get; set; } = new();
+    public ProducerOptions Producer { get; set; } = new();
+
+    /// <summary>
+    /// Consumer 配置
+    /// </summary>
+    public ConsumerOptions Consumer { get; set; } = new();
 
     /// <summary>
     /// 传输方式：InMemory, Kafka, RabbitMQ
@@ -45,6 +49,67 @@ public class MassTransitStreamOptions
     /// RabbitMQ 配置（当 TransportType = RabbitMQ 时使用）
     /// </summary>
     public RabbitMQOptions? RabbitMQ { get; set; }
+}
+
+/// <summary>
+/// Producer 配置
+/// </summary>
+public class ProducerOptions
+{
+    /// <summary>
+    /// 是否启用 Producer（默认 true）
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+}
+
+/// <summary>
+/// Consumer 配置
+/// </summary>
+public class ConsumerOptions
+{
+    /// <summary>
+    /// 是否启用 Consumer（默认 true）
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// Consumer 订阅的 Topics 列表
+    /// 如果为空，Silo 会自动扫描 [StreamTopic] 属性添加
+    /// </summary>
+    public List<string> Topics { get; set; } = new();
+
+    /// <summary>
+    /// 是否自动添加 TopicPrefix 到订阅列表（默认 true）
+    /// </summary>
+    public bool IncludeTopicPrefix { get; set; } = true;
+
+    /// <summary>
+    /// 是否自动扫描 [StreamTopic] 属性添加到订阅列表（默认 true，仅 Silo 端有效）
+    /// </summary>
+    public bool AutoScanAgentTopics { get; set; } = true;
+
+    /// <summary>
+    /// Dispatch handler type for message routing
+    /// - GrainHandler: Dispatch to Grain handlers (Silo, best performance)
+    /// - LocalHandler: Dispatch to local memory streams (HttpApi Client)
+    /// </summary>
+    public DispatchHandler DispatchHandler { get; set; } = DispatchHandler.GrainHandler;
+}
+
+/// <summary>
+/// Dispatch handler type for MassTransit message routing
+/// </summary>
+public enum DispatchHandler
+{
+    /// <summary>
+    /// Dispatch to Grain handlers (Orleans/ProtoActor actors) - for Silo
+    /// </summary>
+    GrainHandler,
+    
+    /// <summary>
+    /// Dispatch to local memory stream subscribers - for HttpApi Client
+    /// </summary>
+    LocalHandler
 }
 
 public enum MassTransitTransportType

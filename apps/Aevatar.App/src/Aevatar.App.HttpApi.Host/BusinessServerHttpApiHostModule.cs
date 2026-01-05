@@ -22,6 +22,8 @@ using Volo.Abp.Autofac;
 using Volo.Abp.Modularity;
 using Volo.Abp.Swashbuckle;
 using Volo.Abp.Studio.Client.AspNetCore;
+using Volo.Abp.BlobStoring;
+using Aevatar.Agents.Plugins.MassTransit.DependencyInjection;
 
 namespace Aevatar.App.HttpApi.Host;
 
@@ -51,6 +53,7 @@ public class AppHttpApiHostModule : AbpModule
         ConfigureAuthentication(context, configuration);
         ConfigureCors(context, configuration);
         ConfigureSwaggerServices(context, configuration);
+            
         
         // Configure Agent Runtime (Local or Orleans)
         ConfigureAgentRuntime(context, configuration);
@@ -60,6 +63,13 @@ public class AppHttpApiHostModule : AbpModule
     {
         // Add Agent Runtime based on configuration
         context.Services.AddAgentRuntime(configuration);
+        
+        // Configure MassTransit Stream Plugin only when MessageStream.Provider=MassTransit
+        var messageStreamProvider = configuration.GetSection("MessageStream").GetValue("Provider", "");
+        if (string.Equals(messageStreamProvider, "MassTransit", StringComparison.OrdinalIgnoreCase))
+        {
+            context.Services.AddMassTransitStreamPlugin(configuration);
+        }
     }
 
     private void ConfigureConventionalControllers()
@@ -111,42 +121,42 @@ public class AppHttpApiHostModule : AbpModule
 
     private void ConfigureSwaggerServices(ServiceConfigurationContext context, IConfiguration configuration)
     {
-        var authority = configuration["AuthServer:Authority"];
-
-        // NOTE:
-        // - In tests / local scenarios, AuthServer config may be missing.
-        // - Swagger should still be available; OAuth is optional.
-        if (string.IsNullOrWhiteSpace(authority))
+        context.Services.AddAbpSwaggerGen(options =>
         {
-            context.Services.AddAbpSwaggerGen(options =>
+            options.SwaggerDoc("v1", new OpenApiInfo
             {
-                options.SwaggerDoc("v1", new OpenApiInfo
-                {
-                    Title = "App API",
-                    Version = "v1"
-                });
-                options.DocInclusionPredicate((docName, description) => true);
-                options.CustomSchemaIds(type => type.FullName);
+                Title = "App API",
+                Version = "v1"
             });
-            return;
-        }
-
-        context.Services.AddAbpSwaggerGenWithOAuth(
-            authority,
-            new Dictionary<string, string>
+            options.DocInclusionPredicate((docName, description) => true);
+            options.CustomSchemaIds(type => type.FullName);
+            
+            // Add Bearer Token Authentication
+            options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
             {
-                { "Aevatar", "App API" }
-            },
-            options =>
-            {
-                options.SwaggerDoc("v1", new OpenApiInfo
-                {
-                    Title = "App API",
-                    Version = "v1"
-                });
-                options.DocInclusionPredicate((docName, description) => true);
-                options.CustomSchemaIds(type => type.FullName);
+                Name = "Authorization",
+                Type = SecuritySchemeType.Http,
+                Scheme = "Bearer",
+                BearerFormat = "JWT",
+                In = ParameterLocation.Header,
+                Description = "Enter your Bearer token in the format: {your_token}"
             });
+            
+            options.AddSecurityRequirement(new OpenApiSecurityRequirement
+            {
+                {
+                    new OpenApiSecurityScheme
+                    {
+                        Reference = new OpenApiReference
+                        {
+                            Type = ReferenceType.SecurityScheme,
+                            Id = "Bearer"
+                        }
+                    },
+                    Array.Empty<string>()
+                }
+            });
+        });
     }
 
     public override void OnApplicationInitialization(ApplicationInitializationContext context)
@@ -186,6 +196,7 @@ public class AppHttpApiHostModule : AbpModule
         app.UseCors();
         app.UseAuthentication();
         app.UseAuthorization();
+        
         app.UseSwagger();
         app.UseAbpSwaggerUI(options =>
         {

@@ -3,6 +3,7 @@ using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Context;
 using Aevatar.Agents.Abstractions.CQRS;
 using Aevatar.Agents.Abstractions.Helpers;
+using Aevatar.Agents.AI.Core.Helpers;
 using Aevatar.Agents.Core;
 using Aevatar.Agents.Core.Helpers;
 using Aevatar.Agents.Core.Rpc;
@@ -14,6 +15,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Orleans;
+using Orleans.Concurrency;
 using Orleans.Runtime;
 using Orleans.Streams;
 
@@ -71,6 +73,7 @@ public class OrleansAgentState
 /// 3. Store hierarchy relationships (Parent/Children)
 /// 4. Manage Orleans Streams subscriptions
 /// </summary>
+[Reentrant]
 public class OrleansGAgentGrain : Grain, IGAgentGrain
 {
     // Grain persistent state
@@ -539,11 +542,158 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
         // Inject ActorFactory (for Agents that need to create child Agents)
         InjectActorFactory(agent);
 
+        // Inject Configuration Options (preferred over ServiceProvider)
+        InjectConfigurationOptions(agent);
+
         // Inject AgentContextAccessor for context propagation in event handlers
         var contextAccessor = ServiceProvider.GetService<IAgentContextAccessor>();
         if (contextAccessor != null)
         {
             AgentContextAccessorInjector.InjectContextAccessor(agent, contextAccessor);
+        }
+        // Inject AI-related dependencies (LLMProviderFactory, EmbeddingFactory)
+        // Only inject if agent is an AI Agent (inherits from AIGAgentBase)
+        if (AIAgentLLMProviderFactoryInjector.HasLLMProviderFactory(agent))
+        {
+            AIAgentLLMProviderFactoryInjector.InjectLLMProviderFactory(agent, ServiceProvider);
+            _logger.LogDebug("✅ Injected LLMProviderFactory into AI Agent {AgentType}", agent.GetType().Name);
+        }
+
+        if (AIAgentEmbeddingFactoryInjector.HasEmbeddingFactory(agent))
+        {
+            AIAgentEmbeddingFactoryInjector.InjectEmbeddingFactory(agent, ServiceProvider);
+            _logger.LogDebug("✅ Injected EmbeddingFactory into AI Agent {AgentType}", agent.GetType().Name);
+        }
+
+        // Inject ToolManager for AI Agents with Tool support
+        AIAgentToolManagerInjector.InjectToolManager(agent, ServiceProvider);
+        
+        // Inject ServiceProvider for agents that need direct service resolution (e.g., for IStreamProviderManager)
+        // This is specifically for agents like GodChatGAgent that need to publish to Orleans Streams directly
+        InjectServiceProviderProperty(agent);
+    }
+    
+    /// <summary>
+    /// Inject ServiceProvider into agents that have a public settable ServiceProvider property.
+    /// This is a targeted injection for agents that need direct access to IStreamProviderManager or other runtime services.
+    /// </summary>
+    private void InjectServiceProviderProperty(IGAgent agent)
+    {
+        var agentType = agent.GetType();
+        var serviceProviderProperty = agentType.GetProperty(
+            "ServiceProvider", 
+            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+        
+        if (serviceProviderProperty != null && 
+            serviceProviderProperty.CanWrite &&
+            serviceProviderProperty.PropertyType == typeof(IServiceProvider))
+        {
+            serviceProviderProperty.SetValue(agent, ServiceProvider);
+            _logger.LogDebug("✅ Injected ServiceProvider into Agent {AgentType}", agentType.Name);
+        }
+    }
+    
+    /// <summary>
+    /// Inject configuration options into Agent properties.
+    /// Supports:
+    /// 1. IOptionsMonitor&lt;T&gt; properties - inject the IOptionsMonitor directly
+    /// 2. IOptions&lt;T&gt; properties - inject the IOptions directly  
+    /// 3. T properties (where T is an options class) - inject the CurrentValue/Value
+    /// </summary>
+    private void InjectConfigurationOptions(IGAgent agent)
+    {
+        var agentType = agent.GetType();
+        var properties = agentType.GetProperties(
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+        
+        _logger.LogInformation("🔍 InjectConfigurationOptions scanning {PropertyCount} properties in {AgentType}", 
+            properties.Length, agentType.Name);
+        
+        foreach (var property in properties)
+        {
+            if (!property.CanWrite) continue;
+            
+            var propertyType = property.PropertyType;
+            
+            // Skip common non-option types
+            if (propertyType == typeof(string) || propertyType.IsPrimitive)
+                continue;
+            
+            // Case 1: Property is IOptionsMonitor<T> - inject the IOptionsMonitor directly
+            if (propertyType.IsGenericType && propertyType.GetGenericTypeDefinition() == typeof(IOptionsMonitor<>))
+            {
+                var service = ServiceProvider.GetService(propertyType);
+                var innerType = propertyType.GetGenericArguments()[0];
+                if (service != null)
+                {
+                    property.SetValue(agent, service);
+                    _logger.LogInformation("✅ Injected IOptionsMonitor<{OptionType}> into {AgentType}.{Property}", 
+                        innerType.Name, agentType.Name, property.Name);
+                }
+                else
+                {
+                    _logger.LogWarning("⚠️ IOptionsMonitor<{OptionType}> not found in DI for {AgentType}.{Property}",
+                        innerType.Name, agentType.Name, property.Name);
+                }
+                continue;
+            }
+            
+            // Case 2: Property is IOptions<T> - inject the IOptions directly
+            if (propertyType.IsGenericType && propertyType.GetGenericTypeDefinition() == typeof(IOptions<>))
+            {
+                var service = ServiceProvider.GetService(propertyType);
+                if (service != null)
+                {
+                    property.SetValue(agent, service);
+                    var innerType = propertyType.GetGenericArguments()[0];
+                    _logger.LogDebug("✅ Injected IOptions<{OptionType}> into {AgentType}.{Property}", 
+                        innerType.Name, agentType.Name, property.Name);
+                }
+                continue;
+            }
+            
+            // Skip other interface types
+            if (propertyType.IsInterface)
+                continue;
+                
+            // Case 3: Property is a concrete options class T - inject CurrentValue from IOptionsMonitor<T> or Value from IOptions<T>
+            // Try to get IOptionsMonitor<T> first
+            var optionsMonitorType = typeof(IOptionsMonitor<>).MakeGenericType(propertyType);
+            var optionsMonitor = ServiceProvider.GetService(optionsMonitorType);
+            if (optionsMonitor != null)
+            {
+                // Get CurrentValue from IOptionsMonitor<T>
+                var currentValueProp = optionsMonitorType.GetProperty("CurrentValue");
+                if (currentValueProp != null)
+                {
+                    var value = currentValueProp.GetValue(optionsMonitor);
+                    if (value != null)
+                    {
+                        property.SetValue(agent, value);
+                        _logger.LogDebug("✅ Injected {OptionType} (from IOptionsMonitor) into {AgentType}.{Property}", 
+                            propertyType.Name, agentType.Name, property.Name);
+                    }
+                }
+                continue;
+            }
+            
+            // Try to get IOptions<T>
+            var optionsType = typeof(IOptions<>).MakeGenericType(propertyType);
+            var options = ServiceProvider.GetService(optionsType);
+            if (options != null)
+            {
+                var valueProp = optionsType.GetProperty("Value");
+                if (valueProp != null)
+                {
+                    var value = valueProp.GetValue(options);
+                    if (value != null)
+                    {
+                        property.SetValue(agent, value);
+                        _logger.LogDebug("✅ Injected {OptionType} (from IOptions) into {AgentType}.{Property}", 
+                            propertyType.Name, agentType.Name, property.Name);
+                    }
+                }
+            }
         }
     }
 

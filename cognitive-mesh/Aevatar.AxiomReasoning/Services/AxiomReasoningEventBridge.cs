@@ -2,6 +2,8 @@ using Aevatar.AxiomReasoning.Models;
 using ReasoningProgress = Aevatar.CognitiveMesh.Abstractions.ReasoningProgress;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
+using Aevatar.AxiomReasoning.Graph;
+using Aevatar.AxiomReasoning.EventStreaming.Events;
 
 namespace Aevatar.AxiomReasoning.Services;
 
@@ -138,7 +140,7 @@ public sealed class AxiomReasoningEventBridge
             }
 
             // 推送 SSE 事件（类似 PaperReview 的“可读事件”，而不是 token dump）
-            session.EventHub.Publish(new Aevatar.AxiomReasoning.Models.ProgressEvent
+            session.EventHub.Publish(new ProgressEvent
             {
                 SessionId = session.Id,
                 Phase = p.Phase,
@@ -226,7 +228,12 @@ public sealed class AxiomReasoningEventBridge
     {
         graph = new GraphEvent();
         if (string.IsNullOrWhiteSpace(assistantResponse)) return false;
-        if (!string.Equals(stepType, "llm_call", StringComparison.OrdinalIgnoreCase)) return false;
+        // We can extract a DAG snapshot from:
+        // - llm_call outputs that contain {axioms/theorems/...}
+        // - checkpoint outputs that emit a JSON snapshot of state/theorems (token-free)
+        if (!string.Equals(stepType, "llm_call", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(stepType, "checkpoint", StringComparison.OrdinalIgnoreCase))
+            return false;
 
         // Graph snapshot policy:
         // - Historically we only extracted graph from "update_state" (axiom_theorem_loop).

@@ -9,7 +9,7 @@ using Aevatar.CognitiveMesh.Abstractions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace Aevatar.AxiomReasoning.Services;
+namespace Aevatar.AxiomReasoning.LlmRecorder;
 
 // ============================================================
 //  LLM TRANSCRIPT RECORDER (Local)
@@ -94,7 +94,8 @@ public sealed class LlmTranscriptRecorder
                     Input = new SessionInput
                     {
                         AxiomsText = session.AxiomsText,
-                        Goal = session.Goal
+                        Goal = session.Goal,
+                        SeedHypothesis = session.SeedHypothesis
                     }
                 });
             }
@@ -827,6 +828,7 @@ public sealed class LlmTranscriptRecorder
     {
         public string AxiomsText { get; init; } = "";
         public string Goal { get; init; } = "";
+        public string SeedHypothesis { get; init; } = "";
     }
 
     private sealed record CallMeta

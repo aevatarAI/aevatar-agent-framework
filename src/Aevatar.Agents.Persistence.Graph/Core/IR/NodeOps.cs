@@ -17,6 +17,9 @@ public sealed record UpdateNode(NodeId Id, IReadOnlyDictionary<string, Value> Pr
 /// <summary>删除节点；Id 不存在时后端可能忽略。</summary>
 /// <param name="Id">要删除的节点 Id。</param>
 public sealed record DeleteNode(NodeId Id) : GraphOperation;
+/// <summary>按类型与条件批量删除节点（DETACH 语义）。</summary>
+/// <param name="Query">包含 Type 与 Conditions 的删除条件。</param>
+public sealed record DeleteNodes(NodeQuery Query) : GraphOperation;
 /// <summary>按类型与条件查询节点。</summary>
 /// <param name="Query">包含 Type 与 Conditions 的查询。</param>
 public sealed record QueryNodes(NodeQuery Query) : GraphOperation;

@@ -53,7 +53,7 @@ public class GraphMemoryTests
         edge.ShouldNotBeNull();
         edge!.Type.ShouldBe("FRIEND_OF");
 
-        var edges = await graph.ReadBetweenAsync(aliceId, bobId, new EdgeQuery
+        var edges = await graph.QueryAsync(new EdgeQuery
         {
             Type = "FRIEND_OF",
             Conditions = [new Condition("since", Operator.GreaterThan, new IntValue(2020))]
@@ -72,6 +72,44 @@ public class GraphMemoryTests
         // Delete (node deletion detaches edges)
         await graph.DeleteAsync(aliceId);
         (await graph.ReadAsync(aliceId)).ShouldBeNull();
+        (await graph.ReadAsync(edgeId)).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task InMemory_delete_nodes_detaches_edges()
+    {
+        await using var provider = new ServiceCollection()
+            .AddAevatarGraphInMemory()
+            .BuildServiceProvider();
+
+        var graph = provider.GetRequiredService<IGraphClient>();
+
+        var aliceId = await graph.WriteAsync("Person", new Dictionary<string, Value>
+        {
+            ["name"] = new StringValue("Alice")
+        });
+
+        var bobId = await graph.WriteAsync("Person", new Dictionary<string, Value>
+        {
+            ["name"] = new StringValue("Bob")
+        });
+
+        var edgeId = await graph.WriteAsync("FRIEND_OF", aliceId, bobId, new Dictionary<string, Value>
+        {
+            ["since"] = new IntValue(2021)
+        });
+
+        await graph.DeleteAsync(new NodeQuery
+        {
+            Type = "Person",
+            Conditions =
+            [
+                new Condition("name", Operator.Equals, new StringValue("Alice"))
+            ]
+        });
+
+        (await graph.ReadAsync(aliceId)).ShouldBeNull();
+        (await graph.ReadAsync(bobId)).ShouldNotBeNull();
         (await graph.ReadAsync(edgeId)).ShouldBeNull();
     }
 

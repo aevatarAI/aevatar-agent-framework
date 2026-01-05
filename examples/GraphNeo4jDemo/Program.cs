@@ -94,19 +94,16 @@ try
     var edge = await graph.ReadAsync(edgeId);
     logger.LogInformation("Read edge => {Edge}", FormatEdge(edge));
 
-    // 查询两节点之间的关系
-    var edges = await graph.ReadBetweenAsync(
-        aliceId,
-        bobId,
-        new EdgeQuery
-        {
-            Type = "FRIEND_OF",
-            Conditions =
-            [
-                new Condition("since", Operator.GreaterThan, new IntValue(2020))
-            ]
-        });
-    logger.LogInformation("Read edges between Alice and Bob => {Count} result(s)", edges.Count);
+    // 查询关系（按 type + 条件）
+    var edges = await graph.QueryAsync(new EdgeQuery
+    {
+        Type = "FRIEND_OF",
+        Conditions =
+        [
+            new Condition("since", Operator.GreaterThan, new IntValue(2020))
+        ]
+    });
+    logger.LogInformation("Query edges FRIEND_OF (since>2020) => {Count} result(s)", edges.Count);
     foreach (var e in edges)
     {
         logger.LogInformation(" - {Edge}", FormatEdge(e));

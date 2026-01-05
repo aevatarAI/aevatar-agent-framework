@@ -4,9 +4,11 @@ using Aevatar.Agents.Abstractions.Helpers;
 using Aevatar.Agents.AGUI;
 using Aevatar.Agents.Cognitive.Agents;
 using Aevatar.AxiomReasoning.Models;
-using Aevatar.AxiomReasoning.Services;
+using Aevatar.AxiomReasoning.Graph;
+using Aevatar.AxiomReasoning.Graph.Models;
+using Aevatar.AxiomReasoning.EventStreaming.Events;
 
-namespace Aevatar.AxiomReasoning.AgUi;
+namespace Aevatar.AxiomReasoning.EventStreaming.AgUi;
 
 // ============================================================
 //  AG-UI BOOTSTRAP (Snapshots for reconnect)
@@ -98,14 +100,14 @@ public static class AxiomAgUiBootstrap
             }
 
             var axioms = (snap.Nodes ?? [])
-                .Where(n => n.Kind == DagNodeKind.Axiom)
+                .Where(n => n.Type == NodeType.Axiom)
                 .OrderBy(n => n.Id, StringComparer.Ordinal)
                 .Select(n => n.Label ?? "")
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .ToList();
 
             var assumptions = (snap.Nodes ?? [])
-                .Where(n => n.Kind == DagNodeKind.Assumption)
+                .Where(n => n.Type == NodeType.Assumption)
                 .OrderBy(n => n.Id, StringComparer.Ordinal)
                 .Select(n => new AssumptionNode
                 {
@@ -117,7 +119,7 @@ public static class AxiomAgUiBootstrap
                 .ToList();
 
             var theorems = (snap.Nodes ?? [])
-                .Where(n => n.Kind == DagNodeKind.Theorem)
+                .Where(n => n.Type == NodeType.Theorem)
                 .OrderBy(n => n.Id, StringComparer.Ordinal)
                 .Select(n =>
                 {

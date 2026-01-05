@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\\..\\src\\Aevatar.Agents.Persistence.Neo4j.Graph\\Aevatar.Agents.Persistence.Neo4j.Graph.csproj" />
+    <ProjectReference Include="..\\..\\src\\Aevatar.Agents.Persistence.Graph\\Aevatar.Agents.Persistence.Graph.csproj" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" />
   </ItemGroup>

@@ -2,8 +2,9 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using Aevatar.Agents.AGUI;
 using Aevatar.AxiomReasoning.Models;
+using Aevatar.AxiomReasoning.EventStreaming.Events;
 
-namespace Aevatar.AxiomReasoning.AgUi;
+namespace Aevatar.AxiomReasoning.EventStreaming.AgUi;
 
 // ============================================================
 //  AXIOM → AG-UI EVENT STREAM

@@ -88,6 +88,26 @@ public class CypherCompilerTests
     }
 
     [Fact]
+    public void Compile_DeleteNodes_with_condition()
+    {
+        var op = new DeleteNodes(new NodeQuery
+        {
+            Type = "Person",
+            Conditions =
+            [
+                new Condition("age", Operator.GreaterThan, new IntValue(18))
+            ]
+        });
+
+        var cmd = _compiler.Compile(new GraphPlan { Operation = op });
+
+        cmd.Text.ShouldContain("MATCH (n:`Person`)");
+        cmd.Text.ShouldContain("WHERE n.age > $p0");
+        cmd.Text.ShouldContain("DETACH DELETE n");
+        cmd.Parameters["p0"].ShouldBe(18L);
+    }
+
+    [Fact]
     public void Compile_CreateEdge_builds_from_to_and_type()
     {
         var op = new CreateEdge(
@@ -111,27 +131,24 @@ public class CypherCompilerTests
     }
 
     [Fact]
-    public void Compile_ReadEdgesBetween_with_filter()
+    public void Compile_CreateEdge_uses_props_id_as_merge_key()
     {
-        var op = new ReadEdgesBetween(
-            new NodeId("from"),
-            new NodeId("to"),
-            new EdgeQuery
+        var op = new CreateEdge(
+            "DEPENDS_ON",
+            new NodeId("from-id"),
+            new NodeId("to-id"),
+            new Dictionary<string, Value>
             {
-                Type = "LIKES",
-                Conditions =
-                [
-                    new Condition("score", Operator.GreaterThan, new FloatValue(0.8))
-                ]
+                ["id"] = new StringValue("edge-123"),
+                ["since"] = new IntValue(2021)
             });
 
         var cmd = _compiler.Compile(new GraphPlan { Operation = op });
 
-        cmd.Text.ShouldContain("MATCH (from { id: $from })-[r:`LIKES`]->(to { id: $to })");
-        cmd.Text.ShouldContain("WHERE r.score > $p0");
-        cmd.Parameters["from"].ShouldBe("from");
-        cmd.Parameters["to"].ShouldBe("to");
-        cmd.Parameters["p0"].ShouldBe(0.8);
+        cmd.Parameters["id"].ShouldBe("edge-123");
+        var props = cmd.Parameters["props"] as IReadOnlyDictionary<string, object?>;
+        props.ShouldNotBeNull();
+        props!["id"].ShouldBe("edge-123");
     }
 
     [Fact]
@@ -171,5 +188,45 @@ public class CypherCompilerTests
 
         cmd.Text.ShouldBe("MATCH ()-[r { id: $id }]-() DELETE r");
         cmd.Parameters["id"].ShouldBe("e1");
+    }
+
+    [Fact]
+    public void Compile_QueryEdges_with_type_and_condition()
+    {
+        var op = new QueryEdges(new EdgeQuery
+        {
+            Type = "LIKES",
+            Conditions =
+            [
+                new Condition("score", Operator.GreaterThan, new FloatValue(0.8))
+            ]
+        });
+
+        var cmd = _compiler.Compile(new GraphPlan { Operation = op });
+
+        cmd.Text.ShouldContain("MATCH ()-[r:`LIKES`]->()");
+        cmd.Text.ShouldContain("WHERE r.score > $p0");
+        cmd.Text.ShouldContain("RETURN r");
+        cmd.Parameters["p0"].ShouldBe(0.8);
+    }
+
+    [Fact]
+    public void Compile_DeleteEdges_with_type_and_condition()
+    {
+        var op = new DeleteEdges(new EdgeQuery
+        {
+            Type = "DEPENDS_ON",
+            Conditions =
+            [
+                new Condition("session_id", Operator.Equals, new StringValue("s1"))
+            ]
+        });
+
+        var cmd = _compiler.Compile(new GraphPlan { Operation = op });
+
+        cmd.Text.ShouldContain("MATCH ()-[r:`DEPENDS_ON`]->()");
+        cmd.Text.ShouldContain("WHERE r.session_id = $p0");
+        cmd.Text.ShouldContain("DELETE r");
+        cmd.Parameters["p0"].ShouldBe("s1");
     }
 }

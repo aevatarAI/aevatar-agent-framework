@@ -22,9 +22,6 @@ public sealed class MaterialsOptions
     /// </summary>
     public string RootDir { get; init; } = "materials";
 
-    public string AxiomsDir { get; init; } = "axioms";
-    public string ReferencesDir { get; init; } = "references";
-
     public int MaxFiles { get; init; } = 200;
 
     /// <summary>
@@ -38,6 +35,18 @@ public sealed class MaterialsOptions
     public int MaxContextChars { get; init; } = 18_000;
 
     public int MaxPerDocChars { get; init; } = 6_000;
+
+    // ------------------------------------------------------------
+    //  Optional: allow the system to write "verified notes" back to materials/
+    // ------------------------------------------------------------
+    public bool AllowWrite { get; init; } = false;
+
+    /// <summary>
+    /// Subdirectory (under RootDir) where server-written notes are placed.
+    /// </summary>
+    public string WriteDir { get; init; } = "notes";
+
+    public int MaxWriteChars { get; init; } = 200_000;
 }
 
 

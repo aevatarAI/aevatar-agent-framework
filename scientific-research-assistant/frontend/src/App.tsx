@@ -38,6 +38,8 @@ type ToolSummary = {
   tags?: string[];
 };
 
+type InputMode = "chat" | "vibe";
+
 function formatToolPayload(raw: string): { main: string; rawJson?: string } {
   const s = (raw ?? "").trim();
   if (!s) return { main: "" };
@@ -66,6 +68,7 @@ export default function App() {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [sessionId, setSessionId] = useState<string>("");
   const [input, setInput] = useState<string>("");
+  const [mode, setMode] = useState<InputMode>("chat");
   const [isSending, setIsSending] = useState<boolean>(false);
 
   const [messages, setMessages] = useState<Message[]>([]);
@@ -77,6 +80,9 @@ export default function App() {
   const [toolsOpen, setToolsOpen] = useState(false);
   const [toolSearch, setToolSearch] = useState("");
   const [mcpReconnectBusy, setMcpReconnectBusy] = useState(false);
+
+  const [workspace, setWorkspace] = useState<any>(null);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
 
   const clientRef = useRef<any>(null);
   const messageMapRef = useRef<Map<string, Message>>(new Map());
@@ -178,6 +184,7 @@ export default function App() {
     setLastError("");
     setTools([]);
     setMessages([]);
+    setWorkspace(null);
     messageMapRef.current.clear();
 
     const url = `/api/sessions/${encodeURIComponent(sid)}/agui/events`;
@@ -270,6 +277,17 @@ export default function App() {
 
     client.on("TEXT_MESSAGE_END", (_evt: any) => {
       // no-op
+    });
+
+    client.on("STATE_SNAPSHOT", (evt: any) => {
+      setWorkspace(evt?.snapshot ?? null);
+    });
+
+    // NOTE: current backend uses STATE_SNAPSHOT; DELTA is reserved for future.
+    client.on("STATE_DELTA", (evt: any) => {
+      const delta: any[] = Array.isArray(evt?.delta) ? evt.delta : [];
+      if (delta.length === 0) return;
+      setWorkspace((prev: any) => applyJsonPatch(prev, delta));
     });
 
     client.on("RUN_STARTED", (_evt: any) => setRunStatus("Running…"));
@@ -374,7 +392,7 @@ export default function App() {
       const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/input`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({ message: text, mode }),
       });
       if (!res.ok) {
         const body = await res.text().catch(() => "");
@@ -468,6 +486,18 @@ export default function App() {
               title={connected ? "Browse tools" : "Connect to a session first"}
             >
               <Search size={14} /> Browse tools
+            </button>
+
+            <button
+              onClick={() => setWorkspaceOpen(true)}
+              className="mt-2 w-full text-xs bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded px-2 py-2 transition flex items-center justify-center gap-2 disabled:opacity-50"
+              disabled={!connected}
+              title={connected ? "View workspace state (materials/graph)" : "Connect to a session first"}
+            >
+              <FileText size={14} /> Workspace
+              <span className="ml-auto text-[10px] text-gray-400 font-mono">
+                {workspace?.materials?.items?.length ?? 0}
+              </span>
             </button>
 
             <button
@@ -613,6 +643,18 @@ export default function App() {
         {/* Input */}
         <div className="p-4 bg-gray-900 border-t border-gray-800">
           <div className="max-w-4xl mx-auto relative">
+            <div className="absolute left-2 top-1/2 -translate-y-1/2">
+              <select
+                value={mode}
+                onChange={(e) => setMode(e.target.value as InputMode)}
+                className="bg-gray-900/50 border border-gray-700 rounded-lg px-2 py-1 text-xs text-gray-200 outline-none"
+                disabled={!connected || isSending}
+                title="Run mode"
+              >
+                <option value="chat">chat</option>
+                <option value="vibe">vibe</option>
+              </select>
+            </div>
             <input
               type="text"
               value={input}
@@ -623,9 +665,11 @@ export default function App() {
                   ? "Create/select a session first…"
                   : status !== "Connected"
                     ? "Connecting… (SSE)"
-                    : "Ask a scientific question…"
+                    : mode === "vibe"
+                      ? "Vibe researching… (axioms + references + multi-agent)"
+                      : "Ask a scientific question…"
               }
-              className="w-full bg-gray-800/50 border border-gray-700 rounded-xl pl-4 pr-12 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition placeholder-gray-500 text-sm"
+              className="w-full bg-gray-800/50 border border-gray-700 rounded-xl pl-20 pr-12 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition placeholder-gray-500 text-sm"
               disabled={!connected || isSending}
             />
             <button
@@ -696,8 +740,85 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Workspace Modal */}
+      {workspaceOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <div className="w-full max-w-3xl bg-gray-900 border border-gray-700 rounded-xl overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+              <div className="text-sm font-medium text-gray-200">Workspace State (STATE_SNAPSHOT)</div>
+              <button
+                onClick={() => setWorkspaceOpen(false)}
+                className="p-2 rounded hover:bg-gray-800 transition"
+                aria-label="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="p-4">
+              {workspace ? (
+                <pre className="text-xs text-gray-200 whitespace-pre-wrap break-words max-h-[70vh] overflow-auto bg-gray-950/40 border border-gray-800 rounded-lg p-3">
+                  {JSON.stringify(workspace, null, 2)}
+                </pre>
+              ) : (
+                <div className="text-sm text-gray-500">No workspace state yet (run vibe once).</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+function applyJsonPatch(base: any, ops: any[]): any {
+  // Minimal RFC6902 subset: add/replace on objects/arrays. Best-effort; fallback to base.
+  let cur: any = base ?? {};
+
+  const clone = (v: any) => (v && typeof v === "object" ? JSON.parse(JSON.stringify(v)) : v);
+  cur = clone(cur);
+
+  const getPath = (obj: any, parts: string[]) => {
+    let node = obj;
+    for (let i = 0; i < parts.length; i++) {
+      if (node == null) return { parent: null, key: "" };
+      if (i === parts.length - 1) return { parent: node, key: parts[i] };
+      node = node[parts[i]];
+    }
+    return { parent: null, key: "" };
+  };
+
+  for (const op of ops) {
+    const kind = String(op?.op ?? "");
+    const path = String(op?.path ?? "");
+    if (!kind || !path || !path.startsWith("/")) continue;
+    const parts = path
+      .split("/")
+      .slice(1)
+      .map((p) => p.replace(/~1/g, "/").replace(/~0/g, "~"));
+
+    const { parent, key } = getPath(cur, parts);
+    if (parent == null) continue;
+
+    if (kind === "replace") {
+      parent[key] = op?.value;
+      continue;
+    }
+
+    if (kind === "add") {
+      if (key === "-" && Array.isArray(parent)) {
+        parent.push(op?.value);
+      } else if (Array.isArray(parent)) {
+        const idx = Number(key);
+        if (!Number.isNaN(idx)) parent.splice(idx, 0, op?.value);
+      } else {
+        parent[key] = op?.value;
+      }
+    }
+  }
+
+  return cur;
 }
 
 

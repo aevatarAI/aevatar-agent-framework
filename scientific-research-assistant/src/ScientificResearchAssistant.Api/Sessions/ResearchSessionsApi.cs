@@ -1,6 +1,7 @@
+using System.Text;
 using System.Text.Json;
 using Aevatar.Agents.AGUI;
-using ScientificResearchAssistant.Api.AgUi;
+using ScientificResearchAssistant.Api.Materials;
 
 namespace ScientificResearchAssistant.Api.Sessions;
 
@@ -29,6 +30,7 @@ internal static class ResearchSessionsApi
         MapTools(app);
         MapInput(app);
         MapMcpReconnect(app);
+        MapMaterials(app);
         MapAgUiEvents(app);
     }
 
@@ -79,7 +81,6 @@ internal static class ResearchSessionsApi
             string sessionId,
             SessionInputInDto input,
             ResearchSessionManager sessions,
-            ResearchRuntime runtime,
             ResearchRunExecutor executor,
             CancellationToken ct) =>
         {
@@ -172,6 +173,59 @@ internal static class ResearchSessionsApi
         });
     }
 
+    private static void MapMaterials(WebApplication app)
+    {
+        // Write-back: allow user to persist a verified conclusion as a new source under materials/
+        app.MapPost("/api/sessions/{sessionId}/materials", async (
+            string sessionId,
+            SaveMaterialInDto input,
+            ResearchSessionManager sessions,
+            MaterialsService materials,
+            CancellationToken ct) =>
+        {
+            if (!sessions.TryGet(sessionId, out var session))
+                return Results.NotFound(new { error = "session not found" });
+
+            var content = (input.Content ?? string.Empty).Trim();
+            if (content.Length == 0)
+                return Results.BadRequest(new { error = "content is required" });
+
+            try
+            {
+                var title = (input.Title ?? string.Empty).Trim();
+                var saved = await materials.SaveMaterialAsync(title, content, input.RelativePath, ct);
+
+                // Refresh workspace materials snapshot (best-effort; bounded by options)
+                var snapshot = await materials.LoadAsync(session.Id, query: "", ct);
+                ApplyMaterialsToWorkspace(session, snapshot);
+
+                session.Events.Publish(new StateSnapshotEvent
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    Snapshot = session.Workspace
+                });
+
+                session.Events.Publish(new CustomEvent
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    Name = "aevatar.scientific.material_saved",
+                    Value = new { sessionId = session.Id, id = saved.Id, title = saved.Title, relativePath = saved.RelativePath }
+                });
+
+                return Results.Json(new
+                {
+                    ok = true,
+                    sessionId = session.Id,
+                    material = new { id = saved.Id, title = saved.Title, relativePath = saved.RelativePath }
+                });
+            }
+            catch (Exception ex)
+            {
+                return Results.Problem(title: "save material failed", detail: ex.Message, statusCode: 500);
+            }
+        });
+    }
+
     private static void MapAgUiEvents(WebApplication app)
     {
         app.MapGet("/api/sessions/{sessionId}/agui/events", async (
@@ -229,7 +283,7 @@ internal static class ResearchSessionsApi
             await WriteSseAsync(new MessagesSnapshotEvent
             {
                 Timestamp = Ts(DateTimeOffset.UtcNow),
-                Messages = []
+                Messages = session.GetMessagesSnapshot(maxMessages: 60)
             }, ct);
 
             await WriteSseAsync(new CustomEvent
@@ -246,34 +300,12 @@ internal static class ResearchSessionsApi
 
             // Optional visual state (workspace / materials / graph)
             await WriteSseAsync(new StateSnapshotEvent
-            {
-                Timestamp = Ts(DateTimeOffset.UtcNow),
+                    {
+                        Timestamp = Ts(DateTimeOffset.UtcNow),
                 Snapshot = session.Workspace
             }, ct);
 
-            // 1) Background hydration (snapshot + tools catalog) -> publish into the same hub.
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    var bootstrapMessages = await ResearchAgUiBootstrap.BuildMessagesSnapshotAsync(
-                        session.Id,
-                        runtime,
-                        maxMessages: 60,
-                        ct);
-
-                    session.Events.Publish(new MessagesSnapshotEvent
-                    {
-                        Timestamp = Ts(DateTimeOffset.UtcNow),
-                        Messages = bootstrapMessages
-                    });
-                }
-                catch
-                {
-                    // best-effort
-                }
-            }, ct);
-
+            // 1) Background hydration (tools catalog) -> publish into the same hub.
             _ = Task.Run(async () =>
             {
                 try
@@ -299,6 +331,31 @@ internal static class ResearchSessionsApi
                 await WriteSseAsync(evt, ct);
             }
         });
+    }
+
+    private static void ApplyMaterialsToWorkspace(ResearchSession session, MaterialsSnapshot snapshot)
+    {
+        var ws = session.Workspace;
+        ws.Materials.RootDir = snapshot.RootDir;
+        ws.Materials.LoadedAt = snapshot.LoadedAt.ToString("O");
+        ws.Materials.Items = snapshot.Files
+            .Select(x => new MaterialMeta
+            {
+                Id = x.Id,
+                Title = x.Title,
+                RelativePath = x.RelativePath,
+                Kind = x.Kind
+            })
+            .ToList();
+
+        ws.Materials.ContextPreview = Trunc(snapshot.RenderedContext, 2000);
+    }
+
+    private static string Trunc(string? s, int maxChars)
+    {
+        var t = (s ?? string.Empty).Replace("\r", "").Trim();
+        if (t.Length <= maxChars) return t;
+        return t[..maxChars];
     }
 }
 

@@ -12,6 +12,19 @@
 - Backend: `http://localhost:5678`
 - Frontend: `http://localhost:5173`
 
+### Aspire AppHost（可选）
+
+如果你希望由 Aspire Dashboard 统一编排前后端：
+
+```bash
+cd ScientificResearchAssistant.AppHost
+dotnet run
+```
+
+默认端口：
+- Backend: `5678`
+- Frontend: `5173`
+
 ### 分别启动
 
 #### 后端
@@ -54,5 +67,17 @@ AG-UI tool 事件是 `CUSTOM`：
 如果你在 UI 里完全看不到：
 - 先检查 `tools_snapshot` 是否返回（侧栏 MCP Tools 数量）
 - 再确认 run 触发成功（`RUN_STARTED` / `STEP_STARTED(chat)`）
+
+#### 4) vibe 模式读不到 materials（sources）
+
+- 检查 `materials/` 下是否存在 `.md` / `.txt`（任意子目录都可以）
+- 检查 `src/ScientificResearchAssistant.Api/appsettings.json` 的 `Materials:RootDir`（默认 `materials`）
+- UI 里打开 `Workspace`（STATE_SNAPSHOT）确认 materials 是否被加载
+
+#### 5) python_exec 不可用
+
+- 默认 `Python:Enabled=false`（安全策略）
+- 开启后重启后端：`Python:Enabled=true`
+- 确保本机 `python3` 可用（或用 `SRA_PYTHON_BIN` 指定）
 
 

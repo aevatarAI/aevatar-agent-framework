@@ -1,5 +1,6 @@
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
+using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.WithTool.Abstractions;
 using ScientificResearchAssistant.Streaming;
 
@@ -12,7 +13,7 @@ namespace ScientificResearchAssistant.Vibe;
 //  - Shared base for "vibe researching" multi-agent roles.
 //
 //  Why:
-//  - Inject materials context (axioms/references) into system prompt.
+//  - Inject materials context (NotebookLM-style sources) into system prompt.
 //  - Reuse ResearchToolManager wrapper to emit tool progress events via AsyncLocal.
 // ============================================================
 

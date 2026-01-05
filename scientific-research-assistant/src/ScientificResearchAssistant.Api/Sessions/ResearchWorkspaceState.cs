@@ -20,13 +20,10 @@ public sealed class ResearchWorkspaceState
 public sealed class MaterialsState
 {
     public string RootDir { get; set; } = string.Empty;
-    public string AxiomsDir { get; set; } = string.Empty;
-    public string ReferencesDir { get; set; } = string.Empty;
 
     public string LoadedAt { get; set; } = string.Empty; // ISO 8601
 
-    public List<MaterialMeta> Axioms { get; set; } = new();
-    public List<MaterialMeta> References { get; set; } = new();
+    public List<MaterialMeta> Items { get; set; } = new();
 
     public string ContextPreview { get; set; } = string.Empty;
 }

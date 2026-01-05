@@ -9,7 +9,7 @@
 
 建议做法：
 - 把真实密钥放在 `appsettings.secrets.json`（本地文件、不要提交）
-- 仓库内提供 `appsettings.secrets.example.json` 作为模板
+- 仓库内提供 `appsettings.secrets.json.example` 作为模板
 
 ### 2) MCP（Claude Scientific Skills）
 
@@ -24,7 +24,38 @@
 - `MCP:DockerImage`: docker image
 - `MCP:RequestTimeoutMs`: 单次调用超时（毫秒）
 
-### 3) 端口与环境变量
+### 3) Materials（vibe researching grounding）
+
+`src/ScientificResearchAssistant.Api/appsettings.json` 的 `Materials` 控制本地资料读取：
+
+- `Materials:RootDir`：默认 `materials`（相对 `scientific-research-assistant/` 根目录）
+- `Materials:MaxContextChars`：注入 LLM 的总字符上限（避免上下文爆炸）
+
+目录约定（NotebookLM 风格）：
+
+- `materials/` 下 **任意子目录** 的 `.md|.txt` 都会被当作 “sources”
+- 你可以自行用子目录做组织（例如 `axioms/`、`papers/`、`notes/`），但系统不再区分“公理/参考资料”
+
+可选写回（把验证通过的结论沉淀为新的 sources）：
+
+- `Materials:AllowWrite`：默认 `false`
+- `Materials:WriteDir`：默认 `notes`（写入到 `materials/notes/`）
+
+### 4) Python 验证（可选，默认关闭）
+
+`Python:Enabled=false`（默认）时，`python_exec` 不会注册，模型也无法调用。
+
+启用方式：
+
+- `src/ScientificResearchAssistant.Api/appsettings.json`：`Python:Enabled=true`
+- 可选覆盖 python 可执行文件：
+  - `SRA_PYTHON_BIN=python3`（默认就是 `python3`）
+
+相关配置：
+- `Python:TimeoutMs`
+- `Python:MaxOutputChars`
+
+### 5) 端口与环境变量
 
 - **后端端口**：默认 `5678`（仓库政策：禁止 `5000`）
   - `BACKEND_PORT=5679 ./start.sh` 覆盖

@@ -22,7 +22,7 @@ namespace ScientificResearchAssistant.Api.Sessions;
 //  - Runs are serialized per session to avoid history/tool-loop corruption.
 // ============================================================
 
-public sealed class ResearchRunExecutor
+internal sealed class ResearchRunExecutor
 {
     private readonly ResearchRuntime _runtime;
     private readonly MaterialsService _materials;
@@ -94,7 +94,7 @@ public sealed class ResearchRunExecutor
 
             // Emit user message
             var userMessageId = $"msg:{session.Id}:user:{runId}";
-            EmitUserMessage(session, userMessageId, input.Message.Trim());
+            EmitUserMessage(session, userMessageId, (input.Message ?? string.Empty).Trim());
 
             // Emit assistant message stream
             var assistantMessageId = $"msg:{session.Id}:assistant:{runId}";
@@ -125,7 +125,7 @@ public sealed class ResearchRunExecutor
                 var requestId = input.RequestId ?? Guid.NewGuid().ToString("N");
                 var request = new ChatRequest
                 {
-                    Message = input.Message.Trim(),
+                    Message = (input.Message ?? string.Empty).Trim(),
                     RequestId = requestId,
                     StageHint = "session:chat"
                 };
@@ -226,7 +226,7 @@ public sealed class ResearchRunExecutor
         try
         {
             var providerOverride = session.ProviderName;
-            var question = input.Message.Trim();
+            var question = (input.Message ?? string.Empty).Trim();
 
             session.Events.Publish(new RunStartedEvent
             {
@@ -430,6 +430,8 @@ public sealed class ResearchRunExecutor
 
     private static void EmitUserMessage(ResearchSession session, string messageId, string content)
     {
+        session.SetMessage(messageId, role: "user", content);
+
         session.Events.Publish(new TextMessageStartEvent
         {
             Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
@@ -454,6 +456,8 @@ public sealed class ResearchRunExecutor
         if (string.IsNullOrEmpty(delta))
             return;
 
+        session.AppendToMessage(messageId, role: "assistant", delta);
+
         session.Events.Publish(new TextMessageContentEvent
         {
             Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
@@ -471,21 +475,9 @@ public sealed class ResearchRunExecutor
         var ws = session.Workspace;
 
         ws.Materials.RootDir = snapshot.RootDir;
-        ws.Materials.AxiomsDir = snapshot.AxiomsDir;
-        ws.Materials.ReferencesDir = snapshot.ReferencesDir;
         ws.Materials.LoadedAt = snapshot.LoadedAt.ToString("O");
 
-        ws.Materials.Axioms = snapshot.Axioms
-            .Select(x => new MaterialMeta
-            {
-                Id = x.Id,
-                Title = x.Title,
-                RelativePath = x.RelativePath,
-                Kind = x.Kind
-            })
-            .ToList();
-
-        ws.Materials.References = snapshot.References
+        ws.Materials.Items = snapshot.Files
             .Select(x => new MaterialMeta
             {
                 Id = x.Id,

@@ -8,6 +8,7 @@ This project provides a unified interface for scientific research, allowing you 
 
 ### Key Features
 - **AI Agent**: Specialized `ResearchAgent` capable of using scientific tools.
+- **Vibe Researching (NEW)**: Multi-agent inference grounded in your local **materials (sources)** (`materials/`), with optional Python verification.
 - **Web Interface ("Lab Notebook")**: React/Tailwind UI for interactive research.
 - **CLI**: Rapid prototyping console.
 - **Local Privacy**: optional Docker-based execution of scientific tools on your own machine.
@@ -18,6 +19,7 @@ This project provides a unified interface for scientific research, allowing you 
 - `frontend/`: Frontend (React + Vite).
 - `src/ScientificResearchAssistant/`: Core Agent logic (CLI + agent class).
 - `src/ScientificResearchAssistant.Api/`: Backend API (ASP.NET Core 10.0, AG-UI SSE).
+- `materials/`: Local grounding inputs (NotebookLM-style sources) for vibe researching.
 - `docs/`: Deployment and Integration guides.
 
 ## 🏁 Getting Started
@@ -33,20 +35,26 @@ This project provides a unified interface for scientific research, allowing you 
 1.  **Configure LLM Providers**:
     Put your keys in `src/ScientificResearchAssistant.Api/appsettings.secrets.json` (see example file).
 
-2.  **(Optional) Choose MCP mode**:
+2.  **(Optional) Add materials (sources)**:
+    - Put any `.md` / `.txt` under `materials/` (subfolders are fine)
+
+3.  **(Optional) Choose MCP mode**:
     `src/ScientificResearchAssistant.Api/appsettings.json` controls whether Claude Scientific Skills runs via hosted MCP or local Docker.
 
-3.  **One-Click Start**:
+4.  **One-Click Start**:
     ```bash
     ./start.sh
     ```
     This will launch both the Backend API and the Frontend Web Interface.
 
-4.  **Manual Start (Alternative)**:
+5.  **Manual Start (Alternative)**:
     - **Backend**: `cd src/ScientificResearchAssistant.Api && ASPNETCORE_URLS=http://localhost:5678 dotnet run`
     - **Frontend**: `cd frontend && SRA_API_PROXY_TARGET=http://localhost:5678 npm run dev -- --port 5173`
 
-5.  **Access**: Open `http://localhost:5173`.
+6.  **Aspire AppHost (Alternative)**:
+    - `cd ScientificResearchAssistant.AppHost && dotnet run`
+
+7.  **Access**: Open `http://localhost:5173`.
 
 ### Core Endpoints (AG-UI)
 
@@ -55,11 +63,14 @@ This project provides a unified interface for scientific research, allowing you 
 - `POST /api/sessions`
 - `GET  /api/sessions`
 - `POST /api/sessions/{id}/input`
+  - body: `{ "message": "...", "mode": "chat" | "vibe" }` (`mode` optional, default `chat`)
+- `POST /api/sessions/{id}/materials` (optional; requires `Materials:AllowWrite=true`)
 - `GET  /api/sessions/{id}/agui/events` (SSE, snapshot-first)
 
 ## 📚 Documentation
 
 - [Integration Guide (Claude Scientific Skills)](docs/INTEGRATION_GUIDE.md)
 - [Architecture Overview](docs/ARCHITECTURE.md)
+- [Vibe Researching (Platform Design)](docs/VIBE_RESEARCHING.md)
 - [Configuration](docs/CONFIGURATION.md)
 - [Development](docs/DEVELOPMENT.md)

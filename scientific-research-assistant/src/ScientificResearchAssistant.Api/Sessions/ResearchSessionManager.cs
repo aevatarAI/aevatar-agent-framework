@@ -70,12 +70,94 @@ public sealed class ResearchSession(string id)
         SessionId = id
     };
 
+    // ------------------------------------------------------------
+    // Message log (snapshot-first reconnect)
+    //
+    // Why:
+    // - Multi-agent runs may not write into a single agent's State.History.
+    // - We keep a small server-side canonical message log so reconnect always works.
+    // ------------------------------------------------------------
+    private readonly object _messagesLock = new();
+    private readonly List<AgUiMessage> _messages = new();
+    private readonly Dictionary<string, int> _messageIndex = new(StringComparer.Ordinal);
+
     // Serialize chat runs per session (avoid concurrent tool loops / history corruption).
     public SemaphoreSlim RunLock { get; } = new(1, 1);
 
     private int _runSeq;
 
     public int NextRunSeq() => Interlocked.Increment(ref _runSeq);
+
+    public List<AgUiMessage> GetMessagesSnapshot(int maxMessages)
+    {
+        maxMessages = Math.Clamp(maxMessages, 0, 200);
+        if (maxMessages == 0) return [];
+
+        lock (_messagesLock)
+        {
+            if (_messages.Count == 0) return [];
+            var take = Math.Min(maxMessages, _messages.Count);
+            return _messages
+                .Skip(Math.Max(0, _messages.Count - take))
+                .Select(m => new AgUiMessage
+                {
+                    Id = m.Id,
+                    Role = m.Role,
+                    Content = m.Content,
+                    Name = m.Name,
+                    ToolCallId = m.ToolCallId
+                })
+                .ToList();
+        }
+    }
+
+    public void SetMessage(string messageId, string role, string content)
+    {
+        messageId = (messageId ?? string.Empty).Trim();
+        role = (role ?? string.Empty).Trim();
+        content ??= string.Empty;
+
+        if (messageId.Length == 0 || role.Length == 0)
+            return;
+
+        lock (_messagesLock)
+        {
+            if (_messageIndex.TryGetValue(messageId, out var idx))
+            {
+                var existing = _messages[idx];
+                _messages[idx] = existing with { Role = role, Content = content };
+            }
+            else
+            {
+                _messageIndex[messageId] = _messages.Count;
+                _messages.Add(new AgUiMessage { Id = messageId, Role = role, Content = content });
+            }
+        }
+    }
+
+    public void AppendToMessage(string messageId, string role, string delta)
+    {
+        messageId = (messageId ?? string.Empty).Trim();
+        role = (role ?? string.Empty).Trim();
+        delta ??= string.Empty;
+
+        if (messageId.Length == 0 || role.Length == 0 || delta.Length == 0)
+            return;
+
+        lock (_messagesLock)
+        {
+            if (_messageIndex.TryGetValue(messageId, out var idx))
+            {
+                var existing = _messages[idx];
+                _messages[idx] = existing with { Role = role, Content = (existing.Content ?? string.Empty) + delta };
+            }
+            else
+            {
+                _messageIndex[messageId] = _messages.Count;
+                _messages.Add(new AgUiMessage { Id = messageId, Role = role, Content = delta });
+            }
+        }
+    }
 }
 
 

@@ -7,13 +7,13 @@ namespace ScientificResearchAssistant.Api.Materials;
 //  MaterialsService (MVP)
 //
 //  Goal:
-//  - Load axioms and reference materials from local files.
+//  - Load materials (NotebookLM-style "sources") from local files.
 //  - Build a bounded "materials context" string to inject into LLM.
 //
 //  Design (borrowed taste from Notebook):
 //  - Deterministic: same input files → same ids/order.
 //  - Bounded: max files, max chars per file, max total injected chars.
-//  - Coverage-first for axioms, relevance-next for references.
+//  - Relevance-next: rank by query, inject only top sources within budget.
 // ============================================================
 
 public sealed class MaterialsService
@@ -39,25 +39,179 @@ public sealed class MaterialsService
         query = (query ?? string.Empty).Trim();
 
         var root = ResolveMaterialsRoot();
-        var axiomsDir = Path.Combine(root, _options.Value.AxiomsDir ?? "axioms");
-        var refsDir = Path.Combine(root, _options.Value.ReferencesDir ?? "references");
+        var files = await LoadFolderAsync(kind: "material", folder: root, ct);
 
-        var axioms = await LoadFolderAsync(kind: "axiom", folder: axiomsDir, ct);
-        var refs = await LoadFolderAsync(kind: "reference", folder: refsDir, ct);
-
-        var context = BuildContextString(axioms, refs, query, _options.Value);
+        var context = BuildContextString(files, query, _options.Value);
 
         return new MaterialsSnapshot
         {
             SessionId = sessionId,
             LoadedAt = DateTimeOffset.UtcNow,
             RootDir = root,
-            AxiomsDir = axiomsDir,
-            ReferencesDir = refsDir,
-            Axioms = axioms,
-            References = refs,
+            Files = files,
             RenderedContext = context
         };
+    }
+
+    // ============================================================
+    //  Write-back (optional): persist verified notes as new sources
+    // ============================================================
+
+    public async Task<MaterialFile> SaveMaterialAsync(
+        string title,
+        string content,
+        string? relativePath,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        if (!_options.Value.AllowWrite)
+            throw new InvalidOperationException("Materials write is disabled (Materials:AllowWrite=false).");
+
+        title = (title ?? string.Empty).Trim();
+        content = (content ?? string.Empty).Replace("\r", "").Trim();
+        if (content.Length == 0)
+            throw new ArgumentException("content is required", nameof(content));
+
+        var maxWrite = Math.Clamp(_options.Value.MaxWriteChars, 1, 500_000);
+        if (content.Length > maxWrite)
+            content = content[..maxWrite];
+
+        var root = ResolveMaterialsRoot();
+        var writeDirName = (_options.Value.WriteDir ?? "notes").Trim();
+        if (writeDirName.Length == 0) writeDirName = "notes";
+
+        // Ensure write target directory exists.
+        var writeDir = Path.GetFullPath(Path.Combine(root, writeDirName));
+        Directory.CreateDirectory(writeDir);
+
+        var rel = NormalizeRelativePath(relativePath);
+        if (rel.Length == 0)
+        {
+            // Default: notes/{yyyyMMdd_HHmmss}_{slug}.md
+            var slug = Slugify(title.Length == 0 ? "note" : title, maxChars: 48);
+            var stamp = DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss");
+            rel = $"{writeDirName}/{stamp}_{slug}.md";
+        }
+        else if (!rel.StartsWith(writeDirName + "/", StringComparison.Ordinal))
+        {
+            // Constrain user-specified paths into writeDir for safety.
+            rel = $"{writeDirName}/{rel}";
+        }
+
+        if (!HasAllowedExtension(rel))
+            rel += ".md";
+
+        var full = Path.GetFullPath(Path.Combine(root, rel));
+        EnsureWithinRoot(root, full);
+
+        var md = BuildMarkdownNote(title, content);
+        await File.WriteAllTextAsync(full, md, Encoding.UTF8, ct);
+
+        var finalRel = NormalizeRelativePath(Path.GetRelativePath(root, full));
+        var finalTitle = title.Length == 0 ? InferTitle(finalRel, md) : title;
+
+        return new MaterialFile
+        {
+            Kind = "material",
+            Id = $"material:{finalRel}",
+            Title = finalTitle,
+            RelativePath = finalRel,
+            FullPath = full,
+            Content = md
+        };
+    }
+
+    private static string BuildMarkdownNote(string title, string content)
+    {
+        var t = (title ?? string.Empty).Trim();
+        var body = (content ?? string.Empty).Replace("\r", "").Trim();
+
+        // Minimal structure for future parsing.
+        if (t.Length == 0)
+            return body;
+
+        return $"""
+               # {t}
+
+               {body}
+               """;
+    }
+
+    private static bool HasAllowedExtension(string relPath)
+    {
+        var ext = Path.GetExtension(relPath ?? string.Empty);
+        if (string.IsNullOrWhiteSpace(ext))
+            return false;
+        return AllowedExtensions.Contains(ext, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeRelativePath(string? value)
+    {
+        var s = (value ?? string.Empty).Replace('\\', '/').Trim();
+        if (s.Length == 0) return string.Empty;
+
+        // Prevent absolute paths.
+        if (s.StartsWith("/", StringComparison.Ordinal))
+            s = s.TrimStart('/');
+
+        // Prevent traversal segments.
+        var parts = s.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var safe = new List<string>(parts.Length);
+        foreach (var p in parts)
+        {
+            if (p == "." || p == "..")
+                continue;
+            safe.Add(p);
+        }
+
+        return string.Join('/', safe);
+    }
+
+    private static void EnsureWithinRoot(string rootDir, string fullPath)
+    {
+        var root = Path.GetFullPath(rootDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var full = Path.GetFullPath(fullPath);
+
+        var prefix = root + Path.DirectorySeparatorChar;
+        if (!full.StartsWith(prefix, StringComparison.Ordinal))
+            throw new InvalidOperationException("Invalid path: write must stay within materials root.");
+    }
+
+    private static string Slugify(string input, int maxChars)
+    {
+        maxChars = Math.Clamp(maxChars, 8, 96);
+
+        var s = (input ?? string.Empty).Trim();
+        if (s.Length == 0) return "note";
+
+        var sb = new StringBuilder(capacity: Math.Min(maxChars, 64));
+        var prevDash = false;
+        foreach (var ch in s)
+        {
+            if (sb.Length >= maxChars) break;
+
+            var isAlphaNum = char.IsLetterOrDigit(ch);
+            if (isAlphaNum)
+            {
+                sb.Append(char.ToLowerInvariant(ch));
+                prevDash = false;
+                continue;
+            }
+
+            if (!prevDash)
+            {
+                sb.Append('-');
+                prevDash = true;
+            }
+        }
+
+        var outSlug = sb
+            .ToString()
+            .Trim('-')
+            .Trim();
+
+        return outSlug.Length == 0 ? "note" : outSlug;
     }
 
     private string ResolveMaterialsRoot()
@@ -137,7 +291,7 @@ public sealed class MaterialsService
             return false;
 
         // Skip hidden/system-ish files
-        var name = Path.GetFileName(path);
+        var name = Path.GetFileName(path) ?? string.Empty;
         if (name.StartsWith(".", StringComparison.Ordinal))
             return false;
 
@@ -153,7 +307,7 @@ public sealed class MaterialsService
 
         var sb = new StringBuilder(capacity: Math.Min(maxChars, 4096));
         var buf = new char[2048];
-        while (!sr.EndOfStream && sb.Length < maxChars)
+        while (sb.Length < maxChars)
         {
             ct.ThrowIfCancellationRequested();
 
@@ -192,8 +346,7 @@ public sealed class MaterialsService
     }
 
     private static string BuildContextString(
-        IReadOnlyList<MaterialFile> axioms,
-        IReadOnlyList<MaterialFile> references,
+        IReadOnlyList<MaterialFile> materials,
         string query,
         MaterialsOptions options)
     {
@@ -208,34 +361,14 @@ public sealed class MaterialsService
             sb.AppendLine(header);
         }
 
-        // ------------------------------------------------------------
-        // Coverage-first: axioms are "hard constraints" - always include.
-        // ------------------------------------------------------------
-        AppendSection("AXIOMS:");
-        if (axioms.Count == 0)
+        AppendSection("MATERIALS (sources, relevance-ranked):");
+        if (materials.Count == 0)
         {
             sb.AppendLine("(none)");
         }
         else
         {
-            foreach (var a in axioms)
-            {
-                if (sb.Length >= maxTotal) break;
-                AppendMaterial(sb, a, maxPerDoc, maxTotal);
-            }
-        }
-
-        // ------------------------------------------------------------
-        // Relevance-next: references are large; pick top by lexical score.
-        // ------------------------------------------------------------
-        AppendSection("REFERENCES (relevance-ranked):");
-        if (references.Count == 0)
-        {
-            sb.AppendLine("(none)");
-        }
-        else
-        {
-            var ranked = RankReferences(references, query)
+            var ranked = RankMaterials(materials, query)
                 .Take(24)
                 .ToList();
 
@@ -278,20 +411,27 @@ public sealed class MaterialsService
         sb.AppendLine();
     }
 
-    private static IEnumerable<(MaterialFile File, int Score)> RankReferences(IReadOnlyList<MaterialFile> refs, string query)
+    private static IEnumerable<(MaterialFile File, int Score)> RankMaterials(IReadOnlyList<MaterialFile> files, string query)
     {
         var q = (query ?? string.Empty).Trim();
         if (q.Length == 0)
         {
             // Deterministic fallback: keep file order.
-            foreach (var f in refs)
+            foreach (var f in files)
                 yield return (f, 0);
             yield break;
         }
 
+        var separators = new[]
+        {
+            ' ', '\t', '\n', '\r',
+            ',', '.', ';', ':', '!', '?',
+            '(', ')', '[', ']', '{', '}',
+            '"', '\''
+        };
+
         var terms = q
-            .Split(' ', '\t', '\n', '\r', ',', '.', ';', ':', '!', '?', '(', ')', '[', ']', '{', '}', '"', '\'',
-                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Split(separators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Where(t => t.Length >= 3)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(16)
@@ -322,7 +462,7 @@ public sealed class MaterialsService
         }
 
         // Score all, then stable sort: score desc, id asc.
-        var ranked = refs
+        var ranked = files
             .Select(f => (File: f, Score: Score(f)))
             .OrderByDescending(x => x.Score)
             .ThenBy(x => x.File.Id, StringComparer.Ordinal);
@@ -356,11 +496,7 @@ public sealed record MaterialsSnapshot
     public required DateTimeOffset LoadedAt { get; init; }
 
     public required string RootDir { get; init; }
-    public required string AxiomsDir { get; init; }
-    public required string ReferencesDir { get; init; }
-
-    public required List<MaterialFile> Axioms { get; init; }
-    public required List<MaterialFile> References { get; init; }
+    public required List<MaterialFile> Files { get; init; }
 
     /// <summary>
     /// Bounded string for LLM injection.
@@ -370,7 +506,7 @@ public sealed record MaterialsSnapshot
 
 public sealed record MaterialFile
 {
-    public required string Kind { get; init; }            // axiom | reference
+    public required string Kind { get; init; }            // material | note | derived | ...
     public required string Id { get; init; }              // stable id: {kind}:{relativePath}
     public required string Title { get; init; }           // inferred title
     public required string RelativePath { get; init; }

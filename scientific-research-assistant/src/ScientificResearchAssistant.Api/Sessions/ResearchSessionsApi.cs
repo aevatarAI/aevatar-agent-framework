@@ -33,6 +33,7 @@ internal static class ResearchSessionsApi
 
         MapCreate(app);
         MapList(app);
+        MapTools(app);
         MapInput(app);
         MapMcpReconnect(app);
         MapAgUiEvents(app);
@@ -53,6 +54,29 @@ internal static class ResearchSessionsApi
         {
             var list = sessions.ListSessions();
             return Results.Json(new { count = list.Count, sessions = list });
+        });
+    }
+
+    private static void MapTools(WebApplication app)
+    {
+        app.MapGet("/api/sessions/{sessionId}/tools", async (
+            string sessionId,
+            ResearchSessionManager sessions,
+            ResearchRuntime runtime,
+            CancellationToken ct) =>
+        {
+            if (!sessions.TryGet(sessionId, out var session))
+                return Results.NotFound(new { error = "session not found" });
+
+            try
+            {
+                var (tools, _mcpNames) = await runtime.GetToolsSnapshotAsync(session.Id, session.ProviderName, ct);
+                return Results.Json(new { ok = true, sessionId = session.Id, tools });
+            }
+            catch (Exception ex)
+            {
+                return Results.Problem(title: "tools snapshot failed", detail: ex.Message, statusCode: 500);
+            }
         });
     }
 
@@ -429,14 +453,15 @@ internal static class ResearchSessionsApi
             });
 
             // Synthesized response for run result.
-            resp ??= new ChatResponse { Content = assistant.ToString(), RequestId = input.RequestId ?? "" };
+            var assistantText = assistant.ToString();
+            resp ??= new ChatResponse { Content = assistantText, RequestId = input.RequestId ?? "" };
 
             session.Events.Publish(new RunFinishedEvent
             {
                 Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 ThreadId = session.Id,
                 RunId = runId,
-                Result = new { ok = true }
+                Result = new { ok = true, assistantMessageId, assistant = assistantText }
             });
         }
         catch (Exception ex)

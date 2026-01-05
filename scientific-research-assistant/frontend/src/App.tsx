@@ -187,8 +187,30 @@ export default function App() {
 
     const upsertMessage = (msg: Message) => {
       const map = messageMapRef.current;
-      map.set(msg.id, msg);
+      const existing = map.get(msg.id);
+      map.set(
+        msg.id,
+        existing
+          ? {
+              ...existing,
+              ...msg,
+              toolOutputs: msg.toolOutputs ?? existing.toolOutputs,
+            }
+          : msg,
+      );
       setMessages(Array.from(map.values()));
+    };
+
+    const pullToolsSnapshot = async () => {
+      try {
+        const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}/tools`);
+        if (!res.ok) return;
+        const json = await res.json().catch(() => null);
+        const list = Array.isArray(json?.tools) ? json.tools : [];
+        setTools(list as ToolSummary[]);
+      } catch {
+        // best-effort
+      }
     };
 
     const appendDelta = (id2: string, role: ChatRole, delta: string) => {
@@ -251,7 +273,26 @@ export default function App() {
     });
 
     client.on("RUN_STARTED", (_evt: any) => setRunStatus("Running…"));
-    client.on("RUN_FINISHED", (_evt: any) => setRunStatus(""));
+    client.on("RUN_FINISHED", (evt: any) => {
+      setRunStatus("");
+
+      // Fallback: if TEXT_MESSAGE_CONTENT was missed, use RUN_FINISHED payload to backfill.
+      const r = evt?.result ?? {};
+      const mid = r?.assistantMessageId;
+      const text = r?.assistant;
+      if (typeof mid !== "string" || !mid) return;
+      if (typeof text !== "string" || !text) return;
+
+      const map = messageMapRef.current;
+      const existing = map.get(mid);
+      if (!existing) {
+        map.set(mid, { id: mid, role: "assistant", content: text });
+      } else if (!existing.content) {
+        existing.content = text;
+        map.set(mid, existing);
+      }
+      setMessages(Array.from(map.values()));
+    });
     client.on("RUN_ERROR", (evt: any) => setRunStatus(`Error: ${(evt?.message ?? "run failed").toString()}`));
 
     client.on("CUSTOM", (evt: any) => {
@@ -313,7 +354,10 @@ export default function App() {
       }
     });
 
-    client.on?.("open", () => setStatus("Connected"));
+    client.on?.("open", () => {
+      setStatus("Connected");
+      void pullToolsSnapshot();
+    });
     client.on?.("error", () => {
       setLastError("SSE disconnected (EventSource error). Check backend/proxy and session validity.");
       disconnect();

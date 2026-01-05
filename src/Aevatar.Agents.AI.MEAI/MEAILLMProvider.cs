@@ -151,8 +151,59 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
 
         if (request.Messages?.Count > 0)
         {
+            // ------------------------------------------------------------
+            //  Tool calling protocol guard (OpenAI-compatible)
+            //
+            //  Some providers enforce strict ordering:
+            //  - A tool message must reference a preceding assistant message with tool_calls.
+            //
+            //  When history is compacted/truncated, it's possible to end up with an orphan
+            //  tool result message (role=tool) without its matching tool_calls message.
+            //  That yields HTTP 400:
+            //    "Messages with role 'tool' must be a response to a preceding message with 'tool_calls'"
+            //
+            //  We keep this best-effort and only skip clearly invalid tool messages.
+            // ------------------------------------------------------------
+            HashSet<string>? pendingToolCallIds = null;
+
             foreach (var msg in request.Messages)
             {
+                var role = MapToMEAIChatRole(msg.Role);
+
+                if (role == ChatRole.Assistant && msg.ToolCalls.Count > 0)
+                {
+                    pendingToolCallIds = new HashSet<string>(
+                        msg.ToolCalls
+                            .Select(tc => (tc?.Id ?? string.Empty).Trim())
+                            .Where(id => id.Length > 0),
+                        StringComparer.Ordinal);
+
+                    messages.Add(CreateChatMessage(msg));
+                    continue;
+                }
+
+                if (role == ChatRole.Tool)
+                {
+                    var callId = (msg.ToolResult?.ToolCallId ?? string.Empty).Trim();
+                    if (callId.Length == 0 ||
+                        pendingToolCallIds == null ||
+                        !pendingToolCallIds.Contains(callId))
+                    {
+                        _logger.LogWarning(
+                            "[MEAI] Skipping orphan tool message (tool_call_id={ToolCallId}). Missing matching preceding tool_calls.",
+                            callId);
+                        continue;
+                    }
+
+                    // Consume the id (supports multi-tool-call in one assistant message).
+                    pendingToolCallIds.Remove(callId);
+
+                    messages.Add(CreateChatMessage(msg));
+                    continue;
+                }
+
+                // Any other role breaks the "tool_calls -> tool results" block.
+                pendingToolCallIds = null;
                 messages.Add(CreateChatMessage(msg));
             }
         }

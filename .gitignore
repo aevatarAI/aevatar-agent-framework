@@ -499,3 +499,4 @@ scripts/.pids/
 *.pid
 
 memory/
+trace/

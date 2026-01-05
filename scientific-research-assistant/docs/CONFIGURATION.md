@@ -37,10 +37,12 @@
 - `sources/`：来源资料（可引用，不要求写进去就为真）
 - `facts/`：已验证结论（希望可当作事实依赖）
 
-可选写回（把验证通过的结论沉淀为新的 sources）：
+可选写回（写入文件真相层；默认安全关闭）：
 
 - `Materials:AllowWrite`：默认 `false`
-- 写回目标：默认写入 `facts/`
+- 当前写入用途：
+  - `POST /api/sessions/{id}/facts`：创建 `facts_proposed/` 下的候选事实
+  - promote 时写入 `facts/`
 
 ### 4) Python 验证（可选，默认关闭）
 

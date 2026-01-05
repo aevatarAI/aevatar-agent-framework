@@ -11,8 +11,15 @@
 ```
 src/Aevatar.Agents.AI.Core/
 ├── AIGAgentBase.cs
-├── AIGAgentBase.Tools.cs                 # Tool loop / 默认工具注册 / allowlist 等
-├── AIGAgentBase.AgentSkills.cs           # SKILL.md 按需加载（可动态注册 dotnet-file tools）
+├── AIGAgentBase.Chat.cs                  # Chat / Streaming（从 AIGAgentBase.cs 拆出，降低主文件体积）
+├── AIGAgentBase.History.cs               # History/Compaction/Summary（Layer 1+2），对外行为不变，仅拆分职责
+├── AIGAgentBase.Tools.cs                 # Tool system（Registration/Caches/Instruction block + LoggerAdapter）
+├── AIGAgentBase.Tools.Loop.cs            # Tool call loop + tool messages + ToolExecutionRequestEvent handler
+├── AIGAgentBase.Tools.Policy.cs          # Tool policy + allowlist guard（defense in depth）
+├── AIGAgentBase.AgentSkills.cs           # SKILL.md 按需加载（skills_list/skills_load 工具 + 配置入口）
+├── AIGAgentBase.AgentSkills.Discovery.cs # skills 发现/解析/YAML front matter/文件读取（best-effort + 调试可观测）
+├── Hooks/                                # Hook/Harness：LLM/Tool 生命周期的横切治理（best-effort + 默认安全）
+│   └── BuiltIn/                          # 内置 hooks（输出截断、上下文预算信号等）
 ├── Helpers/
 ├── Messages/
 ├── WithTool/                             # 工具系统实现（原 AI.WithTool）
@@ -31,6 +38,7 @@ src/Aevatar.Agents.AI.Core/
 ## DI / 注入链路（节选）
 
 AI Agent 的依赖注入由 `AIGAgentFactory` 统一负责，并通过一组反射注入器（Injector）将 store/tooling 注入到 Agent 实例上。
+Hook/Harness（可选）同样通过 Injector 注入，使横切能力不污染业务 Agent。
 
 ### Memory 相关（扩展）
 
@@ -44,5 +52,9 @@ AI Agent 的依赖注入由 `AIGAgentFactory` 统一负责，并通过一组反�
 - **Removed**：独立工程 `src/Aevatar.Agents.AI.WithTool`（工程级别）。
 - **Moved**：原 WithTool 源码迁移至 `src/Aevatar.Agents.AI.Core/WithTool/`，作为 `AI.Core` 的一部分编译。
 - **Protobuf**：`tool_messages.proto` 由 `AI.Core` 统一生成代码（满足“跨边界类型必须 Protobuf”铁律）。
+
+## 相关文档
+
+- `docs/HOOKS_HARNESS.md`：Hook/Harness 机制（生命周期、默认 hooks、禁用/扩展方式）
 
 

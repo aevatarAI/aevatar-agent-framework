@@ -47,7 +47,7 @@ public class LLMProviderConfig
     /// <summary>
     /// Maximum tokens
     /// </summary>
-    public int MaxTokens { get; set; } = 2000;
+    public int MaxTokens { get; set; } = AevatarAIDefaults.DefaultMaxOutputTokens;
 
     /// <summary>
     /// Timeout duration (milliseconds)

@@ -12,6 +12,7 @@ using Aevatar.Agents.Core.CQRS;
 using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Runtime.Local;
 using Aevatar.Notebook.Api.Contracts;
+using Aevatar.Notebook.Api.Infrastructure;
 using Aevatar.Notebook.Api.Sessions;
 using Aevatar.Notebook;
 using Aevatar.Notebook.Agents;
@@ -156,6 +157,8 @@ app.MapReportStreamApi();
 app.MapPost("/api/chat/stream", async (
     HttpContext http,
     ChatInDto input,
+    IConfiguration config,
+    IHostApplicationLifetime lifetime,
     NotebookRuntime runtime,
     NotebookContextBuilder contextBuilder,
     IExecutionTraceStore traceStore,
@@ -185,6 +188,237 @@ app.MapPost("/api/chat/stream", async (
 
     // Pre-create JSON options (camelCase) so frontend can parse consistent fields.
     var json = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
+    // If true, chat generation continues even if the client disconnects (RequestAborted).
+    // The final assistant message will still be persisted into State.History.
+    var continueAfterDisconnect =
+        config.GetValue("Aevatar:Notebook:ContinueChatOnDisconnect", defaultValue: false);
+
+    // ============================================================
+    //  Background mode (disconnect-safe)
+    // ============================================================
+    if (continueAfterDisconnect)
+    {
+        // Start response ASAP (best-effort). Even if client disconnects immediately, the background
+        // run should still continue.
+        http.Response.StatusCode = StatusCodes.Status200OK;
+        http.Response.Headers.ContentType = "application/x-ndjson; charset=utf-8";
+        http.Response.Headers.CacheControl = "no-store";
+        http.Response.Headers.Pragma = "no-cache";
+        http.Response.Headers["X-Accel-Buffering"] = "no";
+
+        try
+        {
+            await http.Response.StartAsync(http.RequestAborted);
+        }
+        catch
+        {
+            // Ignore; client may have already disconnected.
+        }
+
+        await using var writer = new StreamWriter(
+            http.Response.Body,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            bufferSize: 16 * 1024,
+            leaveOpen: true);
+
+        var hub = new BroadcastEventHub<string>(replayBufferSize: 8);
+
+        void Publish(object payload)
+        {
+            try
+            {
+                hub.Publish(JsonSerializer.Serialize(payload, json));
+            }
+            catch
+            {
+                // best-effort
+            }
+        }
+
+        // Emit minimal meta immediately so UI can show requestId/executionId.
+        Publish(new
+        {
+            type = "meta",
+            agentId = string.Empty,
+            requestId,
+            executionId,
+            context = new { sourceIds = Array.Empty<string>(), strategy = "", chunkSlices = 0, renderedChars = 0 },
+            citations = Array.Empty<object>()
+        });
+
+        // Detached token: NOT tied to RequestAborted; cancel only on app shutdown.
+        var runCts = CancellationTokenSource.CreateLinkedTokenSource(lifetime.ApplicationStopping);
+        var runCt = runCts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            NotebookContextBuildResult? localCtx = null;
+            ChatResponse? localResp = null;
+            string? localError = null;
+            string? localAgentId = null;
+            var assistantText = new StringBuilder(capacity: 1024);
+
+            try
+            {
+                var (agent, aid) = await runtime.GetAgentAsync(runCt);
+                localAgentId = aid;
+
+                localCtx = await contextBuilder.BuildAsync(
+                    new NotebookContextBuildRequest
+                    {
+                        Query = input.Message.Trim(),
+                        SelectedSourceIds = input.SelectedSourceIds
+                    },
+                    ct: runCt);
+
+                var citations = localCtx.Context.Slices
+                    .Where(s => s.Kind == Aevatar.Notebook.Contracts.NotebookContextSliceKind.SourceChunk)
+                    .Select(s => new
+                    {
+                        sourceId = s.SourceId,
+                        chunkId = s.ChunkId,
+                        score = s.Score,
+                        reason = s.Reason,
+                        preview = string.IsNullOrWhiteSpace(s.Content) ? "" : (s.Content.Length <= 180 ? s.Content : s.Content[..180])
+                    })
+                    .ToList();
+
+                Publish(new
+                {
+                    type = "meta",
+                    agentId = localAgentId ?? string.Empty,
+                    requestId,
+                    executionId,
+                    context = new
+                    {
+                        sourceIds = localCtx.SourceIds,
+                        strategy = localCtx.Context.Tags.TryGetValue("strategy", out var st) ? st : "",
+                        chunkSlices = citations.Count,
+                        renderedChars = (localCtx.Rendered ?? string.Empty).Length
+                    },
+                    citations
+                });
+
+                var request = new ChatRequest
+                {
+                    Message = input.Message.Trim(),
+                    RequestId = requestId,
+                    StageHint = input.StageHint ?? ""
+                };
+                request.Context["execution_id"] = executionId;
+                request.Context[NotebookAgent.NotebookContextKey] = localCtx.Rendered;
+
+                // Bind tool progress events to this background run (AsyncLocal, per-run).
+                var prevSink = NotebookStreamEventContext.Current;
+                NotebookStreamEventContext.Current = new HubNotebookStreamEventSink(hub, json);
+                try
+                {
+                    var supportsStreaming = await agent.SupportsStreamingAsync(runCt);
+                    if (!supportsStreaming)
+                    {
+                        localResp = await agent.ChatAsync(request, runCt);
+                        assistantText.Append(localResp.Content ?? string.Empty);
+                        Publish(new { type = "delta", content = localResp.Content ?? string.Empty });
+                    }
+                    else
+                    {
+                        await foreach (var chunk in agent.ChatStreamAsync(request, runCt))
+                        {
+                            if (string.IsNullOrEmpty(chunk)) continue;
+                            assistantText.Append(chunk);
+                            Publish(new { type = "delta", content = chunk });
+                        }
+
+                        localResp = new ChatResponse { Content = assistantText.ToString(), RequestId = requestId };
+                    }
+                }
+                finally
+                {
+                    NotebookStreamEventContext.Current = prevSink;
+                }
+
+                Publish(new { type = "done" });
+            }
+            catch (OperationCanceledException ex)
+            {
+                var providerName = string.IsNullOrWhiteSpace(llm.Value.Default) ? "default" : llm.Value.Default;
+                llm.Value.Providers.TryGetValue(providerName, out var cfg);
+                var timeoutMs = cfg?.TimeoutMilliseconds ?? 0;
+
+                localError =
+                    $"LLM 请求超时/被取消（provider={providerName}, model={cfg?.Model ?? ""}, timeoutMs={timeoutMs}）。" +
+                    "请检查网络/Endpoint 是否可达，或在配置里调大 `LLMProviders:Providers:<provider>:TimeoutMilliseconds`。";
+
+                logger.LogWarning(ex, "[Notebook] Chat(stream-bg) canceled/timeout: {Message}", ex.Message);
+                Publish(new { type = "error", error = localError });
+                Publish(new { type = "done" });
+            }
+            catch (Exception ex)
+            {
+                localError = ex.Message;
+                logger.LogError(ex, "[Notebook] Chat(stream-bg) failed: {Message}", ex.Message);
+                Publish(new { type = "error", error = localError });
+                Publish(new { type = "done" });
+            }
+            finally
+            {
+                var endedAtUtc = DateTime.UtcNow;
+
+                try
+                {
+                    var trace = NotebookTraceBuilder.BuildChatTrace(new NotebookChatTraceData
+                    {
+                        ExecutionId = executionId,
+                        AgentId = localAgentId ?? string.Empty,
+                        RequestId = requestId,
+                        Query = input.Message.Trim(),
+                        SourceIds = localCtx?.SourceIds ?? new List<string>(),
+                        Context = localCtx?.Context,
+                        RenderedContext = localCtx?.Rendered,
+                        Response = localResp ?? new ChatResponse { Content = assistantText.ToString(), RequestId = requestId },
+                        Error = localError,
+                        LlmProvider = llm.Value.Default,
+                        StartedAtUtc = startedAtUtc,
+                        EndedAtUtc = endedAtUtc
+                    });
+
+                    await traceStore.SaveAsync(trace, CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogDebug(ex, "[Notebook] Trace save failed (best-effort).");
+                }
+                finally
+                {
+                    hub.Complete();
+                    runCts.Dispose();
+                }
+            }
+        }, CancellationToken.None);
+
+        try
+        {
+            await foreach (var line in hub.SubscribeAsync(replay: true, ct: http.RequestAborted))
+            {
+                try
+                {
+                    await writer.WriteLineAsync(line);
+                    await writer.FlushAsync();
+                }
+                catch
+                {
+                    break;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (http.RequestAborted.IsCancellationRequested)
+        {
+            // Client disconnected; background run continues.
+        }
+
+        return;
+    }
 
     try
     {
@@ -568,6 +802,60 @@ app.MapPost("/api/chat", async (
             renderedChars = (ctxResult.Rendered ?? string.Empty).Length
         },
         citations
+    });
+});
+
+// ============================================================
+//  Chat history API (legacy UI helper)
+//
+//  Used by wwwroot UI to restore conversation after refresh.
+//  We intentionally filter out tool transcripts (tool calls/results).
+// ============================================================
+app.MapGet("/api/chat/history", async (
+    int? limit,
+    NotebookRuntime runtime,
+    CancellationToken ct) =>
+{
+    var cap = Math.Clamp(limit ?? 200, 0, 500);
+
+    var state = await runtime.TryGetAgentStateAsync(NotebookRuntime.DefaultSessionId, ct);
+    if (state == null || state.History == null || state.History.Count == 0)
+    {
+        return Results.Json(new
+        {
+            messages = Array.Empty<object>()
+        });
+    }
+
+    static string RoleToString(AevatarChatRole r) => r switch
+    {
+        AevatarChatRole.User => "user",
+        AevatarChatRole.Assistant => "assistant",
+        AevatarChatRole.System => "system",
+        AevatarChatRole.Tool => "tool",
+        _ => "assistant"
+    };
+
+    var msgs = state.History
+        .Where(m =>
+        {
+            if (m == null) return false;
+            if (m.Role == AevatarChatRole.Tool) return false;
+            if (m.Role == AevatarChatRole.Assistant && m.ToolCalls != null && m.ToolCalls.Count > 0) return false;
+            return true;
+        })
+        .TakeLast(cap)
+        .Select(m => new
+        {
+            role = RoleToString(m.Role),
+            content = m.Content ?? string.Empty,
+            timestamp = m.Timestamp?.ToDateTime().ToString("O") ?? ""
+        })
+        .ToList();
+
+    return Results.Json(new
+    {
+        messages = msgs
     });
 });
 

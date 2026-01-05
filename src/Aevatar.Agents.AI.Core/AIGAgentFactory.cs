@@ -69,6 +69,7 @@ public class AIGAgentFactory : IGAgentFactory
         MemoryGraphStoreInjector.InjectMemoryGraphStore(agent, _serviceProvider);
         AIAgentToolManagerInjector.InjectToolManager(agent, _serviceProvider);
         AIAgentStateQueryServiceInjector.InjectStateQueryService(agent, _serviceProvider);
+        AIAgentHookInjector.InjectHooks(agent, _serviceProvider);
 
         // Will be replaced when this agent is wrapped by an actor.
         AgentEventPublisherInjector.InjectEventPublisher(agent, NullEventPublisher.Instance);

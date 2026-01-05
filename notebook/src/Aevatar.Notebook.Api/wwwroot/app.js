@@ -111,6 +111,26 @@ async function refreshInfo() {
   }
 }
 
+async function refreshChatHistory() {
+  const log = el("chatLog");
+  if (!log) return;
+  log.innerHTML = "";
+
+  try {
+    const data = await fetchJson("/api/chat/history?limit=200");
+    for (const m of data.messages || []) {
+      if (!m) continue;
+      const role = m.role || "assistant";
+      const content = m.content || "";
+      if (!content) continue;
+      appendMsg(role, content);
+    }
+    log.scrollTop = log.scrollHeight;
+  } catch (e) {
+    // Best-effort: ignore history load failures.
+  }
+}
+
 function updateSelectedSourcesInfo(total) {
   const n = selectedSources.size;
   el("selectedSourcesInfo").textContent =
@@ -1014,6 +1034,7 @@ async function main() {
   initTheme();
   wire();
   await refreshInfo();
+  await refreshChatHistory();
   await refreshSources();
   await refreshReports();
 }

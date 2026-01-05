@@ -8,6 +8,7 @@ using Aevatar.Agents.Abstractions.CQRS;
 using Aevatar.Agents.Abstractions.Memory;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
+using Aevatar.Agents.AI.Core.Utils;
 using Aevatar.Agents.AI.WithTool.Abstractions;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
@@ -287,13 +288,13 @@ public class AevatarMemorySearchTool : AevatarToolBase
                 {
                     // Rolling summary (Layer 2) lives in state.Context["history_summary"]
                     if (state.Context != null &&
-                        state.Context.TryGetValue("history_summary", out var summary) &&
+                        state.Context.TryGetValue(AIGAgentKeys.HistorySummary, out var summary) &&
                         !string.IsNullOrWhiteSpace(summary) &&
                         summary.Contains(query, StringComparison.OrdinalIgnoreCase))
                     {
                         allResults.Add(new MemoryItem
                         {
-                            Id = "history_summary",
+                            Id = AIGAgentKeys.HistorySummary,
                             Type = "conversation_summary",
                             Content = summary,
                             Timestamp = DateTime.UtcNow,
@@ -697,11 +698,11 @@ public class AevatarMemorySearchTool : AevatarToolBase
 
         // Summary first (if any)
         if (state.Context != null &&
-            state.Context.TryGetValue("history_summary", out var summary) &&
+            state.Context.TryGetValue(AIGAgentKeys.HistorySummary, out var summary) &&
             !string.IsNullOrWhiteSpace(summary))
         {
             candidates.Add((
-                Id: "history_summary",
+                Id: AIGAgentKeys.HistorySummary,
                 Type: "conversation_summary",
                 Display: summary,
                 EmbedText: summary,

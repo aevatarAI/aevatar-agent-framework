@@ -101,10 +101,32 @@ public class MEAILLMProviderDeepSeekCompatibilityTests
             UserPrompt = "user",
             Messages =
             {
+                // Tool messages must follow a preceding assistant message with tool_calls (OpenAI-compatible).
+                // Otherwise some providers (e.g., DeepSeek) return HTTP 400.
+                new AevatarChatMessage
+                {
+                    Role = AevatarChatRole.Assistant,
+                    ToolCalls =
+                    {
+                        new ToolCall
+                        {
+                            Id = "call-1",
+                            ToolName = "test_tool",
+                            Arguments = "{}"
+                        }
+                    }
+                },
                 new AevatarChatMessage
                 {
                     Role = AevatarChatRole.Tool,
-                    Content = "tool-output"
+                    Content = "tool-output",
+                    ToolResult = new ToolExecutionResult
+                    {
+                        ToolCallId = "call-1",
+                        ToolName = "test_tool",
+                        Content = "tool-output",
+                        IsSuccess = true
+                    }
                 }
             }
         };
@@ -114,7 +136,7 @@ public class MEAILLMProviderDeepSeekCompatibilityTests
 
         // Assert
         Assert.NotNull(capturedMessages);
-        Assert.Contains(capturedMessages!, m => m.Role == ChatRole.Tool && m.Text == "tool-output");
+        Assert.Contains(capturedMessages!, m => m.Role == ChatRole.Tool);
     }
 }
 

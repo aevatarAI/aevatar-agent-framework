@@ -35,6 +35,16 @@ cp appsettings.secrets.json.example appsettings.secrets.json
 - `ConnectionStrings:SupabasePostgres`
 - `Aevatar:Persistence:Neo4j:Uri/Username/Password`
 
+## Long-running runs（断线续跑）
+
+- `Aevatar:Notebook:ContinueReportOnDisconnect`：是否允许 **Report 生成在浏览器断线/刷新后继续运行**。
+  - `true`：断线后停止推流，但后台继续生成；最终会写入 `report::<reportId>`，刷新 Reports 列表即可看到。
+  - `false`：断线会取消本次生成（节省 token）。
+
+- `Aevatar:Notebook:ContinueChatOnDisconnect`：是否允许 **Chat 生成在浏览器断线/刷新后继续运行**。
+  - `true`：断线后停止推流，但后台继续生成；最终 assistant 回复会写入 `State.History`，刷新页面后聊天区会自动恢复历史（含最新回复）。
+  - `false`：断线会取消本次生成（节省 token）。
+
 ## Ports（仓库政策）
 
 - **禁止** `:5000`

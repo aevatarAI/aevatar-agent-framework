@@ -148,7 +148,11 @@ public static class AgUiBootstrap
 
     private sealed class StepValue
     {
-        public DateTimeOffset Timestamp { get; set; } = DateTimeOffset.UtcNow;
+        // NOTE:
+        // - This value is used for "latest-wins" merge when multiple assistant messages share the same step_id.
+        // - Must start from MinValue so the *first* observed message is accepted, even when its timestamp is in the past
+        //   (which is the normal case when we snapshot historical messages).
+        public DateTimeOffset Timestamp { get; set; } = DateTimeOffset.MinValue;
         public string? AssistantResponse { get; set; }
     }
 

@@ -975,6 +975,9 @@ Open questions:
         var assistantBuffer = EnableChatHistoryInState
             ? new System.Text.StringBuilder()
             : null;
+        var reasoningBuffer = EnableChatHistoryInState
+            ? new System.Text.StringBuilder()
+            : null;
         var completedSuccessfully = false;
 
         try
@@ -1001,8 +1004,17 @@ Open questions:
                 {
                     var toolCallResponse = new AevatarLLMResponse
                     {
-                        AevatarFunctionCall = token.AevatarFunctionCall
+                        AevatarFunctionCall = token.AevatarFunctionCall,
+                        // Capture any reasoning accumulated so far for the history/logging if needed
+                        Content = assistantBuffer?.ToString() ?? string.Empty 
                     };
+                    
+                    var accumulatedReasoning = reasoningBuffer?.ToString();
+                    if (!string.IsNullOrEmpty(accumulatedReasoning))
+                    {
+                        toolCallResponse.Metadata ??= new Dictionary<string, object>();
+                        toolCallResponse.Metadata["reasoning_content"] = accumulatedReasoning;
+                    }
 
                     var (finalResponse, _) = await ExecuteToolCallLoopAsync(
                         request,
@@ -1022,7 +1034,13 @@ Open questions:
                 }
 
                 var content = token.Content;
+                var reasoning = token.ReasoningContent;
                 var isComplete = token.IsComplete;
+
+                if (!string.IsNullOrEmpty(reasoning))
+                {
+                    reasoningBuffer?.Append(reasoning);
+                }
 
                 if (!string.IsNullOrEmpty(content))
                 {
@@ -1044,9 +1062,23 @@ Open questions:
             if (EnableChatHistoryInState && completedSuccessfully)
             {
                 var assistantText = assistantBuffer?.ToString() ?? string.Empty;
-                if (!string.IsNullOrEmpty(assistantText))
+                var finalReasoning = reasoningBuffer?.ToString();
+
+                if (!string.IsNullOrEmpty(assistantText) || !string.IsNullOrEmpty(finalReasoning))
                 {
-                    AddMessageToHistory(assistantText, AevatarChatRole.Assistant);
+                    var msg = new AevatarChatMessage
+                    {
+                         Role = AevatarChatRole.Assistant,
+                         Content = assistantText,
+                         Timestamp = TimestampHelper.GetUtcNow()
+                    };
+                    
+                    if (!string.IsNullOrEmpty(finalReasoning)) 
+                    {
+                        msg.Metadata.Add("reasoning_content", finalReasoning);
+                    }
+
+                    AddMessageToHistory(msg);
                 }
             }
 

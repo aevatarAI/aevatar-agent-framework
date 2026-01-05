@@ -8,15 +8,15 @@
 
 ## 0. 启动
 
-在仓库根目录执行：
+在仓库根目录执行（推荐）：
 
 ```bash
-dotnet run --project notebook/Aevatar.Notebook.csproj
+./notebook/start.sh
 ```
 
-默认地址见 `notebook/appsettings.json`：`http://localhost:5099`
+默认地址见 `notebook/src/Aevatar.Notebook.Api/appsettings.json`：`http://localhost:5678`
 
-打开浏览器访问：`http://localhost:5099`
+打开浏览器访问：`http://localhost:5678`
 
 ---
 
@@ -82,12 +82,12 @@ dotnet run --project notebook/Aevatar.Notebook.csproj
 
 ### 2.1 配置
 
-在 `notebook/appsettings.secrets.json` 填：
+在 `notebook/src/Aevatar.Notebook.Api/appsettings.secrets.json` 填：
 
 - `ConnectionStrings:MongoDB`
 - `MongoDB:Database`（默认 `aevatar`）
 
-并在 `notebook/appsettings.json` 或 secrets 覆盖：
+并在 `notebook/src/Aevatar.Notebook.Api/appsettings.json` 或 secrets 覆盖：
 
 ```json
 {
@@ -114,7 +114,7 @@ dotnet run --project notebook/Aevatar.Notebook.csproj
 
 ### 3.1 配置
 
-在 `notebook/appsettings.secrets.json` 填：
+在 `notebook/src/Aevatar.Notebook.Api/appsettings.secrets.json` 填：
 
 - `ConnectionStrings:SupabasePostgres`
 
@@ -144,7 +144,7 @@ dotnet run --project notebook/Aevatar.Notebook.csproj
 
 ### 4.1 配置
 
-确保 Neo4j 可访问（bolt），并在 `notebook/appsettings.secrets.json` 填：
+确保 Neo4j 可访问（bolt），并在 `notebook/src/Aevatar.Notebook.Api/appsettings.secrets.json` 填：
 
 - `Aevatar:Persistence:Neo4j:Password`
 
@@ -187,7 +187,7 @@ dotnet run --project notebook/Aevatar.Notebook.csproj
 ## 常见问题排查
 
 - **MongoDB/Supabase 被选择但启动直接抛错**：检查 `ConnectionStrings:*` 是否为空（NotebookPersistence 会主动 fail-fast）
-- **vector 不工作**：检查 `notebook/appsettings.secrets.json` 中 `LLMProviders:Providers:default:Embeddings:Enabled`
+- **vector 不工作**：检查 `notebook/src/Aevatar.Notebook.Api/appsettings.secrets.json` 中 `LLMProviders:Providers:default:Embeddings:Enabled`
 - **graph 没投影**：
   - 确认 `/api/chat` 返回的 `executionId`
   - 确认 `IExecutionTraceStore` 不是 `NullExecutionTraceStore`

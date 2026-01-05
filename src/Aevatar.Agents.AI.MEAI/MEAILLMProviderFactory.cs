@@ -3,6 +3,7 @@ using System.ClientModel.Primitives;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
+using System.Net.Http;
 using Azure;
 using Azure.AI.OpenAI;
 using Aevatar.Agents.AI.MEAI.Internal;
@@ -97,6 +98,17 @@ public sealed class MEAILLMProviderFactory : LLMProviderFactoryBase
         var timeoutMs = config.TimeoutMilliseconds > 0
             ? config.TimeoutMilliseconds
             : (int)TimeSpan.FromMinutes(10).TotalMilliseconds;
+        
+        var enableDeepSeekThinkingModeFix =
+            !string.IsNullOrWhiteSpace(config.Model) &&
+            config.Model.Contains("deepseek-reasoner", StringComparison.OrdinalIgnoreCase);
+        
+        if (enableDeepSeekThinkingModeFix)
+        {
+            Logger.LogInformation(
+                "[MEAIFactory] Enabled DeepSeek thinking-mode fix: inject reasoning_content for assistant messages (Model={Model})",
+                config.Model);
+        }
 
         var clientOptions = new OpenAIClientOptions
         {
@@ -104,16 +116,35 @@ public sealed class MEAILLMProviderFactory : LLMProviderFactoryBase
             // Allow per-provider override. Default is 10 minutes.
             NetworkTimeout = TimeSpan.FromMilliseconds(timeoutMs),
             // Avoid HttpClient default timeout (100s) fighting our configured timeouts.
-            Transport = new HttpClientPipelineTransport(new HttpClient
-            {
-                Timeout = System.Threading.Timeout.InfiniteTimeSpan
-            })
+            Transport = new HttpClientPipelineTransport(BuildHttpClient(enableDeepSeekThinkingModeFix))
         };
 
         if (!string.IsNullOrWhiteSpace(config.Endpoint))
             clientOptions.Endpoint = new Uri(config.Endpoint);
 
         return new ChatClient(config.Model, new ApiKeyCredential(config.ApiKey), clientOptions).AsIChatClient();
+    }
+
+    private static HttpClient BuildHttpClient(bool enableDeepSeekThinkingModeFix)
+    {
+        // ------------------------------------------------------------
+        // DeepSeek thinking-mode compatibility:
+        // - deepseek-reasoner requires `reasoning_content` for assistant messages.
+        // - OpenAI SDK adapter doesn't emit it, so we patch at HTTP layer.
+        // ------------------------------------------------------------
+        var inner = new HttpClientHandler();
+        HttpMessageHandler handler = inner;
+
+        if (enableDeepSeekThinkingModeFix)
+        {
+            handler = new DeepSeekThinkingModeFixHandler(handler);
+        }
+
+        return new HttpClient(handler)
+        {
+            // Avoid HttpClient default timeout (100s) fighting our configured timeouts.
+            Timeout = System.Threading.Timeout.InfiniteTimeSpan
+        };
     }
 
     private IChatClient CreateAzureOpenAIChatClient(LLMProviderConfig config)

@@ -10,26 +10,50 @@
 
 ---
 
-### Run
+### Run（推荐）
 
 ```bash
-cd notebook
-dotnet run
+./notebook/start.sh
 ```
 
-Open: `http://localhost:5099`
+- Notebook UI: `http://localhost:5678`
 
 ---
 
-### Persistence Switch (config-driven)
+### 目录结构（规范化后）
 
-编辑 `notebook/appsettings.json`：
+```
+notebook/
+├── start.sh
+├── src/
+│   ├── Aevatar.Notebook/           # Core
+│   └── Aevatar.Notebook.Api/       # API Host
+└── Aevatar.Notebook.AppHost/       # Aspire AppHost
+```
+
+### AG-UI（前后端通信）
+
+- 说明：当前 UI（`wwwroot/`）仍保留原来的 NDJSON streaming 协议；AG‑UI 端点用于标准化客户端/未来新 UI。
+- 创建 session：`POST /api/sessions`
+- 提交输入：`POST /api/sessions/{id}/input`
+- SSE（AG-UI）：`GET /api/sessions/{id}/agui/events`
+
+断线重连采用 **snapshot-first**：先发 `MESSAGES_SNAPSHOT` 再进入 live stream。
+
+---
+
+### Persistence Switch（config-driven）
+
+编辑 `notebook/src/Aevatar.Notebook.Api/appsettings.json`：
 
 - `Aevatar:Persistence:MemoryStore`: `file | mongodb | supabase`
 - `Aevatar:Persistence:MemoryVectorIndex`: `file | mongodb | supabase`
 - `Aevatar:Persistence:MemoryGraph`: `file | neo4j`
 
-数据库连接信息建议放到 `notebook/appsettings.secrets.json`（已被 `.gitignore` 忽略）。
+数据库连接信息建议放到 `notebook/src/Aevatar.Notebook.Api/appsettings.secrets.json`（已被 `.gitignore` 忽略）。
+可直接复制示例：
+
+- `notebook/src/Aevatar.Notebook.Api/appsettings.secrets.json.example`
 
 ---
 
@@ -43,11 +67,11 @@ Open: `http://localhost:5099`
 
 ### LLM 配置与超时排障（DeepSeek / OpenAI‑compatible）
 
-`Aevatar.Notebook` 读取 `LLMProviders` 配置（建议把 API Key 放到 `notebook/appsettings.secrets.json`），并用 `LLMProviders:Default` 作为默认 provider。
+`Aevatar.Notebook` 读取 `LLMProviders` 配置（建议把 API Key 放到 `notebook/src/Aevatar.Notebook.Api/appsettings.secrets.json`），并用 `LLMProviders:Default` 作为默认 provider。
 
 #### 配置示例
 
-把下面内容放到 `notebook/appsettings.secrets.json`（或环境变量注入同名配置）：
+把下面内容放到 `notebook/src/Aevatar.Notebook.Api/appsettings.secrets.json`（或环境变量注入同名配置）：
 
 ```json
 {
@@ -74,7 +98,7 @@ Open: `http://localhost:5099`
 
 #### 快速定位：看 `/api/info`
 
-启动后访问 `http://localhost:5099/api/info`，会返回当前默认 provider 的非敏感诊断信息（`providerType/model/endpoint/timeoutMilliseconds`），以及当前 persistence 选择。
+启动后访问 `http://localhost:5678/api/info`，会返回当前默认 provider 的非敏感诊断信息（`providerType/model/endpoint/timeoutMilliseconds`），以及当前 persistence 选择。
 
 #### 常见错误：`TaskCanceledException` / “The operation was canceled.”
 
@@ -82,6 +106,6 @@ Open: `http://localhost:5099`
 - 调大：`LLMProviders:Providers:<provider>:TimeoutMilliseconds`
 - 检查：`Endpoint` 是否可达、网络/代理是否稳定、Key 是否正确
 
-（可选）如果你想减少网络层日志噪音：`notebook/appsettings.json` 已把 `System.ClientModel*` 调到 `Warning`。
+（可选）如果你想减少网络层日志噪音：`notebook/src/Aevatar.Notebook.Api/appsettings.json` 已把 `System.ClientModel*` 调到 `Warning`。
 
 

@@ -110,7 +110,7 @@ public class LLMProvidersConfig
     /// <summary>
     /// Default provider name
     /// </summary>
-    public string Default { get; set; } = "openai-gpt4";
+    public string Default { get; set; }
 
     /// <summary>
     /// Provider dictionary (key: provider name, value: configuration)

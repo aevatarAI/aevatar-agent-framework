@@ -20,6 +20,20 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
     private readonly LLMProviderConfig _config;
     private readonly ILogger _logger;
     private readonly LLMCallPolicy _policy;
+    
+    // ------------------------------------------------------------
+    // DeepSeek thinking-mode compatibility
+    //
+    // DeepSeek `deepseek-reasoner` requires `reasoning_content` to be
+    // present on assistant messages when using tool calls. If missing,
+    // the API returns 400:
+    //   "Missing `reasoning_content` field in the assistant message..."
+    //
+    // We keep this provider-specific to avoid breaking standard OpenAI.
+    // ------------------------------------------------------------
+    private bool ForceAssistantReasoningContentField =>
+        !string.IsNullOrWhiteSpace(_config.Model) &&
+        _config.Model.Contains("deepseek-reasoner", StringComparison.OrdinalIgnoreCase);
 
     public MEAILLMProvider(
         IChatClient chatClient,
@@ -116,8 +130,14 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
     /// <summary>
     /// Maps Aevatar chat role to Microsoft.Extensions.AI chat role.
     /// </summary>
-    private static ChatRole MapToMEAIChatRole(AevatarChatRole role) =>
-        role == AevatarChatRole.User ? ChatRole.User : ChatRole.Assistant;
+    private static ChatRole MapToMEAIChatRole(AevatarChatRole role) => role switch
+    {
+        AevatarChatRole.System => ChatRole.System,
+        AevatarChatRole.User => ChatRole.User,
+        AevatarChatRole.Assistant => ChatRole.Assistant,
+        AevatarChatRole.Tool => ChatRole.Tool,
+        _ => ChatRole.User
+    };
 
     /// <summary>
     /// Builds chat messages from request.
@@ -133,7 +153,7 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
         {
             foreach (var msg in request.Messages)
             {
-                messages.Add(new ChatMessage(MapToMEAIChatRole(msg.Role), msg.Content));
+                messages.Add(CreateChatMessage(msg));
             }
         }
 
@@ -141,6 +161,92 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
             messages.Add(new ChatMessage(ChatRole.User, request.UserPrompt));
 
         return messages;
+    }
+
+    /// <summary>
+    /// Creates a ChatMessage and populates additional properties (like reasoning_content) if present.
+    /// </summary>
+    private ChatMessage CreateChatMessage(AevatarChatMessage msg)
+    {
+        var role = MapToMEAIChatRole(msg.Role);
+        
+        // ------------------------------------------------------------
+        //  Tool calling: preserve structured tool call / tool result
+        //
+        //  Without this, the model may not associate tool results with
+        //  its original tool call, and can get stuck requesting the same
+        //  tool repeatedly (infinite tool loop).
+        // ------------------------------------------------------------
+        ChatMessage chatMsg;
+        if (role == ChatRole.Assistant && msg.ToolCalls.Count > 0)
+        {
+            var contents = new List<AIContent>();
+            foreach (var tc in msg.ToolCalls)
+            {
+                var callId = !string.IsNullOrWhiteSpace(tc.Id)
+                    ? tc.Id
+                    : Guid.NewGuid().ToString("N");
+
+                var toolName = tc.ToolName ?? string.Empty;
+
+                Dictionary<string, object?> args;
+                if (string.IsNullOrWhiteSpace(tc.Arguments))
+                {
+                    args = new Dictionary<string, object?>();
+                }
+                else
+                {
+                    try
+                    {
+                        args = JsonSerializer.Deserialize<Dictionary<string, object?>>(tc.Arguments) ??
+                               new Dictionary<string, object?>();
+                    }
+                    catch
+                    {
+                        // Best-effort: if arguments can't be parsed, still surface the tool call.
+                        args = new Dictionary<string, object?>();
+                    }
+                }
+
+                contents.Add(new FunctionCallContent(callId, toolName, args));
+            }
+
+            chatMsg = new ChatMessage(role, contents);
+        }
+        else if (role == ChatRole.Tool && msg.ToolResult != null && !string.IsNullOrWhiteSpace(msg.ToolResult.ToolCallId))
+        {
+            var contents = new List<AIContent>
+            {
+                new FunctionResultContent(msg.ToolResult.ToolCallId, msg.ToolResult.Content ?? string.Empty)
+            };
+
+            chatMsg = new ChatMessage(role, contents);
+        }
+        else
+        {
+            chatMsg = new ChatMessage(role, msg.Content ?? string.Empty);
+        }
+        
+        // If caller captured reasoning_content, pass it through (including empty string if present).
+        if (msg.Metadata?.TryGetValue("reasoning_content", out var reasoning) == true)
+        {
+            chatMsg.AdditionalProperties ??= new AdditionalPropertiesDictionary();
+            chatMsg.AdditionalProperties["reasoning_content"] = reasoning ?? string.Empty;
+        }
+
+        // DeepSeek `deepseek-reasoner` tool-calls mode requires the field to exist on assistant messages,
+        // even when empty. We only enforce this for DeepSeek to avoid breaking OpenAI-compatible servers
+        // that reject unknown fields.
+        if (ForceAssistantReasoningContentField && role == ChatRole.Assistant)
+        {
+            chatMsg.AdditionalProperties ??= new AdditionalPropertiesDictionary();
+            if (!chatMsg.AdditionalProperties.ContainsKey("reasoning_content"))
+            {
+                chatMsg.AdditionalProperties["reasoning_content"] = string.Empty;
+            }
+        }
+
+        return chatMsg;
     }
 
     /// <summary>
@@ -314,6 +420,7 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
 
                 return new AevatarFunctionCall
                 {
+                    CallId = functionCall.CallId,
                     Name = functionCall.Name,
                     Arguments = unwrappedArguments != null
                         ? JsonSerializer.Serialize(unwrappedArguments)
@@ -506,12 +613,15 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
             totalTokens += estimatedTokens;
             chunkIndex++;
 
+            var reasoning = ExtractReasoningContent(chatUpdate);
+            
             responseBuilder.Append(chunk);
             LLMTelemetry.AddStreamingChunk(activity, chunkIndex, chunk.Length);
 
             yield return new AevatarLLMToken
             {
                 Content = chunk,
+                ReasoningContent = reasoning,
                 IsComplete = false
             };
         }
@@ -647,6 +757,7 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
                 var argsJson = unwrapped != null ? JsonSerializer.Serialize(unwrapped) : "{}";
                 return new AevatarFunctionCall
                 {
+                    CallId = functionCall.CallId,
                     Name = functionCall.Name,
                     Arguments = argsJson
                 };
@@ -671,6 +782,12 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
     {
         if (raw == null)
             return null;
+
+        var callId = (StreamingPropertyCache.GetValue(raw, "CallId") as string)
+                     ?? (StreamingPropertyCache.GetValue(raw, "Id") as string)
+                     ?? (StreamingPropertyCache.GetValue(raw, "ToolCallId") as string)
+                     ?? (StreamingPropertyCache.GetValue(raw, "ToolCallID") as string)
+                     ?? string.Empty;
 
         var name = (StreamingPropertyCache.GetValue(raw, "Name") as string)
                    ?? (StreamingPropertyCache.GetValue(raw, "ToolName") as string)
@@ -715,6 +832,7 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
 
         return new AevatarFunctionCall
         {
+            CallId = callId,
             Name = name,
             Arguments = argsJson
         };

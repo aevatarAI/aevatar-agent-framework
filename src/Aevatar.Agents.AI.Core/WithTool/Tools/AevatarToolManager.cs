@@ -5,6 +5,7 @@ using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.WithTool.Abstractions;
 using Aevatar.Agents.AI.WithTool.Messages;
 using Google.Protobuf;
+using Google.Protobuf.Reflection;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 
@@ -19,6 +20,45 @@ public class AevatarToolManager : IAevatarToolManager
 {
     private readonly ConcurrentDictionary<string, ToolDefinition> _tools = new();
     private readonly ILogger<AevatarToolManager> _logger;
+
+    // ------------------------------------------------------------
+    // Protobuf JSON formatting (Any support)
+    //
+    // WHY:
+    // - Many tool results use `google.protobuf.Any` (e.g., AevatarAIToolResult.Data).
+    // - JsonFormatter.Default uses TypeRegistry.Empty, which cannot resolve
+    //   wrapper types like google.protobuf.StringValue and will throw:
+    //   "Type registry has no descriptor for type name 'google.protobuf.StringValue'".
+    // - We provide an expanded TypeRegistry + a safe fallback to avoid turning
+    //   a successful tool execution into a failed one due to formatting.
+    // ------------------------------------------------------------
+    private static readonly JsonFormatter ToolResultJsonFormatter = new(
+        JsonFormatter.Settings.Default
+            .WithFormatDefaultValues(true)
+            .WithPreserveProtoFieldNames(true)
+            .WithTypeRegistry(TypeRegistry.FromFiles(
+                // Well-known types frequently packed into Any (StringValue, BoolValue, etc.)
+                WrappersReflection.Descriptor,
+
+                // Core AI messages (ToolExecutionResult, ChatMessage, etc.)
+                AiAbstractionsMessagesReflection.Descriptor,
+
+                // Tool messages (AevatarAIToolResult, ToolExecution* events, etc.)
+                ToolMessagesReflection.Descriptor)));
+
+    private string FormatToolResultSafe(IMessage result)
+    {
+        try
+        {
+            return ToolResultJsonFormatter.Format(result);
+        }
+        catch (Exception ex)
+        {
+            // Best-effort: formatting errors must not fail the tool execution.
+            _logger.LogDebug(ex, "Failed to format tool result as JSON. Falling back to text format.");
+            return result.ToString() ?? string.Empty;
+        }
+    }
 
     public AevatarToolManager(ILogger<AevatarToolManager> logger)
     {
@@ -136,7 +176,7 @@ public class AevatarToolManager : IAevatarToolManager
             {
                 ToolCallId = toolCallId,
                 IsSuccess = true,
-                Content = JsonFormatter.Default.Format(result),
+                Content = FormatToolResultSafe(result),
                 ToolName = toolName,
                 Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
                 Duration = Duration.FromTimeSpan(stopwatch.Elapsed)

@@ -63,3 +63,4 @@ services.AddMongoDBEventRouterStore();
 - MongoDB 索引初始化是 best-effort 且进程内缓存（同一集合只初始化一次）
 
 
+

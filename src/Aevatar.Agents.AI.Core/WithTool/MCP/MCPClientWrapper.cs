@@ -159,6 +159,14 @@ public class MCPClientWrapper : IMCPClient
         // Prepare headers
         var headers = new Dictionary<string, string>();
 
+        // ------------------------------------------------------------
+        // MCP hosted servers (e.g. mcp.k-dense.ai) require SSE accept.
+        //
+        // If we don't send `Accept: text/event-stream`, server returns:
+        //   406 Not Acceptable: Client must accept text/event-stream
+        // ------------------------------------------------------------
+        headers["Accept"] = "text/event-stream";
+
         // Add default headers from config
         if (config.Headers != null)
         {
@@ -166,6 +174,7 @@ public class MCPClientWrapper : IMCPClient
             {
                 if (!string.IsNullOrWhiteSpace(header.Key) && !string.IsNullOrWhiteSpace(header.Value))
                 {
+                    // Allow user override (including Accept).
                     headers[header.Key] = header.Value;
                 }
             }
@@ -276,7 +285,8 @@ public class MCPClientWrapper : IMCPClient
         {
             Name = tool.Name,
             Description = tool.Description ?? string.Empty,
-            InputSchema = new MCPToolSchema(), // Will be populated from actual tool metadata if available
+            // JsonSchema is the OpenAI-function-style schema; convert it so the LLM knows parameters.
+            InputSchema = ConvertToMCPToolSchema(tool.JsonSchema),
             Metadata = new Dictionary<string, object>
             {
                 ["OriginalTool"] = tool,

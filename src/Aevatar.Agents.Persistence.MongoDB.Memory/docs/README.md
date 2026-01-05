@@ -55,3 +55,4 @@ services.AddAevatarAgentSystem(options =>
 - `IMemoryStore.SearchAsync` 默认用 regex contains（大小写不敏感）；生产建议使用 Atlas Search / text index
 
 
+

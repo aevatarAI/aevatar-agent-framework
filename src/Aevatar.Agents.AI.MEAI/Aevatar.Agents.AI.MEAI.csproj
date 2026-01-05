@@ -28,5 +28,10 @@
     <ProjectReference Include="..\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
     <ProjectReference Include="..\Aevatar.Agents.AI.Abstractions\Aevatar.Agents.AI.Abstractions.csproj" />
   </ItemGroup>
+  
+  <ItemGroup>
+    <!-- Allow test project to validate internal HTTP patch logic (DeepSeek compatibility). -->
+    <InternalsVisibleTo Include="Aevatar.Agents.AI.Tests" />
+  </ItemGroup>
 
 </Project>

@@ -37,8 +37,10 @@ src/Aevatar.Agents.AI.Core/
 
 ## DI / 注入链路（节选）
 
-AI Agent 的依赖注入由 `AIGAgentFactory` 统一负责，并通过一组反射注入器（Injector）将 store/tooling 注入到 Agent 实例上。
-Hook/Harness（可选）同样通过 Injector 注入，使横切能力不污染业务 Agent。
+AI Agent 的依赖注入由 `AIGAgentFactory` 统一负责：
+
+- Store/Tooling 等依赖通过一组 Injector 注入到 Agent 实例上（best-effort）。
+- Hook/Harness（可选）通过 **显式/类型安全** 注入（options + hooks），使横切能力不污染业务 Agent，且更易发现与调试。
 
 ### Memory 相关（扩展）
 

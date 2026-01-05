@@ -40,6 +40,29 @@ public abstract partial class AIGAgentBase
             new ContextBudgetMonitorHook(Logger)
         };
 
+    // ------------------------------------------------------------
+    // Explicit injection (type-safe, best-effort)
+    // ------------------------------------------------------------
+
+    internal void InjectHookOptions(AevatarAgentHookOptions? options)
+    {
+        if (options == null)
+            return;
+
+        HookOptions = options;
+        _hookPipeline = null; // Ensure injected options take effect.
+    }
+
+    internal void InjectAdditionalHooks(IEnumerable<IAevatarAgentHook>? hooks)
+    {
+        if (hooks == null)
+            return;
+
+        // Materialize to avoid deferred enumerables re-resolving from DI.
+        AdditionalHooks = hooks as IAevatarAgentHook[] ?? hooks.ToArray();
+        _hookPipeline = null; // Ensure injected hooks take effect.
+    }
+
     private AevatarAgentHookPipeline GetHookPipeline()
     {
         return _hookPipeline ??= CreateHookPipeline();
@@ -236,17 +259,14 @@ public abstract partial class AIGAgentBase
         await pipeline.RunBeforeToolExecuteAsync(ctx, cancellationToken);
 
         // Optional: allow hooks to deny tool execution (purely restrictive).
-        if (ctx.Metadata.TryGetValue(AIGAgentKeys.HookDenyTool, out var denyObj) &&
-            denyObj is bool deny &&
-            deny)
+        if (ctx.TryGetToolDenyReason(out var denyReason))
         {
-            var reason = ctx.Metadata.TryGetValue(AIGAgentKeys.HookDenyReason, out var r) ? r?.ToString() : null;
             var payload = JsonSerializer.Serialize(new
             {
                 success = false,
                 error = "Tool execution denied by hook.",
                 tool = toolName,
-                reason = reason ?? "Denied"
+                reason = denyReason ?? "Denied"
             });
 
             return new ToolExecutionResult
@@ -254,7 +274,7 @@ public abstract partial class AIGAgentBase
                 ToolCallId = Guid.NewGuid().ToString("N"),
                 ToolName = toolName,
                 IsSuccess = false,
-                ErrorMessage = reason ?? $"Tool '{toolName}' denied by hook.",
+                ErrorMessage = denyReason ?? $"Tool '{toolName}' denied by hook.",
                 Content = payload,
                 Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
             };

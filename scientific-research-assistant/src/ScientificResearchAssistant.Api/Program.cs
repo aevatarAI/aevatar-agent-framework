@@ -6,6 +6,7 @@ using Aevatar.Agents.Runtime.Local;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.Options;
 using ScientificResearchAssistant.Api;
+using ScientificResearchAssistant.Api.Materials;
 using ScientificResearchAssistant.Api.Sessions;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -18,6 +19,7 @@ builder.Logging.AddConsole();
 // Agent Framework Setup
 // ==========================================
 builder.Services.Configure<LLMProvidersConfig>(builder.Configuration.GetSection("LLMProviders"));
+builder.Services.Configure<MaterialsOptions>(builder.Configuration.GetSection(MaterialsOptions.SectionName));
 
 // Ensure camelCase JSON (align with AG-UI convention)
 builder.Services.ConfigureHttpJsonOptions(options =>
@@ -29,7 +31,9 @@ builder.Services.AddAevatarAgentSystem(b => b.UseLocalRuntime());
 builder.Services.AddMEAI();
 
 builder.Services.AddSingleton<ResearchRuntime>();
+builder.Services.AddSingleton<MaterialsService>();
 builder.Services.AddSingleton<ResearchSessionManager>();
+builder.Services.AddSingleton<ResearchRunExecutor>();
 
 var app = builder.Build();
 

@@ -79,14 +79,112 @@ public class AevatarAgentHookPipelineTests
         calls.Should().Equal("Good");
     }
 
+    [Fact]
+    public async Task DuplicateHookName_LastWins()
+    {
+        var calls = new List<string>();
+
+        var first = new RecordingHook("Dup", priority: 0, calls, marker: "first");
+        var last = new RecordingHook("Dup", priority: 0, calls, marker: "last");
+
+        var pipeline = new AevatarAgentHookPipeline(
+            hooks: new IAevatarAgentHook[] { first, last },
+            options: new AevatarAgentHookOptions(),
+            logger: NullLogger<AevatarAgentHookPipeline>.Instance);
+
+        await pipeline.RunBeforeLLMRequestAsync(NewContext(), CancellationToken.None);
+
+        calls.Should().Equal("last");
+    }
+
+    [Fact]
+    public async Task DisabledHooks_ByTypeName_AreSkipped()
+    {
+        var calls = new List<string>();
+
+        var hook = new AliasNameHook(calls); // Name != type name
+        var options = new AevatarAgentHookOptions
+        {
+            DisabledHooks = new List<string> { nameof(AliasNameHook) } // disable by type name
+        };
+
+        var pipeline = new AevatarAgentHookPipeline(
+            hooks: new IAevatarAgentHook[] { hook },
+            options: options,
+            logger: NullLogger<AevatarAgentHookPipeline>.Instance);
+
+        await pipeline.RunBeforeLLMRequestAsync(NewContext(), CancellationToken.None);
+
+        calls.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CreatePolicySnapshot_ShouldClampBudgets()
+    {
+        var pipeline = new AevatarAgentHookPipeline(
+            hooks: Array.Empty<IAevatarAgentHook>(),
+            options: new AevatarAgentHookOptions
+            {
+                MaxToolOutputChars = -1,
+                ContextMessageWarn = -1,
+                ContextCharsWarn = -1
+            },
+            logger: NullLogger<AevatarAgentHookPipeline>.Instance);
+
+        var policy = pipeline.CreatePolicySnapshot(allowInternalTools: true, allowDangerousTools: true);
+        policy.AllowInternalTools.Should().BeTrue();
+        policy.AllowDangerousTools.Should().BeTrue();
+
+        // clamp ranges in pipeline:
+        // MaxToolOutputChars: [1000, 512000], ContextMessageWarn: [1, 10000], ContextCharsWarn: [1000, 5000000]
+        policy.MaxToolOutputChars.Should().Be(1000);
+        policy.ContextMessageWarn.Should().Be(1);
+        policy.ContextCharsWarn.Should().Be(1000);
+    }
+
+    [Fact]
+    public async Task Cancellation_ShouldStopPipeline_AndBubbleOperationCanceled()
+    {
+        var calls = new List<string>();
+        var hook = new RecordingHook("h", priority: 0, calls);
+        var pipeline = new AevatarAgentHookPipeline(
+            hooks: new IAevatarAgentHook[] { hook },
+            options: new AevatarAgentHookOptions(),
+            logger: NullLogger<AevatarAgentHookPipeline>.Instance);
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(async () =>
+            await pipeline.RunBeforeLLMRequestAsync(NewContext(), cts.Token));
+    }
+
     private sealed class RecordingHook(string name, int priority, List<string> calls) : IAevatarAgentHook
     {
+        private readonly string _marker = name;
+
+        public RecordingHook(string name, int priority, List<string> calls, string marker) : this(name, priority, calls)
+        {
+            _marker = marker;
+        }
+
         public string Name => name;
         public int Priority => priority;
 
         public Task BeforeLLMRequestAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
         {
-            calls.Add(name);
+            calls.Add(_marker);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class AliasNameHook(List<string> calls) : IAevatarAgentHook
+    {
+        public string Name => "alias";
+
+        public Task BeforeLLMRequestAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
+        {
+            calls.Add("ran");
             return Task.CompletedTask;
         }
     }

@@ -19,12 +19,17 @@
 | 持久化/存储 | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.AI.Abstractions.Tests/Fixtures/AITestFixture.cs`, `test/Aevatar.Agents.AI.Core.Tests/AIGAgentBaseTests.cs`, `test/Aevatar.Agents.AI.Core.Tests/MemorySearchSemanticTests.cs` |
 | AI/LLM | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.AI.Abstractions.Tests/ProcessingStrategyTests.cs`, `test/Aevatar.Agents.AI.Abstractions.Tests/LLMProviderFactoryBaseTests.cs`, `test/Aevatar.Agents.AI.Abstractions.Tests/LLMProviderTests.cs`, `test/Aevatar.Agents.AI.Abstractions.Tests/PromptManagementTests.cs`, `test/Aevatar.Agents.AI.Abstractions.Tests/Fixtures/AITestFixture.cs`, `test/Aevatar.Agents.AI.Core.Tests/AIGAgentBaseTests.cs` … |
 | 工具调用 | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.AI.Abstractions.Tests/ToolSystemTests.cs`, `test/Aevatar.Agents.AI.Abstractions.Tests/ProcessingStrategyTests.cs`, `test/Aevatar.Agents.AI.Abstractions.Tests/LLMProviderFactoryBaseTests.cs`, `test/Aevatar.Agents.AI.Abstractions.Tests/LLMProviderTests.cs`, `test/Aevatar.Agents.AI.Abstractions.Tests/Fixtures/AITestFixture.cs`, `test/Aevatar.Agents.AI.Core.Tests/AgentSkillsToolTests.cs` … |
-| Hooks/观测 | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.AI.Core.Tests/Hooks/AevatarAgentHookPipelineTests.cs`, `test/Aevatar.Agents.AI.Core.Tests/Hooks/ContextBudgetMonitorHookTests.cs`, `test/Aevatar.Agents.AI.Core.Tests/Hooks/ToolOutputTruncationHookTests.cs` |
+| Hooks/观测 | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.AI.Core.Tests/Hooks/AevatarAgentHookPipelineTests.cs`, `test/Aevatar.Agents.AI.Core.Tests/Hooks/ChatStreamHooksTests.cs`, `test/Aevatar.Agents.AI.Core.Tests/Hooks/DenyToolHookTests.cs`, `test/Aevatar.Agents.AI.Core.Tests/Hooks/ContextBudgetMonitorHookTests.cs`, `test/Aevatar.Agents.AI.Core.Tests/Hooks/ToolOutputTruncationHookTests.cs` |
 | CQRS/EventSourcing | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.AI.Core.Tests/CqrsStateQueryInjectionTests.cs`, `test/Aevatar.Agents.AI.Core.Tests/MemorySearchSemanticTests.cs`, `test/Aevatar.Agents.AI.Tests/AevatarMemorySearchToolTests.cs` |
 | AG-UI/SSE | 不适用 | N/A | — |
 
 ## 结论与建议
 - **总体**：主要功能点均能找到测试证据（按关键字归纳）。
+  - **补充**：Hook pipeline 新增覆盖（见 `AevatarAgentHookPipelineTests`）：
+    - Duplicate hook name 的 last-wins 行为
+    - disabled_hooks 同时支持 Name 与 TypeName
+    - Policy snapshot 预算项 clamp（防止负值/极端值污染）
+    - Cancellation token 触发时的快速退出与异常冒泡
 
 ## 如何运行
 

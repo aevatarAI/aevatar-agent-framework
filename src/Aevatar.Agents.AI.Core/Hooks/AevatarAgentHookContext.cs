@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Aevatar.Agents.AI.Abstractions;
+using Aevatar.Agents.AI.Core.Utils;
 using Aevatar.Agents.AI.WithTool.Messages;
 
 namespace Aevatar.Agents.AI.Core.Hooks;
@@ -14,6 +15,9 @@ namespace Aevatar.Agents.AI.Core.Hooks;
 /// </summary>
 public sealed class AevatarAgentHookContext
 {
+    private bool _toolDenied;
+    private string? _toolDenyReason;
+
     public AevatarAgentHookContext(
         string agentId,
         string agentType,
@@ -59,6 +63,51 @@ public sealed class AevatarAgentHookContext
     /// Keep values small; do NOT store secrets here.
     /// </summary>
     public Dictionary<string, object> Metadata { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    // ------------------------------------------------------------
+    // Typed helper APIs (avoid stringly-typed metadata protocols)
+    // ------------------------------------------------------------
+
+    /// <summary>
+    /// Deny executing the current tool call (purely restrictive).
+    ///
+    /// 中文 + ASCII:
+    /// - This is a typed helper that replaces the implicit protocol of setting
+    ///   <c>Metadata["deny_tool"]</c> / <c>Metadata["deny_reason"]</c>.
+    /// - For backward compatibility, this method still writes those keys via <see cref="AIGAgentKeys"/>.
+    /// </summary>
+    public void DenyTool(string? reason = null)
+    {
+        _toolDenied = true;
+        _toolDenyReason = string.IsNullOrWhiteSpace(reason) ? "Denied" : reason.Trim();
+
+        // Keep observability and backward compatibility.
+        Metadata[AIGAgentKeys.HookDenyTool] = true;
+        Metadata[AIGAgentKeys.HookDenyReason] = _toolDenyReason;
+    }
+
+    /// <summary>
+    /// Try get deny reason for tool execution (typed-first, metadata fallback for compatibility).
+    /// </summary>
+    public bool TryGetToolDenyReason(out string? reason)
+    {
+        if (_toolDenied)
+        {
+            reason = _toolDenyReason;
+            return true;
+        }
+
+        if (Metadata.TryGetValue(AIGAgentKeys.HookDenyTool, out var denyObj) &&
+            denyObj is bool deny &&
+            deny)
+        {
+            reason = Metadata.TryGetValue(AIGAgentKeys.HookDenyReason, out var r) ? r?.ToString() : null;
+            return true;
+        }
+
+        reason = null;
+        return false;
+    }
 }
 
 /// <summary>

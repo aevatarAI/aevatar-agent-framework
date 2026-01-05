@@ -24,6 +24,8 @@
 - **现状**：已补齐 `GAgentActorFactoryBase.CreateGAgentActorAsync` 的核心分支单测：
   - 自定义 factory provider 命中时的优先级（并验证 `AgentId.Normalize` 生成的统一 actorId）
   - 未注册 `IGAgentFactory` 且无自定义 factory 时的显式失败（错误信息稳定）
+  - 默认路径（无自定义 factory）下的调用顺序：`agent.ActivateAsync` → `CreateActorInstanceAsync` → `actor.ActivateAsync`
+  - 传入错误前缀 id（例如 `Other:raw`）时的显式失败（避免跨类型误用）
 
 ## 如何运行
 

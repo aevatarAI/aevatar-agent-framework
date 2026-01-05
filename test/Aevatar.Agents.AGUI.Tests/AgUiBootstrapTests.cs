@@ -149,6 +149,90 @@ public class AgUiBootstrapTests
     }
 
     [Fact]
+    public async Task CollectAssistantMessagesAsync_ShouldReturnEmpty_WhenMaxAssistantMessagesNonPositive()
+    {
+        var state = new AevatarAIAgentState();
+        state.History.Add(new AevatarChatMessage
+        {
+            Role = AevatarChatRole.Assistant,
+            Content = "hello",
+            Timestamp = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow),
+            Metadata = { ["step_id"] = "s1" }
+        });
+
+        var manager = new FakeActorManager().Add(new FakeActor("a1", state));
+
+        var messages = await AgUiBootstrap.CollectAssistantMessagesAsync(
+            manager,
+            new[] { new AgUiActor { ActorId = "a1", LaneId = "lane-1" } },
+            new AgUiMessageSnapshotOptions { ThreadId = "thread-0", MaxAssistantMessages = 0 });
+
+        messages.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task CollectAssistantMessagesAsync_ShouldIgnoreAssistant_WhenStepIdMissing()
+    {
+        var state = new AevatarAIAgentState();
+        state.History.Add(new AevatarChatMessage
+        {
+            Role = AevatarChatRole.Assistant,
+            Content = "no-step-id",
+            Timestamp = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow)
+        });
+
+        var manager = new FakeActorManager().Add(new FakeActor("a1", state));
+
+        var messages = await AgUiBootstrap.CollectAssistantMessagesAsync(
+            manager,
+            new[] { new AgUiActor { ActorId = "a1", LaneId = "lane-1" } },
+            new AgUiMessageSnapshotOptions { ThreadId = "thread-1", MaxAssistantMessages = 60 });
+
+        messages.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task CollectAssistantMessagesAsync_ShouldTreatSameStepIdAcrossDifferentLanes_AsDifferentMessages()
+    {
+        var ts = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow);
+
+        var s1 = new AevatarAIAgentState();
+        s1.History.Add(new AevatarChatMessage
+        {
+            Role = AevatarChatRole.Assistant,
+            Content = "lane-a",
+            Timestamp = ts,
+            Metadata = { ["step_id"] = "s1" }
+        });
+
+        var s2 = new AevatarAIAgentState();
+        s2.History.Add(new AevatarChatMessage
+        {
+            Role = AevatarChatRole.Assistant,
+            Content = "lane-b",
+            Timestamp = ts,
+            Metadata = { ["step_id"] = "s1" }
+        });
+
+        var manager = new FakeActorManager()
+            .Add(new FakeActor("a1", s1))
+            .Add(new FakeActor("a2", s2));
+
+        var messages = await AgUiBootstrap.CollectAssistantMessagesAsync(
+            manager,
+            new[]
+            {
+                new AgUiActor { ActorId = "a1", LaneId = "lane-a" },
+                new AgUiActor { ActorId = "a2", LaneId = "lane-b" }
+            },
+            new AgUiMessageSnapshotOptions { ThreadId = "thread-x", MaxAssistantMessages = 60 });
+
+        messages.Count.ShouldBe(2);
+        messages.Any(m => m.Id == "msg:thread-x:lane-a:s1" && m.Content == "lane-a").ShouldBeTrue();
+        messages.Any(m => m.Id == "msg:thread-x:lane-b:s1" && m.Content == "lane-b").ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task CollectAssistantMessagesAsync_ShouldSelectLatestAssistantPerStep_AndOrderByTimestamp()
     {
         var t0 = DateTimeOffset.UtcNow.AddMinutes(-10);

@@ -83,8 +83,7 @@ public sealed class MyHook : IAevatarAgentHook
         // 例：拒绝执行某个工具（纯收敛）
         if (string.Equals(ctx.ToolName, "publish_event", StringComparison.OrdinalIgnoreCase))
         {
-            ctx.Metadata["deny_tool"] = true;
-            ctx.Metadata["deny_reason"] = "publish_event disabled by policy";
+            ctx.DenyTool("publish_event disabled by policy");
         }
 
         return Task.CompletedTask;
@@ -95,8 +94,10 @@ services.AddSingleton<IAevatarAgentHook, MyHook>();
 ```
 
 注入机制（best-effort）：
-- `AIGAgentFactory` 会通过反射把 `IOptions<AevatarAgentHookOptions>` 与 `IEnumerable<IAevatarAgentHook>` 注入到 `AIGAgentBase`。
-- 见：`src/Aevatar.Agents.AI.Core/Helpers/AIAgentHookInjector.cs`
+- `AIGAgentFactory` 会在创建 agent 时以 **显式/类型安全** 的方式注入：
+  - `IOptions<AevatarAgentHookOptions>`（或直接注入 `AevatarAgentHookOptions`）
+  - `IEnumerable<IAevatarAgentHook>`（从 DI 解析，未注册时为空集合）
+- 注入时会使 hook pipeline 缓存失效，确保注入立即生效（下一次 LLM/tool 调用重建 pipeline）。
 
 ## 常见注意事项
 

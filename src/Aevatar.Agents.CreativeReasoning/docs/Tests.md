@@ -21,7 +21,9 @@
 | AG-UI/SSE | 不适用 | N/A | — |
 
 ## 结论与建议
-- **现状**：已补齐 UoT/T-UoT 结果到 `ExecutionTrace` 的映射单测（可观测性/导出 trace 的核心链路）。
+- **现状**：已补齐 UoT/T-UoT 结果到 `ExecutionTrace` 的映射单测（可观测性/导出 trace 的核心链路），并补充：
+  - `Description` 的 Preview 截断策略（避免超长问题描述撑爆 trace）
+  - Metrics 的数值正确性（IntValue 映射）
 - **建议**：后续可补 `UoTExecutor`/策略（Strategies）相关的单测（更多偏“业务算法正确性”与“边界条件”）。
 
 ## 如何运行

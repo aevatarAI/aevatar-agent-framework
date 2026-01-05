@@ -79,6 +79,63 @@ public class UoTExecutionTraceExtensionsTests
     }
 
     [Fact]
+    public void ToExecutionTrace_UoT_ShouldPreviewDescription_WhenOriginalProblemTooLong()
+    {
+        var longProblem = new string('x', 300);
+        var result = new UoTResult
+        {
+            Success = true,
+            BestSolution = new CandidateSolution { Id = "c1", Content = "ok" },
+            AllCandidates = new List<CandidateSolution> { new() { Id = "c1", Content = "ok" } },
+            Trace = new UoTResultTrace
+            {
+                ExecutionId = "exec-long",
+                OriginalProblem = longProblem,
+                Duration = TimeSpan.FromMilliseconds(10),
+                TotalLLMCalls = 0,
+                TotalTokens = 0,
+                AnalogiesExplored = 0,
+                ThoughtsExtracted = 0,
+                CandidatesGenerated = 0,
+                CandidatesPassedFeasibility = 0
+            }
+        };
+
+        var trace = result.ToExecutionTrace();
+        trace.Description.Length.ShouldBeLessThanOrEqualTo(203); // 200 + "..."
+        trace.Description.EndsWith("...").ShouldBeTrue();
+    }
+
+    [Fact]
+    public void ToExecutionTrace_UoT_ShouldMapMetricsToContextValueInts()
+    {
+        var result = new UoTResult
+        {
+            Success = true,
+            BestSolution = new CandidateSolution { Id = "c1", Content = "ok" },
+            AllCandidates = new List<CandidateSolution> { new() { Id = "c1", Content = "ok" } },
+            Trace = new UoTResultTrace
+            {
+                ExecutionId = "exec-metrics",
+                OriginalProblem = "p",
+                Duration = TimeSpan.FromMilliseconds(1),
+                TotalLLMCalls = 1,
+                TotalTokens = 2,
+                AnalogiesExplored = 3,
+                ThoughtsExtracted = 4,
+                CandidatesGenerated = 5,
+                CandidatesPassedFeasibility = 6
+            }
+        };
+
+        var trace = result.ToExecutionTrace();
+        trace.Metrics["analogies_explored"].IntValue.ShouldBe(3);
+        trace.Metrics["thoughts_extracted"].IntValue.ShouldBe(4);
+        trace.Metrics["candidates_generated"].IntValue.ShouldBe(5);
+        trace.Metrics["candidates_passed_feasibility"].IntValue.ShouldBe(6);
+    }
+
+    [Fact]
     public void ToExecutionTrace_TUoT_ShouldMapCoreFields_AndTransformativeRankingDecision()
     {
         var solutions = new List<TransformativeSolution>

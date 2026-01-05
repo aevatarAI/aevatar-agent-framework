@@ -64,6 +64,12 @@ public sealed class ResearchSession(string id)
 
     public BroadcastEventHub<AgUiEvent> Events { get; } = new(replayBufferSize: 0);
 
+    // Lightweight server-side workspace state (rendered via AG-UI STATE_SNAPSHOT/DELTA).
+    public ResearchWorkspaceState Workspace { get; } = new()
+    {
+        SessionId = id
+    };
+
     // Serialize chat runs per session (avoid concurrent tool loops / history corruption).
     public SemaphoreSlim RunLock { get; } = new(1, 1);
 

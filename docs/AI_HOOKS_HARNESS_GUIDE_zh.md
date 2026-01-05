@@ -42,10 +42,11 @@ Hook Harness = **一个确定性、best-effort 的 Hook Pipeline** + **一组默
   - 覆盖点：
     - LLM 调用：BeforeLLMRequest / AfterLLMResponse / OnError
     - Tool 执行：BeforeToolExecute / AfterToolExecute
-    - Hook 可选“拒绝执行某个工具”（通过 `context.Metadata["deny_tool"]=true`）
+    - Hook 可选“拒绝执行某个工具”（通过 `ctx.DenyTool(reason)`，纯收敛）
 - **DI 注入（best-effort）**
-  - `AIGAgentFactory` 创建 agent 后注入：`AIAgentHookInjector.InjectHooks(...)`
-  - 文件：`src/Aevatar.Agents.AI.Core/Helpers/AIAgentHookInjector.cs`
+  - `AIGAgentFactory` 创建 agent 时 **显式/类型安全** 注入：
+    - `IOptions<AevatarAgentHookOptions>`（或直接注入 `AevatarAgentHookOptions`）
+    - `IEnumerable<IAevatarAgentHook>`（从 DI 解析，未注册时为空集合）
 
 #### 明确未实现（避免误解）
 
@@ -137,8 +138,7 @@ public sealed class DenyCertainToolsHook : IAevatarAgentHook
         // 例：纯收敛 —— 禁止执行某个工具
         if (string.Equals(ctx.ToolName, "publish_event", StringComparison.OrdinalIgnoreCase))
         {
-            ctx.Metadata["deny_tool"] = true;
-            ctx.Metadata["deny_reason"] = "publish_event disabled by host policy";
+            ctx.DenyTool("publish_event disabled by host policy");
         }
 
         return Task.CompletedTask;
@@ -166,6 +166,7 @@ services.AddSingleton<IAevatarAgentHook, DenyCertainToolsHook>();
 - **Defense in depth（关键点）**：在 LLM 请求进入 provider 前，如果这次请求已经附带 `Functions`，会在 `BeforeLLMRequest` hooks 执行后再调用一次 `AttachToolsToRequest`，重新应用工具可见性策略，防止 hooks 旁路扩大工具集合。
   - 代码位置：`src/Aevatar.Agents.AI.Core/AIGAgentBase.Hooks.cs`
 - **拒绝工具执行是显式的、可追踪的**：通过 `context.Metadata["deny_tool"]` 返回结构化失败结果，LLM 会看到明确拒绝原因。
+ - **拒绝工具执行是显式的、可追踪的**：通过 `ctx.DenyTool(reason)` 返回结构化失败结果，LLM 会看到明确拒绝原因。
 
 ### 可观测性与排障
 
@@ -188,8 +189,8 @@ services.AddSingleton<IAevatarAgentHook, DenyCertainToolsHook>();
   - best-effort + 确定性排序：框架层稳定、可预测。
   - 防御加固：hook 后重做工具策略应用，避免扩权旁路。
 - **坏味道（可优化点）**
-  - “拒绝工具执行”目前用字符串键 `deny_tool/deny_reason` 传递，属于 **隐式协议**，后续可收敛为强类型字段或 helper API（减少约定成本）。
-  - 注入采用反射（`AIAgentHookInjector`），虽然 best-effort 但可发现性较弱；后续可考虑显式 DI/构造注入或统一 Options 管理入口。
+  - （已修复）“拒绝工具执行”已收敛为强类型 API：`ctx.DenyTool(reason)`，仍兼容旧的 metadata 写法。
+  - （已修复）Hook 注入已改为 `AIGAgentFactory` 显式/类型安全注入，并在注入时使 hook pipeline 缓存失效，避免“注入不生效”。
 
 ### 后续改进建议（不影响当前交付）
 

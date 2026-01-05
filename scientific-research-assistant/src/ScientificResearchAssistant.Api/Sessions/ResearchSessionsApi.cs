@@ -1,13 +1,6 @@
-using System.Text;
 using System.Text.Json;
 using Aevatar.Agents.AGUI;
-using Aevatar.Agents.AI;
-using Aevatar.Agents.AI.Abstractions;
-using Aevatar.Agents.AI.Abstractions.Configuration;
-using Microsoft.Extensions.Options;
 using ScientificResearchAssistant.Api.AgUi;
-using ScientificResearchAssistant.Api.Infrastructure;
-using ScientificResearchAssistant.Streaming;
 
 namespace ScientificResearchAssistant.Api.Sessions;
 
@@ -87,8 +80,7 @@ internal static class ResearchSessionsApi
             SessionInputInDto input,
             ResearchSessionManager sessions,
             ResearchRuntime runtime,
-            IOptions<LLMProvidersConfig> llm,
-            ILogger<ResearchRuntime> logger,
+            ResearchRunExecutor executor,
             CancellationToken ct) =>
         {
             if (!sessions.TryGet(sessionId, out var session))
@@ -103,14 +95,7 @@ internal static class ResearchSessionsApi
 
             _ = Task.Run(async () =>
             {
-                await ExecuteChatRunAsync(
-                    session,
-                    runId,
-                    input,
-                    runtime,
-                    llm,
-                    logger,
-                    CancellationToken.None);
+                await executor.ExecuteAsync(session, runId, input, CancellationToken.None);
             }, CancellationToken.None);
 
             return Results.Accepted($"/api/sessions/{session.Id}", new { ok = true, sessionId = session.Id, runId });
@@ -259,6 +244,13 @@ internal static class ResearchSessionsApi
                 }
             }, ct);
 
+            // Optional visual state (workspace / materials / graph)
+            await WriteSseAsync(new StateSnapshotEvent
+            {
+                Timestamp = Ts(DateTimeOffset.UtcNow),
+                Snapshot = session.Workspace
+            }, ct);
+
             // 1) Background hydration (snapshot + tools catalog) -> publish into the same hub.
             _ = Task.Run(async () =>
             {
@@ -308,260 +300,6 @@ internal static class ResearchSessionsApi
             }
         });
     }
-
-    private static async Task ExecuteChatRunAsync(
-        ResearchSession session,
-        string runId,
-        SessionInputInDto input,
-        ResearchRuntime runtime,
-        IOptions<LLMProvidersConfig> llm,
-        ILogger<ResearchRuntime> logger,
-        CancellationToken ct)
-    {
-        ChatResponse? resp = null;
-        string? error = null;
-
-        // Streamed content buffer (for run finished result).
-        var assistant = new StringBuilder(capacity: 1024);
-
-        // Serialize runs per session.
-        await session.RunLock.WaitAsync(ct);
-        try
-        {
-            var providerOverride = session.ProviderName;
-
-            // Always emit RUN_STARTED first
-            session.Events.Publish(new RunStartedEvent
-            {
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                ThreadId = session.Id,
-                RunId = runId
-            });
-
-            session.Events.Publish(new StepStartedEvent
-            {
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                StepName = "chat"
-            });
-
-            // Emit user message
-            var userMessageId = $"msg:{session.Id}:user:{runId}";
-            session.Events.Publish(new TextMessageStartEvent
-            {
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                MessageId = userMessageId,
-                Role = "user"
-            });
-            session.Events.Publish(new TextMessageContentEvent
-            {
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                MessageId = userMessageId,
-                Delta = input.Message.Trim()
-            });
-            session.Events.Publish(new TextMessageEndEvent
-            {
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                MessageId = userMessageId
-            });
-
-            // Emit assistant message stream
-            var assistantMessageId = $"msg:{session.Id}:assistant:{runId}";
-            session.Events.Publish(new TextMessageStartEvent
-            {
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                MessageId = assistantMessageId,
-                Role = "assistant"
-            });
-
-            // Initialize agent AFTER we've notified UI that the run started (avoids "blank" UI when init is slow).
-            var (agent, agentId) = await runtime.GetAgentAsync(session.Id, providerOverride, ct);
-
-            // Best-effort: pre-load tools so MCP tool names are known (for UI tags).
-            _ = await runtime.GetToolsSnapshotAsync(session.Id, providerOverride, ct);
-
-            // Bind tool progress events to AG-UI stream (best-effort).
-            var prevSink = ResearchStreamEventContext.Current;
-            ResearchStreamEventContext.Current = new AgUiResearchStreamEventSink(
-                runtime,
-                sessionId: session.Id,
-                hub: session.Events,
-                threadId: session.Id,
-                runId: runId);
-
-            try
-            {
-                var requestId = input.RequestId ?? Guid.NewGuid().ToString("N");
-                var request = new ChatRequest
-                {
-                    Message = input.Message.Trim(),
-                    RequestId = requestId,
-                    StageHint = "session:chat"
-                };
-
-                // Helpful metadata for debugging / tracing
-                request.Context["agent_id"] = agentId;
-                request.Context["llm_default"] = llm.Value.Default ?? "";
-
-                var supportsStreaming = await agent.SupportsStreamingAsync(ct);
-                if (!supportsStreaming)
-                {
-                    resp = await agent.ChatAsync(request, ct);
-                    var text = resp.Content ?? string.Empty;
-                    if (text.Length > 0)
-                    {
-                        assistant.Append(text);
-                        session.Events.Publish(new TextMessageContentEvent
-                        {
-                            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                            MessageId = assistantMessageId,
-                            Delta = text
-                        });
-                    }
-                }
-                else
-                {
-                    await foreach (var chunk in agent.ChatStreamAsync(request, ct))
-                    {
-                        if (string.IsNullOrEmpty(chunk))
-                            continue;
-
-                        assistant.Append(chunk);
-                        session.Events.Publish(new TextMessageContentEvent
-                        {
-                            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                            MessageId = assistantMessageId,
-                            Delta = chunk
-                        });
-                    }
-                }
-            }
-            finally
-            {
-                ResearchStreamEventContext.Current = prevSink;
-            }
-
-            session.Events.Publish(new TextMessageEndEvent
-            {
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                MessageId = assistantMessageId
-            });
-
-            session.Events.Publish(new StepFinishedEvent
-            {
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                StepName = "chat"
-            });
-
-            // Synthesized response for run result.
-            var assistantText = assistant.ToString();
-            resp ??= new ChatResponse { Content = assistantText, RequestId = input.RequestId ?? "" };
-
-            session.Events.Publish(new RunFinishedEvent
-            {
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                ThreadId = session.Id,
-                RunId = runId,
-                Result = new { ok = true, assistantMessageId, assistant = assistantText }
-            });
-        }
-        catch (Exception ex)
-        {
-            error = ex is OperationCanceledException ? "run canceled" : ex.Message;
-
-            session.Events.Publish(new RunErrorEvent
-            {
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                Message = error,
-                Code = "SCIENTIFIC_RUN_ERROR"
-            });
-
-            session.Events.Publish(new RunFinishedEvent
-            {
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                ThreadId = session.Id,
-                RunId = runId,
-                Result = new { ok = false, error }
-            });
-
-            logger.LogError(ex, "[Scientific] Session run failed: {Message}", ex.Message);
-        }
-        finally
-        {
-            session.RunLock.Release();
-        }
-    }
-
-    // ============================================================
-    //  Tool progress → AG-UI projection (CUSTOM events)
-    // ============================================================
-    private sealed class AgUiResearchStreamEventSink : IResearchStreamEventSink
-    {
-        private readonly ResearchRuntime _runtime;
-        private readonly string _sessionId;
-        private readonly BroadcastEventHub<AgUiEvent> _hub;
-        private readonly string _threadId;
-        private readonly string _runId;
-
-        public AgUiResearchStreamEventSink(
-            ResearchRuntime runtime,
-            string sessionId,
-            BroadcastEventHub<AgUiEvent> hub,
-            string threadId,
-            string runId)
-        {
-            _runtime = runtime;
-            _sessionId = sessionId;
-            _hub = hub;
-            _threadId = threadId;
-            _runId = runId;
-        }
-
-        public async Task EmitToolStartAsync(string toolCallId, string toolName, CancellationToken ct)
-        {
-            var isMcp = await _runtime.IsMcpToolAsync(_sessionId, toolName, ct);
-
-            _hub.Publish(new CustomEvent
-            {
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                Name = "aevatar.scientific.tool_start",
-                Value = new { threadId = _threadId, runId = _runId, toolCallId, toolName, isMcp }
-            });
-        }
-
-        public async Task EmitToolEndAsync(
-            string toolCallId,
-            string toolName,
-            bool success,
-            long durationMs,
-            string? error,
-            string? resultPreview,
-            CancellationToken ct)
-        {
-            var isMcp = await _runtime.IsMcpToolAsync(_sessionId, toolName, ct);
-
-            _hub.Publish(new CustomEvent
-            {
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                Name = "aevatar.scientific.tool_end",
-                Value = new
-                {
-                    threadId = _threadId,
-                    runId = _runId,
-                    toolCallId,
-                    toolName,
-                    isMcp,
-                    success,
-                    durationMs,
-                    error,
-                    resultPreview
-                }
-            });
-        }
-    }
-
-    internal sealed record CreateSessionInDto(string? ProviderName);
-
-    internal sealed record SessionInputInDto(string Message, string? RequestId);
 }
 
 

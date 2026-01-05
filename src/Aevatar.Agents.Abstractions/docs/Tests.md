@@ -20,9 +20,9 @@
 
 | 功能点 | 适用性 | 结论 | 证据（测试文件，节选） |
 |---|---|---|---|
-| 运行时/生命周期 | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.Core.Tests.Agents/ExceptionTestAgent.cs`, `test/Aevatar.Agents.Core.Tests.Agents/BasicTestAgent.cs`, `test/Aevatar.Agents.Core.Tests.Agents/IntegrationTestAgents.cs`, `test/Aevatar.Agents.Core.Tests/GAgentActorBaseTests.cs`, `test/Aevatar.Agents.Core.Tests/GAgentBaseTests.cs`, `test/Aevatar.Agents.Core.Tests/IntegrationTests.cs` … |
+| 运行时/生命周期 | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.Core.Tests.Agents/ExceptionTestAgent.cs`, `test/Aevatar.Agents.Core.Tests.Agents/BasicTestAgent.cs`, `test/Aevatar.Agents.Core.Tests.Agents/IntegrationTestAgents.cs`, `test/Aevatar.Agents.Core.Tests/GAgentActorBaseTests.cs`, `test/Aevatar.Agents.Core.Tests/GAgentBaseTests.cs`, `test/Aevatar.Agents.Runtime.Tests/GAgentActorFactoryBaseTests.cs` … |
 | 事件/订阅/流 | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.AI.Core.Tests/AIGAgentBaseTests.cs`, `test/Aevatar.Agents.Abstractions.Tests/EventEnvelopeTests.cs`, `test/Aevatar.Agents.Core.Tests.Agents/PublishingTestAgent.cs`, `test/Aevatar.Agents.Core.Tests.Agents/IntegrationTestAgents.cs`, `test/Aevatar.Agents.Core.Tests.Agents/ChildTestAgent.cs`, `test/Aevatar.Agents.Core.Tests.Agents/P2PTestAgent.cs` … |
-| 序列化/Protobuf | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.AI.Core.Tests/AIGAgentBaseTests.cs`, `test/Aevatar.Agents.AI.Core.Tests/StatePropertyAccessorTests.cs`, `test/Aevatar.Agents.AI.Core.Tests/AgentSkillsToolTests.cs`, `test/Aevatar.Agents.AI.Core.Tests/MemorySearchSemanticTests.cs`, `test/Aevatar.Agents.Abstractions.Tests/EventEnvelopeTests.cs`, `test/Aevatar.Agents.Core.Tests.Agents/BasicTestAgent.cs` … |
+| 序列化/Protobuf | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.AI.Core.Tests/AIGAgentBaseTests.cs`, `test/Aevatar.Agents.AI.Core.Tests/StatePropertyAccessorTests.cs`, `test/Aevatar.Agents.AI.Core.Tests/AgentSkillsToolTests.cs`, `test/Aevatar.Agents.AI.Core.Tests/MemorySearchSemanticTests.cs`, `test/Aevatar.Agents.Abstractions.Tests/EventEnvelopeTests.cs`, `test/Aevatar.Agents.Abstractions.Tests/ProtobufPackerTests.cs` … |
 | 持久化/存储 | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.AI.Core.Tests/AIGAgentBaseTests.cs`, `test/Aevatar.Agents.AI.Core.Tests/MemorySearchSemanticTests.cs`, `test/Aevatar.Agents.Core.Tests.Agents/ConfigurableTestAgent.cs`, `test/Aevatar.Agents.Core.Tests/EventHandlerTests.cs`, `test/Aevatar.Agents.Core.Tests/ParentChildRelationshipTests.cs`, `test/Aevatar.Agents.Core.Tests/EventPublishingTests.cs` … |
 | AI/LLM | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.AI.Core.Tests/AIGAgentBaseTests.cs`, `test/Aevatar.Agents.AI.Core.Tests/CqrsStateQueryInjectionTests.cs`, `test/Aevatar.Agents.AI.Core.Tests/AIGAgentKeysTests.cs`, `test/Aevatar.Agents.AI.Core.Tests/AgentSkillsToolTests.cs`, `test/Aevatar.Agents.AI.Core.Tests/MemorySearchSemanticTests.cs`, `test/Aevatar.Agents.AI.Core.Tests/TestAgents/TestAIGAgent.cs` … |
 | 工具调用 | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.AI.Core.Tests/AgentSkillsToolTests.cs`, `test/Aevatar.Agents.AI.Core.Tests/MemorySearchSemanticTests.cs`, `test/Aevatar.Agents.AI.Core.Tests/TestAgents/AgentSkillsToolTestAgent.cs`, `test/Aevatar.Agents.AI.Core.Tests/Hooks/ToolOutputTruncationHookTests.cs` |
@@ -32,6 +32,10 @@
 
 ## 结论与建议
 - **总体**：主要功能点均能找到测试证据（按关键字归纳）。
+  - **补充**：新增 `AgentId` / `ProtobufPacker` / `RpcExtensions` 的最小单测，锁定：
+    - 统一 ID 规范化（`Type:RawId`）
+    - RPC Any 打包/解包的支持范围
+    - RPC 调用的三条路径：Local direct / Actor direct / Protobuf RPC（success + failure）
 
 ## 如何运行
 

@@ -6,8 +6,11 @@ using Aevatar.Agents.Runtime.Local;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.Options;
 using ScientificResearchAssistant.Api;
+using ScientificResearchAssistant.Api.Facts;
 using ScientificResearchAssistant.Api.Materials;
+using ScientificResearchAssistant.Api.Paper;
 using ScientificResearchAssistant.Api.Sessions;
+using ScientificResearchAssistant.Api.Workspace;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddJsonFile("appsettings.secrets.json", optional: true, reloadOnChange: true);
@@ -34,6 +37,12 @@ builder.Services.AddSingleton<ResearchRuntime>();
 builder.Services.AddSingleton<MaterialsService>();
 builder.Services.AddSingleton<ResearchSessionManager>();
 builder.Services.AddSingleton<ResearchRunExecutor>();
+
+// File-SSoT collaboration primitives (paper + facts_proposed + mailbox)
+builder.Services.AddSingleton<WorkspaceService>();
+builder.Services.AddSingleton<FileMailboxService>();
+builder.Services.AddSingleton<PaperService>();
+builder.Services.AddSingleton<FactLifecycleService>();
 
 var app = builder.Build();
 

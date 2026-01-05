@@ -9,6 +9,7 @@ This project provides a unified interface for scientific research, allowing you 
 ### Key Features
 - **AI Agent**: Specialized `ResearchAgent` capable of using scientific tools.
 - **Vibe Researching (NEW)**: Multi-agent inference grounded in your local **facts + sources**, with optional Python verification.
+- **Paper Collaboration (File-SSoT)**: Markdown paper writing with `facts_proposed → consensus/verify → facts`, and file-only agent communication via mailbox.
 - **Web Interface ("Lab Notebook")**: React/Tailwind UI for interactive research.
 - **CLI**: Rapid prototyping console.
 - **Local Privacy**: optional Docker-based execution of scientific tools on your own machine.
@@ -19,8 +20,10 @@ This project provides a unified interface for scientific research, allowing you 
 - `frontend/`: Frontend (React + Vite).
 - `src/ScientificResearchAssistant/`: Core Agent logic (CLI + agent class).
 - `src/ScientificResearchAssistant.Api/`: Backend API (ASP.NET Core 10.0, AG-UI SSE).
+- `src/ScientificResearchAssistant.Contracts/`: Protobuf contracts for file-based collaboration (mailbox / facts / paper patches).
 - `facts/`: Verified conclusions (write-back target).
 - `sources/`: Citable sources (raw materials).
+- `workspace/`: (runtime) session-scoped collaboration workspace (paper/, facts_proposed/, decisions/, mailbox/, runs/, artifacts/).
 - `docs/`: Deployment and Integration guides.
 
 ## 🏁 Getting Started
@@ -67,6 +70,11 @@ This project provides a unified interface for scientific research, allowing you 
 - `POST /api/sessions/{id}/input`
   - body: `{ "message": "...", "mode": "chat" | "vibe" }` (`mode` optional, default `chat`)
 - `POST /api/sessions/{id}/facts` (optional; requires `Materials:AllowWrite=true`)
+  - creates a **fact proposal** under `workspace/sessions/{id}/facts_proposed/` (NOT directly into `facts/`)
+- `GET  /api/sessions/{id}/workspace` (bounded file-backed snapshot)
+- `POST /api/sessions/{id}/facts/{factId}/votes`
+- `POST /api/sessions/{id}/facts/{factId}/verifications`
+- `POST /api/sessions/{id}/facts/{factId}/promote`
 - `GET  /api/sessions/{id}/agui/events` (SSE, snapshot-first)
 
 ## 📚 Documentation

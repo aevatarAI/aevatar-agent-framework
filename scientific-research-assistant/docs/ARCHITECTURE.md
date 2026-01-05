@@ -5,11 +5,14 @@
 - **`frontend/`**：React + Vite + Tailwind，使用 **AG-UI SDK** 订阅后端 SSE，渲染消息流、run/step、tool 调用面板。
 - **`src/ScientificResearchAssistant.Api/`**：ASP.NET Core API（**AG-UI**），提供 session API + `/agui/events` SSE（快照优先）。
 - **`src/ScientificResearchAssistant/`**：`ResearchAgent`（基于 `AIGAgentBase`），注册 Claude Scientific Skills 的 MCP 工具并执行 tool loop。
+- **`src/ScientificResearchAssistant.Contracts/`**：**Protobuf 合约**（mailbox / facts / paper patch），所有跨 agent 边界的文件消息都以此为 schema。
+- **`src/ScientificResearchAssistant.Api/Workspace|Facts|Paper/`**：文件协作基础设施（workspace 目录、facts 生命周期、Markdown 稿件）。
 - **`src/ScientificResearchAssistant/Vibe/*`**：vibe researching 多智能体角色：
   - `VibePlannerAgent`：生成研究计划（假设/未知/验证路径）
   - `VibeReasonerAgent`：基于 materials（sources）推理（可选 `python_exec` 验证）
 - **`sources/`**：来源资料（可引用，不要求写进去就为真）
 - **`facts/`**：已验证结论（可当作事实依赖）
+- **`workspace/`（运行时目录）**：会话级协作工作区（paper、facts_proposed、decisions、mailbox、runs、artifacts）
 
 ### 事件流（用户输入 → Agent 执行 → AG-UI SSE）
 
@@ -44,6 +47,22 @@ vibe 模式的最小闭环（MVP）：
 - `vibe.materials`：读取 `facts/` + `sources/` 构建 bounded context（facts 优先，其次 sources relevance-ranked）
 - `vibe.plan`：`VibePlannerAgent` 输出研究计划（可执行步骤）
 - `vibe.reason`：`VibeReasonerAgent` 进行推理与引用；如启用 Python，可用 `python_exec` 做计算验证
+
+### Paper Collaboration（File-SSoT）
+
+目标：让多个 agents 协作写论文，但 **文件是唯一真相**，且 agents 之间只通过文件沟通。
+
+核心目录（每个 session）：
+
+- `workspace/sessions/{sessionId}/paper/`：`outline.md`、`draft.md`
+- `workspace/sessions/{sessionId}/facts_proposed/`：候选事实（未通过共识/验证前不可当作前提依赖）
+- `workspace/sessions/{sessionId}/decisions/`：votes/verifications/final（promote 的依据）
+- `workspace/sessions/{sessionId}/mailbox/`：文件邮箱（in → processing → archive，失败进 _dead）
+
+写作策略：
+
+- 非写者 agents 只提交 patch proposal（mailbox → `paper_editor`）
+- 单写者合并 patch 并原子写入 `paper/*`，同时写入 `runs/{runId}/` 作为审计日志
 
 ### Tool 调用可视化（MCP skills）
 

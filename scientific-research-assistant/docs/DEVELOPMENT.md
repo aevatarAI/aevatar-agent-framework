@@ -74,7 +74,20 @@ AG-UI tool 事件是 `CUSTOM`：
 - 检查 `src/ScientificResearchAssistant.Api/appsettings.json` 的 `Materials:FactsDir` / `Materials:SourcesDir`
 - UI 里打开 `Workspace`（STATE_SNAPSHOT）确认 materials 是否被加载
 
-#### 5) python_exec 不可用
+#### 5) Paper Collaboration / facts_proposed 不工作
+
+- 默认写入是关闭的：确认 `src/ScientificResearchAssistant.Api/appsettings.json` 的 `Materials:AllowWrite=true`
+- 通过 `GET /api/sessions/{id}/workspace` 看文件快照（facts/facts_proposed/sources 计数与最近提案）
+- 检查 `workspace/sessions/{id}/` 下是否生成：
+  - `paper/`、`facts_proposed/`、`decisions/`、`mailbox/`、`runs/`、`artifacts/`
+
+#### 6) 运行 PaperCollab 集成测试
+
+```bash
+dotnet test scientific-research-assistant/test/ScientificResearchAssistant.Api.Tests/ScientificResearchAssistant.Api.Tests.csproj
+```
+
+#### 7) python_exec 不可用
 
 - 默认 `Python:Enabled=false`（安全策略）
 - 开启后重启后端：`Python:Enabled=true`

@@ -2,6 +2,7 @@
   <Folder Name="/scientific-research-assistant/">
     <Project Path="scientific-research-assistant\src\ScientificResearchAssistant\ScientificResearchAssistant.csproj" />
     <Project Path="scientific-research-assistant\src\ScientificResearchAssistant.Api\ScientificResearchAssistant.Api.csproj" />
+    <Project Path="scientific-research-assistant\src\ScientificResearchAssistant.Contracts\ScientificResearchAssistant.Contracts.csproj" />
     <Project Path="scientific-research-assistant\ScientificResearchAssistant.AppHost\ScientificResearchAssistant.AppHost.csproj" />
     <File Path="scientific-research-assistant\README.md" />
     <File Path="scientific-research-assistant\start.sh" />

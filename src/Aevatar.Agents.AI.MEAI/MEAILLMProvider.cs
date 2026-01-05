@@ -115,7 +115,10 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
             // This can be:
             // - Provider/network timeout
             // - External cancellation (HTTP request aborted, shutdown, etc.)
-            _logger.LogWarning(ex, "[MEAI] Model call canceled/timeout: {Model} - {Message}", _config.Model, ex.Message);
+            //
+            // Keep it low-noise: cancellation is often user-driven (client disconnect) and will be
+            // surfaced upstream anyway.
+            _logger.LogDebug(ex, "[MEAI] Model call canceled/timeout: {Model} - {Message}", _config.Model, ex.Message);
             LLMTelemetry.RecordError(activity, ex);
             throw;
         }

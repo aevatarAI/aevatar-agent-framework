@@ -214,6 +214,14 @@ internal static class ReportStreamApi
             }
             catch (OperationCanceledException ex)
             {
+                // If the HTTP request was aborted (browser closed/reloaded), treat as normal cancellation
+                // and avoid noisy "timeout" errors.
+                if (ct.IsCancellationRequested)
+                {
+                    logger.LogDebug(ex, "[Notebook] Report(stream) canceled by client: {Message}", ex.Message);
+                    return;
+                }
+
                 var providerName = string.IsNullOrWhiteSpace(llm.Value.Default) ? "default" : llm.Value.Default;
                 llm.Value.Providers.TryGetValue(providerName, out var cfg);
                 var timeoutMs = cfg?.TimeoutMilliseconds ?? 0;

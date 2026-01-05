@@ -822,6 +822,15 @@ Open questions:
 
             return response;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            stopwatch.Stop();
+
+            // External cancellation (e.g., HTTP request aborted). This is expected and should not be
+            // logged as an error-level "LLM call failed".
+            Logger.LogDebug("Agent [{AgentId}] LLM call canceled by caller.", Id);
+            throw;
+        }
         catch (Exception ex)
         {
             stopwatch.Stop();
@@ -991,6 +1000,11 @@ Open questions:
                     if (!hasNext) break;
                     token = enumerator.Current;
                 }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    // Normal: streaming request canceled by caller (e.g., client disconnected).
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     Logger.LogError(ex, "Error in streaming chat request {RequestId}", request.RequestId);
@@ -1093,7 +1107,11 @@ Open questions:
             }
 
             // Compact after streaming finishes (keeps state bounded for next call).
-            await CompactChatHistoryIfNeededAsync(cancellationToken);
+            // If caller canceled, skip to avoid surfacing extra TaskCanceledException noise.
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                await CompactChatHistoryIfNeededAsync(cancellationToken);
+            }
         }
     }
 

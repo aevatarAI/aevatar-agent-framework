@@ -6,7 +6,7 @@ namespace Aevatar.Agents.Runtime.Orleans.Stream;
 
 /// <summary>
 /// Orleans Message Stream Provider
-/// 为每个 Agent 创建和管理 Orleans Stream
+/// Creates and manages Orleans Stream for each Agent
 /// </summary>
 public class OrleansMessageStreamProvider
 {
@@ -20,7 +20,7 @@ public class OrleansMessageStreamProvider
     }
     
     /// <summary>
-    /// 获取 Agent 的 Stream
+    /// Get Agent's Stream
     /// </summary>
     public OrleansMessageStream GetStream(string agentId)
     {

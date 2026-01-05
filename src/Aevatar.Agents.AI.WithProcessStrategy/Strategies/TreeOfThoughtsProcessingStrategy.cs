@@ -8,27 +8,27 @@ using Microsoft.Extensions.Logging;
 namespace Aevatar.Agents.AI.WithProcessStrategy.Strategies;
 
 /// <summary>
-/// 思维树（Tree of Thoughts）AI处理策略
-/// 探索多个思考分支，评估并选择最优路径
+/// Tree of Thoughts AI processing strategy
+/// Explores multiple thought branches, evaluates and selects optimal path
 /// </summary>
 public class TreeOfThoughtsProcessingStrategy : IAevatarAIProcessingStrategy
 {
     public string Name => "Tree of Thoughts Processing";
     
-    public string Description => "思维树策略 - 通过探索多个思考路径来解决复杂问题，适用于需要全面探索的场景";
+    public string Description => "Tree of Thoughts strategy - Solves complex problems by exploring multiple thought paths, suitable for scenarios requiring comprehensive exploration";
     
     public AevatarAIProcessingMode Mode => AevatarAIProcessingMode.TreeOfThoughts;
     
     public bool CanHandle(AevatarAIContext context)
     {
-        // 适合极复杂的问题，需要多路径探索
+        // Suitable for extremely complex problems requiring multi-path exploration
         if (context.Metadata?.ContainsKey("PreferredStrategy") == true)
         {
             var preferred = context.Metadata["PreferredStrategy"]?.ToString();
             return string.Equals(preferred, "TreeOfThoughts", StringComparison.OrdinalIgnoreCase);
         }
         
-        // 适合创造性或有多个解决方案的问题
+        // Suitable for creative problems or problems with multiple solutions
         var question = context.Question?.ToLower() ?? string.Empty;
         return question.Contains("探索") || question.Contains("方案") ||
                question.Contains("可能性") || question.Contains("选项") ||
@@ -38,7 +38,7 @@ public class TreeOfThoughtsProcessingStrategy : IAevatarAIProcessingStrategy
     
     public double EstimateComplexity(AevatarAIContext context)
     {
-        // 思维树适合高复杂度问题
+        // Tree of Thoughts suitable for high complexity problems
         return 0.9;
     }
     
@@ -58,7 +58,7 @@ public class TreeOfThoughtsProcessingStrategy : IAevatarAIProcessingStrategy
         var branchingFactor = dependencies.Configuration.TreeBranchingFactor ?? 3;
         var maxNodes = dependencies.Configuration.MaxTreeNodes ?? 20;
         
-        // 初始化根节点
+        // Initialize root node
         var root = new ThoughtNode
         {
             Id = Guid.NewGuid().ToString(),
@@ -67,9 +67,9 @@ public class TreeOfThoughtsProcessingStrategy : IAevatarAIProcessingStrategy
             Score = 1.0
         };
         
-        // 使用优先队列管理待探索节点（基于评分）
+        // Use priority queue to manage nodes to explore (based on score)
         var frontier = new PriorityQueue<ThoughtNode, double>();
-        frontier.Enqueue(root, -root.Score); // 负分用于降序排列
+        frontier.Enqueue(root, -root.Score); // Negative score for descending order
         
         var exploredNodes = new List<ThoughtNode> { root };
         var solutions = new List<ThoughtNode>();
@@ -78,19 +78,19 @@ public class TreeOfThoughtsProcessingStrategy : IAevatarAIProcessingStrategy
         {
             cancellationToken.ThrowIfCancellationRequested();
             
-            // 获取最有前途的节点
+            // Get most promising node
             var currentNode = frontier.Dequeue();
             
             dependencies.Logger?.LogDebug("ToT: Exploring node at depth {Depth} with score {Score}", 
                 currentNode.Depth, currentNode.Score);
             
-            // 检查是否是解决方案
+            // Check if is solution
             if (await IsSolutionAsync(currentNode, context, dependencies, cancellationToken))
             {
                 solutions.Add(currentNode);
                 dependencies.Logger?.LogInformation("ToT: Found solution with score {Score}", currentNode.Score);
                 
-                // 如果找到高质量解决方案，可以提前结束
+                // If high-quality solution found, can end early
                 if (currentNode.Score > 0.9)
                 {
                     break;
@@ -98,7 +98,7 @@ public class TreeOfThoughtsProcessingStrategy : IAevatarAIProcessingStrategy
                 continue;
             }
             
-            // 如果未达最大深度，生成子节点
+            // If not reached max depth, generate child nodes
             if (currentNode.Depth < maxDepth)
             {
                 var children = await GenerateChildrenAsync(
@@ -112,11 +112,11 @@ public class TreeOfThoughtsProcessingStrategy : IAevatarAIProcessingStrategy
                 {
                     exploredNodes.Add(child);
                     
-                    // 评估子节点
+                    // Evaluate child node
                     child.Score = await EvaluateNodeAsync(child, context, dependencies, cancellationToken);
                     
-                    // 如果评分足够高，加入探索队列
-                    if (child.Score > 0.3) // 阈值过滤低质量分支
+                    // If score high enough, add to exploration queue
+                    if (child.Score > 0.3) // Threshold filters low-quality branches
                     {
                         frontier.Enqueue(child, -child.Score);
                     }
@@ -124,14 +124,14 @@ public class TreeOfThoughtsProcessingStrategy : IAevatarAIProcessingStrategy
             }
         }
         
-        // 选择最佳解决方案或路径
+        // Select best solution or path
         if (solutions.Any())
         {
             var bestSolution = solutions.OrderByDescending(s => s.Score).First();
             return await GenerateFinalAnswerFromNodeAsync(bestSolution, dependencies, cancellationToken);
         }
         
-        // 如果没有找到明确解决方案，选择最有前途的叶节点
+        // If no clear solution found, select most promising leaf node
         var bestLeaf = exploredNodes
             .Where(n => n.Children.Count == 0)
             .OrderByDescending(n => n.Score)
@@ -147,7 +147,7 @@ public class TreeOfThoughtsProcessingStrategy : IAevatarAIProcessingStrategy
     }
     
     /// <summary>
-    /// 生成子节点（思考分支）
+    /// Generate child nodes (thought branches)
     /// </summary>
     private async Task<List<ThoughtNode>> GenerateChildrenAsync(
         ThoughtNode parent,
@@ -158,7 +158,7 @@ public class TreeOfThoughtsProcessingStrategy : IAevatarAIProcessingStrategy
     {
         var children = new List<ThoughtNode>();
         
-        // 构建生成提示
+        // Build generation prompt
         var pathToRoot = GetPathToRoot(parent);
         var thoughtChain = string.Join(" -> ", pathToRoot.Select(n => n.Content));
         
@@ -175,11 +175,11 @@ public class TreeOfThoughtsProcessingStrategy : IAevatarAIProcessingStrategy
             Settings = new AevatarLLMSettings
             {
                 ModelId = dependencies.Configuration.Model,
-                Temperature = 0.7 // 较高温度以获得多样性
+                Temperature = 0.7 // Higher temperature for diversity
             }
         }, cancellationToken);
         
-        // 解析响应为多个思考
+        // Parse response into multiple thoughts
         var thoughts = ParseMultipleThoughts(response.Content, count);
         
         foreach (var thought in thoughts)
@@ -200,7 +200,7 @@ public class TreeOfThoughtsProcessingStrategy : IAevatarAIProcessingStrategy
     }
     
     /// <summary>
-    /// 评估节点质量
+    /// Evaluate node quality
     /// </summary>
     private async Task<double> EvaluateNodeAsync(
         ThoughtNode node,
@@ -240,7 +240,7 @@ public class TreeOfThoughtsProcessingStrategy : IAevatarAIProcessingStrategy
     }
     
     /// <summary>
-    /// 检查节点是否是解决方案
+    /// Check if node is a solution
     /// </summary>
     private async Task<bool> IsSolutionAsync(
         ThoughtNode node,
@@ -248,7 +248,7 @@ public class TreeOfThoughtsProcessingStrategy : IAevatarAIProcessingStrategy
         AevatarAIStrategyDependencies dependencies,
         CancellationToken cancellationToken)
     {
-        // 根节点不是解决方案
+        // Root node is not a solution
         if (node.Depth == 0)
         {
             return false;
@@ -278,7 +278,7 @@ public class TreeOfThoughtsProcessingStrategy : IAevatarAIProcessingStrategy
     }
     
     /// <summary>
-    /// 从节点生成最终答案
+    /// Generate final answer from node
     /// </summary>
     private async Task<string> GenerateFinalAnswerFromNodeAsync(
         ThoughtNode node,
@@ -303,7 +303,7 @@ public class TreeOfThoughtsProcessingStrategy : IAevatarAIProcessingStrategy
             }
         }, cancellationToken);
         
-        // 发布思维树完成事件
+        // Publish Tree of Thoughts completion event
         if (dependencies.PublishEventCallback != null)
         {
             await dependencies.PublishEventCallback(new AevatarTreeOfThoughtsCompletedEvent
@@ -320,7 +320,7 @@ public class TreeOfThoughtsProcessingStrategy : IAevatarAIProcessingStrategy
     }
     
     /// <summary>
-    /// 获取从节点到根的路径
+    /// Get path from node to root
     /// </summary>
     private List<ThoughtNode> GetPathToRoot(ThoughtNode node)
     {
@@ -329,7 +329,7 @@ public class TreeOfThoughtsProcessingStrategy : IAevatarAIProcessingStrategy
         
         while (current != null)
         {
-            path.Insert(0, current); // 插入到开头以保持从根到叶的顺序
+            path.Insert(0, current); // Insert at beginning to maintain root-to-leaf order
             current = current.Parent;
         }
         
@@ -337,7 +337,7 @@ public class TreeOfThoughtsProcessingStrategy : IAevatarAIProcessingStrategy
     }
     
     /// <summary>
-    /// 解析多个思考
+    /// Parse multiple thoughts
     /// </summary>
     private List<string> ParseMultipleThoughts(string content, int expectedCount)
     {
@@ -348,7 +348,7 @@ public class TreeOfThoughtsProcessingStrategy : IAevatarAIProcessingStrategy
         {
             var trimmed = line.Trim();
             
-            // 移除数字前缀（如 "1. ", "2) ", etc.）
+            // Remove numeric prefix (e.g., "1. ", "2) ", etc.)
             var cleaned = System.Text.RegularExpressions.Regex.Replace(
                 trimmed, @"^\d+[\.\)]\s*", "");
             
@@ -363,7 +363,7 @@ public class TreeOfThoughtsProcessingStrategy : IAevatarAIProcessingStrategy
             }
         }
         
-        // 如果没有足够的思考，添加默认的
+        // If not enough thoughts, add defaults
         while (thoughts.Count < expectedCount)
         {
             thoughts.Add($"Alternative approach {thoughts.Count + 1}");
@@ -374,7 +374,7 @@ public class TreeOfThoughtsProcessingStrategy : IAevatarAIProcessingStrategy
 }
 
 /// <summary>
-/// 思维树节点
+/// Tree of Thoughts node
 /// </summary>
 internal class ThoughtNode
 {

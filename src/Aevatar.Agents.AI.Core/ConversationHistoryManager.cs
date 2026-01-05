@@ -58,4 +58,3 @@ public class ConversationHistoryManager
 
     public int MessageCount => _history.Count;
 }
-

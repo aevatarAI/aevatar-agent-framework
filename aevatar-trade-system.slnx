@@ -1,0 +1,37 @@
+<Solution>
+  <Folder Name="/trade/">
+    <Project Path="trade\Aevatar.Trade\Aevatar.Trade.csproj" />
+    <Project Path="trade\Aevatar.Trade.Api\Aevatar.Trade.Api.csproj" />
+    <Project Path="trade\Aevatar.Trade.AppHost\Aevatar.Trade.AppHost.csproj" />
+    <File Path="trade\README.md" />
+  </Folder>
+  <Folder Name="/trade/docs/">
+    <File Path="trade\docs\ARCHITECTURE.md" />
+    <File Path="trade\docs\COGNITIVE_MESH_PLAN.md" />
+  </Folder>
+  <Folder Name="/cognitive-mesh/">
+    <Project Path="cognitive-mesh\Aevatar.CognitiveMesh.Abstractions\Aevatar.CognitiveMesh.Abstractions.csproj" />
+    <Project Path="cognitive-mesh\Aevatar.CognitiveMesh.Dsl\Aevatar.CognitiveMesh.Dsl.csproj" />
+    <Project Path="cognitive-mesh\Aevatar.CognitiveMesh\Aevatar.CognitiveMesh.csproj" />
+    <File Path="cognitive-mesh\README.md" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
+    <Project Path="src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
+    <Project Path="src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
+    <Project Path="src\Aevatar.Agents.Runtime.Orleans\Aevatar.Agents.Runtime.Orleans.csproj" />
+    <Project Path="src\Aevatar.Agents.Runtime.ProtoActor\Aevatar.Agents.Runtime.ProtoActor.csproj" />
+    <Project Path="src\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
+    <Project Path="src\Aevatar.Agents.AI.MEAI\Aevatar.Agents.AI.MEAI.csproj" />
+    <Project Path="src\Aevatar.Agents.Cognitive\Aevatar.Agents.Cognitive.csproj" />
+  </Folder>
+  <Folder Name="/src/Aevatar.Agents.Cognitive/workflows/">
+    <File Path="src\Aevatar.Agents.Cognitive\workflows\maker-v2.yaml" />
+  </Folder>
+  <Folder Name="/root/">
+    <File Path="AGENTS.md" />
+    <File Path="Directory.Packages.props" />
+  </Folder>
+</Solution>
+
+

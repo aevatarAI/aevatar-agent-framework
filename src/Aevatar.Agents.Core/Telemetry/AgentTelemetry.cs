@@ -441,8 +441,21 @@ public static class AgentTelemetry
         string direction,
         int childCount)
     {
+        // Backward-compatible overload (legacy guid-only id).
+        return StartEventRouting(agentId.ToString(), eventId, direction, childCount);
+    }
+    
+    /// <summary>
+    /// Start event routing tracing (unified ActorId: "Type:RawId").
+    /// </summary>
+    public static Activity? StartEventRouting(
+        string agentId,
+        string eventId,
+        string direction,
+        int childCount)
+    {
         var activity = ActivitySource.StartActivity("agent.event.route", ActivityKind.Internal);
-        activity?.SetTag("agent.id", agentId.ToString());
+        activity?.SetTag("agent.id", agentId);
         activity?.SetTag("event.id", eventId);
         activity?.SetTag("routing.direction", direction);
         activity?.SetTag("routing.children", childCount);
@@ -484,16 +497,16 @@ public static class AgentTelemetry
     /// </summary>
     public static Activity? StartHierarchyOperation(
         string operation,
-        Guid agentId,
-        Guid? targetId = null)
+        string agentId,
+        string? targetId = null)
     {
         var activity = ActivitySource.StartActivity($"agent.hierarchy.{operation}", ActivityKind.Internal);
         activity?.SetTag("agent.id", agentId.ToString());
         activity?.SetTag("hierarchy.operation", operation);
 
-        if (targetId.HasValue)
+        if (targetId != null)
         {
-            activity?.SetTag("target.id", targetId.Value.ToString());
+            activity?.SetTag("target.id", targetId);
         }
 
         return activity;

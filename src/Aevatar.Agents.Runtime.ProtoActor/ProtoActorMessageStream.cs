@@ -6,8 +6,8 @@ using Proto;
 namespace Aevatar.Agents.Runtime.ProtoActor;
 
 /// <summary>
-/// Proto.Actor 运行时的 Message Stream 实现
-/// 基于 Actor 消息传递实现 Stream 语义
+/// Proto.Actor runtime Message Stream implementation
+/// Implements Stream semantics based on Actor message passing
 /// </summary>
 public class ProtoActorMessageStream : IMessageStream
 {
@@ -25,16 +25,16 @@ public class ProtoActorMessageStream : IMessageStream
     }
 
     /// <summary>
-    /// 发布消息到 Stream（通过 Actor 消息传递）
+    /// Publish message to Stream (via Actor message passing)
     /// </summary>
     public async Task ProduceAsync<T>(T message, CancellationToken ct = default) where T : IMessage
     {
         if (message is EventEnvelope envelope)
         {
-            // 发送 HandleEventMessage 到目标 Actor
+            // Send HandleEventMessage to target Actor
             _rootContext.Send(_targetPid, new HandleEventMessage { Envelope = envelope });
             
-            // 触发所有订阅的处理器
+            // Trigger all subscribed handlers
             var tasks = new List<Task>();
             Console.WriteLine($"ProtoActorMessageStream {StreamId} producing event, subscriptions count: {_subscriptions.Count}");
             foreach (var subscription in _subscriptions.Values)
@@ -59,7 +59,7 @@ public class ProtoActorMessageStream : IMessageStream
     }
 
     /// <summary>
-    /// 订阅 Stream 消息
+    /// Subscribe to Stream messages
     /// </summary>
     public Task<IMessageStreamSubscription> SubscribeAsync<T>(
         Func<T, Task> handler, 
@@ -69,18 +69,18 @@ public class ProtoActorMessageStream : IMessageStream
     }
     
     /// <summary>
-    /// 订阅 Stream 消息（带过滤器）
+    /// Subscribe to Stream messages (with filter)
     /// </summary>
     public Task<IMessageStreamSubscription> SubscribeAsync<T>(
         Func<T, Task> handler,
         Func<T, bool>? filter,
         CancellationToken ct = default) where T : IMessage
     {
-        // 在 Proto.Actor 中，消息处理由 Actor 自身完成
-        // 这里只需要创建一个订阅句柄用于管理
+        // In Proto.Actor, message processing is done by Actor itself
+        // Here we only need to create a subscription handle for management
         var subscriptionId = Guid.NewGuid();
         
-        // 转换为 IMessage 类型的 handler 和 filter
+        // Convert to IMessage type handler and filter
         Func<IMessage, Task> messageHandler = async (msg) =>
         {
             if (msg is T typedMsg)
@@ -108,8 +108,8 @@ public class ProtoActorMessageStream : IMessageStream
         
         Console.WriteLine($"ProtoActorMessageStream {StreamId} added subscription {subscriptionId}, total subscriptions: {_subscriptions.Count}");
         
-        // Proto.Actor 的实际消息处理在 Actor 的 Receive 方法中
-        // 订阅只是记录 handler 供后续使用
+        // Proto.Actor's actual message processing is in Actor's Receive method
+        // Subscription only records handler for later use
         return Task.FromResult<IMessageStreamSubscription>(subscription);
     }
 }

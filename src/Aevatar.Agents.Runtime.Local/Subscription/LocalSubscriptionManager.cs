@@ -146,7 +146,7 @@ public class LocalSubscriptionManager : BaseSubscriptionManager
             filter,
             cancellationToken);
         
-        // 更新handle
+        // Update handle
         handle.StreamSubscription = newSubscription;
         handle.IsHealthy = true;
         handle.LastActivityAt = DateTime.UtcNow;

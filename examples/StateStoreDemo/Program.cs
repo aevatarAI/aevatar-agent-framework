@@ -41,10 +41,12 @@ public class Program
 
         // Create a counter agent
         Console.WriteLine("Creating Counter Agent...");
-        var agentId = Guid.NewGuid().ToString();
-        var agentActor = await factory.CreateGAgentActorAsync<CounterAgent>(agentId);
+        var rawId = Guid.NewGuid().ToString();
+        var agentActor = await factory.CreateGAgentActorAsync<CounterAgent>(rawId);
         var agent = agentActor.GetAgent() as CounterAgent;
-        Console.WriteLine($"Agent created with ID: {agentId}\n");
+        // Use agentActor.Id (full ActorId format) for consistency
+        var agentId = agentActor.Id;
+        Console.WriteLine($"Agent created with ID: {agentId} (rawId: {rawId})\n");
 
         if (agent == null)
         {
@@ -77,9 +79,11 @@ public class Program
 
         Console.WriteLine("Agent deactivated. State should persist in store.\n");
 
-        // Reactivate
+        // Reactivate - use the same rawId to get the same ActorId
         Console.WriteLine("Reactivating agent...");
-        var newAgentActor = await factory.CreateGAgentActorAsync<CounterAgent>(agentId);
+        // Extract rawId from full ActorId (format: "CounterAgent:rawId")
+        var rawIdFromActorId = agentId.Contains(':') ? agentId.Split(':')[1] : agentId;
+        var newAgentActor = await factory.CreateGAgentActorAsync<CounterAgent>(rawIdFromActorId);
         var newAgent = newAgentActor.GetAgent() as CounterAgent;
 
         if (newAgent == null)
@@ -101,7 +105,8 @@ public class Program
         Console.WriteLine($"\nFinal count: {newAgent.GetState().Count}");
 
         Console.WriteLine("\n=== Demo completed ===");
-        Console.WriteLine("Press any key to exit...");
-        Console.ReadKey();
+        
+        // Cleanup
+        await newAgentActor.DeactivateAsync();
     }
 }

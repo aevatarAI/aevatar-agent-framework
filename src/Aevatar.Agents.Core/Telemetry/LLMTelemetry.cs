@@ -148,7 +148,7 @@ public static class LLMTelemetry
     /// Start LLM call tracing.
     /// </summary>
     public static Activity? StartLLMCall(
-        Guid agentId,
+        string agentId,
         string provider,
         string model,
         bool isStreaming = false)

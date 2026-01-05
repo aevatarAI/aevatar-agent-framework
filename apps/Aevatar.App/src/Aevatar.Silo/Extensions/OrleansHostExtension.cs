@@ -35,7 +35,7 @@ public static class OrleansHostExtension
         return hostBuilder.UseOrleans((context, siloBuilder) =>
         {
             var configuration = context.Configuration;
-            var orleansConfig = configuration.GetSection("Orleans");
+            var orleansConfig = configuration.GetSection("AgentRuntime").GetSection("Orleans");
             var clusterId = orleansConfig.GetValue("ClusterId", "aevatar-cluster");
             var serviceId = orleansConfig.GetValue("ServiceId", "aevatar-service");
             var siloPort = orleansConfig.GetValue("SiloPort", 11111);
@@ -55,7 +55,7 @@ public static class OrleansHostExtension
             );
             
             // 2. Configure MongoDB Client (Shared)
-            var connectionString = configuration.GetConnectionString("Default") 
+            var connectionString = configuration.GetConnectionString("Orleans") 
                 ?? "mongodb://localhost:27017/AevatarBusiness";
             var databaseName = configuration.GetSection("Storage")
                 .GetValue("DatabaseName", "AevatarBusiness");
@@ -228,13 +228,14 @@ public static class OrleansHostExtension
         Log.Information("   Default Partitions: {Partitions}", defaultPartitions);
         Log.Information("   Default Replication Factor: {ReplicationFactor}", defaultReplicationFactor);
 
+        // Primary stream provider
         siloBuilder.AddKafka(providerName)
             .WithOptions(options =>
             {
                 options.BrokerList = new List<string> { bootstrapServers };
                 options.ConsumerGroupId = consumerGroupId;
                 
-                // 添加默认 Topic
+                // Add default Topic
                 options.AddTopic(defaultNamespace, new Orleans.Streams.Kafka.Config.TopicCreationConfig
                 {
                     AutoCreate = true,
@@ -242,7 +243,7 @@ public static class OrleansHostExtension
                     ReplicationFactor = (short)defaultReplicationFactor
                 });
                 
-                // 添加 Benchmark 测试所需的 Topics (Multi-Topic Test)
+                // Add Benchmark Topics (Multi-Topic Test)
                 var benchmarkTopics = new[]
                 {
                     "AevatarAgents-Shared",
@@ -267,5 +268,32 @@ public static class OrleansHostExtension
             })
             .AddLoggingTracker()
             .Build();
+        
+        Log.Information("   ✅ Added primary Kafka stream provider: {ProviderName}", providerName);
+        
+        // AevatarAgents stream provider for GodChat client streaming
+        // (used by GodChatGAgent.PushMessageToClientAsync and ChatMiddleware)
+        const string agentStreamProvider = "AevatarAgents";
+        if (providerName != agentStreamProvider)
+        {
+            siloBuilder.AddKafka(agentStreamProvider)
+                .WithOptions(options =>
+                {
+                    options.BrokerList = new List<string> { bootstrapServers };
+                    options.ConsumerGroupId = $"{consumerGroupId}-agents";
+                    
+                    // AevatarAgents topic for client streaming
+                    options.AddTopic(agentStreamProvider, new Orleans.Streams.Kafka.Config.TopicCreationConfig
+                    {
+                        AutoCreate = true,
+                        Partitions = (short)defaultPartitions,
+                        ReplicationFactor = (short)defaultReplicationFactor
+                    });
+                })
+                .AddLoggingTracker()
+                .Build();
+            
+            Log.Information("   ✅ Added agent Kafka stream provider: {ProviderName}", agentStreamProvider);
+        }
     }
 }

@@ -70,7 +70,7 @@ public abstract class GAgentActorFactoryBase : IGAgentActorFactory
         }
 
         // NOTE:
-        // - Agent.Id / Actor.Id 统一使用 actorId（完整格式），保证 PublisherId/self-handling/StreamKey 一致
+        // - Agent.Id / Actor.Id uniformly use actorId (full format) to ensure PublisherId/self-handling/StreamKey consistency
         var agent = _agentFactory.CreateGAgent(actorId, agentType, ct);
 
         await agent.ActivateAsync(ct);

@@ -305,17 +305,9 @@ function renderResult(result) {
         </div>
     `).join('');
 
-    // Trace info
-    document.getElementById('trace-info').innerHTML = `
-        <p><strong>Execution ID:</strong> ${result.trace.executionId}</p>
-        <p><strong>Analogies Explored:</strong> ${result.trace.analogiesExplored}</p>
-        <p><strong>Thoughts Extracted:</strong> ${result.trace.thoughtsExtracted}</p>
-        <p><strong>Candidates Generated:</strong> ${result.trace.candidatesGenerated}</p>
-        <p><strong>Passed Feasibility:</strong> ${result.trace.candidatesPassedFeasibility}</p>
-        <p><strong>Total LLM Calls:</strong> ${result.trace.totalLLMCalls}</p>
-        <p><strong>Total Tokens:</strong> ${result.trace.totalTokens.toLocaleString()}</p>
-        <p><strong>Duration:</strong> ${formatDuration(result.trace.duration)}</p>
-    `;
+    // Unified ExecutionTrace (Protobuf JSON)
+    document.getElementById('trace-info').innerHTML = `<p>Loading unified trace...</p>`;
+    loadExecutionTrace(result.runId);
 }
 
 function toggleCandidate(el) {
@@ -333,6 +325,223 @@ function formatDuration(duration) {
     if (hours > 0) return `${hours}h ${minutes}m`;
     if (minutes > 0) return `${minutes}m ${Math.round(seconds)}s`;
     return `${seconds.toFixed(1)}s`;
+}
+
+// ============================================================
+//  Unified ExecutionTrace Viewer
+// ============================================================
+
+async function loadExecutionTrace(runId) {
+    const container = document.getElementById('trace-info');
+    if (!container) return;
+
+    try {
+        const res = await fetch(`/api/runs/${runId}/trace`);
+        if (!res.ok) {
+            container.innerHTML = `<p>No unified trace available.</p>`;
+            return;
+        }
+
+        const trace = await res.json();
+        container.innerHTML = renderExecutionTrace(trace);
+    } catch (err) {
+        console.error('Failed to load execution trace:', err);
+        container.innerHTML = `<p>Failed to load trace: ${escapeHtml(err.message)}</p>`;
+    }
+}
+
+function renderExecutionTrace(trace) {
+    if (!trace || !trace.root) {
+        return `<p>Trace is empty.</p>`;
+    }
+
+    const status = prettyEnum(trace.status);
+    const kind = prettyEnum(trace.kind);
+    const durationMs = toNumber(trace.cost?.durationMs);
+    const llmCalls = toNumber(trace.cost?.totalLlmCalls);
+    const totalTokens = toNumber(trace.cost?.totalTokens);
+
+    const summary = `
+        <div style="display:grid; gap:6px; margin-bottom: 12px;">
+            <div><strong>Name:</strong> ${escapeHtml(trace.name || 'Execution')}</div>
+            <div><strong>ID:</strong> <code>${escapeHtml(trace.executionId || '')}</code></div>
+            <div><strong>Kind:</strong> ${escapeHtml(kind)}</div>
+            <div><strong>Status:</strong> ${escapeHtml(status)}</div>
+            <div><strong>Cost:</strong> ${escapeHtml(formatDurationMs(durationMs))}, ${escapeHtml(formatInt(llmCalls))} calls, ${escapeHtml(formatInt(totalTokens))} tokens</div>
+            ${trace.error ? `<div style="color: var(--accent-danger);"><strong>Error:</strong> ${escapeHtml(trace.error)}</div>` : ''}
+        </div>
+    `;
+
+    const tree = renderTraceNode(trace.root, 0);
+
+    const raw = `
+        <details style="margin-top: 12px;">
+            <summary>RAW_TRACE_JSON</summary>
+            <pre style="white-space: pre-wrap; word-break: break-word; margin-top: 8px;">${escapeHtml(JSON.stringify(trace, null, 2))}</pre>
+        </details>
+    `;
+
+    return `${summary}${tree}${raw}`;
+}
+
+function renderTraceNode(node, depth) {
+    const name = node.name || node.nodeId || 'node';
+    const type = node.type || 'node';
+    const status = prettyEnum(node.status);
+    const durationMs = toNumber(node.cost?.durationMs);
+    const llmCalls = toNumber(node.cost?.totalLlmCalls);
+    const totalTokens = toNumber(node.cost?.totalTokens);
+
+    const children = (node.children || []).map(c => renderTraceNode(c, depth + 1)).join('');
+
+    const metrics = renderMap(node.metrics, formatContextValue);
+    const labels = renderMap(node.labels, v => String(v ?? ''));
+
+    const decisions = (node.decisions || []).length ? `
+        <details style="margin-top: 8px;">
+            <summary>DECISIONS (${node.decisions.length})</summary>
+            ${(node.decisions || []).map(renderDecision).join('')}
+        </details>
+    ` : '';
+
+    const alerts = (node.alerts || []).length ? `
+        <details style="margin-top: 8px;">
+            <summary>ALERTS (${node.alerts.length})</summary>
+            ${(node.alerts || []).map(a => `<div style="margin-top:6px;"><code>${escapeHtml(a.type || 'alert')}</code> ${escapeHtml(a.message || '')}</div>`).join('')}
+        </details>
+    ` : '';
+
+    const output = node.output ? `
+        <details style="margin-top: 8px;">
+            <summary>OUTPUT</summary>
+            <pre style="white-space: pre-wrap; word-break: break-word; margin-top: 8px;">${escapeHtml(node.output)}</pre>
+        </details>
+    ` : '';
+
+    const error = node.error ? `<div style="margin-top: 6px; color: var(--accent-danger);"><strong>Error:</strong> ${escapeHtml(node.error)}</div>` : '';
+
+    return `
+        <details ${depth === 0 ? 'open' : ''} style="border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; margin: 8px 0;">
+            <summary>
+                <strong>${escapeHtml(name)}</strong>
+                <span style="color: var(--text-muted);"> · ${escapeHtml(type)} · ${escapeHtml(status)} · ${escapeHtml(formatDurationMs(durationMs))} · ${escapeHtml(formatInt(llmCalls))} calls · ${escapeHtml(formatInt(totalTokens))} tok</span>
+            </summary>
+            ${error}
+            ${output}
+            ${decisions}
+            ${alerts}
+            ${metrics}
+            ${labels}
+            ${children ? `<div style="margin-top: 10px; padding-left: 10px; border-left: 2px dashed var(--border);">${children}</div>` : ''}
+        </details>
+    `;
+}
+
+function renderDecision(d) {
+    const winner = d.winnerCandidateId || '';
+    const rows = (d.candidates || []).map(c => {
+        const isWinner = winner && c.candidateId === winner;
+        const preview = previewText(c.content || '', 160);
+        return `
+            <tr style="${isWinner ? 'outline: 1px solid rgba(124,255,107,0.35);' : ''}">
+                <td><code>${escapeHtml(c.candidateId || '')}</code></td>
+                <td>${escapeHtml(String(c.votes ?? 0))}</td>
+                <td>${escapeHtml(String(c.score ?? 0))}</td>
+                <td><code>${escapeHtml(preview)}</code></td>
+            </tr>
+        `;
+    }).join('');
+
+    return `
+        <details style="margin-top: 8px;">
+            <summary>${escapeHtml(d.type || 'decision')} · rounds=${escapeHtml(String(d.rounds ?? 0))} · winner=<code>${escapeHtml(winner)}</code></summary>
+            <table style="width:100%; border-collapse: collapse; margin-top:8px;">
+                <thead>
+                    <tr style="text-align:left; border-bottom: 1px solid var(--border);">
+                        <th>Candidate</th><th>Votes</th><th>Score</th><th>Preview</th>
+                    </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </details>
+    `;
+}
+
+function renderMap(mapObj, valueFormatter) {
+    if (!mapObj) return '';
+    const entries = Object.entries(mapObj);
+    if (entries.length === 0) return '';
+
+    const rows = entries.map(([k, v]) => `
+        <tr>
+            <td style="padding:4px 8px; border-bottom: 1px solid var(--border);"><code>${escapeHtml(k)}</code></td>
+            <td style="padding:4px 8px; border-bottom: 1px solid var(--border);"><code>${escapeHtml(valueFormatter(v))}</code></td>
+        </tr>
+    `).join('');
+
+    return `
+        <details style="margin-top: 8px;">
+            <summary>MAP (${entries.length})</summary>
+            <table style="width:100%; border-collapse: collapse; margin-top:8px;">
+                <tbody>${rows}</tbody>
+            </table>
+        </details>
+    `;
+}
+
+function formatContextValue(v) {
+    if (v == null) return '';
+    if (typeof v !== 'object') return String(v);
+    if (v.stringValue != null) return String(v.stringValue);
+    if (v.boolValue != null) return String(v.boolValue);
+    if (v.intValue != null) return String(v.intValue);
+    if (v.doubleValue != null) return String(v.doubleValue);
+    if (v.datetimeIso != null) return String(v.datetimeIso);
+    if (v.guidString != null) return String(v.guidString);
+    return JSON.stringify(v);
+}
+
+function prettyEnum(value) {
+    if (!value) return '-';
+    return String(value)
+        .replace('EXECUTION_TRACE_STATUS_', '')
+        .replace('EXECUTION_TRACE_KIND_', '');
+}
+
+function toNumber(x) {
+    if (x == null) return 0;
+    if (typeof x === 'number') return x;
+    const n = Number(x);
+    return Number.isFinite(n) ? n : 0;
+}
+
+function formatDurationMs(ms) {
+    const n = toNumber(ms);
+    if (!n) return '0ms';
+    if (n < 1000) return `${Math.round(n)}ms`;
+    const s = n / 1000;
+    if (s < 60) return `${s.toFixed(1)}s`;
+    const m = Math.floor(s / 60);
+    const rs = Math.round(s % 60);
+    return `${m}m ${rs}s`;
+}
+
+function formatInt(x) {
+    const n = toNumber(x);
+    return n ? n.toLocaleString() : '0';
+}
+
+function previewText(s, maxLen) {
+    if (!s) return '';
+    const str = String(s).replace(/\s+/g, ' ').trim();
+    return str.length <= maxLen ? str : str.slice(0, maxLen) + '...';
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
 }
 
 // ============================================================

@@ -9,7 +9,7 @@
 - **LLM 本质无状态**：模型不会“自动记住上一次请求”。所谓“记忆”，只能靠框架把历史/摘要/检索结果再次放进 prompt 发送给模型。
 - **框架支持“对话历史（State.History）”**：可选把历史消息存入 agent state，并在下一次请求中 replay 到 `AevatarLLMRequest.Messages`。
 - **框架已提供可选的“压缩/摘要/滑窗”**（默认关闭）：开启后会把 `State.History` 维持在短窗口，并把被裁掉的历史合并成滚动摘要写入 `State.Context["history_summary"]`，再注入 system prompt（必要时会产生一次额外 LLM summary 调用）。
-- **长期记忆（DB）是“按需读取”的外部层**：通过 `IAevatarAIMemory`（MongoDB/Supabase 等）注入，不会默认自动回灌 prompt，主要走 `search_memory`/AG-UI snapshot 等场景按需读取。
+- **CQRS Read Model 是“按需读取”的外部层**：OnStateChanged 投影到 read-model（如 Elasticsearch / InMemory），`search_memory` 会优先尝试查询 `cqrs_state`。
 
 换句话说：**能记，但不省 token；要省 token，必须做压缩或检索裁剪。**
 
@@ -21,10 +21,10 @@
 - **Agent State 里也有 history 字段（Protobuf）**：`AevatarAIAgentState.history`，因此跨 runtime 边界的状态序列化是安全的（符合框架 Protobuf 铁律）。
 - **AIGAgentBase 可选 replay + compaction**：
   - `EnableChatHistoryInState=true`：`ChatAsync/ChatStreamAsync` 追加 user/assistant 到 `State.History`，并在下一次构建请求时 replay history。
-  - `EnableChatHistoryCompaction=true`：当 `State.History.Count > ChatHistoryMaxMessages` 时做滑窗裁剪，并维护 `State.Context["history_summary"]`（可选写入 `IAevatarAIMemory`）。
-- **内置工具 `search_memory`**：优先搜 `State.History + history_summary`，再 best-effort 搜 `IAevatarAIMemory.SearchAsync`（若已接入）。
+  - `EnableChatHistoryCompaction=true`：当 `State.History.Count > ChatHistoryMaxMessages` 时做滑窗裁剪，并维护 `State.Context["history_summary"]`。
+- **内置工具 `search_memory`**：优先查 `cqrs_state`（若已接入），再搜 `history_summary` / `State.History`。
 
-⚠️ 注意：Cognitive 系列（DSL/Workflow）通常采用“无状态 prompt”，`State.History` 主要用于 UI hydration；长期交互会以结构化 JSON 写入 `IAevatarAIMemory`，供 AG-UI snapshot / 复盘使用。
+⚠️ 注意：Cognitive 系列（DSL/Workflow）通常采用“无状态 prompt”，`State.History` 主要用于 UI hydration。
 
 建议把这份备忘录当作入口，细节以：
 - `docs/AI_MEMORY_GUIDE.md`
@@ -49,13 +49,12 @@
   - 开 `EnableChatHistoryInState=true`（把 user/assistant 写入 `State.History` 并 replay）
   - 开 `EnableChatHistoryCompaction=true`（滑窗 + 滚动摘要到 `State.Context["history_summary"]`）
   - 用 `ChatHistoryMaxMessages / ChatHistorySummaryMaxChars` 控制规模
-  - 需要可追溯/可检索时开 `ArchiveCompactedHistoryToAIMemory=true`
-- **长期回忆（DB memory）**：
+- **长期回忆（CQRS read-model）**：
   - 不要每轮都读；优先让模型调用 `search_memory`（或由 Agent 在“明确回忆意图”时预取 top‑k）
 - **Cognitive/Workflow（严格预算/可复现）**：
   - 保持无状态 prompt（不 replay `State.History`）
   - `State.History` 仅用于 UI hydration（step 元数据）
-  - 交互过程以结构化 JSON 写入 `IAevatarAIMemory` 供快照/复盘
+  - 需要跨 step 检索时，让模型调用 `search_memory`（优先 `cqrs_state`）
 
 落地入口：
 - 详细规则见：`docs/AI_MEMORY_GUIDE.md`

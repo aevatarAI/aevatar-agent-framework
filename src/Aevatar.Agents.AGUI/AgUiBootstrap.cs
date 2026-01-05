@@ -71,7 +71,6 @@ public static class AgUiBootstrap
 
     public static async Task<IReadOnlyList<AgUiMessage>> CollectAssistantMessagesAsync(
         IGAgentActorManager actorManager,
-        IAevatarAIMemoryFactory? memoryFactory,
         IReadOnlyList<AgUiActor> actors,
         AgUiMessageSnapshotOptions options,
         CancellationToken ct = default)
@@ -106,11 +105,6 @@ public static class AgUiBootstrap
                 continue;
 
             await MergeFromStateAsync(actor, spec.LaneId, resolveLane, steps, ct);
-
-            if (memoryFactory != null)
-            {
-                await MergeFromMemoryAsync(memoryFactory, actor.Id, spec.LaneId, resolveLane, steps, ct);
-            }
         }
 
         var ordered = steps
@@ -154,7 +148,11 @@ public static class AgUiBootstrap
 
     private sealed class StepValue
     {
-        public DateTimeOffset Timestamp { get; set; } = DateTimeOffset.UtcNow;
+        // NOTE:
+        // - This value is used for "latest-wins" merge when multiple assistant messages share the same step_id.
+        // - Must start from MinValue so the *first* observed message is accepted, even when its timestamp is in the past
+        //   (which is the normal case when we snapshot historical messages).
+        public DateTimeOffset Timestamp { get; set; } = DateTimeOffset.MinValue;
         public string? AssistantResponse { get; set; }
     }
 
@@ -243,90 +241,6 @@ public static class AgUiBootstrap
         catch
         {
             // best-effort
-        }
-    }
-
-    private static async Task MergeFromMemoryAsync(
-        IAevatarAIMemoryFactory memoryFactory,
-        string actorId,
-        string defaultLaneId,
-        Func<string, IDictionary<string, string>, string, string> resolveLane,
-        Dictionary<StepKey, StepValue> steps,
-        CancellationToken ct)
-    {
-        try
-        {
-            var memory = memoryFactory.Create(actorId);
-            var history = await memory.GetHistoryAsync(limit: 800, cancellationToken: ct);
-            if (history == null || history.Count == 0)
-                return;
-
-            foreach (var e in history)
-            {
-                ct.ThrowIfCancellationRequested();
-
-                var raw = (e.Content ?? string.Empty).Trim();
-                if (string.IsNullOrWhiteSpace(raw)) continue;
-                if (!raw.StartsWith('{')) continue;
-
-                if (!TryParseMemoryEntry(raw, out var stepId, out var assistantResponse))
-                    continue;
-
-                var laneId = resolveLane(stepId, EmptyMetadata, defaultLaneId);
-                if (string.IsNullOrWhiteSpace(laneId)) laneId = defaultLaneId;
-
-                var key = new StepKey(laneId, stepId);
-                if (!steps.TryGetValue(key, out var v))
-                {
-                    v = new StepValue();
-                    steps[key] = v;
-                }
-
-                // Memory history doesn't always carry precise timestamps.
-                // Use it only as a fallback when State.History doesn't have the assistant body.
-                if (string.IsNullOrWhiteSpace(v.AssistantResponse))
-                {
-                    v.AssistantResponse = assistantResponse;
-                    v.Timestamp = DateTimeOffset.UtcNow;
-                }
-            }
-        }
-        catch
-        {
-            // best-effort
-        }
-    }
-
-    private static bool TryParseMemoryEntry(string raw, out string stepId, out string assistantResponse)
-    {
-        stepId = string.Empty;
-        assistantResponse = string.Empty;
-
-        try
-        {
-            using var doc = JsonDocument.Parse(raw);
-            var root = doc.RootElement;
-            if (root.ValueKind != JsonValueKind.Object) return false;
-
-            if (!root.TryGetProperty("stepId", out var sid) || sid.ValueKind != JsonValueKind.String)
-                return false;
-
-            var s = (sid.GetString() ?? string.Empty).Trim();
-            if (string.IsNullOrWhiteSpace(s)) return false;
-
-            if (!root.TryGetProperty("assistantResponse", out var ar) || ar.ValueKind != JsonValueKind.String)
-                return false;
-
-            var a = (ar.GetString() ?? string.Empty).Trim();
-            if (string.IsNullOrWhiteSpace(a)) return false;
-
-            stepId = s;
-            assistantResponse = a;
-            return true;
-        }
-        catch
-        {
-            return false;
         }
     }
 

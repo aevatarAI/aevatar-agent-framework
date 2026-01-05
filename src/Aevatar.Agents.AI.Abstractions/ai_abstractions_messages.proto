@@ -147,37 +147,6 @@ message AevatarTokenUsage {
 }
 
 // =====================================================
-// Memory Events
-// =====================================================
-
-// Memory storage event
-message AevatarMemoryStoredEvent {
-  string agent_id = 1;
-  string memory_type = 2; // short_term, long_term, working
-  string memory_key = 3;
-  google.protobuf.Any memory_value = 4;
-  google.protobuf.Timestamp timestamp = 5;
-}
-
-// Memory retrieval event
-message AevatarMemoryRetrievedEvent {
-  string agent_id = 1;
-  string memory_type = 2;
-  string query = 3;
-  repeated string memory_keys = 4;
-  google.protobuf.Timestamp timestamp = 5;
-}
-
-// Memory cleanup event
-message AevatarMemoryCleanupEvent {
-  string agent_id = 1;
-  string memory_type = 2;
-  int32 items_removed = 3;
-  string reason = 4;
-  google.protobuf.Timestamp timestamp = 5;
-}
-
-// =====================================================
 // Chat Request/Response Messages
 // =====================================================
 

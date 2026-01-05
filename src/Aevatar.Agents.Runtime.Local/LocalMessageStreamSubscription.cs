@@ -4,7 +4,7 @@ namespace Aevatar.Agents.Runtime.Local;
 
 /// <summary>
 /// Local message stream subscription implementation
-/// 管理本地消息流的订阅生命周期
+/// Manages subscription lifecycle for local message streams
 /// </summary>
 internal class LocalMessageStreamSubscription : IMessageStreamSubscription
 {
@@ -30,7 +30,7 @@ internal class LocalMessageStreamSubscription : IMessageStreamSubscription
     }
 
     /// <summary>
-    /// 处理接收到的消息
+    /// Handle received message
     /// </summary>
     public async Task HandleMessageAsync(EventEnvelope envelope)
     {
@@ -43,7 +43,7 @@ internal class LocalMessageStreamSubscription : IMessageStreamSubscription
     }
 
     /// <summary>
-    /// 取消订阅
+    /// Unsubscribe
     /// </summary>
     public Task UnsubscribeAsync()
     {
@@ -53,13 +53,13 @@ internal class LocalMessageStreamSubscription : IMessageStreamSubscription
         }
 
         _isActive = false;
-        // 不要调用_onDisposed，保留订阅在字典中以支持Resume
-        // 只有在DisposeAsync时才真正移除
+        // Don't call _onDisposed, keep subscription in dictionary to support Resume
+        // Only actually remove in DisposeAsync
         return Task.CompletedTask;
     }
 
     /// <summary>
-    /// 恢复订阅
+    /// Resume subscription
     /// </summary>
     public Task ResumeAsync()
     {
@@ -68,29 +68,29 @@ internal class LocalMessageStreamSubscription : IMessageStreamSubscription
             return Task.CompletedTask;
         }
 
-        // Local stream基于内存Channel
-        // 恢复订阅只需要重新激活处理标志
+        // Local stream is based on in-memory Channel
+        // Resuming subscription only needs to reactivate processing flag
         _isActive = true;
         
-        // 注意：如果Channel已关闭，无法恢复
-        // 调用方应该处理这种情况并创建新订阅
+        // Note: If Channel is already closed, cannot resume
+        // Caller should handle this case and create new subscription
         
         return Task.CompletedTask;
     }
 
     /// <summary>
-    /// 异步释放资源
+    /// Asynchronously dispose resources
     /// </summary>
     public async ValueTask DisposeAsync()
     {
         if (!_isActive)
         {
-            // 即使已经取消订阅，也要确保从字典中移除
+            // Even if already unsubscribed, ensure removal from dictionary
             _onDisposed?.Invoke();
             return;
         }
         
         _isActive = false;
-        _onDisposed?.Invoke(); // 真正从字典中移除
+        _onDisposed?.Invoke(); // Actually remove from dictionary
     }
 }

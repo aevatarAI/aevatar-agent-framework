@@ -96,18 +96,18 @@ public abstract class AevatarLLMProviderBase : IAevatarLLMProvider
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         // ============================================================
-        //  关键修复：不要对同一个流进行“二次枚举”
+        //  Critical fix: Don't enumerate the same stream twice
         //
-        //  旧实现：
-        //  - 为了拿到首个 token（TTFT）会创建一个 enumerator 并 MoveNext 一次
-        //  - 然后又用 await foreach 再枚举同一个 IAsyncEnumerable
-        //    * 对很多实现来说，这会触发第二次 API 调用（等于“白跑一遍”）
-        //    * 还会导致首个 enumerator 未正确释放，连接/资源泄漏
+        //  Old implementation:
+        //  - To get first token (TTFT), created an enumerator and called MoveNext once
+        //  - Then used await foreach to enumerate the same IAsyncEnumerable again
+        //    * For many implementations, this triggers a second API call (wasteful)
+        //    * Also causes first enumerator not properly disposed, connection/resource leak
         //
-        //  正确做法：
-        //  - 只创建一个 enumerator
-        //  - 仅对“首 token”施加超时与重试（TTFT）
-        //  - 后续继续读取同一个 enumerator
+        //  Correct approach:
+        //  - Create only one enumerator
+        //  - Apply timeout and retry only to "first token" (TTFT)
+        //  - Continue reading from the same enumerator afterwards
         // ============================================================
 
         var policy = Policy;
@@ -196,18 +196,18 @@ public abstract class AevatarLLMProviderBase : IAevatarLLMProvider
     }
 
     /// <summary>
-    /// 默认模型信息（给继承自 <see cref="AevatarLLMProviderBase"/> 的 Provider 使用）。
+    /// Default model info (for Providers inheriting from <see cref="AevatarLLMProviderBase"/>).
     /// 
-    /// 设计取舍：
-    /// - 该基类强制子类实现 <c>GenerateStreamCoreAsync</c>，因此默认认为支持 Streaming。
-    /// - 子类若想提供更准确的模型能力/元数据，可自行 override。
+    /// Design trade-offs:
+    /// - This base class forces subclasses to implement <c>GenerateStreamCoreAsync</c>, so defaults to supporting Streaming.
+    /// - Subclasses can override to provide more accurate model capabilities/metadata.
     /// </summary>
     public virtual Task<AevatarModelInfo> GetModelInfoAsync(CancellationToken cancellationToken = default)
     {
         return Task.FromResult(new AevatarModelInfo
         {
             Name = ProviderName,
-            MaxTokens = 4096,
+            MaxTokens = AevatarAIDefaults.DefaultMaxTokensExtended,
             SupportsStreaming = true,
             SupportsFunctions = false
         });

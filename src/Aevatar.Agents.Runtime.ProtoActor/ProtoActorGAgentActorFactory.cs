@@ -7,7 +7,7 @@ using Proto;
 namespace Aevatar.Agents.Runtime.ProtoActor;
 
 /// <summary>
-/// Proto.Actor 运行时的 Agent Actor 工厂
+/// Proto.Actor runtime Agent Actor factory
 /// </summary>
 public class ProtoActorGAgentActorFactory : GAgentActorFactoryBase
 {
@@ -25,10 +25,7 @@ public class ProtoActorGAgentActorFactory : GAgentActorFactoryBase
     }
 
     /// <summary>
-    /// 为已存在的 Agent 实例创建 Actor（内部方法，供自动发现使用）
-    /// </summary>
-    /// <summary>
-    /// 为已存在的 Agent 实例创建 Actor（内部方法，供自动发现使用）
+    /// Create Actor for existing Agent instance (internal method, for auto-discovery use)
     /// </summary>
     protected override Task<IGAgentActor> CreateActorInstanceAsync(IGAgent agent, string id,
         CancellationToken ct = default)
@@ -36,7 +33,7 @@ public class ProtoActorGAgentActorFactory : GAgentActorFactoryBase
         _logger.LogDebug("[Factory] Creating ProtoActor Actor for Agent - Type: {AgentType}, Id: {Id}",
             agent.GetType().Name, id);
 
-        // 创建 ProtoActor Actor
+        // Create ProtoActor Actor
         var props = Props.FromProducer(() => new AgentActor());
         var actorPid = _actorSystem.Root.Spawn(props);
 

@@ -23,7 +23,7 @@ public class AevatarLLMSettings
     /// <summary>
     /// 最大生成Token数
     /// </summary>
-    public int MaxTokens { get; set; } = 2000;
+    public int MaxTokens { get; set; } = AevatarAIDefaults.DefaultMaxOutputTokens;
     
     /// <summary>
     /// 频率惩罚（-2.0到2.0）

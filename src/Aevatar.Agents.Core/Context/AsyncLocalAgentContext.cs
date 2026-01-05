@@ -20,7 +20,7 @@ public class AsyncLocalAgentContext : IAgentContext
         if (value is T typedValue)
             return typedValue;
 
-        // 兼容跨边界后的类型退化 (int->long, float->double, etc.)
+        // Handle type degradation after cross-boundary serialization (int->long, float->double, etc.)
         return AgentContextValueConverter.TryConvert(value, out T converted)
             ? converted
             : key.DefaultValue;

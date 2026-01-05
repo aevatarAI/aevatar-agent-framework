@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
+using Aevatar.Agents.Abstractions.CQRS;
 using Aevatar.App.Controllers;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc;
@@ -31,8 +33,8 @@ public class StateQueryControllerTests
     {
         // Arrange
         _mockService
-            .Setup(x => x.GetByIdAsync("TestAgent", "agent-1"))
-            .ReturnsAsync((StateQueryResponseDto?)null);
+            .Setup(x => x.GetByIdAsync("TestAgent", "agent-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((StateQueryResult?)null);
 
         // Act
         var result = await _controller.GetById("TestAgent", "agent-1");
@@ -45,7 +47,7 @@ public class StateQueryControllerTests
     public async Task GetById_ReturnsOk_WhenStateExists()
     {
         // Arrange
-        var state = new StateQueryResponseDto
+        var state = new StateQueryResult
         {
             AgentId = "agent-1",
             AgentType = "TestAgent",
@@ -54,7 +56,7 @@ public class StateQueryControllerTests
         };
 
         _mockService
-            .Setup(x => x.GetByIdAsync("TestAgent", "agent-1"))
+            .Setup(x => x.GetByIdAsync("TestAgent", "agent-1", It.IsAny<CancellationToken>()))
             .ReturnsAsync(state);
 
         // Act
@@ -71,7 +73,7 @@ public class StateQueryControllerTests
     {
         // Arrange
         _mockService
-            .Setup(x => x.GetByIdAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .Setup(x => x.GetByIdAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new Exception("Database error"));
 
         // Act
@@ -87,24 +89,23 @@ public class StateQueryControllerTests
     public async Task Query_ReturnsPagedResults()
     {
         // Arrange
-        var pagedResult = new PagedStateQueryResponseDto
+        var pagedResult = new PagedStateQueryResult
         {
             TotalCount = 50,
-            Items = new List<StateQueryResponseDto>
+            Items = new List<StateQueryResult>
             {
                 new() { AgentId = "agent-1", AgentType = "TestAgent", Version = 1 },
                 new() { AgentId = "agent-2", AgentType = "TestAgent", Version = 2 }
             },
             PageIndex = 0,
             PageSize = 20,
-            TotalPages = 3
         };
 
         _mockService
-            .Setup(x => x.QueryAsync(It.IsAny<StateQueryRequestDto>()))
+            .Setup(x => x.QueryAsync(It.IsAny<StateQuery>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(pagedResult);
 
-        var request = new StateQueryRequestDto
+        var request = new StateQuery
         {
             AgentType = "TestAgent",
             PageIndex = 0,
@@ -117,7 +118,7 @@ public class StateQueryControllerTests
         // Assert
         result.Result.Should().BeOfType<OkObjectResult>();
         var okResult = (OkObjectResult)result.Result!;
-        var response = okResult.Value as PagedStateQueryResponseDto;
+        var response = okResult.Value as PagedStateQueryResult;
         response.Should().NotBeNull();
         response!.TotalCount.Should().Be(50);
         response.Items.Should().HaveCount(2);
@@ -127,13 +128,13 @@ public class StateQueryControllerTests
     public async Task Query_PassesQueryStringToService()
     {
         // Arrange
-        StateQueryRequestDto? capturedRequest = null;
+        StateQuery? capturedRequest = null;
         _mockService
-            .Setup(x => x.QueryAsync(It.IsAny<StateQueryRequestDto>()))
-            .Callback<StateQueryRequestDto>(r => capturedRequest = r)
-            .ReturnsAsync(new PagedStateQueryResponseDto());
+            .Setup(x => x.QueryAsync(It.IsAny<StateQuery>(), It.IsAny<CancellationToken>()))
+            .Callback<StateQuery, CancellationToken>((r, _) => capturedRequest = r)
+            .ReturnsAsync(new PagedStateQueryResult());
 
-        var request = new StateQueryRequestDto
+        var request = new StateQuery
         {
             AgentType = "TestAgent",
             QueryString = "status:active AND version:>5",
@@ -156,10 +157,10 @@ public class StateQueryControllerTests
     {
         // Arrange
         _mockService
-            .Setup(x => x.QueryAsync(It.IsAny<StateQueryRequestDto>()))
+            .Setup(x => x.QueryAsync(It.IsAny<StateQuery>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new Exception("Query failed"));
 
-        var request = new StateQueryRequestDto { AgentType = "TestAgent" };
+        var request = new StateQuery { AgentType = "TestAgent" };
 
         // Act
         var result = await _controller.Query(request);
@@ -175,7 +176,7 @@ public class StateQueryControllerTests
     {
         // Arrange
         _mockService
-            .Setup(x => x.CountAsync("TestAgent", null))
+            .Setup(x => x.CountAsync("TestAgent", null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(42);
 
         // Act
@@ -195,7 +196,7 @@ public class StateQueryControllerTests
     {
         // Arrange
         _mockService
-            .Setup(x => x.CountAsync("TestAgent", "active:true"))
+            .Setup(x => x.CountAsync("TestAgent", "active:true", It.IsAny<CancellationToken>()))
             .ReturnsAsync(10);
 
         // Act
@@ -203,7 +204,7 @@ public class StateQueryControllerTests
 
         // Assert
         result.Result.Should().BeOfType<OkObjectResult>();
-        _mockService.Verify(x => x.CountAsync("TestAgent", "active:true"), Times.Once);
+        _mockService.Verify(x => x.CountAsync("TestAgent", "active:true", It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -211,7 +212,7 @@ public class StateQueryControllerTests
     {
         // Arrange
         _mockService
-            .Setup(x => x.CountAsync(It.IsAny<string>(), It.IsAny<string?>()))
+            .Setup(x => x.CountAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new Exception("Count failed"));
 
         // Act
@@ -230,10 +231,10 @@ public class StateQueryControllerTests
 public class StateQueryControllerDtoTests
 {
     [Fact]
-    public void StateQueryRequestDto_HasDefaultValues()
+    public void StateQuery_HasDefaultValues()
     {
         // Act
-        var dto = new StateQueryRequestDto();
+        var dto = new StateQuery();
 
         // Assert
         dto.AgentType.Should().BeEmpty();
@@ -245,10 +246,10 @@ public class StateQueryControllerDtoTests
     }
 
     [Fact]
-    public void StateQueryResponseDto_HasDefaultValues()
+    public void StateQueryResult_HasDefaultValues()
     {
         // Act
-        var dto = new StateQueryResponseDto();
+        var dto = new StateQueryResult();
 
         // Assert
         dto.AgentId.Should().BeEmpty();
@@ -258,10 +259,10 @@ public class StateQueryControllerDtoTests
     }
 
     [Fact]
-    public void PagedStateQueryResponseDto_HasDefaultValues()
+    public void PagedStateQueryResult_HasDefaultValues()
     {
         // Act
-        var dto = new PagedStateQueryResponseDto();
+        var dto = new PagedStateQueryResult();
 
         // Assert
         dto.TotalCount.Should().Be(0);

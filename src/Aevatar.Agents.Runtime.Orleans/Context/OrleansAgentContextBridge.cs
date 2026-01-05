@@ -72,7 +72,7 @@ public class OrleansAgentContextBridge : IAgentContext
     /// <inheritdoc />
     public IReadOnlyDictionary<string, object?> GetAll()
     {
-        // Orleans 9.x 支持枚举 Entries/Keys
+        // Orleans 9.x supports enumerating Entries/Keys
         var result = new Dictionary<string, object?>();
         foreach (var (key, value) in RequestContext.Entries)
         {

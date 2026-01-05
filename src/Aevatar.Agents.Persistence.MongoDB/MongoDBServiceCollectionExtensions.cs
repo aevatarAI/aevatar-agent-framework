@@ -1,5 +1,4 @@
 using System;
-using Aevatar.Agents.AI.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
@@ -96,86 +95,5 @@ public static class MongoDBServiceCollectionExtensions
         return services;
     }
 
-    /// <summary>
-    /// Add MongoDB state store for a specific state type
-    /// Requires AddAevatarMongoDB to be called first
-    /// </summary>
-    /// <typeparam name="TState">State type (must be Protobuf IMessage)</typeparam>
-    /// <param name="services">Service collection</param>
-    /// <param name="collectionName">Optional custom collection name</param>
-    /// <returns>Service collection for chaining</returns>
-    public static IServiceCollection AddMongoDBStateStore<TState>(
-        this IServiceCollection services,
-        string? collectionName = null)
-        where TState : class, Google.Protobuf.IMessage<TState>, new()
-    {
-        services.AddSingleton(sp =>
-        {
-            var database = sp.GetRequiredService<IMongoDatabase>();
-            return new MongoDBStateStore<TState>(database, collectionName);
-        });
-
-        return services;
-    }
-
-    /// <summary>
-    /// Add MongoDB config store for a specific config type
-    /// Requires AddAevatarMongoDB to be called first
-    /// </summary>
-    /// <typeparam name="TConfig">Config type (must be a class with parameterless constructor)</typeparam>
-    /// <param name="services">Service collection</param>
-    /// <param name="collectionName">Optional custom collection name</param>
-    /// <returns>Service collection for chaining</returns>
-    public static IServiceCollection AddMongoDBConfigStore<TConfig>(
-        this IServiceCollection services,
-        string? collectionName = null)
-        where TConfig : class, new()
-    {
-        services.AddSingleton(sp =>
-        {
-            var database = sp.GetRequiredService<IMongoDatabase>();
-            return new MongoDbConfigStore<TConfig>(database, collectionName);
-        });
-
-        return services;
-    }
-
-    /// <summary>
-    /// Add MongoDB EventRouter store
-    /// Requires AddAevatarMongoDB to be called first
-    /// </summary>
-    /// <param name="services">Service collection</param>
-    /// <param name="collectionName">Optional custom collection name</param>
-    /// <returns>Service collection for chaining</returns>
-    public static IServiceCollection AddMongoDBEventRouterStore(
-        this IServiceCollection services,
-        string? collectionName = null)
-    {
-        services.AddSingleton(sp =>
-        {
-            var database = sp.GetRequiredService<IMongoDatabase>();
-            return new MongoDBEventRouterStore(database, collectionName);
-        });
-
-        return services;
-    }
-
-    /// <summary>
-    /// Add MongoDB-backed AI memory factory (<see cref="IAevatarAIMemoryFactory"/>).
-    /// Requires <see cref="AddAevatarMongoDB(Microsoft.Extensions.DependencyInjection.IServiceCollection,string,string)"/>
-    /// to be called first.
-    /// </summary>
-    public static IServiceCollection AddMongoDBAIMemory(
-        this IServiceCollection services,
-        string? collectionName = null)
-    {
-        services.AddSingleton<IAevatarAIMemoryFactory>(sp =>
-        {
-            var database = sp.GetRequiredService<IMongoDatabase>();
-            return new MongoDBAIMemoryFactory(database, collectionName);
-        });
-
-        return services;
-    }
 }
 

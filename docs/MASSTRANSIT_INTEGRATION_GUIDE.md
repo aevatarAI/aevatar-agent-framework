@@ -117,7 +117,7 @@ Producer-only 路径同样会扫描 `[StreamTopic]`，以便 Category→Topic �
 
 1.  **引用插件**:
     ```xml
-    <ProjectReference Include="..\..\..\src\Aevatar.Agents.Plugins.MassTransit\Aevatar.Agents.Plugins.MassTransit.csproj" />
+    <ProjectReference Include="..\..\..\plugins\Aevatar.Agents.Plugins.MassTransit\Aevatar.Agents.Plugins.MassTransit.csproj" />
     ```
 
 2.  **代码集成 - 多种程序集发现方式**:

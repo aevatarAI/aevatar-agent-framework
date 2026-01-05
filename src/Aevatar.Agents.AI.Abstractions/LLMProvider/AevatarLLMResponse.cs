@@ -1,37 +1,37 @@
 namespace Aevatar.Agents.AI.Abstractions;
 
 /// <summary>
-/// LLM响应
+/// LLM response
 /// </summary>
 public class AevatarLLMResponse
 {
     /// <summary>
-    /// 生成的内容
+    /// Generated content
     /// </summary>
     public string Content { get; set; } = string.Empty;
     
     /// <summary>
-    /// 函数调用（如果有）
+    /// Function call (if any)
     /// </summary>
     public AevatarFunctionCall? AevatarFunctionCall { get; set; }
     
     /// <summary>
-    /// 停止原因
+    /// Stop reason
     /// </summary>
     public AevatarStopReason AevatarStopReason { get; set; }
     
     /// <summary>
-    /// Token使用情况
+    /// Token usage
     /// </summary>
     public AevatarTokenUsage? Usage { get; set; }
     
     /// <summary>
-    /// 模型名称
+    /// Model name
     /// </summary>
     public string? ModelName { get; set; }
     
     /// <summary>
-    /// 元数据
+    /// Metadata
     /// </summary>
     public Dictionary<string, object>? Metadata { get; set; }
 }

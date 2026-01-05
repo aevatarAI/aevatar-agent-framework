@@ -1,0 +1,287 @@
+/*aevatar_tool
+{
+  "name": "weex_ai_order_place_order",
+  "description": "WEEX AI Wars TRADE API: POST /capi/v2/order/placeOrder (docs: https://www.weex.com/api-doc/contract/Transaction_API/PlaceOrder)",
+  "category": "Custom",
+  "version": "0.1.0",
+  "tags": [
+    "weex",
+    "ai-wars",
+    "trade",
+    "post"
+  ],
+  "requiresConfirmation": true,
+  "isDangerous": true,
+  "timeoutMs": 30000,
+  "parameters": {
+    "required": [
+      "symbol",
+      "client_oid",
+      "size",
+      "type",
+      "order_type",
+      "match_price",
+      "price"
+    ],
+    "items": {
+      "symbol": {
+        "type": "string",
+        "required": true,
+        "description": "Trading pair"
+      },
+      "client_oid": {
+        "type": "string",
+        "required": true,
+        "description": "Custom order ID (no more than 40 characters)"
+      },
+      "size": {
+        "type": "string",
+        "required": true,
+        "description": "Order quantity (cannot be zero or negative)."
+      },
+      "type": {
+        "type": "string",
+        "required": true,
+        "description": "1: Open long, 2: Open short, 3: Close long, 4: Close short"
+      },
+      "order_type": {
+        "type": "string",
+        "required": true,
+        "description": "0: Normal, 1: Post-Only, 2: Fill-Or-Kill, 3: Immediate Or Cancel"
+      },
+      "match_price": {
+        "type": "string",
+        "required": true,
+        "description": "0: Limit price, 1: Market price"
+      },
+      "price": {
+        "type": "string",
+        "required": true,
+        "description": "Order price (this is required for limit orders, and its accuracy and step size follow the futures information endpoint)"
+      },
+      "presetTakeProfitPrice": {
+        "type": "string",
+        "required": false,
+        "description": "Preset take-profit price"
+      },
+      "presetStopLossPrice": {
+        "type": "string",
+        "required": false,
+        "description": "Preset stop-loss price"
+      },
+      "marginMode": {
+        "type": "integer",
+        "required": false,
+        "description": "Margin mode \n 1: Cross Mode\n 3: Isolated Mode\n Default is 1 (Cross Mode)"
+      }
+    }
+  }
+}
+*/
+
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
+
+var input = await Console.In.ReadToEndAsync();
+
+var baseUrl = GetEnv("WEEX_BASE_URL", "https://api-contract.weex.com");
+var locale = GetEnv("WEEX_LOCALE", "en-US");
+
+var apiKey = GetRequiredEnv("WEEX_API_KEY");
+var apiSecret = GetRequiredEnv("WEEX_API_SECRET");
+var passphrase = GetRequiredEnv("WEEX_PASSPHRASE");
+
+
+// ------------------------------------------------------------------
+// System.Text.Json (dotnet run --file)
+//
+// NOTE:
+// - runfile host may disable reflection-based serialization by default.
+// - We explicitly enable it via DefaultJsonTypeInfoResolver, otherwise
+//   JsonSerializer.Serialize(...) will throw at runtime.
+// ------------------------------------------------------------------
+var jsonOptions = new JsonSerializerOptions
+{
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    TypeInfoResolver = new DefaultJsonTypeInfoResolver()
+};
+
+
+using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(input) ? "{}" : input);
+var root = doc.RootElement;
+
+var required = new[] { "symbol", "client_oid", "size", "type", "order_type", "match_price", "price" };
+EnsureRequired(root, required);
+
+const string requestPath = "/capi/v2/order/placeOrder";
+var method = "POST";
+
+var allParams = new[] { "symbol", "client_oid", "size", "type", "order_type", "match_price", "price", "presetTakeProfitPrice", "presetStopLossPrice", "marginMode" };
+
+string queryString = "";
+string bodyJson = "";
+
+var httpMethod = method == "POST" ? HttpMethod.Post : HttpMethod.Get;
+Uri url;
+
+if (httpMethod == HttpMethod.Get)
+{
+    queryString = BuildQueryString(root, allParams);
+    url = new Uri(new Uri(baseUrl.TrimEnd('/')), requestPath + queryString);
+}
+else
+{
+    var body = BuildBody(root, allParams);
+    bodyJson = JsonSerializer.Serialize(body, jsonOptions);
+    url = new Uri(new Uri(baseUrl.TrimEnd('/')), requestPath);
+}
+
+var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
+var signature = Sign(apiSecret ?? "", timestamp, method, requestPath, queryString, bodyJson);
+
+using var http = new HttpClient();
+http.DefaultRequestHeaders.Add("Accept", "application/json");
+http.DefaultRequestHeaders.UserAgent.ParseAdd("Aevatar.Trade/1.0");
+using var req = new HttpRequestMessage(httpMethod, url);
+
+if (httpMethod == HttpMethod.Post)
+{
+    req.Content = new StringContent(bodyJson, Encoding.UTF8, "application/json");
+}
+
+if (!string.IsNullOrWhiteSpace(apiKey) && !string.IsNullOrWhiteSpace(apiSecret) && !string.IsNullOrWhiteSpace(passphrase))
+{
+    req.Headers.Add("ACCESS-KEY", apiKey);
+    req.Headers.Add("ACCESS-SIGN", signature);
+    req.Headers.Add("ACCESS-PASSPHRASE", passphrase);
+    req.Headers.Add("ACCESS-TIMESTAMP", timestamp);
+}
+
+req.Headers.Add("locale", locale);
+
+try
+{
+    using var resp = await http.SendAsync(req);
+    var raw = await resp.Content.ReadAsStringAsync();
+
+    var ok = resp.IsSuccessStatusCode;
+    JsonElement? data = null;
+
+    try
+    {
+        using var respDoc = JsonDocument.Parse(raw);
+        data = respDoc.RootElement.Clone();
+    }
+    catch
+    {
+        // ignore parse errors; keep raw
+    }
+
+    var result = new
+    {
+        success = ok,
+        httpStatus = (int)resp.StatusCode,
+        request = new
+        {
+            method,
+            baseUrl,
+            requestPath,
+            queryString,
+            body = string.IsNullOrWhiteSpace(bodyJson) ? null : bodyJson
+        },
+        data,
+        raw
+    };
+
+    Console.WriteLine("AEVATAR_TOOL_OUTPUT:" + JsonSerializer.Serialize(result, jsonOptions));
+    Environment.ExitCode = ok ? 0 : 1;
+}
+catch (Exception ex)
+{
+    var result = new
+    {
+        success = false,
+        error = ex.Message
+    };
+    Console.WriteLine("AEVATAR_TOOL_OUTPUT:" + JsonSerializer.Serialize(result, jsonOptions));
+    Environment.ExitCode = 1;
+}
+
+return;
+
+static string GetEnv(string key, string fallback)
+{
+    var v = Environment.GetEnvironmentVariable(key);
+    return string.IsNullOrWhiteSpace(v) ? fallback : v.Trim();
+}
+
+static string? GetOptionalEnv(string key)
+{
+    var v = Environment.GetEnvironmentVariable(key);
+    return string.IsNullOrWhiteSpace(v) ? null : v.Trim();
+}
+
+static string GetRequiredEnv(string key)
+{
+    var v = Environment.GetEnvironmentVariable(key);
+    if (string.IsNullOrWhiteSpace(v))
+        throw new InvalidOperationException($"Missing env var: {key}");
+    return v.Trim();
+}
+
+static void EnsureRequired(JsonElement root, string[] required)
+{
+    foreach (var k in required)
+    {
+        if (string.IsNullOrWhiteSpace(k)) continue;
+        if (!root.TryGetProperty(k, out var el) || el.ValueKind == JsonValueKind.Null || (el.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(el.GetString())))
+            throw new InvalidOperationException($"Missing parameter: {k}");
+    }
+}
+
+static string BuildQueryString(JsonElement root, string[] keys)
+{
+    var parts = new List<string>();
+    foreach (var k in keys)
+    {
+        if (!root.TryGetProperty(k, out var el) || el.ValueKind == JsonValueKind.Null)
+            continue;
+        var v = ToQueryValue(el);
+        if (string.IsNullOrWhiteSpace(v))
+            continue;
+        parts.Add($"{Uri.EscapeDataString(k)}={Uri.EscapeDataString(v)}");
+    }
+    return parts.Count == 0 ? "" : "?" + string.Join("&", parts);
+}
+
+static Dictionary<string, object?> BuildBody(JsonElement root, string[] keys)
+{
+    var body = new Dictionary<string, object?>();
+    foreach (var k in keys)
+    {
+        if (!root.TryGetProperty(k, out var el) || el.ValueKind == JsonValueKind.Null)
+            continue;
+        body[k] = el.Clone();
+    }
+    return body;
+}
+
+static string ToQueryValue(JsonElement el)
+{
+    if (el.ValueKind == JsonValueKind.String)
+        return el.GetString() ?? "";
+    return el.GetRawText().Trim('"');
+}
+
+static string Sign(string apiSecret, string timestamp, string method, string requestPath, string queryString, string bodyJson)
+{
+    // AI Wars signature (Participant Guide):
+    // message = timestamp + method.upper() + request_path + query_string + body
+    var msg = timestamp + method.ToUpperInvariant() + requestPath + (queryString ?? "") + (bodyJson ?? "");
+    using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(apiSecret));
+    var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(msg));
+    return Convert.ToBase64String(hash);
+}

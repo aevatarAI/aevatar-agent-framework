@@ -9,21 +9,21 @@ namespace Aevatar.Agents.Runtime.Orleans.DependencyInjection;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// 添加 Orleans Agent Actor 运行时支持
+    /// Add Orleans Agent Actor runtime support
     /// </summary>
     public static IServiceCollection AddOrleansAgentRuntime(this IServiceCollection services)
     {
-        // 注册工厂
+        // Register factory
         services.TryAddSingleton<IGAgentActorFactory, OrleansGAgentActorFactory>();
-        services.TryAddSingleton<OrleansGAgentActorFactory>(); // 同时也注册具体类型，以防万一
+        services.TryAddSingleton<OrleansGAgentActorFactory>(); // Also register concrete type, just in case
 
-        // 注册管理器
+        // Register manager
         services.TryAddSingleton<IGAgentActorManager, OrleansGAgentActorManager>();
         
-        // 注册 Stream Not Found Handler
+        // Register Stream Not Found Handler
         services.AddSingleton<IStreamNotFoundHandler, OrleansStreamNotFoundHandler>();
 
-        // 注册 Stream Factory (统一 Stream 创建)
+        // Register Stream Factory (unified Stream creation)
         services.TryAddSingleton<OrleansStreamFactory>();
 
         return services;

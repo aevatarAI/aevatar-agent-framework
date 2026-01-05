@@ -4,12 +4,12 @@ using Google.Protobuf.WellKnownTypes;
 namespace Aevatar.Agents.Abstractions;
 
 /// <summary>
-/// EventEnvelope 扩展方法
+/// EventEnvelope extension methods
 /// </summary>
 public static class EventEnvelopeExtensions
 {
     /// <summary>
-    /// 获取发布时间（UTC）
+    /// Get publish timestamp (UTC)
     /// </summary>
     public static Timestamp GetPublishedTimestamp(this EventEnvelope envelope)
     {
@@ -17,7 +17,7 @@ public static class EventEnvelopeExtensions
     }
 
     /// <summary>
-    /// 设置发布时间为当前时间（UTC）
+    /// Set publish timestamp to current time (UTC)
     /// </summary>
     public static void SetPublishedTimestampToNow(this EventEnvelope envelope)
     {
@@ -25,7 +25,7 @@ public static class EventEnvelopeExtensions
     }
 
     /// <summary>
-    /// 获取事件年龄（从发布到现在的时长）
+    /// Get event age (duration from publish to now)
     /// </summary>
     public static Duration GetEventAge(this EventEnvelope envelope)
     {
@@ -34,11 +34,11 @@ public static class EventEnvelopeExtensions
     }
 
     /// <summary>
-    /// 判断事件是否过期
+    /// Check if event is expired
     /// </summary>
-    /// <param name="envelope">事件信封</param>
-    /// <param name="maxAge">最大年龄</param>
-    /// <returns>是否过期</returns>
+    /// <param name="envelope">Event envelope</param>
+    /// <param name="maxAge">Maximum age</param>
+    /// <returns>Whether expired</returns>
     public static bool IsExpired(this EventEnvelope envelope, Duration maxAge)
     {
         return envelope.GetEventAge().Seconds > maxAge.Seconds;

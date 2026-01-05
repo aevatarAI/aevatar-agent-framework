@@ -10,7 +10,6 @@
     <ItemGroup>
         <ProjectReference Include="..\..\src\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
         <ProjectReference Include="..\..\src\Aevatar.Agents.AI.LLMTornado\Aevatar.Agents.AI.LLMTornado.csproj" />
-        <ProjectReference Include="..\..\src\Aevatar.Agents.AI.WithTool\Aevatar.Agents.AI.WithTool.csproj" />
         <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.MongoDB\Aevatar.Agents.Persistence.MongoDB.csproj" />
         <ProjectReference Include="..\..\src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
     </ItemGroup>

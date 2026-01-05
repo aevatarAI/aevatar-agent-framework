@@ -67,7 +67,6 @@ public class AevatarAIStrategyDependencies
     public IAevatarLLMProvider LLMProvider { get; init; }
     public IAevatarPromptManager PromptManager { get; init; }
     public IAevatarToolManager ToolManager { get; init; }
-    public IAevatarMemory Memory { get; init; }
     public AevatarAIAgentConfiguration Configuration { get; init; }
     public ILogger? Logger { get; init; }
     public string AgentId { get; init; }

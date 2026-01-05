@@ -1,5 +1,5 @@
-using Aevatar.Agents.Persistence.Supabase.Options;
-using Aevatar.Agents.Persistence.Supabase.Setup;
+using Aevatar.Agents.Persistence.Supabase.GAgent.Options;
+using Aevatar.Agents.Persistence.Supabase.GAgent.Setup;
 using FluentAssertions;
 using Xunit;
 

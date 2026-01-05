@@ -1,69 +1,48 @@
 # Aevatar.Agents.AGUI
 
-AG-UI (Agent UI) 事件模型与“消息快照”工具。
+AG-UI protocol integration (standard events + snapshot-first SSE) for building web UIs around agent runs.
 
-## 包含内容
+## Responsibilities
+- Define and implement the AG-UI event stream contract for UI integration.
+- Provide snapshot-first reconnect helpers and standard event types.
 
-- **`AgUiEvents.cs`**：AG-UI 事件类型（RUN/STEP/TEXT/STATE/MESSAGES/CUSTOM）
-- **`AgUiBootstrap.cs`**：从多个 Actor 的 `AevatarAIAgentState.History`（可选 AIMemory）收集 **assistant 完整消息快照**
+## Key features
+- Standard AG-UI event types.
+- Snapshot-first reconnect helpers.
+- SSE-friendly JSON defaults.
 
-## API
+## Public API highlights
+- `AgUiEvent`
+- `RunStartedEvent`
+- `RunFinishedEvent`
+- `RunErrorEvent`
+- `StepStartedEvent`
+- `StepFinishedEvent`
+- `TextMessageStartEvent`
+- `TextMessageContentEvent`
+- `TextMessageEndEvent`
+- `StateSnapshotEvent`
 
-```csharp
-public sealed record AgUiActor
-{
-    public required string ActorId { get; init; }
-    public string? ActorTypeName { get; init; } // optional, for Orleans style id
-    public required string LaneId { get; init; } // UI grouping key
-    public Func<IGAgentActorManager, CancellationToken, Task<IGAgentActor?>>? CreateAsync { get; init; }
-}
+## NuGet packaging
+- **Recommended**: Yes (as an independent NuGet package).
+- **Why**: This is a foundational module that downstream systems commonly reference.
+- **Packaging note**: keep optional integrations (databases/providers) in separate packages.
 
-public sealed record AgUiMessageSnapshotOptions
-{
-    public required string ThreadId { get; init; }
-    public int MaxAssistantMessages { get; init; } = 60;
-    public Func<string, IDictionary<string, string>, string, string>? ResolveLaneId { get; init; }
-}
+## Build
 
-public static class AgUiBootstrap
-{
-    public static Task<IReadOnlyList<AgUiMessage>> CollectAssistantMessagesAsync(
-        IGAgentActorManager actorManager,
-        IAevatarAIMemoryFactory? memoryFactory,
-        IReadOnlyList<AgUiActor> actors,
-        AgUiMessageSnapshotOptions options,
-        CancellationToken ct = default);
-}
+```bash
+dotnet build src/Aevatar.Agents.AGUI/Aevatar.Agents.AGUI.csproj
 ```
 
-## 用法示例
+## Tests
 
-```csharp
-var actors = new List<AgUiActor>
-{
-    new()
-    {
-        ActorId = "raw-id-1",
-        ActorTypeName = "MyAgentType",
-        LaneId = "lane-0",
-        CreateAsync = (mgr, ct) => mgr.CreateAndRegisterAsync<MyAgentType>("raw-id-1", ct)
-    }
-};
+- See `docs/Tests.md` for a coverage review and entry points.
 
-var messages = await AgUiBootstrap.CollectAssistantMessagesAsync(
-    actorManager,
-    memoryFactory,
-    actors,
-    new AgUiMessageSnapshotOptions
-    {
-        ThreadId = sessionId,
-        MaxAssistantMessages = 60,
-        ResolveLaneId = (stepId, meta, defaultLaneId) => defaultLaneId
-    },
-    ct);
-```
+## Documentation
 
-## 相关文档
+- Project docs: `docs/`
+- Repository docs: `docs/` at repo root
 
-- `docs/AGUI_INTEGRATION_GUIDE.md`
+## Notes
 
+- Cross-boundary data (state/events/config) should be defined with **Protocol Buffers**.

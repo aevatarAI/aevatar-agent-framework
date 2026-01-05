@@ -46,8 +46,8 @@ public static class AgentContextSerializer
             // ============================================================
             //  Size limit (bytes)
             //
-            //  - MaxTotalBytes 是“字节”而不是“字符数”
-            //  - 单个 entry 超限：跳过该 entry，而不是 break 影响后续小 entry
+            //  - MaxTotalBytes is "bytes" not "character count"
+            //  - If a single entry exceeds limit: skip that entry, don't break to avoid affecting subsequent smaller entries
             // ============================================================
             var entrySizeBytes = Encoding.UTF8.GetByteCount(key) + contextValue.CalculateSize();
             if (totalBytes + entrySizeBytes > options.MaxTotalBytes)
@@ -161,5 +161,5 @@ public static class AgentContextSerializer
         return Guid.TryParse(guidString, out var g) ? g : guidString;
     }
 
-    // NOTE: 字节大小用 protobuf CalculateSize() 精确计算，不再手工估算。
+    // NOTE: Byte size is calculated precisely using protobuf CalculateSize(), no longer manually estimated.
 }

@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions.Tracing;
 using Aevatar.Agents.CreativeReasoning.Core;
 using Aevatar.Agents.CreativeReasoning.Execution;
 using Aevatar.Agents.CreativeReasoning.Messages;
@@ -115,6 +116,7 @@ public class CreativeProjectService
 {
     private readonly IUoTExecutor _executor;
     private readonly ILogger<CreativeProjectService> _logger;
+    private readonly IExecutionTraceStore _traceStore;
     private readonly ConcurrentDictionary<string, CreativeRun> _runs = new();
 
     private static readonly List<SampleProblem> SampleProblems =
@@ -158,10 +160,14 @@ public class CreativeProjectService
             "Healthcare", "Transformative")
     ];
 
-    public CreativeProjectService(IUoTExecutor executor, ILogger<CreativeProjectService> logger)
+    public CreativeProjectService(
+        IUoTExecutor executor,
+        ILogger<CreativeProjectService> logger,
+        IExecutionTraceStore traceStore)
     {
         _executor = executor;
         _logger = logger;
+        _traceStore = traceStore;
     }
 
     public IReadOnlyList<SampleProblem> GetSampleProblems() => SampleProblems;
@@ -270,6 +276,25 @@ public class CreativeProjectService
         if (!result.Success)
             run.Error = result.Error;
 
+        // ============================================================
+        //  Export unified ExecutionTrace bundle (framework-level)
+        //
+        //  - Enabled when AEVATAR_TRACE_DIR is set (FileExecutionTraceStore).
+        //  - Always best-effort: never fail the run because trace export fails.
+        // ============================================================
+        try
+        {
+            var trace = result.ToExecutionTrace();
+            trace.Labels["creative_system.run_id"] = run.RunId;
+            trace.Labels["creative_system.mode"] = run.Mode;
+            trace.Labels["creative_system.status"] = run.Status;
+            await _traceStore.SaveAsync(trace, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to export ExecutionTrace bundle for run {RunId}", run.RunId);
+        }
+
         run.EventChannel.Writer.TryWrite(new SSEEvent
         {
             Type = result.Success ? "result" : "error",
@@ -308,6 +333,22 @@ public class CreativeProjectService
 
         if (!result.Success)
             run.Error = result.Error;
+
+        // ============================================================
+        //  Export unified ExecutionTrace bundle (framework-level)
+        // ============================================================
+        try
+        {
+            var trace = result.ToExecutionTrace();
+            trace.Labels["creative_system.run_id"] = run.RunId;
+            trace.Labels["creative_system.mode"] = run.Mode;
+            trace.Labels["creative_system.status"] = run.Status;
+            await _traceStore.SaveAsync(trace, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to export ExecutionTrace bundle for run {RunId}", run.RunId);
+        }
 
         run.EventChannel.Writer.TryWrite(new SSEEvent
         {
@@ -431,6 +472,46 @@ public class CreativeProjectService
         {
             yield return evt;
         }
+    }
+
+    public async Task<string?> GetExecutionTraceJsonAsync(string runId, CancellationToken ct = default)
+    {
+        if (!_runs.TryGetValue(runId, out var run))
+            return null;
+
+        var executionId =
+            run.TUoTResult?.Trace.ExecutionId ??
+            run.Result?.Trace.ExecutionId ??
+            string.Empty;
+
+        if (string.IsNullOrWhiteSpace(executionId))
+            return null;
+
+        // Prefer stored trace bundle if available.
+        try
+        {
+            var stored = await _traceStore.LoadAsync(executionId, ct);
+            if (stored != null)
+            {
+                return stored.ToJsonString();
+            }
+        }
+        catch
+        {
+            // Ignore and fall back to in-memory reconstruction.
+        }
+
+        if (run.TUoTResult != null)
+        {
+            return run.TUoTResult.ToExecutionTrace().ToJsonString();
+        }
+
+        if (run.Result != null)
+        {
+            return run.Result.ToExecutionTrace().ToJsonString();
+        }
+
+        return null;
     }
 
     private static Aevatar.Agents.CreativeReasoning.Core.UoTMode ParseMode(string mode) => mode switch

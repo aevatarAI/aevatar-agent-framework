@@ -7,7 +7,7 @@ using Proto;
 namespace Aevatar.Agents.Runtime.ProtoActor;
 
 /// <summary>
-/// ProtoActor 运行时的 Agent Actor 管理器
+/// ProtoActor runtime Agent Actor manager
 /// </summary>
 public class ProtoActorGAgentActorManager : IGAgentActorManager
 {
@@ -89,7 +89,7 @@ public class ProtoActorGAgentActorManager : IGAgentActorManager
         return Task.FromResult(_actors.Count);
     }
 
-    #region 层级关系协调
+    #region Hierarchy Relationship Coordination
 
     public async Task LinkParentChildAsync(string parentId, string childId, CancellationToken ct = default)
     {
@@ -125,7 +125,7 @@ public class ProtoActorGAgentActorManager : IGAgentActorManager
     }
 
     #endregion
-    #region 新增接口实现
+    #region New Interface Implementation
 
     public async Task<IReadOnlyList<IGAgentActor>> CreateBatchAsync<TAgent>(
         IEnumerable<string> ids,

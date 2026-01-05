@@ -40,6 +40,16 @@ cd examples/CreativeSystem
 dotnet run
 ```
 
+### 2.1 ExecutionTrace Bundles (Default Output)
+
+By default, the framework exports `ExecutionTrace` bundles to `<repoRoot>/trace` (best-effort).
+
+If you want to override the output directory, set:
+
+```bash
+export AEVATAR_TRACE_DIR="/abs/path/to/aevatar_traces"
+```
+
 ### 3. Open Browser
 
 Navigate to `http://localhost:5000` to access the creative reasoning console.

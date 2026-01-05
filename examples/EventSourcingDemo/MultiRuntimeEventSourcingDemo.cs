@@ -6,11 +6,17 @@ using Aevatar.Agents.Core.EventSourcing;
 using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Runtime.Local;
 using Aevatar.Agents.Runtime.Orleans;
+using Aevatar.Agents.Runtime.Orleans.Extensions;
+using Aevatar.Agents.Plugins.MassTransit;
+using Aevatar.Agents.Plugins.MassTransit.DependencyInjection;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Orleans;
 using Orleans.Configuration;
 using Orleans.Hosting;
+using Orleans.Serialization;
 
 namespace EventSourcingDemo;
 
@@ -229,63 +235,154 @@ public static class MultiRuntimeEventSourcingDemo
     }
     
     /// <summary>
-    /// Orleans 运行时演示
+    /// Orleans 运行时演示（使用 MassTransit Stream）
     /// </summary>
     private static async Task DemoOrleansRuntime()
     {
-        Console.WriteLine("\n\n📍 Orleans Runtime EventSourcing + RPC");
-        Console.WriteLine("════════════════════════════════════════════");
+        Console.WriteLine("\n\n📍 Orleans Runtime EventSourcing + RPC (MassTransit Stream)");
+        Console.WriteLine("═══════════════════════════════════════════════════════════════");
         
         // 启动内嵌 Orleans Silo
-        Console.WriteLine("🚀 启动 Orleans Silo...");
+        Console.WriteLine("🚀 启动 Orleans Silo (with MassTransit Stream)...");
+        
+        // Build MassTransit configuration (InMemory for demo)
+        var configDict = new Dictionary<string, string?>
+        {
+            {"MessageStream:Provider", "MassTransit"},
+            {"MessageStream:Runtime:Orleans", "MassTransit"},
+            {"MassTransit:Stream:TopicPrefix", "agent-events"},
+            {"MassTransit:Stream:TransportType", "InMemory"},
+            {"MassTransit:Stream:RuntimeName", "Orleans"},
+            {"MassTransit:Stream:Consumer:Enabled", "true"},
+            {"MassTransit:Stream:Consumer:DispatchHandler", "GrainHandler"},
+            {"MassTransit:Stream:Consumer:IncludeTopicPrefix", "true"},
+            {"MassTransit:Stream:Producer:Enabled", "true"}
+        };
+        
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(configDict)
+            .Build();
         
         var host = Host.CreateDefaultBuilder()
             .UseOrleans((context, siloBuilder) =>
             {
-                siloBuilder.UseLocalhostClustering();
+                siloBuilder.UseLocalhostClustering(
+                    siloPort: 11112,  // Use different port to avoid conflicts
+                    gatewayPort: 30001);
                 siloBuilder.AddMemoryGrainStorage("Default");
-                siloBuilder.AddMemoryStreams("Default");
+                
+                // ⚠️ IMPORTANT: Do NOT configure Orleans Stream when using MassTransit
+                // MassTransit completely replaces Orleans Streaming
+                // siloBuilder.AddMemoryStreams("Default");  // REMOVED
+                
                 siloBuilder.Configure<ClusterOptions>(options =>
                 {
                     options.ClusterId = "eventsourcing-demo";
                     options.ServiceId = "bank-demo";
                 });
+                
+                // Configure serializer
+                siloBuilder.ConfigureServices(services =>
+                {
+                    services.AddSerializer(serializerBuilder =>
+                    {
+                        serializerBuilder.AddProtobufSerializer();
+                    });
+                    
+                    // Register OrleansStreamFactory for unified stream creation
+                    services.AddSingleton<Aevatar.Agents.Runtime.Orleans.Stream.OrleansStreamFactory>();
+                });
             })
             .ConfigureServices(services =>
             {
                 services.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
+                
+                // Configure MessageStreamProviderOptions
+                services.Configure<MessageStreamProviderOptions>(configuration.GetSection("MessageStream"));
+                
                 // EventStore - required for state updates
                 services.AddSingleton<InMemoryEventStore>();
                 services.AddSingleton<IEventStore>(p => p.GetRequiredService<InMemoryEventStore>());
+                services.AddSingleton<Aevatar.Agents.Abstractions.EventSourcing.IEventStore>(
+                    p => p.GetRequiredService<InMemoryEventStore>());
+                
+                // Register Agent Factory
                 services.AddSingleton<IGAgentFactory, AIGAgentFactory>();
                 services.AddGAgentActorFactoryProvider();
+                
+                // Register Orleans Runtime services
+                services.AddAevatarOrleansRuntime();
+                
+                // Register MassTransit Stream Plugin (InMemory mode for demo)
+                services.AddMassTransitStreamPlugin(configuration);
             })
             .Build();
         
         await host.StartAsync();
-        Console.WriteLine("✅ Orleans Silo 已启动\n");
+        Console.WriteLine("✅ Orleans Silo 已启动 (MassTransit Stream enabled)\n");
         
         try
         {
-            // 获取工厂
+            // Get cluster client
             var clusterClient = host.Services.GetRequiredService<IClusterClient>();
-            var logger = host.Services.GetRequiredService<ILogger<OrleansGAgentActorFactory>>();
-            var factory = new OrleansGAgentActorFactory(host.Services, clusterClient, logger);
+            
+            // Setup Actor Factory with MassTransit Stream Client
+            var clientServices = new ServiceCollection();
+            clientServices.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
+            clientServices.AddSingleton(clusterClient);
+            clientServices.AddSingleton<IGrainFactory>(clusterClient);
+            clientServices.AddSingleton<IClusterClient>(clusterClient);
+            
+            // Configure MessageStreamProviderOptions for MassTransit
+            clientServices.Configure<MessageStreamProviderOptions>(options =>
+            {
+                options.Provider = "MassTransit";
+                options.Runtime["Orleans"] = "MassTransit";
+            });
+            
+            // Add MassTransit Stream Client (Producer-only mode)
+            clientServices.AddMassTransitStreamClient(configuration);
+            
+            // Add Orleans Runtime
+            clientServices.AddAevatarAgentSystem(builder => builder.UseOrleansRuntime());
+            
+            var clientServiceProvider = clientServices.BuildServiceProvider();
+            
+            // Start MassTransit hosted services
+            Console.WriteLine("   • Starting MassTransit services...");
+            var hostedServices = clientServiceProvider.GetServices<IHostedService>();
+            foreach (var hostedService in hostedServices)
+            {
+                await hostedService.StartAsync(default);
+            }
+            
+            // Warm up Kafka producer (if using Kafka, skip for InMemory)
+            var streamProvider = clientServiceProvider.GetService<MassTransitMessageStreamProvider>();
+            if (streamProvider != null)
+            {
+                await streamProvider.WarmupAsync();
+            }
+            Console.WriteLine("   ✅ MassTransit services started\n");
+            
+            // Get factory
+            var factory = clientServiceProvider.GetRequiredService<IGAgentActorFactory>();
             
             var agentId = Guid.NewGuid().ToString();
             Console.WriteLine($"Agent ID: {agentId:N}");
             
-            // 创建 Orleans Actor
-            Console.WriteLine("\n⚡ 场景5：Orleans Runtime RPC 调用");
+            // Create Orleans Actor
+            Console.WriteLine("\n⚡ 场景5：Orleans Runtime RPC 调用 (MassTransit Stream)");
             Console.WriteLine("───────────────────────────────────────────────");
             
             var actor = await factory.CreateGAgentActorAsync<BankAccountAgent>(agentId);
             Console.WriteLine("  ✓ Orleans Actor 创建成功");
+            Console.WriteLine("  ✓ MassTransit Stream 已配置");
             
             // ✨ 使用类型安全代理（Orleans Runtime 自动走 RPC）
             var bankAgent = actor.As<IBankAccountAgent>();
             Console.WriteLine("  ✓ 创建代理: actor.As<IBankAccountAgent>()");
             Console.WriteLine("  ✓ Orleans Runtime: 自动走 RPC（Protobuf 序列化）");
+            Console.WriteLine("  ✓ MassTransit Stream: 事件通过 InMemory 传输");
             
             // 通过接口调用（类型安全，与 Local Runtime 一致的 API）
             Console.Write("  bankAgent.CreateAccountAsync(...)... ");
@@ -330,6 +427,7 @@ public static class MultiRuntimeEventSourcingDemo
                 Console.WriteLine($"\n  🎉 Orleans Runtime RPC 验证成功！");
                 Console.WriteLine($"     预期余额: ${expectedBalance:F2}, 实际: ${balance:F2}");
                 Console.WriteLine($"     交易数: {txCount}");
+                Console.WriteLine($"     ✅ MassTransit Stream 工作正常！");
             }
             else
             {
@@ -337,10 +435,18 @@ public static class MultiRuntimeEventSourcingDemo
                 Console.WriteLine($"     预期余额: ${expectedBalance:F2}, 实际: ${balance:F2}");
                 Console.WriteLine($"     预期交易数: 2, 实际: {txCount}");
             }
+            
+            // Cleanup
+            await actor.DeactivateAsync();
         }
         catch (Exception ex)
         {
             Console.WriteLine($"\n  ❌ Orleans RPC 调用失败: {ex.Message}");
+            Console.WriteLine($"     {ex.GetType().Name}");
+            if (ex.InnerException != null)
+            {
+                Console.WriteLine($"     Inner: {ex.InnerException.Message}");
+            }
             Console.WriteLine($"     {ex.StackTrace}");
         }
         finally

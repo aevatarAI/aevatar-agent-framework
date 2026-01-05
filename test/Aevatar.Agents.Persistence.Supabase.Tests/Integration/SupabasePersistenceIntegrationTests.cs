@@ -1,6 +1,5 @@
 using Aevatar.Agents.Abstractions.EventRouting;
-using Aevatar.Agents.Persistence.Supabase.Memory;
-using Aevatar.Agents.Persistence.Supabase.Stores;
+using Aevatar.Agents.Persistence.Supabase.GAgent.Stores;
 using FluentAssertions;
 using Xunit;
 
@@ -103,33 +102,6 @@ public class SupabasePersistenceIntegrationTests
 
         await store.DeleteAsync(agentId);
         (await store.ExistsAsync(agentId)).Should().BeFalse();
-    }
-
-    [Fact]
-    public async Task AIMemory_ShouldAddGetClearAndSearch()
-    {
-        if (!IsEnabled())
-        {
-            return;
-        }
-
-        var agentId = Guid.NewGuid().ToString("D");
-        var memory = new SupabaseAIMemory(_fx.DataSource!, _fx.Options!, agentId, sessionId: "s1");
-
-        await memory.AddMessageAsync("user", "hello world");
-        await Task.Delay(15); // reduce timestamp collision risk
-        await memory.AddMessageAsync("assistant", "response");
-
-        var history = await memory.GetHistoryAsync();
-        history.Should().HaveCount(2);
-        history.Select(x => x.Content).Should().Contain(new[] { "hello world", "response" });
-
-        var search = await memory.SearchAsync("hello", topK: 5);
-        search.Should().NotBeEmpty();
-        search.Any(x => x.Contains("hello world", StringComparison.OrdinalIgnoreCase)).Should().BeTrue();
-
-        await memory.ClearHistoryAsync();
-        (await memory.GetHistoryAsync()).Should().BeEmpty();
     }
 
     private bool IsEnabled() => _fx.IsEnabled;

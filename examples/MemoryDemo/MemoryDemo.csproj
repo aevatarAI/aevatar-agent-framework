@@ -13,9 +13,15 @@
     <ProjectReference Include="..\..\src\Aevatar.Agents.AI.MEAI\Aevatar.Agents.AI.MEAI.csproj" />
     <ProjectReference Include="..\..\src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
 
-    <!-- Optional: enable DB-backed IAevatarAIMemory by configuration -->
+    <!-- Optional: persistence libraries (MongoDB/Supabase) -->
     <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.MongoDB\Aevatar.Agents.Persistence.MongoDB.csproj" />
+    <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.MongoDB.GAgent\Aevatar.Agents.Persistence.MongoDB.GAgent.csproj" />
+    <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.MongoDB.Memory\Aevatar.Agents.Persistence.MongoDB.Memory.csproj" />
     <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.Supabase\Aevatar.Agents.Persistence.Supabase.csproj" />
+    <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.Supabase.GAgent\Aevatar.Agents.Persistence.Supabase.GAgent.csproj" />
+    <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.Supabase.Memory\Aevatar.Agents.Persistence.Supabase.Memory.csproj" />
+    <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.Neo4j\Aevatar.Agents.Persistence.Neo4j.csproj" />
+    <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.Neo4j.MemoryGraph\Aevatar.Agents.Persistence.Neo4j.MemoryGraph.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -6,6 +6,7 @@ using Aevatar.Agents.CreativeReasoning;
 using Aevatar.Agents.Maker;
 using Aevatar.Agents.Plugins.MassTransit.DependencyInjection;
 using Aevatar.Agents.Runtime.Local;
+using Aevatar.CognitiveMesh.Abstractions;
 using Aevatar.CognitiveMesh.Abstractions.Tasks;
 using Aevatar.CognitiveMesh.Services;
 using Aevatar.CognitiveMesh.Strategies;
@@ -250,6 +251,50 @@ app.MapGet("/api/task-templates", () =>
 });
 
 // ─────────────────────────────────────────────────────────────
+//  Ad-hoc Reasoning (for integration, e.g. TradeSystem)
+// ─────────────────────────────────────────────────────────────
+
+// Run a single reasoning task without creating a project.
+// This endpoint is intentionally minimal: trade system can POST { task, strategyKind, cognitiveWorkflow }.
+app.MapPost("/api/reason", async (
+    ReasonRequest req,
+    StrategyRegistry registry,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(req.Task))
+    {
+        return Results.BadRequest(new { success = false, error = "Task is required." });
+    }
+
+    var kindText = string.IsNullOrWhiteSpace(req.StrategyKind) ? "Cognitive" : req.StrategyKind;
+    if (!Enum.TryParse<StrategyKind>(kindText, ignoreCase: true, out var kind))
+    {
+        kind = StrategyKind.Cognitive;
+    }
+
+    var strategy = registry.Get(kind);
+    if (strategy == null)
+    {
+        return Results.NotFound(new { success = false, error = $"Strategy not available: {kind}" });
+    }
+
+    var timeoutSeconds = req.TimeoutSeconds is > 0 ? req.TimeoutSeconds.Value : 30;
+
+    var options = new ReasoningOptions
+    {
+        ProviderName = req.ProviderName,
+        MaxLlmCalls = req.MaxLlmCalls ?? 200,
+        MaxDuration = TimeSpan.FromSeconds(timeoutSeconds),
+        StepTimeout = TimeSpan.FromSeconds(timeoutSeconds),
+        Context = req.Context,
+        CognitiveWorkflow = req.CognitiveWorkflow
+    };
+
+    var result = await strategy.ExecuteAsync(req.Task, options, progress: null, ct);
+    return Results.Json(result);
+});
+
+// ─────────────────────────────────────────────────────────────
 //  运行管理
 // ─────────────────────────────────────────────────────────────
 
@@ -339,3 +384,18 @@ app.MapGet("/api/sample-problems", (CognitiveMeshService svc) =>
     Results.Json(svc.GetSampleProblems()));
 
 app.Run();
+
+// ============================================================
+//  DTOs
+// ============================================================
+
+public sealed record ReasonRequest
+{
+    public string? StrategyKind { get; init; }
+    public required string Task { get; init; }
+    public string? CognitiveWorkflow { get; init; }
+    public string? ProviderName { get; init; }
+    public int? MaxLlmCalls { get; init; }
+    public int? TimeoutSeconds { get; init; }
+    public Dictionary<string, string>? Context { get; init; }
+}

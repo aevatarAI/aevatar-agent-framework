@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.EventRouting;
 using Aevatar.Agents.Abstractions.Helpers;
+using Aevatar.Agents.Core.Observability;
+using Aevatar.Agents.Core.Telemetry;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
@@ -44,30 +47,50 @@ public class EventRouter(
 
     public async Task AddChildAsync(string childId, CancellationToken ct = default)
     {
+        using var activity = AgentTelemetry.StartHierarchyOperation("add_child", agentId, childId);
+        using var logScope = LoggingScope.CreateHierarchyScope(_logger, agentId, "AddChild", childId);
+
         _childrenIds.Add(childId);
-        _logger.LogDebug("Agent {AgentId} added child {ChildId}", agentId, childId);
+        AgentLogMessages.AddingChild(_logger, agentId, childId);
+
         await SaveHierarchyAsync(ct);
+        AgentTelemetry.RecordHierarchyOperation(activity, "add_child");
     }
 
     public async Task RemoveChildAsync(string childId, CancellationToken ct = default)
     {
+        using var activity = AgentTelemetry.StartHierarchyOperation("remove_child", agentId, childId);
+        using var logScope = LoggingScope.CreateHierarchyScope(_logger, agentId, "RemoveChild", childId);
+
         _childrenIds.Remove(childId);
         _logger.LogDebug("Agent {AgentId} removed child {ChildId}", agentId, childId);
+
         await SaveHierarchyAsync(ct);
+        AgentTelemetry.RecordHierarchyOperation(activity, "remove_child");
     }
 
     public async Task SetParentAsync(string parentId, CancellationToken ct = default)
     {
+        using var activity = AgentTelemetry.StartHierarchyOperation("set_parent", agentId, parentId);
+        using var logScope = LoggingScope.CreateHierarchyScope(_logger, agentId, "SetParent", parentId);
+
         _parentId = parentId;
-        _logger.LogDebug("Agent {AgentId} set parent to {ParentId}", agentId, parentId);
+        AgentLogMessages.SettingParent(_logger, agentId, parentId);
+
         await SaveHierarchyAsync(ct);
+        AgentTelemetry.RecordHierarchyOperation(activity, "set_parent");
     }
 
     public async Task ClearParentAsync(CancellationToken ct = default)
     {
+        using var activity = AgentTelemetry.StartHierarchyOperation("clear_parent", agentId);
+        using var logScope = LoggingScope.CreateHierarchyScope(_logger, agentId, "ClearParent");
+
         _parentId = null;
         _logger.LogDebug("Agent {AgentId} cleared parent", agentId);
+
         await SaveHierarchyAsync(ct);
+        AgentTelemetry.RecordHierarchyOperation(activity, "clear_parent");
     }
 
     public string? GetParent() => _parentId;
@@ -160,21 +183,34 @@ public class EventRouter(
 
     public async Task RouteEventAsync(EventEnvelope envelope, CancellationToken ct = default)
     {
+        var direction = envelope.Direction.ToString();
+        var childCount = _childrenIds.Count;
+        var stopwatch = Stopwatch.StartNew();
+
+        // Start routing Telemetry
+        using var activity = AgentTelemetry.StartEventRouting(agentId, envelope.Id, direction, childCount);
+        using var logScope = LoggingScope.CreateEventRoutingScope(_logger, agentId, envelope.Id, direction, childCount);
+
         _logger.LogDebug("Agent {AgentId} routing event {EventId} with direction {Direction}",
             agentId, envelope.Id, envelope.Direction);
+
+        var targetCount = 0;
 
         // First, the publisher itself should always process the event (unless the event handler explicitly rejects it)
         // This follows the "publish-subscribe" pattern semantics
         await _sendToSelfAsync(envelope, ct);
+        targetCount++;
 
         // Then propagate to other nodes based on direction
         switch (envelope.Direction)
         {
             case EventDirection.Up:
+                if (_parentId != null) targetCount++;
                 await SendToParentAsync(envelope, ct);
                 break;
 
             case EventDirection.Down:
+                targetCount += _childrenIds.Count;
                 await SendToChildrenAsync(envelope, ct);
                 break;
 
@@ -182,13 +218,20 @@ public class EventRouter(
                 // For Both direction, need to send Up and Down events separately
                 var upEnvelope = envelope.Clone();
                 upEnvelope.Direction = EventDirection.Up;
+                if (_parentId != null) targetCount++;
                 await SendToParentAsync(upEnvelope, ct);
 
                 var downEnvelope = envelope.Clone();
                 downEnvelope.Direction = EventDirection.Down;
+                targetCount += _childrenIds.Count;
                 await SendToChildrenAsync(downEnvelope, ct);
                 break;
         }
+
+        // Record routing Telemetry
+        stopwatch.Stop();
+        AgentTelemetry.RecordEventRouted(activity, direction, targetCount, stopwatch.ElapsedMilliseconds);
+        AgentLogMessages.EventRouting(_logger, agentId, envelope.Id, targetCount);
     }
 
     /// <summary>
@@ -205,7 +248,7 @@ public class EventRouter(
 
         // UP direction: Check if a cycle will be formed
         // If parent node is already in Publishers list, it indicates a cycle
-        if (envelope.Publishers.Contains(_parentId.ToString()))
+        if (envelope.Publishers.Contains(_parentId))
         {
             _logger.LogWarning("Event {EventId} already visited parent {ParentId}, skipping to avoid loop",
                 envelope.Id, _parentId);

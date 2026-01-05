@@ -3,15 +3,15 @@ using System.Collections.Concurrent;
 namespace Aevatar.Agents.Runtime.Local;
 
 /// <summary>
-/// Local 运行时的 Stream 注册表
-/// 管理所有 Agent 的 Message Stream
+/// Local runtime Stream registry
+/// Manages all Agent Message Streams
 /// </summary>
 public class LocalMessageStreamRegistry
 {
     private readonly ConcurrentDictionary<string, LocalMessageStream> _streams = new();
 
     /// <summary>
-    /// 获取或创建 Agent 的 Stream
+    /// Get or create Agent's Stream
     /// </summary>
     public LocalMessageStream GetOrCreateStream(string agentId, int capacity = 1000)
     {
@@ -19,7 +19,7 @@ public class LocalMessageStreamRegistry
     }
 
     /// <summary>
-    /// 检查 Stream 是否已存在
+    /// Check if Stream already exists
     /// </summary>
     public bool StreamExists(string agentId)
     {
@@ -27,7 +27,7 @@ public class LocalMessageStreamRegistry
     }
 
     /// <summary>
-    /// 移除 Agent 的 Stream
+    /// Remove Agent's Stream
     /// </summary>
     public void RemoveStream(string agentId)
     {
@@ -38,7 +38,7 @@ public class LocalMessageStreamRegistry
     }
 
     /// <summary>
-    /// 获取 Stream（如果存在）
+    /// Get Stream (if exists)
     /// </summary>
     public LocalMessageStream? GetStream(string agentId)
     {

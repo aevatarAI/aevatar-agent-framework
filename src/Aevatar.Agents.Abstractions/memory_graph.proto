@@ -1,0 +1,68 @@
+syntax = "proto3";
+
+package Aevatar.Agents.Memory;
+
+option csharp_namespace = "Aevatar.Agents.Abstractions.Memory";
+
+import "google/protobuf/timestamp.proto";
+import "memory.proto";
+
+// ============================================================
+//  Memory Graph (Lightweight)
+//
+//  WHY:
+//  - Provide a minimal, versionable graph contract for GraphRAG-like navigation.
+//  - Enable linking memory entries via explicit edges (no fragile string conventions).
+//
+//  DESIGN:
+//  - Graph is an artifact that can be derived from ExecutionTrace/events.
+//  - Nodes/Edges are intentionally generic (string type + labels).
+// ============================================================
+
+message MemoryGraph {
+  // Stable graph id (recommended: execution_id).
+  string graph_id = 1;
+
+  // Graph scope boundary (recommended: execution(execution_id)).
+  MemoryScope scope = 2;
+
+  google.protobuf.Timestamp created_at = 3;
+
+  repeated MemoryGraphNode nodes = 4;
+  repeated MemoryGraphEdge edges = 5;
+
+  map<string, string> labels = 10;
+}
+
+message MemoryGraphNode {
+  // Unique within graph.
+  string node_id = 1;
+
+  // free-form type: execution/trace_node/decision/candidate/alert/...
+  string type = 2;
+
+  string name = 3;
+
+  // A compact, human-readable snippet.
+  string content = 4;
+
+  map<string, string> labels = 10;
+}
+
+message MemoryGraphEdge {
+  // Unique within graph.
+  string edge_id = 1;
+
+  string from_node_id = 2;
+  string to_node_id = 3;
+
+  // free-form type: contains/child/has_decision/selected/...
+  string type = 4;
+
+  // Optional label for UI/debug.
+  string label = 5;
+
+  map<string, string> labels = 10;
+}
+
+

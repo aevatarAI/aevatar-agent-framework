@@ -5,12 +5,12 @@ namespace Aevatar.Agents.Abstractions.Helpers;
 
 // ============================================================
 //  Deterministic Guid
-//  确定性 Guid（用于“同一个 session => 同一组 ActorId”）
+//  Deterministic Guid (for "same session => same set of ActorIds")
 //
 //  WHY:
-//  - 前端要做到“无状态刷新”：刷新后服务端必须能稳定定位同一批 Agent
-//  - Local/Orleans/ProtoActor 运行时都以 Guid 作为 Actor key
-//  - 我们用 hash(name) -> Guid 的方式，避免在外层维护额外映射表
+//  - Frontend needs "stateless refresh": after refresh, server must be able to stably locate the same set of Agents
+//  - Local/Orleans/ProtoActor runtimes all use Guid as Actor key
+//  - We use hash(name) -> Guid approach to avoid maintaining additional mapping tables at outer layer
 // ============================================================
 public static class DeterministicGuid
 {

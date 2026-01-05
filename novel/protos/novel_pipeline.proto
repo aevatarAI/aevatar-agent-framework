@@ -1,0 +1,346 @@
+syntax = "proto3";
+
+package Aevatar.Novel;
+
+option csharp_namespace = "Aevatar.Novel.Contracts";
+
+import "google/protobuf/timestamp.proto";
+import "novel_assets.proto";
+
+// ============================================================
+//  Novel Pipeline - 全自动写作流水线协议
+//
+//  GOAL:
+//  - 支持“全自动流水线”跑到 Story 结束。
+//  - 作者可在任何中间产物节点协商/修改，然后“一键继续”。
+//  - 事件化控制面：Start/Pause/Resume/Approve/Reject/PolicyChange 可回放可审计。
+//
+//  NOTE:
+//  - 这里定义的是跨边界契约（Protobuf），不是具体实现。
+//  - 具体编排由 Cognitive Mesh DSL + OrchestratorAgent 负责。
+// ============================================================
+
+enum StoryRunStatus {
+  STORY_RUN_STATUS_UNSPECIFIED = 0;
+  STORY_RUN_STATUS_RUNNING = 1;
+  STORY_RUN_STATUS_PAUSED = 2;
+  STORY_RUN_STATUS_SUCCEEDED = 3;
+  STORY_RUN_STATUS_FAILED = 4;
+  STORY_RUN_STATUS_CANCELLED = 5;
+}
+
+// High-level stage for UI + pause policy. Internally the workflow can be more granular.
+enum StoryRunStage {
+  STORY_RUN_STAGE_UNSPECIFIED = 0;
+
+  STORY_RUN_STAGE_STORY_OUTLINE = 1;
+  STORY_RUN_STAGE_PARAGRAPH_PLAN = 2;
+
+  // Iterative loop per chapter
+  STORY_RUN_STAGE_CHAPTER_DRAFT = 3;
+  STORY_RUN_STAGE_CHAPTER_EDIT = 4;
+  STORY_RUN_STAGE_CHAPTER_REVIEW = 5;
+
+  STORY_RUN_STAGE_STORY_FINALIZE = 6;
+
+  STORY_RUN_STAGE_DONE = 100;
+}
+
+// ============================================================
+//  Run Snapshot (for UI/debug)
+// ============================================================
+
+message StoryRun {
+  string run_id = 1;
+
+  string project_id = 2;
+  string volume_id = 3;
+  string story_id = 4;
+
+  StoryRunStatus status = 5;
+  StoryRunStage stage = 6;
+
+  google.protobuf.Timestamp started_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  google.protobuf.Timestamp ended_at = 9;
+
+  // Snapshot of policy during this run (can be updated via events).
+  AutoContinuePolicy auto_continue_policy = 10;
+
+  // Optional iteration hints (for chapter loop UI).
+  int32 current_chapter_index = 20;
+  string current_chapter_id = 21;
+
+  map<string, string> labels = 100;
+}
+
+// ============================================================
+//  UI -> Orchestrator: Control Events (Requests)
+// ============================================================
+
+message StoryRunRequestedEvent {
+  // Idempotency key (optional).
+  string request_id = 1;
+
+  string project_id = 2;
+  string volume_id = 3;
+  string story_id = 4;
+
+  // Optional override for this run.
+  AutoContinuePolicy auto_continue_policy = 10;
+
+  map<string, string> labels = 100;
+}
+
+message StoryRunPauseRequestedEvent {
+  string request_id = 1;
+  string run_id = 2;
+  string reason = 3;
+  map<string, string> labels = 100;
+}
+
+message StoryRunResumeRequestedEvent {
+  string request_id = 1;
+  string run_id = 2;
+  string reason = 3;
+  map<string, string> labels = 100;
+}
+
+message StoryRunCancelRequestedEvent {
+  string request_id = 1;
+  string run_id = 2;
+  string reason = 3;
+  map<string, string> labels = 100;
+}
+
+message StoryAutoContinuePolicyUpdatedEvent {
+  string request_id = 1;
+  string project_id = 2;
+  string story_id = 3;
+  AutoContinuePolicy auto_continue_policy = 4;
+  map<string, string> labels = 100;
+}
+
+// ============================================================
+//  Negotiation Gates
+// ============================================================
+
+enum GateDecision {
+  GATE_DECISION_UNSPECIFIED = 0;
+  GATE_DECISION_APPROVE = 1;
+  GATE_DECISION_REQUEST_CHANGES = 2;
+  GATE_DECISION_REJECT_AND_REWRITE = 3;
+}
+
+message StoryGateOpenedEvent {
+  string gate_id = 1;
+  string run_id = 2;
+
+  StoryRunStage stage = 3;
+
+  // Optional: which chapter this gate is about.
+  int32 chapter_index = 10;
+  string chapter_id = 11;
+
+  // The artifact that needs negotiation.
+  ArtifactRef artifact = 20;
+
+  // A short question/instruction for the author to decide quickly.
+  string prompt_to_author = 30;
+
+  google.protobuf.Timestamp opened_at = 40;
+
+  map<string, string> labels = 100;
+}
+
+message StoryGateDecisionSubmittedEvent {
+  string request_id = 1;
+  string gate_id = 2;
+  string run_id = 3;
+
+  GateDecision decision = 4;
+
+  // Optional feedback / rewrite direction from author.
+  TextPayload feedback = 10;
+
+  google.protobuf.Timestamp submitted_at = 20;
+
+  map<string, string> labels = 100;
+}
+
+// ============================================================
+//  Orchestrator -> UI: Observability Events (Notifications)
+// ============================================================
+
+message StoryRunStartedEvent {
+  string run_id = 1;
+  string project_id = 2;
+  string volume_id = 3;
+  string story_id = 4;
+  google.protobuf.Timestamp started_at = 5;
+  AutoContinuePolicy auto_continue_policy = 6;
+  map<string, string> labels = 100;
+}
+
+message StoryRunStatusChangedEvent {
+  string run_id = 1;
+  StoryRunStatus status = 2;
+  StoryRunStage stage = 3;
+  string message = 4;
+  google.protobuf.Timestamp timestamp = 5;
+  map<string, string> labels = 100;
+}
+
+message StoryArtifactProducedEvent {
+  string run_id = 1;
+  StoryRunStage stage = 2;
+
+  // Optional chapter loop fields.
+  int32 chapter_index = 10;
+  string chapter_id = 11;
+
+  ArtifactRef artifact = 20;
+
+  // Short summary for UI timeline.
+  string summary = 30;
+
+  google.protobuf.Timestamp produced_at = 40;
+
+  map<string, string> labels = 100;
+}
+
+message StoryRunCompletedEvent {
+  string run_id = 1;
+  google.protobuf.Timestamp ended_at = 2;
+  map<string, string> labels = 100;
+}
+
+message StoryRunFailedEvent {
+  string run_id = 1;
+  string error = 2;
+  google.protobuf.Timestamp ended_at = 3;
+  map<string, string> labels = 100;
+}
+
+// ============================================================
+//  Author Deviation -> Change Impact (One-click)
+// ============================================================
+
+// Request: summarize author deviations (diff) and produce prompt + impact options.
+// This can be triggered after author edits any chapter revision (including external edits via Cursor).
+message StoryDeviationImpactAnalysisRequestedEvent {
+  string request_id = 1;
+
+  string project_id = 2;
+  string story_id = 3;
+  string chapter_id = 4;
+
+  // "AI draft revision" -> "author edited revision"
+  int64 base_revision = 5;
+  int64 edited_revision = 6;
+
+  // Scope controls (v1 defaults: include all).
+  bool include_story_outline = 10;
+  bool include_future_chapters = 11;
+  bool include_lore = 12;
+
+  map<string, string> labels = 100;
+}
+
+// Result: point to derived artifacts (all file-based; SQLite can index them).
+message StoryDeviationImpactAnalysisCompletedEvent {
+  string request_id = 1;
+
+  string project_id = 2;
+  string story_id = 3;
+  string chapter_id = 4;
+
+  int64 base_revision = 5;
+  int64 edited_revision = 6;
+
+  ArtifactRef deviation_report = 10;
+  ArtifactRef deviation_prompt = 11;
+  ArtifactRef change_impact_report = 12;
+  ArtifactRef backup_options_report = 13;
+
+  // Structured deviation items for downstream analysis (ImpactPlanner).
+  DeviationSummary deviation_summary = 14;
+
+  google.protobuf.Timestamp completed_at = 20;
+
+  map<string, string> labels = 100;
+}
+
+// ============================================================
+//  Narrative Unit Tests (Story Tests) - 故事单元测试运行
+// ============================================================
+
+message StoryUnitTestsRunRequestedEvent {
+  string request_id = 1;
+
+  string project_id = 2;
+  string story_id = 3;
+
+  // Optional: focus on a chapter when triggered by edit.
+  string chapter_id = 4;
+
+  // Optional: bind to a specific test suite.
+  string suite_id = 5;
+
+  // Optional revision context (for UI correlation).
+  int64 base_revision = 10;
+  int64 edited_revision = 11;
+
+  // Scope controls (v1 defaults: include all).
+  bool include_story_outline = 20;
+  bool include_future_chapters = 21;
+  bool include_lore = 22;
+
+  map<string, string> labels = 100;
+}
+
+message StoryUnitTestsRunCompletedEvent {
+  string request_id = 1;
+
+  string project_id = 2;
+  string story_id = 3;
+  string chapter_id = 4;
+
+  string suite_id = 5;
+
+  NarrativeTestRunSummary summary = 10;
+  ArtifactRef test_report = 11;
+
+  google.protobuf.Timestamp completed_at = 20;
+
+  map<string, string> labels = 100;
+}
+
+// ============================================================
+//  Writing Session Log (Aggregated) - 会话写作日志
+// ============================================================
+
+message WritingSessionStartedEvent {
+  WritingSession session = 1;
+  map<string, string> labels = 100;
+}
+
+message WritingSessionLogUpdatedEvent {
+  WritingSession session = 1;
+
+  // File-based derived artifacts (SSOT rules still apply).
+  ArtifactRef session_log = 10;          // ARTIFACT_KIND_WRITING_SESSION_LOG
+  ArtifactRef author_intent_prompt = 11; // ARTIFACT_KIND_AUTHOR_INTENT_PROMPT
+
+  google.protobuf.Timestamp updated_at = 20;
+
+  map<string, string> labels = 100;
+}
+
+message WritingSessionEndedEvent {
+  WritingSession session = 1;
+  string reason = 2;
+  map<string, string> labels = 100;
+}
+
+

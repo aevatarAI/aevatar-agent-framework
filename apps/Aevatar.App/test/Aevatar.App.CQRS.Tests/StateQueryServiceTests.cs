@@ -3,8 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Aevatar.Agents.Abstractions.CQRS;
-using Aevatar.App.Controllers;
-using Aevatar.App.HttpApi.Host.Services;
+using Aevatar.Agents.Core.CQRS;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -91,7 +90,7 @@ public class StateQueryServiceTests
             .Setup(x => x.QueryAsync(It.IsAny<StateQuery>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(queryResult);
 
-        var request = new StateQueryRequestDto
+        var request = new StateQuery
         {
             AgentType = "TestAgent",
             QueryString = "name:Test*",
@@ -120,7 +119,7 @@ public class StateQueryServiceTests
             .Callback<StateQuery, CancellationToken>((q, _) => capturedQuery = q)
             .ReturnsAsync(new PagedStateQueryResult());
 
-        var request = new StateQueryRequestDto
+        var request = new StateQuery
         {
             AgentType = "TestAgent",
             QueryString = "status:active",

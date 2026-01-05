@@ -512,24 +512,33 @@ src/
     CQRS/
       IStateProjector.cs              # 投影接口
       IStateIndexService.cs           # 索引服务接口
+      IStateQueryService.cs           # 查询门面接口（HTTP/Tools 统一依赖）
     abstrations_messages.proto        # StateWrapper 定义
     
   Aevatar.Agents.Core/
     CQRS/
-      ElasticsearchStateProjector.cs  # ES 直接投影
-      ElasticsearchStateIndexService.cs # ES 索引实现
-      BatchedStateProjector.cs        # 批量投影（高并发）
-      BatchProjectorOptions.cs        # 批量配置选项
-      StreamForwardingProjector.cs    # Stream 转发 + Composite + Logging
-      CQRSServiceExtensions.cs        # DI 配置扩展
+      StateQueryService.cs            # 查询门面默认实现（基于 IStateIndexService）
       
   Aevatar.Agents.Core/
     GAgentBase.TState.cs              # 状态钩子 OnStateChangedAsync
     Helpers/StateProjectorInjector.cs # 投影器注入
 
+plugins/
+  Aevatar.Agents.Plugins.CQRS/
+    Elasticsearch/
+      ElasticsearchStateProjector.cs      # ES 直接投影
+      ElasticsearchStateIndexService.cs   # ES 索引实现
+      ElasticsearchOptions.cs             # ES 配置
+    Batching/
+      BatchedStateProjector.cs            # 批量投影（高并发）
+      BatchProjectorOptions.cs            # 批量配置选项
+    Forwarding/
+      StreamForwardingProjector.cs        # Stream 转发投影
+    DependencyInjection/
+      CQRSServiceExtensions.cs            # DI 配置扩展（注册 IStateIndexService + IStateQueryService）
+
 apps/Aevatar.App/
   src/Aevatar.App.HttpApi.Host/
-    Services/StateQueryService.cs     # 查询服务实现
     Extensions/AgentRuntimeExtensions.cs # CQRS 配置
   src/Aevatar.App.HttpApi/
     Controllers/StateQueryController.cs # HTTP API

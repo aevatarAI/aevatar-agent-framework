@@ -1,11 +1,13 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Aevatar.Agents.AI.Abstractions;
+using Aevatar.Agents.AI.Core.Utils;
 using Aevatar.Agents.AI.Core.Messages;
 using Aevatar.Agents.AI.WithProcessStrategy.Messages;
-using Aevatar.Agents.AI.WithTool.Messages;
+using Aevatar.Agents.AI.WithTool.Abstractions;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 
@@ -13,7 +15,6 @@ namespace Aevatar.Agents.AI.WithProcessStrategy.Strategies;
 
 /// <summary>
 /// Standard AI processing strategy - simple pass-through to LLM
-/// 标准AI处理策略 - 简单直接传递给LLM
 /// </summary>
 public class StandardProcessingStrategy : IAevatarAIProcessingStrategy
 {
@@ -21,7 +22,7 @@ public class StandardProcessingStrategy : IAevatarAIProcessingStrategy
     public string Name => "Standard Processing";
 
     /// <inheritdoc />
-    public string Description => "标准AI处理策略 - 直接将请求传递给LLM提供商，支持对话历史和工具调用";
+    public string Description => "Standard AI processing strategy - Directly passes requests to LLM provider, supports conversation history and tool calling";
 
     /// <inheritdoc />
     public AevatarAIProcessingMode Mode => AevatarAIProcessingMode.Standard;
@@ -29,8 +30,8 @@ public class StandardProcessingStrategy : IAevatarAIProcessingStrategy
     /// <inheritdoc />
     public bool CanHandle(AevatarAIContext context)
     {
-        // 标准策略可以处理所有基础请求
-        // 但如果上下文中明确指定了其他策略，则返回false
+        // Standard strategy can handle all basic requests
+        // But if context explicitly specifies another strategy, return false
         if (context.Metadata?.ContainsKey("PreferredStrategy") == true)
         {
             var preferred = context.Metadata["PreferredStrategy"]?.ToString();
@@ -38,53 +39,53 @@ public class StandardProcessingStrategy : IAevatarAIProcessingStrategy
                    string.Equals(preferred, Name, StringComparison.OrdinalIgnoreCase);
         }
 
-        // 标准策略适合处理简单的问答
+        // Standard strategy suitable for simple Q&A
         return true;
     }
 
     /// <inheritdoc />
     public double EstimateComplexity(AevatarAIContext context)
     {
-        // 基于问题长度和对话历史估算复杂度
+        // Estimate complexity based on question length and conversation history
         var questionLength = context.Question?.Length ?? 0;
         var historyCount = context.ConversationHistory?.Count ?? 0;
 
-        // 简单的启发式计算
+        // Simple heuristic calculation
         var complexity = 0.0;
 
-        // 问题长度影响（0-0.3）
+        // Question length impact (0-0.3)
         complexity += Math.Min(questionLength / 1000.0, 0.3);
 
-        // 对话历史影响（0-0.3）
+        // Conversation history impact (0-0.3)
         complexity += Math.Min(historyCount / 20.0, 0.3);
 
-        // 如果需要工具调用，增加复杂度
+        // If tool calling needed, increase complexity
         if (context.Metadata?.ContainsKey("ExpectsToolUse") == true)
         {
             complexity += 0.2;
         }
 
-        // 标准策略适合低到中等复杂度
+        // Standard strategy suitable for low to medium complexity
         return Math.Min(complexity, 0.5);
     }
 
     /// <inheritdoc />
     public bool ValidateRequirements(AevatarAIStrategyDependencies dependencies)
     {
-        // 验证必需的依赖项
+        // Validate required dependencies
         if (dependencies == null)
         {
             return false;
         }
 
-        // LLM提供商是必需的
+        // LLM provider is required
         if (dependencies.LLMProvider == null)
         {
             dependencies.Logger?.LogError("StandardProcessingStrategy requires LLMProvider");
             return false;
         }
 
-        // 配置是必需的
+        // Configuration is required
         if (dependencies.Configuration == null)
         {
             dependencies.Logger?.LogError("StandardProcessingStrategy requires Configuration");
@@ -161,36 +162,24 @@ public class StandardProcessingStrategy : IAevatarAIProcessingStrategy
                     response.AevatarFunctionCall.Name);
 
                 // Parse arguments from JSON string to dictionary
-                var parameters = System.Text.Json.JsonSerializer
-                                     .Deserialize<System.Collections.Generic.Dictionary<string, object>>(
-                                         response.AevatarFunctionCall.Arguments) ??
-                                 new System.Collections.Generic.Dictionary<string, object>();
+                var parameters = ToolArgumentsJson.Parse(response.AevatarFunctionCall.Arguments, dependencies.Logger);
 
                 // Execute the tool
+                var toolContext = new ToolExecutionContext
+                {
+                    AgentId = dependencies.AgentId,
+                    ToolManager = dependencies.ToolManager,
+                    PublishEventCallback = dependencies.PublishEventCallback,
+                    Logger = dependencies.Logger,
+                    AllowInternalTools = true,
+                    AllowDangerousTools = false
+                };
+
                 var toolResult = await dependencies.ToolManager.ExecuteToolAsync(
                     response.AevatarFunctionCall.Name,
                     parameters,
-                    null,
+                    toolContext,
                     cancellationToken);
-
-                // Publish tool executed event if callback is available
-                if (dependencies.PublishEventCallback != null && toolResult.IsSuccess)
-                {
-                    var toolEvent = new AevatarToolExecutedEvent
-                    {
-                        ToolName = response.AevatarFunctionCall.Name,
-                        Result = toolResult.Content ?? "No result",
-                        Success = toolResult.IsSuccess
-                    };
-
-                    // Add parameters to the event
-                    foreach (var param in parameters)
-                    {
-                        toolEvent.Parameters[param.Key] = param.Value?.ToString() ?? string.Empty;
-                    }
-
-                    await dependencies.PublishEventCallback(toolEvent);
-                }
 
                 // Append tool result to the response
                 var finalResponse =
@@ -224,4 +213,5 @@ public class StandardProcessingStrategy : IAevatarAIProcessingStrategy
             _ => AevatarChatRole.User
         };
     }
+
 }

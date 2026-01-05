@@ -173,11 +173,7 @@ public sealed class CognitiveStrategy : IReasoningStrategy
             coordinator.SetActorManager(_actorManager);
 
             // ============================================================
-            //  Long-term chat persistence (State.History + AIMemory)
-            //
-            //  Strategy:
-            //  - State.History: short-term window for quick UI hydration
-            //  - AIMemory: long-term append-only log (optional, if factory is registered)
+            //  Chat history (State.History + compaction summary)
             //
             //  NOTE:
             //  - We enable this automatically when a stable session key exists,
@@ -188,10 +184,6 @@ public sealed class CognitiveStrategy : IReasoningStrategy
             {
                 coordinator.EnableChatHistoryInState = true;
                 coordinator.EnableChatHistoryCompaction = true;
-
-                // We persist a structured per-step interaction to AIMemory ourselves.
-                // Avoid duplicating the same content via "archive compacted history" (best-effort).
-                coordinator.ArchiveCompactedHistoryToAIMemory = false;
             }
             
             // Configure semantic clustering voting (if available)

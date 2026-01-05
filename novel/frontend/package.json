@@ -1,0 +1,36 @@
+{
+  "name": "@aevatar/novel-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "proto:gen": "node scripts/proto-gen.mjs",
+    "dev:web": "vite",
+    "build:web": "tsc -p tsconfig.json && vite build",
+    "dev": "npm run proto:gen && tauri dev",
+    "build": "npm run proto:gen && tauri build"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.2.5",
+    "@monaco-editor/react": "^4.7.0",
+    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-dialog": "^2.0.0",
+    "@tauri-apps/plugin-fs": "^2.0.0",
+    "clsx": "^2.1.1",
+    "monaco-editor": "^0.52.2",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-resizable-panels": "^2.1.7"
+  },
+  "devDependencies": {
+    "@bufbuild/protoc-gen-es": "^2.2.5",
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.8",
+    "@tauri-apps/cli": "^2.0.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.2"
+  }
+}
+
+

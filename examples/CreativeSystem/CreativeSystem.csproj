@@ -13,7 +13,6 @@
     <ProjectReference Include="..\..\src\Aevatar.Agents.CreativeReasoning\Aevatar.Agents.CreativeReasoning.csproj" />
     <ProjectReference Include="../../src/Aevatar.Agents.AI.MEAI/Aevatar.Agents.AI.MEAI.csproj" />
     <ProjectReference Include="../../src/Aevatar.Agents.Runtime.Local/Aevatar.Agents.Runtime.Local.csproj" />
-    <ProjectReference Include="../../src/Aevatar.Agents.Plugins.MassTransit/Aevatar.Agents.Plugins.MassTransit.csproj" />
   </ItemGroup>
 
 </Project>

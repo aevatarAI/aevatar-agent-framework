@@ -15,13 +15,11 @@ namespace Aevatar.Agents.Runtime.ProtoActor;
 
 /// <summary>
 /// Extension methods for configuring the ProtoActor agent runtime in dependency injection.
-/// 用于在依赖注入中配置ProtoActor运行时的扩展方法
 /// </summary>
 public static class ServiceCollectionExtensions
 {
     /// <summary>
     /// Adds the ProtoActor agent runtime core services to the service collection.
-    /// 将ProtoActor运行时核心服务添加到服务集合
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="configure">Optional action to configure the ProtoActor system.</param>

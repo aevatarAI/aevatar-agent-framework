@@ -1,10 +1,12 @@
 using Aevatar.Agents.Abstractions.CQRS;
+using Aevatar.Agents.Core.CQRS;
 using Aevatar.Agents.Plugins.CQRS.Batching;
 using Aevatar.Agents.Plugins.CQRS.Elasticsearch;
 using Aevatar.Agents.Plugins.CQRS.Forwarding;
 using Aevatar.Agents.Plugins.CQRS.Logging;
 using Elastic.Clients.Elasticsearch;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -119,6 +121,10 @@ public class CQRSOptionsBuilder
 
         // Register index service
         _services.AddSingleton<IStateIndexService, ElasticsearchStateIndexService>();
+
+        // Register query facade (framework-level) once ES query is available.
+        // Callers (HTTP/tools) should depend on IStateQueryService rather than IStateIndexService directly.
+        _services.TryAddSingleton<IStateQueryService, StateQueryService>();
 
         _elasticsearchConfigured = true;
         return this;

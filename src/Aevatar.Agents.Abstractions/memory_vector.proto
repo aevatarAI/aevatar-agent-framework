@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package Aevatar.Agents.Memory;
+
+option csharp_namespace = "Aevatar.Agents.Abstractions.Memory";
+
+import "google/protobuf/timestamp.proto";
+import "memory.proto";
+
+// ============================================================
+//  Memory Vector (Persistent)
+//
+//  WHY:
+//  - Persist embeddings for MemoryEntry so semantic retrieval works across runs/processes.
+//  - Keep a Protobuf contract for cross-runtime compatibility and future migrations.
+//
+//  NOTE:
+//  - This is not a "vector DB". It's a portable record format.
+// ============================================================
+
+message MemoryVectorRecord {
+  // Links back to MemoryEntry.entry_id
+  string entry_id = 1;
+
+  // Partition key (same as MemoryEntry.memory_id)
+  string memory_id = 2;
+
+  // Explicit scope boundary (duplicated for filtering without joining MemoryStore).
+  MemoryScope scope = 3;
+
+  // Optional linkage for auditing / UI navigation.
+  string run_id = 4;
+  string agent_id = 5;
+
+  // user/assistant/system/tool/...
+  string role = 6;
+
+  google.protobuf.Timestamp created_at = 7;
+
+  // A compact snippet for display/debug (NOT the canonical source of truth).
+  string content = 8;
+
+  // Vector embedding (float32).
+  repeated float embedding = 9;
+
+  map<string, string> tags = 100;
+}
+
+

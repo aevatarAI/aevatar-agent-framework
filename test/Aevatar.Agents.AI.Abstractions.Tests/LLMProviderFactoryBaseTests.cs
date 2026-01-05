@@ -154,18 +154,14 @@ public class LLMProviderFactoryBaseTests : IClassFixture<AITestFixture>
     public async Task Factory_ShouldWorkWithOtherServices()
     {
         // Arrange
-        var memory = _fixture.GetService<IAevatarAIMemory>();
         var toolManager = _fixture.GetService<IAevatarToolManager>();
         var factory = _fixture.GetService<ILLMProviderFactory>();
 
         // Act - Use services together
-        await memory.AddMessageAsync("user", "Test message");
         var tools = await toolManager.GetAvailableToolsAsync();
         var provider = factory.GetDefaultProvider();
 
         // Assert
-        var history = await memory.GetHistoryAsync();
-        history.Count.ShouldBe(1);
         tools.ShouldNotBeEmpty();
         provider.ShouldNotBeNull();
         

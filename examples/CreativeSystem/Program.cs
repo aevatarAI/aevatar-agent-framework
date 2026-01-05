@@ -1,6 +1,7 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.MEAI.DependencyInjection;
+using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.CreativeReasoning;
 using Aevatar.Agents.Plugins.MassTransit.DependencyInjection;
 using Aevatar.Agents.Runtime.Local;
@@ -23,7 +24,7 @@ builder.Services.AddMassTransitStreamPlugin(
 );
 
 // Add Aevatar Local Runtime
-builder.Services.AddAevatarLocalRuntime();
+builder.Services.AddAevatarAgentSystem(aevatar => aevatar.UseLocalRuntime());
 
 // Add MEAI LLM infrastructure
 builder.Services.AddMEAI();
@@ -56,6 +57,13 @@ app.MapGet("/api/runs/{runId}/status", (string runId, CreativeProjectService svc
 
 app.MapGet("/api/runs/{runId}/result", (string runId, CreativeProjectService svc) =>
     Results.Json(svc.GetResult(runId)));
+
+// Unified execution trace (ExecutionTrace JSON)
+app.MapGet("/api/runs/{runId}/trace", async (string runId, CreativeProjectService svc, CancellationToken ct) =>
+{
+    var json = await svc.GetExecutionTraceJsonAsync(runId, ct);
+    return json == null ? Results.NotFound() : Results.Text(json, "application/json");
+});
 
 // SSE endpoint for real-time streaming
 app.MapGet("/api/runs/{runId}/events", async (

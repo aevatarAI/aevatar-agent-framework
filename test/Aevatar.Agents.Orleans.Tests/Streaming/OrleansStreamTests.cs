@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
 using System.Threading.Tasks;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Runtime.Orleans;
@@ -86,7 +89,7 @@ public class OrleansStreamTests : IClassFixture<OrleansStreamTests.ClusterFixtur
             Guid.NewGuid().ToString());
         var stream = streamProvider.GetStream<byte[]>(streamId);
 
-        var receivedMessages = new List<string>();
+        var receivedMessages = new ConcurrentBag<string>();
         var orleansStream = new OrleansMessageStream(Guid.NewGuid().ToString(), stream);
 
         // Act - Subscribe
@@ -98,7 +101,7 @@ public class OrleansStreamTests : IClassFixture<OrleansStreamTests.ClusterFixtur
 
         // Send message
         await orleansStream.ProduceAsync(new EventEnvelope { Message = "Message 1" });
-        await Task.Delay(200);
+        await WaitUntilAsync(() => receivedMessages.Any(m => m == "Message 1"), TimeSpan.FromSeconds(2));
 
         // Pause and resume
         await subscription.UnsubscribeAsync();
@@ -106,11 +109,25 @@ public class OrleansStreamTests : IClassFixture<OrleansStreamTests.ClusterFixtur
 
         // Send message again
         await orleansStream.ProduceAsync(new EventEnvelope { Message = "Message 2" });
-        await Task.Delay(200);
+        await WaitUntilAsync(() => receivedMessages.Any(m => m == "Message 2"), TimeSpan.FromSeconds(2));
 
         // Assert
         Assert.Contains("Message 1", receivedMessages);
         Assert.Contains("Message 2", receivedMessages);
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> predicate, TimeSpan timeout)
+    {
+        var sw = Stopwatch.StartNew();
+        while (sw.Elapsed < timeout)
+        {
+            if (predicate())
+                return;
+
+            await Task.Delay(50);
+        }
+
+        Assert.True(predicate(), $"Timed out after {timeout.TotalMilliseconds}ms waiting for condition.");
     }
 
     /// <summary>
@@ -127,7 +144,7 @@ public class OrleansStreamTests : IClassFixture<OrleansStreamTests.ClusterFixtur
         var stream = streamProvider.GetStream<byte[]>(streamId);
 
         var orleansStream = new OrleansMessageStream(Guid.NewGuid().ToString(), stream);
-        var filteredMessages = new List<string>();
+        var filteredMessages = new ConcurrentBag<string>();
 
         // Act - Subscribe with filter
         await orleansStream.SubscribeAsync<EventEnvelope>(
@@ -151,6 +168,9 @@ public class OrleansStreamTests : IClassFixture<OrleansStreamTests.ClusterFixtur
             Direction = EventDirection.Down
         });
 
+        await WaitUntilAsync(() => filteredMessages.Any(m => m == "UP Event"), TimeSpan.FromSeconds(2));
+
+        // Give a short window for a wrongly-filtered DOWN event to arrive (best-effort).
         await Task.Delay(200);
 
         // Assert - Should only receive UP events

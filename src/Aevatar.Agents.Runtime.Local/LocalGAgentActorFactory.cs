@@ -7,7 +7,7 @@ using Microsoft.Extensions.Options;
 namespace Aevatar.Agents.Runtime.Local;
 
 /// <summary>
-/// Local 运行时的 Agent Actor 工厂
+/// Local runtime Agent Actor factory
 /// </summary>
 public class LocalGAgentActorFactory : GAgentActorFactoryBase
 {

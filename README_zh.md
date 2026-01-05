@@ -319,10 +319,9 @@ src/
 ├── Aevatar.Agents.Runtime.ProtoActor/     # ProtoActor运行时（高性能）
 │
 ├── Aevatar.Agents.AI.Abstractions/        # AI Provider接口
-├── Aevatar.Agents.AI.Core/                # AI核心（对话、Embedding）
+├── Aevatar.Agents.AI.Core/                # AI核心（对话、Embedding、工具调用/MCP）
 ├── Aevatar.Agents.AI.MEAI/                # Microsoft.Extensions.AI集成
 ├── Aevatar.Agents.AI.LLMTornado/          # LLMTornado Provider
-├── Aevatar.Agents.AI.WithTool/            # AI工具调用（Function Calling）
 ├── Aevatar.Agents.AI.WithProcessStrategy/ # AI处理策略（CoT、ReAct）
 │
 ├── Aevatar.Agents.CreativeReasoning/      # 创意推理Agent

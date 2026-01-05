@@ -312,10 +312,9 @@ src/
 ├── Aevatar.Agents.Runtime.Orleans/        # Orleans Runtime (Distributed)
 ├── Aevatar.Agents.Runtime.ProtoActor/     # ProtoActor Runtime (High Performance)
 ├── Aevatar.Agents.AI.Abstractions/        # AI Provider Interfaces
-├── Aevatar.Agents.AI.Core/                # AI Core (Conversation, Embeddings)
+├── Aevatar.Agents.AI.Core/                # AI Core (Conversation, Embeddings, Tool Calling / MCP)
 ├── Aevatar.Agents.AI.MEAI/                # Microsoft.Extensions.AI Integration
 ├── Aevatar.Agents.AI.LLMTornado/          # LLMTornado Provider
-├── Aevatar.Agents.AI.WithTool/            # AI Tool Calling (Function Calling)
 ├── Aevatar.Agents.AI.WithProcessStrategy/ # AI Process Strategies (CoT, ReAct)
 ├── Aevatar.Agents.CreativeReasoning/      # Creative Reasoning Agents
 ├── Aevatar.Agents.Maker/                  # MAKER: Massively Decomposed Agents

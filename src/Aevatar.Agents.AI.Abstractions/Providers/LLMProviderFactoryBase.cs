@@ -5,7 +5,7 @@ using Microsoft.Extensions.Options;
 namespace Aevatar.Agents.AI.Abstractions.Providers;
 
 /// <summary>
-/// LLM Provider Factory 抽象基类，提供公共实现
+/// LLM Provider Factory abstract base class, provides common implementation
 /// </summary>
 public abstract class LLMProviderFactoryBase : ILLMProviderFactory
 {
@@ -75,7 +75,7 @@ public abstract class LLMProviderFactoryBase : ILLMProviderFactory
     public async Task<IAevatarLLMProvider> GetProviderAsync(string providerName,
         CancellationToken cancellationToken = default)
     {
-        // 异步版本可以在这里添加异步初始化逻辑
+        // Async version can add async initialization logic here
         return await Task.FromResult(GetProvider(providerName));
     }
 

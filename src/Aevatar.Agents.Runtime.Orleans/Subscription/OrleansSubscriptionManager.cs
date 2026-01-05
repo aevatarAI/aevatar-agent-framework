@@ -11,7 +11,7 @@ using Orleans.Streams;
 namespace Aevatar.Agents.Runtime.Orleans.Subscription;
 
 /// <summary>
-/// Orleans运行时的订阅管理器实现
+/// Orleans runtime subscription manager implementation
 /// </summary>
 public class OrleansSubscriptionManager : BaseSubscriptionManager
 {
@@ -39,17 +39,17 @@ public class OrleansSubscriptionManager : BaseSubscriptionManager
         
         try
         {
-            // 获取父节点的Orleans stream
+            // Get parent node's Orleans stream
             var streamId = StreamId.Create(_streamNamespace, parentId);
             var parentStream = _streamProvider.GetStream<byte[]>(streamId);
             
-            // 包装为OrleansMessageStream
+            // Wrap as OrleansMessageStream
             var messageStream = new OrleansMessageStream(parentId, parentStream);
             
-            // 创建过滤器
+            // Create filter
             Func<EventEnvelope, bool>? filter = envelope =>
             {
-                // 过滤掉子节点自己发布的事件，避免循环
+                // Filter out self-published events from child node to avoid loops
                 if (envelope.PublisherId == childId)
                 {
                     Logger.LogTrace("Filtering out self-published event {EventId} for child {ChildId}",
@@ -57,26 +57,26 @@ public class OrleansSubscriptionManager : BaseSubscriptionManager
                     return false;
                 }
                 
-                // Orleans特定：检查是否是从父stream接收的BOTH事件
-                // 需要特殊处理以防止循环
+                // Orleans-specific: Check if BOTH event received from parent stream
+                // Need special handling to prevent loops
                 if (envelope.Direction == EventDirection.Both)
                 {
-                    // 如果Publishers列表已包含父节点，说明这是从父stream来的
+                    // If Publishers list already contains parent node, this is from parent stream
                     if (envelope.Publishers.Contains(parentId))
                     {
                         Logger.LogTrace("BOTH event {EventId} from parent stream, will be converted to DOWN-only",
                             envelope.Id);
-                        // 注意：实际的方向转换应该在处理器中进行
+                        // Note: Actual direction conversion should be done in handler
                     }
                 }
                 
                 return true;
             };
             
-            // 包装事件处理器，添加Orleans特定的处理逻辑
+            // Wrap event handler, add Orleans-specific processing logic
             var wrappedHandler = CreateWrappedEventHandler(eventHandler, childId, parentId);
             
-            // 创建订阅
+            // Create subscription
             var subscription = await messageStream.SubscribeAsync<EventEnvelope>(
                 wrappedHandler,
                 filter,
@@ -104,7 +104,7 @@ public class OrleansSubscriptionManager : BaseSubscriptionManager
             return false;
         }
         
-        // Orleans的订阅健康状态主要通过StreamSubscriptionHandle的IsActive属性判断
+        // Orleans subscription health status mainly judged by StreamSubscriptionHandle's IsActive property
         if (subscription.StreamSubscription is OrleansMessageStreamSubscription orleansSubscription)
         {
             var isHealthy = orleansSubscription.IsActive;
@@ -118,14 +118,14 @@ public class OrleansSubscriptionManager : BaseSubscriptionManager
             return isHealthy;
         }
         
-        // 如果不是Orleans订阅类型，尝试通过其他方式判断
+        // If not Orleans subscription type, try other ways to judge
         try
         {
-            // 可以尝试获取stream来验证连接
+            // Can try to get stream to verify connection
             var streamId = StreamId.Create(_streamNamespace, subscription.ParentId);
             var stream = _streamProvider.GetStream<byte[]>(streamId);
             
-            // 如果能成功获取stream，认为是健康的
+            // If stream can be successfully obtained, consider it healthy
             return stream != null;
         }
         catch (Exception ex)
@@ -144,7 +144,7 @@ public class OrleansSubscriptionManager : BaseSubscriptionManager
         Logger.LogInformation("Reconnecting Orleans stream subscription {SubscriptionId}",
             handle.SubscriptionId);
         
-        // 清理旧订阅
+        // Clean up old subscription
         if (handle.StreamSubscription != null)
         {
             try
@@ -157,15 +157,15 @@ public class OrleansSubscriptionManager : BaseSubscriptionManager
             }
         }
         
-        // Orleans的重连策略：
-        // 1. 尝试使用ResumeAsync恢复订阅
-        // 2. 如果失败，重新创建订阅
+        // Orleans reconnection strategy:
+        // 1. Try to resume subscription using ResumeAsync
+        // 2. If fails, recreate subscription
         
         if (handle.StreamSubscription is OrleansMessageStreamSubscription orleansSubscription)
         {
             try
             {
-                // 尝试恢复订阅
+                // Try to resume subscription
                 await orleansSubscription.ResumeAsync();
                 handle.IsHealthy = true;
                 handle.LastActivityAt = DateTime.UtcNow;
@@ -180,15 +180,15 @@ public class OrleansSubscriptionManager : BaseSubscriptionManager
             }
         }
         
-        // 如果恢复失败或不是Orleans订阅，抛出异常
-        // 因为我们需要原始的eventHandler来重新创建订阅
+        // If resume fails or not Orleans subscription, throw exception
+        // Because we need original eventHandler to recreate subscription
         throw new NotImplementedException(
             "Full reconnection requires saving the original event handler. " +
             "Consider using ResumeAsync() for Orleans subscriptions or storing the handler in SubscriptionHandle.");
     }
 
     /// <summary>
-    /// 创建包装的事件处理器，添加Orleans特定的处理逻辑
+    /// Create wrapped event handler, add Orleans-specific processing logic
     /// </summary>
     private Func<EventEnvelope, Task> CreateWrappedEventHandler(
         Func<EventEnvelope, Task> originalHandler,
@@ -202,8 +202,8 @@ public class OrleansSubscriptionManager : BaseSubscriptionManager
                 Logger.LogTrace("Orleans Child {ChildId} processing event {EventId} from parent {ParentId}",
                     childId, envelope.Id, parentId);
                 
-                // Orleans特定：处理BOTH方向的事件
-                // 如果是从父stream接收的BOTH事件，需要转换为DOWN-only
+                // Orleans-specific: Handle BOTH direction events
+                // If receiving BOTH event from parent stream, need to convert to DOWN-only
                 if (envelope.Direction == EventDirection.Both && 
                     envelope.Publishers.Contains(parentId))
                 {
@@ -211,20 +211,20 @@ public class OrleansSubscriptionManager : BaseSubscriptionManager
                         "Converting BOTH event {EventId} to DOWN-only for Orleans child {ChildId}",
                         envelope.Id, childId);
                     
-                    // 创建修改后的envelope
+                    // Create modified envelope
                     var modifiedEnvelope = envelope.Clone();
                     modifiedEnvelope.Direction = EventDirection.Down;
                     
-                    // 使用修改后的envelope调用处理器
+                    // Call handler with modified envelope
                     await originalHandler(modifiedEnvelope);
                 }
                 else
                 {
-                    // 其他情况直接调用原始处理器
+                    // Other cases call original handler directly
                     await originalHandler(envelope);
                 }
                 
-                // 更新订阅活动时间
+                // Update subscription activity time
                 UpdateLastActivity(childId, parentId);
             }
             catch (Exception ex)
@@ -233,14 +233,14 @@ public class OrleansSubscriptionManager : BaseSubscriptionManager
                     "Orleans: Error processing event {EventId} in child {ChildId} from parent {ParentId}",
                     envelope.Id, childId, parentId);
                 
-                // Orleans的错误处理策略：不重新抛出异常，避免影响stream
-                // 错误已记录，继续处理后续事件
+                // Orleans error handling strategy: Don't rethrow exception to avoid affecting stream
+                // Error logged, continue processing subsequent events
             }
         };
     }
 
     /// <summary>
-    /// 更新最后活动时间
+    /// Update last activity time
     /// </summary>
     private void UpdateLastActivity(string childId, string parentId)
     {
@@ -255,7 +255,7 @@ public class OrleansSubscriptionManager : BaseSubscriptionManager
     }
 
     /// <summary>
-    /// 创建持久化的订阅（Orleans支持持久化订阅）
+    /// Create persistent subscription (Orleans supports persistent subscriptions)
     /// </summary>
     public async Task<ISubscriptionHandle> SubscribeWithPersistenceAsync(
         string parentId,
@@ -265,20 +265,20 @@ public class OrleansSubscriptionManager : BaseSubscriptionManager
         IRetryPolicy? retryPolicy = null,
         CancellationToken cancellationToken = default)
     {
-        // Orleans支持使用特定的subscriptionId创建持久化订阅
-        // 这样在系统重启后可以恢复订阅
+        // Orleans supports creating persistent subscriptions with specific subscriptionId
+        // This allows subscription recovery after system restart
         
         var subscription = await SubscribeWithRetryAsync(
             parentId, childId, eventHandler, retryPolicy, cancellationToken);
         
-        // TODO: 可以将订阅信息保存到Orleans存储中
-        // 以支持系统重启后的自动恢复
+        // TODO: Can save subscription info to Orleans storage
+        // To support automatic recovery after system restart
         
         return subscription;
     }
 
     /// <summary>
-    /// 批量创建订阅
+    /// Batch create subscriptions
     /// </summary>
     public async Task<IReadOnlyList<ISubscriptionHandle>> SubscribeBatchAsync(
         IReadOnlyList<(string ParentId, string ChildId)> subscriptions,

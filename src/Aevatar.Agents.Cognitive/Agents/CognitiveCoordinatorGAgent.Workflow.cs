@@ -1,6 +1,8 @@
 using Aevatar.Agents.Abstractions.Attributes;
+using Aevatar.Agents.Abstractions.Tracing;
 using Aevatar.Agents.Cognitive.Messages;
 using Aevatar.Agents.Cognitive.Utilities;
+using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 
 using WorkflowDefinition = Aevatar.Agents.Cognitive.Primitives.WorkflowDefinition;
@@ -105,6 +107,8 @@ public partial class CognitiveCoordinatorGAgent
             CustomState.Status = ExecutionStatus.EsCompleted;
             CustomState.CurrentPhase = "Completed";
 
+            await TryExportExecutionTraceAsync();
+
             await PublishAsync(new WorkflowCompletedEventProto
             {
                 ExecutionId = CustomState.ExecutionId,
@@ -177,12 +181,107 @@ public partial class CognitiveCoordinatorGAgent
         Logger.LogError("[WORKFLOW] Failed (executionId={ExecutionId}, step={StepId}, phase={Phase}): {Error}",
             CustomState.ExecutionId, CustomState.CurrentStepId, CustomState.CurrentPhase, error);
 
+        await TryExportExecutionTraceAsync();
+
         await PublishAsync(new WorkflowCompletedEventProto
         {
             ExecutionId = CustomState.ExecutionId,
             Success = false,
             Error = error
         });
+    }
+
+    private async Task TryExportExecutionTraceAsync()
+    {
+        var store = ExecutionTraceStore;
+        if (store == null)
+            return;
+
+        try
+        {
+            var executionId = CustomState.ExecutionId ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(executionId))
+            {
+                // Last resort: stable-ish id for export directory.
+                executionId = Id;
+            }
+
+            ExecutionTrace trace;
+            var stepEvents = GetStepEvents();
+            if (stepEvents.Count > 0)
+            {
+                trace = stepEvents.ToExecutionTrace();
+            }
+            else
+            {
+                // No step events collected (failed early). Emit minimal trace.
+                var now = DateTime.UtcNow;
+                trace = new ExecutionTrace
+                {
+                    ExecutionId = executionId,
+                    Kind = ExecutionTraceKind.Workflow,
+                    Status = MapStatus(CustomState.Status),
+                    Name = CustomState.WorkflowName ?? "workflow",
+                    Description = "Cognitive workflow execution (no step events captured)",
+                    StartedAt = Timestamp.FromDateTime(now),
+                    EndedAt = Timestamp.FromDateTime(now),
+                    Cost = new ExecutionTraceCost
+                    {
+                        DurationMs = 0,
+                        TotalLlmCalls = CustomState.TotalLlmCalls,
+                        TotalTokens = CustomState.TotalTokensUsed
+                    },
+                    Root = new ExecutionTraceNode
+                    {
+                        NodeId = executionId,
+                        Name = CustomState.WorkflowName ?? "workflow",
+                        Type = "workflow",
+                        Status = MapStatus(CustomState.Status),
+                        Error = CustomState.Error ?? string.Empty
+                    },
+                    Error = CustomState.Error ?? string.Empty
+                };
+            }
+
+            // Ensure export id is always present (FileExecutionTraceStore requires it).
+            if (string.IsNullOrWhiteSpace(trace.ExecutionId))
+            {
+                trace.ExecutionId = executionId;
+            }
+
+            // Align status/error with coordinator state (single truth).
+            trace.Status = MapStatus(CustomState.Status);
+            trace.Error = CustomState.Error ?? trace.Error;
+
+            // Labels for indexing/debugging.
+            trace.Labels["cognitive.workflow_name"] = CustomState.WorkflowName ?? string.Empty;
+            trace.Labels["cognitive.coordinator_id"] = Id;
+            trace.Labels["cognitive.status"] = CustomState.Status.ToString();
+            if (!string.IsNullOrWhiteSpace(CustomState.CurrentStepId))
+            {
+                trace.Labels["cognitive.current_step_id"] = CustomState.CurrentStepId;
+            }
+
+            await store.SaveAsync(trace, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "[WORKFLOW] Failed to export ExecutionTrace (executionId={ExecutionId})",
+                CustomState.ExecutionId);
+        }
+    }
+
+    private static ExecutionTraceStatus MapStatus(ExecutionStatus status)
+    {
+        return status switch
+        {
+            ExecutionStatus.EsCompleted => ExecutionTraceStatus.Succeeded,
+            ExecutionStatus.EsFailed => ExecutionTraceStatus.Failed,
+            ExecutionStatus.EsCancelled => ExecutionTraceStatus.Cancelled,
+            ExecutionStatus.EsRunning => ExecutionTraceStatus.Running,
+            ExecutionStatus.EsPending => ExecutionTraceStatus.Running,
+            _ => ExecutionTraceStatus.Unspecified
+        };
     }
 
     private object BuildOutput(Dictionary<string, string> outputDef)

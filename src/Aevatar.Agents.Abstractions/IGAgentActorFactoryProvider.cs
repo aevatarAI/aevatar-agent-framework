@@ -1,30 +1,30 @@
 namespace Aevatar.Agents.Abstractions;
 
 /// <summary>
-/// Agent Actor 工厂提供者接口
-/// 用于提供 Agent 类型的工厂方法
+/// Agent Actor factory provider interface
+/// Used to provide factory methods for Agent types
 /// </summary>
 public interface IGAgentActorFactoryProvider
 {
     /// <summary>
-    /// 注册指定 Agent 类型的工厂方法
+    /// Register factory method for specified Agent type
     /// </summary>
-    /// <typeparam name="TAgent">Agent 类型</typeparam>
-    /// <param name="factory">工厂委托</param>
+    /// <typeparam name="TAgent">Agent type</typeparam>
+    /// <param name="factory">Factory delegate</param>
     void RegisterFactory<TAgent>(Func<IGAgentActorFactory, string, CancellationToken, Task<IGAgentActor>> factory)
         where TAgent : IGAgent;
     
     /// <summary>
-    /// 注册指定 Agent 类型的工厂方法（使用类型参数）
+    /// Register factory method for specified Agent type (using type parameter)
     /// </summary>
-    /// <param name="agentType">Agent 类型</param>
-    /// <param name="factory">工厂委托</param>
+    /// <param name="agentType">Agent type</param>
+    /// <param name="factory">Factory delegate</param>
     void RegisterFactory(Type agentType, Func<IGAgentActorFactory, string, CancellationToken, Task<IGAgentActor>> factory);
     
     /// <summary>
-    /// 获取指定 Agent 类型的工厂方法
+    /// Get factory method for specified Agent type
     /// </summary>
-    /// <param name="agentType">Agent 类型</param>
-    /// <returns>工厂委托，如果未找到则返回 null</returns>
+    /// <param name="agentType">Agent type</param>
+    /// <returns>Factory delegate, returns null if not found</returns>
     Func<IGAgentActorFactory, string, CancellationToken, Task<IGAgentActor>>? GetFactory(Type agentType);
 }

@@ -3,6 +3,7 @@ using Aevatar.Agents.AI.Core.Embeddings;
 using Aevatar.Agents.AI.LLMTornado;
 using Aevatar.Agents.AI.MEAI;
 using Aevatar.Agents.AI.MEAI.DependencyInjection;
+using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Maker;
 using Aevatar.Agents.Plugins.MassTransit.DependencyInjection;
 using Aevatar.Agents.Runtime.Local;
@@ -93,7 +94,7 @@ builder.Services.AddMassTransitStreamPlugin(
 );
 
 // Add Aevatar Local Runtime (provides IGAgentActorFactory)
-builder.Services.AddAevatarLocalRuntime();
+builder.Services.AddAevatarAgentSystem(aevatar => aevatar.UseLocalRuntime());
 
 builder.Services.AddMEAI();
 

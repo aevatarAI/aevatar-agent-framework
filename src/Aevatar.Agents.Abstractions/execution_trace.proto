@@ -1,0 +1,163 @@
+syntax = "proto3";
+package Aevatar.Agents.Tracing;
+option csharp_namespace = "Aevatar.Agents.Abstractions.Tracing";
+
+import "google/protobuf/timestamp.proto";
+import "abstrations_messages.proto";
+
+// ============================================================
+//  Execution Trace (Unified)
+//
+//  WHY:
+//  - Make "exportable trace" a first-class, cross-runtime contract (Protobuf).
+//  - Unify MAKER / UoT / Cognitive Workflow traces into one schema.
+//
+//  DESIGN:
+//  - One canonical tree model: ExecutionTrace -> Root(Node) -> Children
+//  - Timeline events are optional (for UI/replay/debug)
+//  - Domain-specific details should be encoded as metrics/labels/decisions/alerts
+//    (avoid scattered ad-hoc JSON strings).
+// ============================================================
+
+// Execution trace category (high-level algorithm/source).
+enum ExecutionTraceKind {
+  EXECUTION_TRACE_KIND_UNSPECIFIED = 0;
+  EXECUTION_TRACE_KIND_MAKER = 1;
+  EXECUTION_TRACE_KIND_UOT = 2;
+  EXECUTION_TRACE_KIND_WORKFLOW = 3;
+  EXECUTION_TRACE_KIND_CUSTOM = 100;
+}
+
+// Standardized execution status (single truth).
+enum ExecutionTraceStatus {
+  EXECUTION_TRACE_STATUS_UNSPECIFIED = 0;
+  EXECUTION_TRACE_STATUS_RUNNING = 1;
+  EXECUTION_TRACE_STATUS_SUCCEEDED = 2;
+  EXECUTION_TRACE_STATUS_FAILED = 3;
+  EXECUTION_TRACE_STATUS_CANCELLED = 4;
+  EXECUTION_TRACE_STATUS_TIMEOUT = 5;
+}
+
+// ============================================================
+//  Root Trace
+// ============================================================
+
+message ExecutionTrace {
+  // Stable ID of this execution (used for file naming / indexing).
+  string execution_id = 1;
+
+  ExecutionTraceKind kind = 2;
+  ExecutionTraceStatus status = 3;
+
+  // Human readable identification (scenario/workflow name).
+  string name = 4;
+  string description = 5;
+
+  google.protobuf.Timestamp started_at = 6;
+  google.protobuf.Timestamp ended_at = 7;
+
+  ExecutionTraceCost cost = 8;
+  ExecutionTraceLink link = 9;
+
+  // Lightweight labels (strings only) for indexing.
+  map<string, string> labels = 10;
+
+  // Typed metrics (int/double/bool/string/time/guid) for analysis.
+  map<string, Aevatar.Agents.ContextValue> metrics = 11;
+
+  // Root node of the execution tree.
+  ExecutionTraceNode root = 12;
+
+  // Optional timeline events (UI/replay/debug).
+  repeated ExecutionTraceEvent events = 13;
+
+  // Optional error summary at root level.
+  string error = 14;
+}
+
+message ExecutionTraceCost {
+  int64 duration_ms = 1;
+  int64 total_llm_calls = 2;
+  int64 total_tokens = 3;
+  int64 prompt_tokens = 4;
+  int64 completion_tokens = 5;
+}
+
+// Link to external tracing systems (e.g., OpenTelemetry).
+message ExecutionTraceLink {
+  string correlation_id = 1;
+  string otel_trace_id = 2;
+  string otel_span_id = 3;
+}
+
+// ============================================================
+//  Tree Model
+// ============================================================
+
+message ExecutionTraceNode {
+  // Node ID must be unique within the trace.
+  string node_id = 1;
+
+  // Human-friendly fields.
+  string name = 2;
+  string type = 3;
+  string description = 4;
+
+  ExecutionTraceStatus status = 5;
+  google.protobuf.Timestamp started_at = 6;
+  google.protobuf.Timestamp ended_at = 7;
+
+  ExecutionTraceCost cost = 8;
+
+  map<string, string> labels = 9;
+  map<string, Aevatar.Agents.ContextValue> metrics = 10;
+
+  // Optional output payload (keep it small; do NOT dump huge raw data).
+  string output = 11;
+  string error = 12;
+
+  // Generic decision sessions (works for voting/ranking/selection).
+  repeated ExecutionTraceDecisionSession decisions = 13;
+
+  // Generic alerts (red-flag / anomaly / recovery).
+  repeated ExecutionTraceAlert alerts = 14;
+
+  repeated ExecutionTraceNode children = 15;
+}
+
+message ExecutionTraceDecisionSession {
+  string decision_id = 1;
+  string type = 2;
+  int32 rounds = 3;
+  repeated ExecutionTraceCandidate candidates = 4;
+  string winner_candidate_id = 5;
+}
+
+message ExecutionTraceCandidate {
+  string candidate_id = 1;
+  string content = 2;
+
+  // For vote-based algorithms (0 for pure ranking).
+  int32 votes = 3;
+
+  // For score/ranking algorithms (0 if unused).
+  double score = 4;
+
+  map<string, Aevatar.Agents.ContextValue> metrics = 5;
+}
+
+message ExecutionTraceAlert {
+  string alert_id = 1;
+  string type = 2;
+  string message = 3;
+  bool recovered = 4;
+  google.protobuf.Timestamp timestamp = 5;
+}
+
+message ExecutionTraceEvent {
+  google.protobuf.Timestamp timestamp = 1;
+  string phase = 2;
+  string message = 3;
+  string node_id = 4;
+  map<string, Aevatar.Agents.ContextValue> fields = 5;
+}

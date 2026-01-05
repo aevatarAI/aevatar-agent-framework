@@ -1,8 +1,8 @@
-using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.Persistence.Supabase.DependencyInjection;
-using Aevatar.Agents.Persistence.Supabase.Options;
-using Aevatar.Agents.Persistence.Supabase.Setup;
-using Aevatar.Agents.Persistence.Supabase.Stores;
+using Aevatar.Agents.Persistence.Supabase.GAgent.DependencyInjection;
+using Aevatar.Agents.Persistence.Supabase.GAgent.Options;
+using Aevatar.Agents.Persistence.Supabase.GAgent.Setup;
+using Aevatar.Agents.Persistence.Supabase.GAgent.Stores;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -28,34 +28,32 @@ public class SupabaseServiceCollectionExtensionsTests
     }
 
     [Fact]
-    public void AddAevatarSupabase_ConfigureOverload_ShouldThrow_WhenConnectionStringMissing()
+    public void AddAevatarSupabase_ShouldThrow_OnEmptyConnectionString()
     {
         var services = new ServiceCollection();
-
-        // 不设置 ConnectionString
-        services.AddAevatarSupabase(o =>
-        {
-            o.ConnectionString = "";
-            o.AutoCreateSchema = false;
-            o.AutoCreateTables = false;
-            o.AutoCreateIndexes = false;
-            o.LockDownPublicAccess = false;
-            o.EnableRowLevelSecurity = false;
-        });
-
-        var provider = services.BuildServiceProvider();
-        var act = () => provider.GetRequiredService<NpgsqlDataSource>();
-
-        act.Should().Throw<InvalidOperationException>()
-            .WithMessage("*ConnectionString*is required*");
+        var act = () => services.AddAevatarSupabase(connectionString: "  ");
+        act.Should().Throw<ArgumentException>();
     }
 
     [Fact]
-    public void AddAevatarSupabase_ShouldRegisterOptionsAndDataSource()
+    public void AddAevatarSupabaseGAgent_ConfigureOnly_ShouldRegisterOptions_ButNotDataSource()
+    {
+        var services = new ServiceCollection();
+        services.AddAevatarSupabaseGAgent(_ => { });
+
+        var provider = services.BuildServiceProvider();
+
+        provider.GetService<IOptions<SupabasePersistenceOptions>>().Should().NotBeNull();
+        provider.GetService<NpgsqlDataSource>().Should().BeNull();
+    }
+
+    [Fact]
+    public void AddAevatarSupabase_And_AddAevatarSupabaseGAgent_ShouldRegisterOptionsAndDataSource()
     {
         var services = new ServiceCollection();
 
         services.AddAevatarSupabase("Host=localhost;Username=postgres;Password=postgres;Database=postgres");
+        services.AddAevatarSupabaseGAgent(_ => { });
 
         var provider = services.BuildServiceProvider();
 
@@ -64,10 +62,10 @@ public class SupabaseServiceCollectionExtensionsTests
     }
 
     [Fact]
-    public void AddAevatarSupabase_ShouldApplyDefaultOptions()
+    public void AddAevatarSupabaseGAgent_ShouldApplyDefaultOptions()
     {
         var services = new ServiceCollection();
-        services.AddAevatarSupabase("Host=localhost;Username=postgres;Password=postgres;Database=postgres");
+        services.AddAevatarSupabaseGAgent(_ => { });
 
         var provider = services.BuildServiceProvider();
         var options = provider.GetRequiredService<IOptions<SupabasePersistenceOptions>>().Value;
@@ -81,20 +79,27 @@ public class SupabaseServiceCollectionExtensionsTests
     public void AddSupabaseStores_ShouldRegisterServices()
     {
         var services = new ServiceCollection();
+
         services.AddAevatarSupabase("Host=localhost;Username=postgres;Password=postgres;Database=postgres");
+        services.AddAevatarSupabaseGAgent(o =>
+        {
+            // Disable init to avoid real DB connections during tests.
+            o.AutoCreateSchema = false;
+            o.AutoCreateTables = false;
+            o.AutoCreateIndexes = false;
+            o.LockDownPublicAccess = false;
+            o.EnableRowLevelSecurity = false;
+        });
 
         services.AddSupabaseStateStore<TestState>();
         services.AddSupabaseConfigStore<TestConfig>();
         services.AddSupabaseEventRouterStore();
-        services.AddSupabaseAIMemory();
 
         services.Should().ContainSingle(d => d.ServiceType == typeof(SupabaseStateStore<TestState>)
                                              && d.Lifetime == ServiceLifetime.Singleton);
         services.Should().ContainSingle(d => d.ServiceType == typeof(SupabaseConfigStore<TestConfig>)
                                              && d.Lifetime == ServiceLifetime.Singleton);
         services.Should().ContainSingle(d => d.ServiceType == typeof(SupabaseEventRouterStore)
-                                             && d.Lifetime == ServiceLifetime.Singleton);
-        services.Should().ContainSingle(d => d.ServiceType == typeof(IAevatarAIMemoryFactory)
                                              && d.Lifetime == ServiceLifetime.Singleton);
     }
 
@@ -105,10 +110,10 @@ public class SupabaseServiceCollectionExtensionsTests
 
         var result = services
             .AddAevatarSupabase("Host=localhost;Username=postgres;Password=postgres;Database=postgres")
+            .AddAevatarSupabaseGAgent(_ => { })
             .AddSupabaseStateStore<TestState>()
             .AddSupabaseConfigStore<TestConfig>()
-            .AddSupabaseEventRouterStore()
-            .AddSupabaseAIMemory();
+            .AddSupabaseEventRouterStore();
 
         result.Should().BeSameAs(services);
     }
@@ -122,7 +127,6 @@ public class SupabaseServiceCollectionExtensionsTests
         sql.Should().Contain("CREATE TABLE IF NOT EXISTS aevatar.agent_states");
         sql.Should().Contain("CREATE TABLE IF NOT EXISTS aevatar.agent_configs");
         sql.Should().Contain("CREATE TABLE IF NOT EXISTS aevatar.agent_event_router_hierarchies");
-        sql.Should().Contain("CREATE TABLE IF NOT EXISTS aevatar.ai_memory_messages");
     }
 
     [Fact]

@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/agent-hooks-harness-polish/design.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-05T07:40:09.477Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767598809467_yggbjg6cg",
+      "approvalTitle": "[agent-hooks-harness-polish] Approve design.md (typed deny API + explicit hook injection)"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-05T07:42:26.542Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767598809467_yggbjg6cg",
+      "approvalTitle": "[agent-hooks-harness-polish] Approve design.md (typed deny API + explicit hook injection)"
+    }
+  ]
+}

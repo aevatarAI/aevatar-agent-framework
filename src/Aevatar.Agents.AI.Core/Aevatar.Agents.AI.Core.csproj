@@ -15,7 +15,6 @@
 
     <ItemGroup>
         <ProjectReference Include="..\Aevatar.Agents.AI.Abstractions\Aevatar.Agents.AI.Abstractions.csproj" />
-        <ProjectReference Include="..\Aevatar.Agents.AI.WithTool\Aevatar.Agents.AI.WithTool.csproj" />
         <ProjectReference Include="..\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
         <ProjectReference Include="..\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
     </ItemGroup>
@@ -31,6 +30,8 @@
 
         <!-- Protobuf Dynamic Message Creation -->
         <PackageReference Include="Google.Protobuf" />
+        <!-- MCP (Model Context Protocol) tool integration -->
+        <PackageReference Include="ModelContextProtocol.Core" />
         <PackageReference Include="Grpc.Tools">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -40,6 +41,20 @@
     <ItemGroup>
         <Protobuf Include="ai_messages.proto" GrpcServices="None" />
         <Protobuf Include="Messages\ai_events.proto" GrpcServices="None" />
+        <Protobuf Include="WithTool\tool_messages.proto" GrpcServices="None" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!--
+          The SDK does NOT automatically exclude nested bin/obj directories from default globs.
+          Keep them excluded to avoid duplicate compilation (e.g., protobuf generated files under nested obj/).
+        -->
+        <Compile Remove="**\bin\**" />
+        <Compile Remove="**\obj\**" />
+        <None Remove="**\bin\**" />
+        <None Remove="**\obj\**" />
+        <EmbeddedResource Remove="**\bin\**" />
+        <EmbeddedResource Remove="**\obj\**" />
     </ItemGroup>
 
 </Project>

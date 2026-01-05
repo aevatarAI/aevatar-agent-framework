@@ -3,58 +3,57 @@ using Aevatar.Agents.AI.WithProcessStrategy.Messages;
 namespace Aevatar.Agents.AI.Abstractions;
 
 /// <summary>
-/// AI处理策略接口
-/// 定义不同AI处理模式的通用契约
+/// AI processing strategy interface
+/// Defines common contract for different AI processing modes
 /// </summary>
 // ReSharper disable once InconsistentNaming
 public interface IAevatarAIProcessingStrategy
 {
     /// <summary>
-    /// 获取策略名称
+    /// Get strategy name
     /// </summary>
     string Name { get; }
     
     /// <summary>
-    /// 获取策略描述
-    /// 描述该策略的功能和用途
+    /// Get strategy description
+    /// Describes the functionality and purpose of this strategy
     /// </summary>
     string Description { get; }
     
     /// <summary>
-    /// 获取处理模式
+    /// Get processing mode
     /// </summary>
     AevatarAIProcessingMode Mode { get; }
     
     /// <summary>
-    /// 判断该策略是否能够处理给定的AI上下文
-    /// 允许策略根据上下文内容决定是否适合处理
+    /// Determine if this strategy can handle the given AI context
+    /// Allows strategy to decide if it's suitable based on context content
     /// </summary>
-    /// <param name="context">AI上下文</param>
-    /// <returns>如果策略可以处理该上下文返回true，否则返回false</returns>
+    /// <param name="context">AI context</param>
+    /// <returns>Returns true if strategy can handle the context, otherwise false</returns>
     bool CanHandle(AevatarAIContext context);
     
     /// <summary>
-    /// 估算处理给定上下文的复杂度
+    /// Estimate complexity of processing the given context
     /// </summary>
-    /// <param name="context">AI上下文</param>
-    /// <returns>复杂度分数，从0（简单）到1（复杂）</returns>
+    /// <param name="context">AI context</param>
+    /// <returns>Complexity score from 0 (simple) to 1 (complex)</returns>
     double EstimateComplexity(AevatarAIContext context);
     
     /// <summary>
-    /// 验证策略是否具有所需的所有依赖项
+    /// Validate if strategy has all required dependencies
     /// </summary>
-    /// <param name="dependencies">策略依赖项</param>
-    /// <returns>如果所有依赖项都满足返回true，否则返回false</returns>
+    /// <param name="dependencies">Strategy dependencies</param>
+    /// <returns>Returns true if all dependencies are satisfied, otherwise false</returns>
     bool ValidateRequirements(AevatarAIStrategyDependencies dependencies);
     
     /// <summary>
-    /// 处理AI请求
+    /// Process AI request
     /// </summary>
-    /// <param name="context">AI上下文</param>
-    /// <param name="config">事件处理配置</param>
-    /// <param name="dependencies">策略依赖项</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>处理结果</returns>
+    /// <param name="context">AI context</param>
+    /// <param name="dependencies">Strategy dependencies</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Processing result</returns>
     Task<string> ProcessAsync(
         AevatarAIContext context,
         AevatarAIStrategyDependencies dependencies,

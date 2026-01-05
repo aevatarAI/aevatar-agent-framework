@@ -1,35 +1,35 @@
 namespace Aevatar.Agents.AI.Abstractions;
 
 /// <summary>
-/// LLM提供者接口 - 简化版
-/// 支持多框架实现（OpenAI、Azure、本地模型等）
+/// LLM provider interface - simplified version
+/// Supports multiple framework implementations (OpenAI, Azure, local models, etc.)
 /// </summary>
 public interface IAevatarLLMProvider
 {
     /// <summary>
-    /// 生成文本响应（核心方法）
+    /// Generate text response (core method)
     /// </summary>
     Task<AevatarLLMResponse> GenerateAsync(
         AevatarLLMRequest request,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 流式生成（可选实现）
+    /// Stream generation (optional implementation)
     /// </summary>
     IAsyncEnumerable<AevatarLLMToken> GenerateStreamAsync(
         AevatarLLMRequest request,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 获取模型信息（可选实现）
+    /// Get model information (optional implementation)
     /// </summary>
     Task<AevatarModelInfo> GetModelInfoAsync(CancellationToken cancellationToken = default)
     {
-        // 默认实现
+        // Default implementation
         return Task.FromResult(new AevatarModelInfo
         {
             Name = "unknown",
-            MaxTokens = 4096,
+            MaxTokens = AevatarAIDefaults.DefaultMaxTokensExtended,
             SupportsStreaming = false,
             SupportsFunctions = false
         });

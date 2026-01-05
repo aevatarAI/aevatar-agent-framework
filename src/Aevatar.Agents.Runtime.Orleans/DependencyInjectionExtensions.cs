@@ -6,12 +6,12 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 namespace Aevatar.Agents.Runtime.Orleans;
 
 /// <summary>
-/// Orleans Agent Framework 依赖注入扩展
+/// Orleans Agent Framework dependency injection extensions
 /// </summary>
 public static class DependencyInjectionExtensions
 {
     /// <summary>
-    /// 添加 Orleans Agent 支持
+    /// Add Orleans Agent support
     /// </summary>
     public static IServiceCollection AddOrleansActorFactory(this IServiceCollection services)
     {

@@ -1,0 +1,30 @@
+{
+  "filePath": ".spec-workflow/specs/aigagentbase-cleanup/design.md",
+  "currentVersion": 3,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-05T06:19:38.219Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767593978215_5nq39tquk",
+      "approvalTitle": "Spec aigagentbase-cleanup: approve design.md"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-05T06:25:09.381Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767593978215_5nq39tquk",
+      "approvalTitle": "Spec aigagentbase-cleanup: approve design.md"
+    },
+    {
+      "version": 3,
+      "filename": "snapshot-003.json",
+      "timestamp": "2026-01-05T06:25:09.911Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767593978215_5nq39tquk",
+      "approvalTitle": "Spec aigagentbase-cleanup: approve design.md"
+    }
+  ]
+}

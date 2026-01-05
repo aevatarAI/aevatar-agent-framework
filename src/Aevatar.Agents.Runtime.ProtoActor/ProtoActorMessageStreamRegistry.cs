@@ -3,8 +3,8 @@ using Proto;
 namespace Aevatar.Agents.Runtime.ProtoActor;
 
 /// <summary>
-/// Proto.Actor 运行时的 Stream 注册表
-/// 管理所有 Agent 的 PID 和 Stream
+/// Proto.Actor runtime Stream registry
+/// Manages all Agent PIDs and Streams
 /// </summary>
 public class ProtoActorMessageStreamRegistry
 {
@@ -19,7 +19,7 @@ public class ProtoActorMessageStreamRegistry
     }
 
     /// <summary>
-    /// 注册 Agent 的 PID
+    /// Register Agent's PID
     /// </summary>
     public void RegisterPid(string agentId, PID pid)
     {
@@ -31,7 +31,7 @@ public class ProtoActorMessageStreamRegistry
     }
 
     /// <summary>
-    /// 获取 Agent 的 Stream
+    /// Get Agent's Stream
     /// </summary>
     public ProtoActorMessageStream? GetStream(string agentId)
     {
@@ -43,7 +43,7 @@ public class ProtoActorMessageStreamRegistry
     }
 
     /// <summary>
-    /// 获取 Agent 的 PID
+    /// Get Agent's PID
     /// </summary>
     public PID? GetPid(string agentId)
     {
@@ -55,7 +55,7 @@ public class ProtoActorMessageStreamRegistry
     }
 
     /// <summary>
-    /// 移除 Agent
+    /// Remove Agent
     /// </summary>
     public void Remove(string agentId)
     {
@@ -67,7 +67,7 @@ public class ProtoActorMessageStreamRegistry
     }
 
     /// <summary>
-    /// 检查是否存在
+    /// Check if exists
     /// </summary>
     public bool Exists(string agentId)
     {

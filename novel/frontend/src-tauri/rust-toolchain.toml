@@ -1,0 +1,7 @@
+[toolchain]
+# Keep Tauri dependencies building consistently across machines.
+# The ecosystem currently requires a fairly recent Rust for URL/ICU crates.
+channel = "1.83.0"
+components = ["rustfmt", "clippy"]
+
+

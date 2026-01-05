@@ -99,6 +99,12 @@ Aevatar.Agents.Core/
 └── Observability/                       # 可观测性
 ```
 
+### 持久化模块（Backend-first 命名）
+
+持久化相关项目采用 **后端优先** 的命名与分层（Backend = 稳定边界；Capability = 可插拔能力），以保持与 MongoDB/Supabase 现有结构一致，并避免 “Graph/Backend 两套命名轴混用” 的长期混乱。
+
+详见：`docs/PERSISTENCE_PROJECT_LAYOUT.md`
+
 ### 运行时实现
 
 #### Local Runtime (进程内)
@@ -147,13 +153,16 @@ Aevatar.Agents.AI.Core/
 ├── AIGAgentFactory.cs                # AI Agent 工厂
 ├── ConversationHistoryManager.cs     # 对话历史管理
 ├── Embeddings/                       # Embedding 支持
+├── WithTool/                         # 工具系统（原 Aevatar.Agents.AI.WithTool，已并入 AI.Core）
+│   ├── Abstractions/                 # 工具接口 & 定义
+│   ├── Tools/                        # ToolManager + 内置/核心/自定义工具
+│   ├── MCP/                          # Model Context Protocol 支持
+│   └── tool_messages.proto           # Tool 相关事件/消息（Protobuf）
 └── ai_messages.proto
 
-Aevatar.Agents.AI.WithTool/
-├── ToolAwareConversationHistoryManager.cs
-├── ToolExecutionCoordinator.cs       # 工具执行协调器
-├── Abstractions/                     # 工具接口
-└── MCP/                              # Model Context Protocol 支持
+NOTE:
+- 为了保持兼容性，工具相关类型仍使用命名空间 `Aevatar.Agents.AI.WithTool.*`，
+  但它们现在由 `Aevatar.Agents.AI.Core` 程序集提供（不再存在独立的 `Aevatar.Agents.AI.WithTool` 工程）。
 
 Aevatar.Agents.AI.WithProcessStrategy/
 ├── AIGAgentWithProcessStrategy.cs    # 带处理策略的 AI Agent

@@ -5,8 +5,8 @@ namespace Aevatar.Agents.Core.Context;
 /// <summary>
 /// AgentContext value converter.
 ///
-/// - 用于修复跨边界(序列化/反序列化)后的类型退化问题
-///   例如: int -> int64, float -> double 等，导致 Get&lt;T&gt; 读不到值。
+/// - Fixes type degradation issues after cross-boundary (serialization/deserialization)
+///   For example: int -> int64, float -> double, etc., causing Get&lt;T&gt; to fail reading values.
 /// </summary>
 internal static class AgentContextValueConverter
 {
@@ -128,7 +128,7 @@ internal static class AgentContextValueConverter
         // ============================================================
         if (value is DateTime dateTime && target == typeof(DateTimeOffset))
         {
-            // NOTE: DateTimeKind.Unspecified 会被当成 local；但这里是 best-effort interop。
+            // NOTE: DateTimeKind.Unspecified will be treated as local; but this is best-effort interop.
             result = (T)(object)new DateTimeOffset(dateTime);
             return true;
         }

@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 namespace Aevatar.Agents.Runtime.Local;
 
 /// <summary>
-/// Local 运行时的 Agent Actor 管理器
+/// Local runtime Agent Actor manager
 /// </summary>
 public class LocalGAgentActorManager : IGAgentActorManager
 {
@@ -23,7 +23,7 @@ public class LocalGAgentActorManager : IGAgentActorManager
         _logger = logger;
     }
 
-    #region 生命周期管理
+    #region Lifecycle Management
 
     public async Task<IGAgentActor> CreateAndRegisterAsync<TAgent>(
         string id,
@@ -98,7 +98,7 @@ public class LocalGAgentActorManager : IGAgentActorManager
 
     #endregion
 
-    #region 查询和获取
+    #region Query and Get
 
     public Task<IGAgentActor?> GetActorAsync(string id)
     {
@@ -170,7 +170,7 @@ public class LocalGAgentActorManager : IGAgentActorManager
 
     #endregion
 
-    #region 层级关系协调
+    #region Hierarchy Relationship Coordination
 
     public async Task LinkParentChildAsync(string parentId, string childId, CancellationToken ct = default)
     {
@@ -207,7 +207,7 @@ public class LocalGAgentActorManager : IGAgentActorManager
 
     #endregion
 
-    #region 监控和诊断
+    #region Monitoring and Diagnostics
 
     public Task<ActorHealthStatus> GetHealthStatusAsync(string id)
     {
@@ -240,7 +240,7 @@ public class LocalGAgentActorManager : IGAgentActorManager
         return Task.FromResult(new ActorManagerStatistics
         {
             TotalActors = _actors.Count,
-            ActiveActors = _actors.Count, // 在 Local 运行时，所有 Actor 都是活跃的
+            ActiveActors = _actors.Count, // In Local runtime, all Actors are active
             ActorsByType = actorsByType
         });
     }

@@ -62,7 +62,7 @@ AG-UI (Agent UI) 是一个标准化的 Agent 事件流协议，用于在 Web UI 
 
 ### AgUiBootstrap.cs
 
-提供“assistant 消息快照”的通用实现：从多个 Actor 的 `State.History`（可选 AIMemory）收集每个 `step_id` 的最终 assistant 内容，并生成 `MESSAGES_SNAPSHOT` 需要的 `AgUiMessage[]`。
+提供“assistant 消息快照”的通用实现：从多个 Actor 的 `State.History` 收集每个 `step_id` 的最终 assistant 内容，并生成 `MESSAGES_SNAPSHOT` 需要的 `AgUiMessage[]`。
 
 ## 使用示例
 
@@ -73,7 +73,6 @@ AG-UI (Agent UI) 是一个标准化的 Agent 事件流协议，用于在 Web UI 
 var bootstrap = await AxiomAgUiBootstrap.BuildMessagesSnapshotAsync(
     session,
     actorManager,
-    memoryFactory,
     maxAssistantMessages: 60,
     ct);
 

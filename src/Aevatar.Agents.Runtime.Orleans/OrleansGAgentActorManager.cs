@@ -6,7 +6,7 @@ using Orleans;
 namespace Aevatar.Agents.Runtime.Orleans;
 
 /// <summary>
-/// Orleans 运行时的 Agent Actor 管理器
+/// Orleans runtime Agent Actor manager
 /// </summary>
 public class OrleansGAgentActorManager : IGAgentActorManager
 {
@@ -116,7 +116,7 @@ public class OrleansGAgentActorManager : IGAgentActorManager
         }
     }
 
-    #region 层级关系协调
+    #region Hierarchy Relationship Coordination
 
     public async Task LinkParentChildAsync(string parentId, string childId, CancellationToken ct = default)
     {
@@ -153,7 +153,7 @@ public class OrleansGAgentActorManager : IGAgentActorManager
 
     #endregion
 
-    #region 新增接口实现
+    #region New Interface Implementation
 
     public async Task<IReadOnlyList<IGAgentActor>> CreateBatchAsync<TAgent>(
         IEnumerable<string> ids,
@@ -238,7 +238,7 @@ public class OrleansGAgentActorManager : IGAgentActorManager
                 });
             }
 
-            // Orleans 可以提供更详细的健康状态
+            // Orleans can provide more detailed health status
             return Task.FromResult(new ActorHealthStatus
             {
                 Id = id,

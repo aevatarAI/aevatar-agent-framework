@@ -6,7 +6,6 @@ using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Abstractions.Tests.Embedding;
 using Aevatar.Agents.AI.Abstractions.Tests.LLMProvider;
-using Aevatar.Agents.AI.Abstractions.Tests.Memory;
 using Aevatar.Agents.AI.Abstractions.Tests.ToolManager;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.Core.Embeddings;
@@ -30,7 +29,6 @@ public class AITestFixture : CoreTestFixture
     public ILogger<AITestFixture> Logger => ServiceProvider.GetRequiredService<ILogger<AITestFixture>>();
     public ILLMProviderFactory LLMProviderFactory => ServiceProvider.GetRequiredService<ILLMProviderFactory>();
     public MockLLMProvider MockLLMProvider => (MockLLMProvider)LLMProviderFactory.GetProvider("test-provider");
-    public IAevatarAIMemory AIMemory => ServiceProvider.GetRequiredService<IAevatarAIMemory>();
     public IAevatarToolManager ToolManager => ServiceProvider.GetRequiredService<IAevatarToolManager>();
     public IGAgentFactory GAgentFactory => ServiceProvider.GetRequiredService<IGAgentFactory>();
 
@@ -73,9 +71,6 @@ public class AITestFixture : CoreTestFixture
         // Add Options
         services.AddOptions();
 
-        // Register memory for testing
-        services.AddSingleton<IAevatarAIMemory, MockMemory>();
-        
         // Register tool manager with a default tool
         services.AddSingleton<IAevatarToolManager>(sp =>
         {

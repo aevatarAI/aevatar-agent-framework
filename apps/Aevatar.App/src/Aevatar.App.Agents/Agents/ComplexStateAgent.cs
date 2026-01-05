@@ -134,22 +134,24 @@ public class ComplexStateAgent : GAgentBase<ComplexAgentState>
     }
 
     /// <summary>
-    /// Initialize the agent with complex data for testing.
-    /// 
-    /// NOTE: This method directly modifies state for convenience in testing.
-    /// In production, you should use PublishAsync() to send events through the stream,
-    /// which will automatically trigger OnStateChangedAsync after HandleEventAsync.
-    /// 
-    /// Normal flow: PublishAsync → Stream → HandleEventAsync → EventHandler → OnStateChangedAsync
-    /// This method: Direct state modification → Manual OnStateChangedAsync call
+    /// Event handler for initializing test data.
+    /// This allows test data initialization through the event system,
+    /// which works in both Local and Orleans modes.
     /// </summary>
-    public async Task InitializeTestDataAsync()
+    [EventHandler]
+    public Task HandleInitializeTestData(InitializeTestDataEvent evt)
     {
-        Logger.LogInformation("🧪 Initializing test data for ComplexStateAgent (direct state modification)");
+        Logger.LogInformation("🧪 Initializing test data via event");
+        InitializeTestDataInternal();
+        return Task.CompletedTask;
+    }
 
-        // Direct state modification for testing convenience
-        // In production, use PublishAsync() instead
-        
+    /// <summary>
+    /// Internal method to populate test data.
+    /// Called by both InitializeTestDataAsync() and HandleInitializeTestData().
+    /// </summary>
+    private void InitializeTestDataInternal()
+    {
         // 1. Profile with nested object
         State.Name = "Alice Johnson";
         State.Age = 28;
@@ -162,11 +164,13 @@ public class ComplexStateAgent : GAgentBase<ComplexAgentState>
         };
 
         // 2. Tags (List<string>)
+        State.Tags.Clear();
         State.Tags.Add("premium");
         State.Tags.Add("verified");
         State.Tags.Add("developer");
 
         // 3. Orders (List<nested object>)
+        State.Orders.Clear();
         State.Orders.Add(new OrderItem
         {
             ProductId = "PROD-001",
@@ -190,16 +194,19 @@ public class ComplexStateAgent : GAgentBase<ComplexAgentState>
         });
 
         // 4. Metadata (Map<string, string>)
+        State.Metadata.Clear();
         State.Metadata["theme"] = "dark";
         State.Metadata["language"] = "en-US";
         State.Metadata["timezone"] = "America/Los_Angeles";
 
         // 5. Scores (Map<string, int>)
+        State.Scores.Clear();
         State.Scores["coding"] = 95;
         State.Scores["design"] = 78;
         State.Scores["communication"] = 88;
 
         // 6. Lucky numbers (List<int>)
+        State.LuckyNumbers.Clear();
         State.LuckyNumbers.Add(7);
         State.LuckyNumbers.Add(13);
         State.LuckyNumbers.Add(42);
@@ -208,10 +215,20 @@ public class ComplexStateAgent : GAgentBase<ComplexAgentState>
         State.Balance = 5000.50;
         State.LastUpdated = Timestamp.FromDateTime(DateTime.UtcNow);
 
-        Logger.LogInformation("✅ Test data initialized");
+        Logger.LogInformation("✅ Test data initialized via internal method");
+    }
 
+    /// <summary>
+    /// Initialize the agent with complex data for testing.
+    /// DEPRECATED: Use event-based initialization via InitializeTestDataEvent instead.
+    /// This method is kept for Local mode backward compatibility.
+    /// </summary>
+    public async Task InitializeTestDataAsync()
+    {
+        Logger.LogInformation("🧪 Initializing test data (direct call - Local mode only)");
+        InitializeTestDataInternal();
+        
         // Manual projection trigger (since we bypassed the normal event flow)
-        // In production with PublishAsync, this is automatic!
         await OnStateChangedAsync(State, CancellationToken.None);
     }
 
@@ -220,5 +237,6 @@ public class ComplexStateAgent : GAgentBase<ComplexAgentState>
         return Task.FromResult(State);
     }
 }
+
 
 

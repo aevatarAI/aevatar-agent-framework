@@ -33,6 +33,7 @@
         <ProjectReference Include="..\..\src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
         <ProjectReference Include="..\..\src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
         <ProjectReference Include="..\..\src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
+        <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.Neo4j.MemoryGraph\Aevatar.Agents.Persistence.Neo4j.MemoryGraph.csproj" />
         <ProjectReference Include="..\Aevatar.Agents.Core.Tests.Agents\Aevatar.Agents.Core.Tests.Agents.csproj" />
     </ItemGroup>
 

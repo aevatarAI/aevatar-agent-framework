@@ -280,16 +280,6 @@ public partial class CognitiveCoordinatorGAgent
                 }
             }
 
-            // Persist a structured per-step interaction into AIMemory (optional).
-            // This is the "long-term" layer; State.History stays as a short-term window.
-            await PersistInteractionToMemoryAsync(
-                eventStep,
-                systemPrompt,
-                userPrompt,
-                output,
-                promptTokens,
-                completionTokens);
-
             return new PrimitiveResult
             {
                 Success = true,
@@ -336,43 +326,5 @@ public partial class CognitiveCoordinatorGAgent
         }
     }
 
-    private async Task PersistInteractionToMemoryAsync(
-        StepDefinition step,
-        string? systemPrompt,
-        string userPrompt,
-        string assistantResponse,
-        int promptTokens,
-        int completionTokens)
-    {
-        if (AIMemory == null)
-            return;
-
-        try
-        {
-            var payload = new
-            {
-                kind = "aevatar.cognitive.llm_interaction.v1",
-                agentId = Id,
-                agentKind = "cognitive_coordinator",
-                executionId = CustomState.ExecutionId ?? "",
-                stepId = step.Id ?? "",
-                stepType = step.Type ?? "",
-                systemPrompt,
-                userPrompt,
-                assistantResponse,
-                promptTokens,
-                completionTokens,
-                totalTokens = promptTokens + completionTokens,
-                timestamp = DateTimeOffset.UtcNow.ToString("O")
-            };
-
-            var json = JsonSerializer.Serialize(payload);
-            await AIMemory.AddMessageAsync("assistant", json);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogDebug(ex, "Failed to persist llm interaction to AIMemory (best-effort).");
-        }
-    }
 }
 

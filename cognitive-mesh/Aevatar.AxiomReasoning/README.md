@@ -40,6 +40,6 @@ dotnet run
 - **实时事件**：
   - Legacy SSE：`/api/sessions/{id}/events`
   - **AG-UI SSE（推荐）**：`/api/sessions/{id}/agui/events`（标准 AG-UI 事件 + CUSTOM 扩展）
-    - 连接时先发 `MESSAGES_SNAPSHOT(基于 State.History + 可选 AIMemory)` / `aevatar.axiom.status_snapshot` / `STATE_SNAPSHOT(可选)`，之后进入 live stream（不依赖 replay）
+    - 连接时先发 `MESSAGES_SNAPSHOT(基于 State.History)` / `aevatar.axiom.status_snapshot` / `STATE_SNAPSHOT(可选)`，之后进入 live stream（不依赖 replay）
 
 

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using System.Collections;
 using System.Text.Json.Nodes;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
@@ -19,6 +20,20 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
     private readonly LLMProviderConfig _config;
     private readonly ILogger _logger;
     private readonly LLMCallPolicy _policy;
+    
+    // ------------------------------------------------------------
+    // DeepSeek thinking-mode compatibility
+    //
+    // DeepSeek `deepseek-reasoner` requires `reasoning_content` to be
+    // present on assistant messages when using tool calls. If missing,
+    // the API returns 400:
+    //   "Missing `reasoning_content` field in the assistant message..."
+    //
+    // We keep this provider-specific to avoid breaking standard OpenAI.
+    // ------------------------------------------------------------
+    private bool ForceAssistantReasoningContentField =>
+        !string.IsNullOrWhiteSpace(_config.Model) &&
+        _config.Model.Contains("deepseek-reasoner", StringComparison.OrdinalIgnoreCase);
 
     public MEAILLMProvider(
         IChatClient chatClient,
@@ -95,6 +110,18 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
 
             return result;
         }
+        catch (OperationCanceledException ex)
+        {
+            // This can be:
+            // - Provider/network timeout
+            // - External cancellation (HTTP request aborted, shutdown, etc.)
+            //
+            // Keep it low-noise: cancellation is often user-driven (client disconnect) and will be
+            // surfaced upstream anyway.
+            _logger.LogDebug(ex, "[MEAI] Model call canceled/timeout: {Model} - {Message}", _config.Model, ex.Message);
+            LLMTelemetry.RecordError(activity, ex);
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[MEAI] Error calling model {Model}: {Message}", _config.Model, ex.Message);
@@ -106,8 +133,14 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
     /// <summary>
     /// Maps Aevatar chat role to Microsoft.Extensions.AI chat role.
     /// </summary>
-    private static ChatRole MapToMEAIChatRole(AevatarChatRole role) =>
-        role == AevatarChatRole.User ? ChatRole.User : ChatRole.Assistant;
+    private static ChatRole MapToMEAIChatRole(AevatarChatRole role) => role switch
+    {
+        AevatarChatRole.System => ChatRole.System,
+        AevatarChatRole.User => ChatRole.User,
+        AevatarChatRole.Assistant => ChatRole.Assistant,
+        AevatarChatRole.Tool => ChatRole.Tool,
+        _ => ChatRole.User
+    };
 
     /// <summary>
     /// Builds chat messages from request.
@@ -121,9 +154,60 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
 
         if (request.Messages?.Count > 0)
         {
+            // ------------------------------------------------------------
+            //  Tool calling protocol guard (OpenAI-compatible)
+            //
+            //  Some providers enforce strict ordering:
+            //  - A tool message must reference a preceding assistant message with tool_calls.
+            //
+            //  When history is compacted/truncated, it's possible to end up with an orphan
+            //  tool result message (role=tool) without its matching tool_calls message.
+            //  That yields HTTP 400:
+            //    "Messages with role 'tool' must be a response to a preceding message with 'tool_calls'"
+            //
+            //  We keep this best-effort and only skip clearly invalid tool messages.
+            // ------------------------------------------------------------
+            HashSet<string>? pendingToolCallIds = null;
+
             foreach (var msg in request.Messages)
             {
-                messages.Add(new ChatMessage(MapToMEAIChatRole(msg.Role), msg.Content));
+                var role = MapToMEAIChatRole(msg.Role);
+
+                if (role == ChatRole.Assistant && msg.ToolCalls.Count > 0)
+                {
+                    pendingToolCallIds = new HashSet<string>(
+                        msg.ToolCalls
+                            .Select(tc => (tc?.Id ?? string.Empty).Trim())
+                            .Where(id => id.Length > 0),
+                        StringComparer.Ordinal);
+
+                    messages.Add(CreateChatMessage(msg));
+                    continue;
+                }
+
+                if (role == ChatRole.Tool)
+                {
+                    var callId = (msg.ToolResult?.ToolCallId ?? string.Empty).Trim();
+                    if (callId.Length == 0 ||
+                        pendingToolCallIds == null ||
+                        !pendingToolCallIds.Contains(callId))
+                    {
+                        _logger.LogWarning(
+                            "[MEAI] Skipping orphan tool message (tool_call_id={ToolCallId}). Missing matching preceding tool_calls.",
+                            callId);
+                        continue;
+                    }
+
+                    // Consume the id (supports multi-tool-call in one assistant message).
+                    pendingToolCallIds.Remove(callId);
+
+                    messages.Add(CreateChatMessage(msg));
+                    continue;
+                }
+
+                // Any other role breaks the "tool_calls -> tool results" block.
+                pendingToolCallIds = null;
+                messages.Add(CreateChatMessage(msg));
             }
         }
 
@@ -131,6 +215,92 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
             messages.Add(new ChatMessage(ChatRole.User, request.UserPrompt));
 
         return messages;
+    }
+
+    /// <summary>
+    /// Creates a ChatMessage and populates additional properties (like reasoning_content) if present.
+    /// </summary>
+    private ChatMessage CreateChatMessage(AevatarChatMessage msg)
+    {
+        var role = MapToMEAIChatRole(msg.Role);
+        
+        // ------------------------------------------------------------
+        //  Tool calling: preserve structured tool call / tool result
+        //
+        //  Without this, the model may not associate tool results with
+        //  its original tool call, and can get stuck requesting the same
+        //  tool repeatedly (infinite tool loop).
+        // ------------------------------------------------------------
+        ChatMessage chatMsg;
+        if (role == ChatRole.Assistant && msg.ToolCalls.Count > 0)
+        {
+            var contents = new List<AIContent>();
+            foreach (var tc in msg.ToolCalls)
+            {
+                var callId = !string.IsNullOrWhiteSpace(tc.Id)
+                    ? tc.Id
+                    : Guid.NewGuid().ToString("N");
+
+                var toolName = tc.ToolName ?? string.Empty;
+
+                Dictionary<string, object?> args;
+                if (string.IsNullOrWhiteSpace(tc.Arguments))
+                {
+                    args = new Dictionary<string, object?>();
+                }
+                else
+                {
+                    try
+                    {
+                        args = JsonSerializer.Deserialize<Dictionary<string, object?>>(tc.Arguments) ??
+                               new Dictionary<string, object?>();
+                    }
+                    catch
+                    {
+                        // Best-effort: if arguments can't be parsed, still surface the tool call.
+                        args = new Dictionary<string, object?>();
+                    }
+                }
+
+                contents.Add(new FunctionCallContent(callId, toolName, args));
+            }
+
+            chatMsg = new ChatMessage(role, contents);
+        }
+        else if (role == ChatRole.Tool && msg.ToolResult != null && !string.IsNullOrWhiteSpace(msg.ToolResult.ToolCallId))
+        {
+            var contents = new List<AIContent>
+            {
+                new FunctionResultContent(msg.ToolResult.ToolCallId, msg.ToolResult.Content ?? string.Empty)
+            };
+
+            chatMsg = new ChatMessage(role, contents);
+        }
+        else
+        {
+            chatMsg = new ChatMessage(role, msg.Content ?? string.Empty);
+        }
+        
+        // If caller captured reasoning_content, pass it through (including empty string if present).
+        if (msg.Metadata?.TryGetValue("reasoning_content", out var reasoning) == true)
+        {
+            chatMsg.AdditionalProperties ??= new AdditionalPropertiesDictionary();
+            chatMsg.AdditionalProperties["reasoning_content"] = reasoning ?? string.Empty;
+        }
+
+        // DeepSeek `deepseek-reasoner` tool-calls mode requires the field to exist on assistant messages,
+        // even when empty. We only enforce this for DeepSeek to avoid breaking OpenAI-compatible servers
+        // that reject unknown fields.
+        if (ForceAssistantReasoningContentField && role == ChatRole.Assistant)
+        {
+            chatMsg.AdditionalProperties ??= new AdditionalPropertiesDictionary();
+            if (!chatMsg.AdditionalProperties.ContainsKey("reasoning_content"))
+            {
+                chatMsg.AdditionalProperties["reasoning_content"] = string.Empty;
+            }
+        }
+
+        return chatMsg;
     }
 
     /// <summary>
@@ -304,6 +474,7 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
 
                 return new AevatarFunctionCall
                 {
+                    CallId = functionCall.CallId,
                     Name = functionCall.Name,
                     Arguments = unwrappedArguments != null
                         ? JsonSerializer.Serialize(unwrappedArguments)
@@ -454,6 +625,30 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
 
         await foreach (var chatUpdate in _chatClient.GetStreamingResponseAsync(messages, options, cancellationToken))
         {
+            // ------------------------------------------------------------
+            //  Streaming + tools (IMPORTANT)
+            //
+            //  Some providers (e.g., DeepSeek via OpenAI-compatible API) may emit a FunctionCall
+            //  in streaming updates. If we don't surface it as AevatarFunctionCall, the agent will
+            //  stop mid-answer (model expects tool execution).
+            //
+            //  We detect function calls best-effort and hand control back to AIGAgentBase:
+            //    - AIGAgentBase.ChatStreamAsync will execute the tool loop non-streaming
+            //    - then emit the final answer as a single chunk
+            // ------------------------------------------------------------
+            var functionCall = TryExtractStreamingFunctionCall(chatUpdate);
+            if (functionCall != null)
+            {
+                yield return new AevatarLLMToken
+                {
+                    AevatarFunctionCall = functionCall,
+                    Content = string.Empty,
+                    IsComplete = false
+                };
+
+                yield break;
+            }
+
             var chunk = ExtractStreamingText(chatUpdate);
             if (string.IsNullOrEmpty(chunk))
             {
@@ -472,12 +667,15 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
             totalTokens += estimatedTokens;
             chunkIndex++;
 
+            var reasoning = ExtractReasoningContent(chatUpdate);
+            
             responseBuilder.Append(chunk);
             LLMTelemetry.AddStreamingChunk(activity, chunkIndex, chunk.Length);
 
             yield return new AevatarLLMToken
             {
                 Content = chunk,
+                ReasoningContent = reasoning,
                 IsComplete = false
             };
         }
@@ -489,6 +687,209 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
             chunkIndex, totalTokens, sw.ElapsedMilliseconds);
 
         yield return new AevatarLLMToken { Content = string.Empty, IsComplete = true };
+    }
+
+    /// <summary>
+    /// Best-effort extraction of function call from streaming updates.
+    /// </summary>
+    private AevatarFunctionCall? TryExtractStreamingFunctionCall(object chatUpdate)
+    {
+        try
+        {
+            // ------------------------------------------------------------
+            //  Common shapes (OpenAI-compatible streaming)
+            // ------------------------------------------------------------
+
+            // 1) update.Message.Contents
+            var fromMessage = TryExtractFunctionCallFromMessage(StreamingPropertyCache.GetValue(chatUpdate, "Message"));
+            if (fromMessage != null) return fromMessage;
+
+            // 2) update.Delta (some SDKs surface tool calls on Delta)
+            var delta = StreamingPropertyCache.GetValue(chatUpdate, "Delta");
+            var fromDelta = TryExtractFunctionCallFromAny(delta);
+            if (fromDelta != null) return fromDelta;
+
+            // 3) update.Choices[*].Delta / update.Choices[*].Message
+            var choices = StreamingPropertyCache.GetValue(chatUpdate, "Choices") as IEnumerable;
+            if (choices != null)
+            {
+                foreach (var choice in choices)
+                {
+                    if (choice == null) continue;
+                    var cDelta = StreamingPropertyCache.GetValue(choice, "Delta");
+                    var cMsg = StreamingPropertyCache.GetValue(choice, "Message");
+
+                    var fromChoiceDelta = TryExtractFunctionCallFromAny(cDelta);
+                    if (fromChoiceDelta != null) return fromChoiceDelta;
+
+                    var fromChoiceMsg = TryExtractFunctionCallFromMessage(cMsg);
+                    if (fromChoiceMsg != null) return fromChoiceMsg;
+                }
+            }
+
+            // 4) update.ToolCalls / update.FunctionCall
+            var fromToolCalls = TryExtractFunctionCallFromEnumerable(StreamingPropertyCache.GetValue(chatUpdate, "ToolCalls") as IEnumerable);
+            if (fromToolCalls != null) return fromToolCalls;
+
+            var fromDirect = TryExtractFunctionCallFromRaw(StreamingPropertyCache.GetValue(chatUpdate, "FunctionCall"));
+            if (fromDirect != null) return fromDirect;
+
+            // 5) Some update types may directly expose Content/Contents as parts.
+            var fromTopLevelParts = TryExtractFunctionCallFromEnumerable(
+                (StreamingPropertyCache.GetValue(chatUpdate, "Contents") as IEnumerable) ??
+                (StreamingPropertyCache.GetValue(chatUpdate, "Content") as IEnumerable));
+            if (fromTopLevelParts != null) return fromTopLevelParts;
+        }
+        catch
+        {
+            // ignore (best-effort)
+        }
+
+        return null;
+    }
+
+    private AevatarFunctionCall? TryExtractFunctionCallFromAny(object? candidate)
+    {
+        if (candidate == null)
+            return null;
+
+        // Direct part / raw tool call
+        var direct = TryExtractFunctionCallFromRaw(candidate);
+        if (direct != null)
+            return direct;
+
+        // candidate.Message
+        var fromMessage = TryExtractFunctionCallFromMessage(StreamingPropertyCache.GetValue(candidate, "Message"));
+        if (fromMessage != null)
+            return fromMessage;
+
+        // candidate.ToolCalls
+        var fromToolCalls = TryExtractFunctionCallFromEnumerable(StreamingPropertyCache.GetValue(candidate, "ToolCalls") as IEnumerable);
+        if (fromToolCalls != null)
+            return fromToolCalls;
+
+        // candidate.Contents / candidate.Content
+        var fromParts = TryExtractFunctionCallFromEnumerable(
+            (StreamingPropertyCache.GetValue(candidate, "Contents") as IEnumerable) ??
+            (StreamingPropertyCache.GetValue(candidate, "Content") as IEnumerable));
+        if (fromParts != null)
+            return fromParts;
+
+        // candidate.FunctionCall
+        var fromFunctionCall = TryExtractFunctionCallFromRaw(StreamingPropertyCache.GetValue(candidate, "FunctionCall"));
+        if (fromFunctionCall != null)
+            return fromFunctionCall;
+
+        return null;
+    }
+
+    private AevatarFunctionCall? TryExtractFunctionCallFromMessage(object? message)
+    {
+        if (message == null)
+            return null;
+
+        var parts = (StreamingPropertyCache.GetValue(message, "Contents") as IEnumerable)
+            ?? (StreamingPropertyCache.GetValue(message, "Content") as IEnumerable);
+
+        return TryExtractFunctionCallFromEnumerable(parts);
+    }
+
+    private AevatarFunctionCall? TryExtractFunctionCallFromEnumerable(IEnumerable? parts)
+    {
+        if (parts == null)
+            return null;
+
+        foreach (var part in parts)
+        {
+            if (part == null)
+                continue;
+
+            // Strong-typed path (Microsoft.Extensions.AI)
+            if (part is FunctionCallContent functionCall)
+            {
+                var unwrapped = UnwrapFunctionArguments(functionCall.Arguments);
+                var argsJson = unwrapped != null ? JsonSerializer.Serialize(unwrapped) : "{}";
+                return new AevatarFunctionCall
+                {
+                    CallId = functionCall.CallId,
+                    Name = functionCall.Name,
+                    Arguments = argsJson
+                };
+            }
+
+            // Raw representation (OpenAI.Chat.ChatToolCall) - best effort via reflection.
+            var raw = StreamingPropertyCache.GetValue(part, "RawRepresentation");
+            var fromRaw = TryExtractFunctionCallFromRaw(raw);
+            if (fromRaw != null)
+                return fromRaw;
+
+            // Some streaming types may surface tool call directly as the part itself.
+            var fromPart = TryExtractFunctionCallFromRaw(part);
+            if (fromPart != null)
+                return fromPart;
+        }
+
+        return null;
+    }
+
+    private static AevatarFunctionCall? TryExtractFunctionCallFromRaw(object? raw)
+    {
+        if (raw == null)
+            return null;
+
+        var callId = (StreamingPropertyCache.GetValue(raw, "CallId") as string)
+                     ?? (StreamingPropertyCache.GetValue(raw, "Id") as string)
+                     ?? (StreamingPropertyCache.GetValue(raw, "ToolCallId") as string)
+                     ?? (StreamingPropertyCache.GetValue(raw, "ToolCallID") as string)
+                     ?? string.Empty;
+
+        var name = (StreamingPropertyCache.GetValue(raw, "Name") as string)
+                   ?? (StreamingPropertyCache.GetValue(raw, "ToolName") as string)
+                   ?? (StreamingPropertyCache.GetValue(raw, "FunctionName") as string)
+                   ?? string.Empty;
+
+        name = name.Trim();
+        if (name.Length == 0)
+            return null;
+
+        var argsObj = StreamingPropertyCache.GetValue(raw, "Arguments")
+                     ?? StreamingPropertyCache.GetValue(raw, "FunctionArguments");
+
+        var argsJson = "{}";
+        switch (argsObj)
+        {
+            case null:
+                break;
+            case string s:
+                argsJson = string.IsNullOrWhiteSpace(s) ? "{}" : s;
+                break;
+            case JsonElement el:
+                argsJson = el.ValueKind == JsonValueKind.String
+                    ? (el.GetString() ?? "{}")
+                    : el.GetRawText();
+                break;
+            case IDictionary<string, object?> dict:
+                argsJson = JsonSerializer.Serialize(dict);
+                break;
+            default:
+                // Best-effort: try to serialize unknown argument container
+                argsJson = JsonSerializer.Serialize(argsObj);
+                break;
+        }
+
+        // ToolArgumentsJson expects an object - keep it safe.
+        var trimmed = argsJson.Trim();
+        if (trimmed.Length == 0 || (!trimmed.StartsWith("{", StringComparison.Ordinal) && !trimmed.StartsWith("[", StringComparison.Ordinal)))
+        {
+            argsJson = "{}";
+        }
+
+        return new AevatarFunctionCall
+        {
+            CallId = callId,
+            Name = name,
+            Arguments = argsJson
+        };
     }
 
     /// <summary>
@@ -534,7 +935,8 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
             return sb.ToString();
         }
 
-        var content = StreamingPropertyCache.GetValue(message, "Content") as System.Collections.IEnumerable;
+        var content = (StreamingPropertyCache.GetValue(message, "Contents") as System.Collections.IEnumerable)
+            ?? (StreamingPropertyCache.GetValue(message, "Content") as System.Collections.IEnumerable);
         if (content == null)
         {
             return sb.ToString();

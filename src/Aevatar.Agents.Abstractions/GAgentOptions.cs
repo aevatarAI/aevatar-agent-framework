@@ -27,4 +27,24 @@ public class GAgentOptions
     /// Optional override for <see cref="IEventRouterStore"/>.
     /// </summary>
     public Type? EventRouterStoreType { get; set; }
+
+    /// <summary>
+    /// Optional override for <c>IExecutionTraceStore</c>.
+    /// </summary>
+    public Type? ExecutionTraceStoreType { get; set; }
+
+    /// <summary>
+    /// Optional override for <see cref="Memory.IMemoryStore"/>.
+    /// </summary>
+    public Type? MemoryStoreType { get; set; }
+
+    /// <summary>
+    /// Optional override for <see cref="Memory.IMemoryVectorIndex"/>.
+    /// </summary>
+    public Type? MemoryVectorIndexType { get; set; }
+
+    /// <summary>
+    /// Optional override for <see cref="Memory.IMemoryGraphStore"/>.
+    /// </summary>
+    public Type? MemoryGraphStoreType { get; set; }
 }

@@ -3,7 +3,7 @@ using Aevatar.Agents.AI.Abstractions.Configuration;
 namespace Aevatar.Agents.AI.Abstractions.Providers;
 
 /// <summary>
-/// LLM提供商工厂接口
+/// LLM provider factory interface
 /// </summary>
 public interface ILLMProviderFactory
 {

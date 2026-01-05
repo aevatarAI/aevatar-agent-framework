@@ -1,4 +1,6 @@
 <Solution>
+  <Folder Name="/.spec-workflow/" />
+  <Folder Name="/.spec-workflow/specs/" />
   <Folder Name="/aevatar-kit/">
     <Project Path="aevatar-kit\src\AevatarKit.Api\AevatarKit.Api.csproj" />
     <Project Path="aevatar-kit\src\AevatarKit.Core\AevatarKit.Core.csproj" />
@@ -25,7 +27,7 @@
     <Project Path="cognitive-mesh/Aevatar.CognitiveMesh.Dsl/Aevatar.CognitiveMesh.Dsl.csproj" />
     <Project Path="cognitive-mesh/Aevatar.CognitiveMesh/Aevatar.CognitiveMesh.csproj" />
     <Project Path="cognitive-mesh/Aevatar.PaperReview/Aevatar.PaperReview.csproj" />
-    <Project Path="cognitive-mesh\Aevatar.AxiomReasoning\Aevatar.AxiomReasoning.csproj" Type="C#" />
+    <Project Path="cognitive-mesh\Aevatar.AxiomReasoning\Aevatar.AxiomReasoning.csproj" />
     <File Path="cognitive-mesh/README.md" />
   </Folder>
   <Folder Name="/cognitive-mesh/docs/">
@@ -56,36 +58,51 @@
     <Project Path="examples\Demo.Agents\Demo.Agents.csproj" />
     <Project Path="examples\Demo.Api\Demo.Api.csproj" />
     <Project Path="examples\Demo.AppHost\Demo.AppHost.csproj" />
-    <Project Path="examples\DotNetFileSkillDemo\DotNetFileSkillDemo.csproj" Type="C#" />
+    <Project Path="examples\DotNetFileSkillDemo\DotNetFileSkillDemo.csproj" />
     <Project Path="examples\EventSourcingDemo\EventSourcingDemo.csproj" />
     <Project Path="examples\LlmTornadoDemo\LlmTornadoDemo.csproj" />
     <Project Path="examples\MakerSystem\MakerSystem.csproj" />
     <Project Path="examples\MCPToolDemo\MCPToolDemo.csproj" />
-    <Project Path="examples\MemoryDemo\MemoryDemo.csproj" Type="Classic C#" />
+    <Project Path="examples\MemoryDemo\MemoryDemo.csproj" />
     <Project Path="examples\MongoDBEventStoreDemo\MongoDBEventStoreDemo.csproj" />
     <Project Path="examples\SimpleDemo\SimpleDemo.csproj" />
-    <Project Path="examples\SkillsMCPUnifiedDemo\SkillsMCPUnifiedDemo.csproj" Type="C#" />
+    <Project Path="examples\SkillsMCPUnifiedDemo\SkillsMCPUnifiedDemo.csproj" />
     <Project Path="examples\StateStoreDemo\StateStoreDemo.csproj" />
+    <Project Path="examples\GraphNeo4jDemo\GraphNeo4jDemo.csproj" />
+  </Folder>
+  <Folder Name="/notebook/">
+    <Project Path="notebook\src\Aevatar.Notebook\Aevatar.Notebook.csproj" />
+    <Project Path="notebook\src\Aevatar.Notebook.Api\Aevatar.Notebook.Api.csproj" />
+    <Project Path="notebook\Aevatar.Notebook.AppHost\Aevatar.Notebook.AppHost.csproj" />
+    <File Path="notebook\README.md" />
   </Folder>
   <Folder Name="/plugins/">
-    <Project Path="plugins\Aevatar.Agents.Plugins.CQRS\Aevatar.Agents.Plugins.CQRS.csproj" Type="C#" />
-    <Project Path="plugins\Aevatar.Agents.Plugins.MassTransit\Aevatar.Agents.Plugins.MassTransit.csproj" Type="C#" />
+    <Project Path="plugins\Aevatar.Agents.Plugins.CQRS\Aevatar.Agents.Plugins.CQRS.csproj" />
+    <Project Path="plugins\Aevatar.Agents.Plugins.MassTransit\Aevatar.Agents.Plugins.MassTransit.csproj" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
-    <Project Path="src\Aevatar.Agents.AGUI\Aevatar.Agents.AGUI.csproj" Type="C#" />
+    <Project Path="src\Aevatar.Agents.AGUI\Aevatar.Agents.AGUI.csproj" />
     <Project Path="src\Aevatar.Agents.AI.Abstractions\Aevatar.Agents.AI.Abstractions.csproj" />
     <Project Path="src\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
     <Project Path="src\Aevatar.Agents.AI.LLMTornado\Aevatar.Agents.AI.LLMTornado.csproj" />
     <Project Path="src\Aevatar.Agents.AI.MEAI\Aevatar.Agents.AI.MEAI.csproj" />
     <Project Path="src\Aevatar.Agents.AI.WithProcessStrategy\Aevatar.Agents.AI.WithProcessStrategy.csproj" />
-    <Project Path="src\Aevatar.Agents.AI.WithTool\Aevatar.Agents.AI.WithTool.csproj" />
-    <Project Path="src\Aevatar.Agents.Cognitive\Aevatar.Agents.Cognitive.csproj" Type="C#" />
+    <Project Path="src\Aevatar.Agents.Cognitive\Aevatar.Agents.Cognitive.csproj" />
     <Project Path="src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
     <Project Path="src\Aevatar.Agents.CreativeReasoning\Aevatar.Agents.CreativeReasoning.csproj" />
     <Project Path="src\Aevatar.Agents.Maker\Aevatar.Agents.Maker.csproj" />
+    <Project Path="src\Aevatar.Agents.Persistence.Graph\Aevatar.Agents.Persistence.Graph.csproj" />
+    <Project Path="src\Aevatar.Agents.Persistence.InMemory.Graph\Aevatar.Agents.Persistence.InMemory.Graph.csproj" />
+    <Project Path="src\Aevatar.Agents.Persistence.Neo4j\Aevatar.Agents.Persistence.Neo4j.csproj" />
+    <Project Path="src\Aevatar.Agents.Persistence.Neo4j.Graph\Aevatar.Agents.Persistence.Neo4j.Graph.csproj" />
+    <Project Path="src\Aevatar.Agents.Persistence.Neo4j.MemoryGraph\Aevatar.Agents.Persistence.Neo4j.MemoryGraph.csproj" />
     <Project Path="src\Aevatar.Agents.Persistence.MongoDB\Aevatar.Agents.Persistence.MongoDB.csproj" />
+    <Project Path="src\Aevatar.Agents.Persistence.MongoDB.GAgent\Aevatar.Agents.Persistence.MongoDB.GAgent.csproj" />
+    <Project Path="src\Aevatar.Agents.Persistence.MongoDB.Memory\Aevatar.Agents.Persistence.MongoDB.Memory.csproj" />
     <Project Path="src\Aevatar.Agents.Persistence.Supabase\Aevatar.Agents.Persistence.Supabase.csproj" />
+    <Project Path="src\Aevatar.Agents.Persistence.Supabase.GAgent\Aevatar.Agents.Persistence.Supabase.GAgent.csproj" />
+    <Project Path="src\Aevatar.Agents.Persistence.Supabase.Memory\Aevatar.Agents.Persistence.Supabase.Memory.csproj" />
     <Project Path="src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
     <Project Path="src\Aevatar.Agents.Runtime.Orleans.MongoDB\Aevatar.Agents.Runtime.Orleans.MongoDB.csproj" />
     <Project Path="src\Aevatar.Agents.Runtime.Orleans\Aevatar.Agents.Runtime.Orleans.csproj" />
@@ -93,6 +110,7 @@
     <Project Path="src\Aevatar.Agents.Runtime\Aevatar.Agents.Runtime.csproj" />
   </Folder>
   <Folder Name="/test/">
+    <Project Path="test/Aevatar.Agents.AGUI.Tests/Aevatar.Agents.AGUI.Tests.csproj" />
     <Project Path="test/Aevatar.Agents.AI.Core.Tests/Aevatar.Agents.AI.Core.Tests.csproj" />
     <Project Path="test/Aevatar.Agents.Maker.Tests/Aevatar.Agents.Maker.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.Abstractions.Tests\Aevatar.Agents.Abstractions.Tests.csproj" />
@@ -101,6 +119,7 @@
     <Project Path="test\Aevatar.Agents.AI.Tests\Aevatar.Agents.AI.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.Core.Tests.Agents\Aevatar.Agents.Core.Tests.Agents.csproj" />
     <Project Path="test\Aevatar.Agents.Core.Tests\Aevatar.Agents.Core.Tests.csproj" />
+    <Project Path="test/Aevatar.Agents.CreativeReasoning.Tests/Aevatar.Agents.CreativeReasoning.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.Local.Tests\Aevatar.Agents.Local.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.Orleans.MongoDB.Tests\Aevatar.Agents.Orleans.MongoDB.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.Orleans.Tests\Aevatar.Agents.Orleans.Tests.csproj" />
@@ -108,11 +127,14 @@
     <Project Path="test\Aevatar.Agents.Persistence.Supabase.Tests\Aevatar.Agents.Persistence.Supabase.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.Plugins.MassTransit.Tests\Aevatar.Agents.Plugins.MassTransit.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.ProtoActor.Tests\Aevatar.Agents.ProtoActor.Tests.csproj" />
+    <Project Path="test/Aevatar.Agents.Runtime.Tests/Aevatar.Agents.Runtime.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.TestBase\Aevatar.Agents.TestBase.csproj" />
     <Project Path="test\Aevatar.Agents.Twitter.Tests\Aevatar.Agents.Twitter.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.Workflow.Tests\Aevatar.Agents.Workflow.Tests.csproj" />
-    <Project Path="test\Aevatar.CognitiveMesh.Dsl.Tests\Aevatar.CognitiveMesh.Dsl.Tests.csproj" Type="C#" />
-    <Project Path="test\Aevatar.PaperReview.Tests\Aevatar.PaperReview.Tests.csproj" Type="C#" />
+    <Project Path="test\Aevatar.CognitiveMesh.Dsl.Tests\Aevatar.CognitiveMesh.Dsl.Tests.csproj" />
+    <Project Path="test\Aevatar.PaperReview.Tests\Aevatar.PaperReview.Tests.csproj" />
+    <Project Path="test\Aevatar.Agents.Persistence.Graph.Tests\Aevatar.Agents.Persistence.Graph.Tests.csproj" />
+    <Project Path="test\Aevatar.Notebook.Tests\Aevatar.Notebook.Tests.csproj" />
     <File Path="test/README.md" />
     <File Path="test\UnitTestDesign.md" />
   </Folder>

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -11,7 +11,7 @@
     <header class="header">
       <div>
         <h1>Aevatar Memory Demo</h1>
-        <div class="sub">State.History · Compaction(history_summary) · IAevatarAIMemory · search_memory</div>
+        <div class="sub">State.History · Summary · CQRS · MemoryStore · VectorIndex · ExecutionTrace→Graph · search_memory</div>
       </div>
       <div class="status">
         <div id="statusBadge" class="badge">loading...</div>
@@ -20,14 +20,48 @@
     </header>
 
     <section class="panel">
+      <div class="panel-title">Demo Settings (Memory + Tools + Paths)</div>
+      <div class="row row-tight">
+        <label class="chk"><input id="enableStoreChk" type="checkbox" /> Enable MemoryStore append</label>
+        <label class="chk"><input id="enableVectorChk" type="checkbox" /> Enable VectorIndex append</label>
+        <label class="chk"><input id="allowInternalToolsChk" type="checkbox" /> Allow internal tools</label>
+        <label class="chk"><input id="allowDangerousToolsChk" type="checkbox" /> Allow dangerous tools</label>
+        <button id="applySettingsBtn" class="btn btn-secondary">Apply</button>
+        <button id="refreshInfoBtn" class="btn btn-secondary">Refresh</button>
+        <button id="refreshToolsBtn" class="btn btn-secondary">Tools</button>
+      </div>
+      <pre id="pathsBox" class="pre pre-small"></pre>
+      <pre id="toolsBox" class="pre pre-small"></pre>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title">Knowledge Base (Book → MemoryStore/VectorIndex)</div>
+      <div class="row row-tight">
+        <input id="kbBookId" class="input input-small" placeholder="bookId (optional)" />
+        <input id="kbTitle" class="input" placeholder="book title (optional)" />
+        <button id="kbIngestBtn" class="btn btn-secondary">Ingest</button>
+        <button id="kbListBtn" class="btn btn-secondary">List</button>
+      </div>
+      <textarea id="kbText" class="textarea" placeholder="Paste book text here (demo limit: 2,000,000 chars)"></textarea>
+      <div class="row row-tight">
+        <input id="kbMemoryId" class="input" placeholder="active memoryId (e.g. tenant::book-...)" />
+        <button id="kbSelectBtn" class="btn btn-secondary">Select for Chat</button>
+        <button id="kbClearBtn" class="btn btn-secondary">Clear</button>
+      </div>
+      <pre id="kbBox" class="pre"></pre>
+    </section>
+
+    <section class="panel">
       <div class="panel-title">Chat</div>
       <div id="chatLog" class="chat-log"></div>
       <div class="row">
-        <input id="chatInput" class="input" placeholder="输入一句话，聊到超过 8 条会触发 compaction..." />
+        <input id="chatInput" class="input" placeholder="Type a message, chatting more than 8 messages will trigger compaction..." />
         <button id="sendBtn" class="btn">Send</button>
+        <button id="seedBtn" class="btn btn-secondary">Seed</button>
+        <button id="seedTraceBtn" class="btn btn-secondary">Seed Trace</button>
       </div>
       <div class="hint">
-        Tip：先告诉它一个“关键词/事实”，然后连续聊 10 轮，把它挤出 history，再用 Search Memory 搜回来。
+        Tip: 1) chat 10 rounds → see history_summary; 2) use search_memory (with memoryId) to retrieve; 3) Seed Trace → creates execution graph + execution-scoped memory.
       </div>
     </section>
 
@@ -46,20 +80,71 @@
       </div>
 
       <div class="panel">
-        <div class="panel-title">Long-term (IAevatarAIMemory)</div>
+        <div class="panel-title">CQRS Read Model (projected state)</div>
         <div class="row row-tight">
-          <button id="loadLongtermBtn" class="btn btn-secondary">Load History</button>
+          <button id="refreshCqrsBtn" class="btn btn-secondary">Refresh</button>
         </div>
-        <pre id="longtermBox" class="pre"></pre>
+        <pre id="cqrsBox" class="pre"></pre>
       </div>
 
       <div class="panel">
         <div class="panel-title">search_memory (tool)</div>
         <div class="row row-tight">
           <input id="searchInput" class="input" placeholder="query..." />
+          <select id="searchTypeSel" class="select">
+            <option value="all">all</option>
+            <option value="working">working</option>
+            <option value="conversation">conversation</option>
+          </select>
+          <input id="searchMemoryId" class="input input-small" placeholder="memoryId (optional)" />
           <button id="searchBtn" class="btn btn-secondary">Search</button>
         </div>
         <pre id="searchBox" class="pre"></pre>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="panel">
+        <div class="panel-title">Memory Store (resources + entries)</div>
+        <div class="row row-tight">
+          <button id="refreshMemResourcesBtn" class="btn btn-secondary">Resources</button>
+          <input id="memEntriesId" class="input input-small" placeholder="memoryId" />
+          <button id="loadMemEntriesBtn" class="btn btn-secondary">Entries</button>
+          <button id="memStatsBtn" class="btn btn-secondary">Stats</button>
+        </div>
+        <pre id="memBox" class="pre"></pre>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Vector Index (direct search + stats)</div>
+        <div class="row row-tight">
+          <input id="vectorQuery" class="input" placeholder="vector query..." />
+          <input id="vectorMemoryId" class="input input-small" placeholder="memoryId" />
+          <button id="vectorSearchBtn" class="btn btn-secondary">Search</button>
+          <button id="vectorStatsBtn" class="btn btn-secondary">Stats</button>
+        </div>
+        <pre id="vectorBox" class="pre"></pre>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="panel">
+        <div class="panel-title">ExecutionTrace (bundles)</div>
+        <div class="row row-tight">
+          <button id="traceListBtn" class="btn btn-secondary">List</button>
+          <input id="traceId" class="input input-small" placeholder="executionId" />
+          <button id="traceLoadBtn" class="btn btn-secondary">Load</button>
+        </div>
+        <pre id="traceBox" class="pre"></pre>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Memory Graph (artifact)</div>
+        <div class="row row-tight">
+          <input id="graphId" class="input input-small" placeholder="executionId" />
+          <button id="graphLoadBtn" class="btn btn-secondary">Load</button>
+        </div>
+        <pre id="graphBox" class="pre"></pre>
       </div>
     </section>
 

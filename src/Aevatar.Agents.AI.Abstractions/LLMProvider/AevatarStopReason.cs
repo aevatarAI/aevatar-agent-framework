@@ -1,57 +1,57 @@
 namespace Aevatar.Agents.AI.Abstractions;
 
 /// <summary>
-/// LLM生成停止原因
+/// LLM generation stop reason
 /// </summary>
 public enum AevatarStopReason
 {
     /// <summary>
-    /// 正常完成（模型自然结束）
+    /// Normal completion (model naturally ended)
     /// </summary>
     Complete,
     
     /// <summary>
-    /// 达到最大token限制
+    /// Reached maximum token limit
     /// </summary>
     MaxTokens,
     
     /// <summary>
-    /// 遇到停止序列
+    /// Encountered stop sequence
     /// </summary>
     StopSequence,
     
     /// <summary>
-    /// 需要调用函数/工具
+    /// Function/tool call required
     /// </summary>
     AevatarFunctionCall,
     
     /// <summary>
-    /// 内容被安全过滤器拦截
+    /// Content blocked by safety filter
     /// </summary>
     ContentFilter,
     
     /// <summary>
-    /// 用户主动中断
+    /// User actively interrupted
     /// </summary>
     UserInterruption,
     
     /// <summary>
-    /// 请求超时
+    /// Request timeout
     /// </summary>
     Timeout,
     
     /// <summary>
-    /// 达到API速率限制
+    /// Reached API rate limit
     /// </summary>
     RateLimitReached,
     
     /// <summary>
-    /// 上下文长度超限
+    /// Context length exceeded
     /// </summary>
     ContextLengthExceeded,
     
     /// <summary>
-    /// 发生错误
+    /// Error occurred
     /// </summary>
     Error
 }

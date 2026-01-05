@@ -6,39 +6,39 @@ using Microsoft.Extensions.Logging;
 namespace Aevatar.Agents.AI.WithProcessStrategy.Strategies;
 
 /// <summary>
-/// ReAct（Reasoning + Acting）AI处理策略
-/// 交替进行推理和行动，通过观察反馈来迭代解决问题
+/// ReAct (Reasoning + Acting) AI processing strategy
+/// Alternates between reasoning and acting, iteratively solving problems through observation feedback
 /// </summary>
 public class ReActProcessingStrategy : IAevatarAIProcessingStrategy
 {
     public string Name => "ReAct Processing";
     
-    public string Description => "ReAct策略 - 结合推理和行动，通过交替思考和执行工具来解决问题";
+    public string Description => "ReAct strategy - Combines reasoning and acting, solving problems by alternating thinking and tool execution";
     
     public AevatarAIProcessingMode Mode => AevatarAIProcessingMode.ReAct;
     
     public bool CanHandle(AevatarAIContext context)
     {
-        // 适合需要思考和行动结合的场景
+        // Suitable for scenarios requiring combination of thinking and acting
         if (context.Metadata?.ContainsKey("PreferredStrategy") == true)
         {
             var preferred = context.Metadata["PreferredStrategy"]?.ToString();
             return string.Equals(preferred, "ReAct", StringComparison.OrdinalIgnoreCase);
         }
         
-        // 适合需要多步骤操作或工具交互的场景
+        // Suitable for scenarios requiring multi-step operations or tool interactions
         return context.Metadata?.ContainsKey("RequiresMultipleTools") == true;
     }
     
     public double EstimateComplexity(AevatarAIContext context)
     {
-        // ReAct适合中高复杂度，特别是需要工具交互的场景
+        // ReAct suitable for medium-high complexity, especially scenarios requiring tool interactions
         return 0.7;
     }
     
     public bool ValidateRequirements(AevatarAIStrategyDependencies dependencies)
     {
-        // ReAct需要工具管理器
+        // ReAct requires tool manager
         return dependencies?.LLMProvider != null && 
                dependencies.Configuration != null &&
                dependencies.ToolManager != null;
@@ -59,7 +59,7 @@ public class ReActProcessingStrategy : IAevatarAIProcessingStrategy
         {
             cancellationToken.ThrowIfCancellationRequested();
             
-            // Step 1: Thought - 推理下一步
+            // Step 1: Thought - Reason about next step
             var thought = await GenerateThoughtAsync(context, observations, dependencies, cancellationToken);
             
             if (string.IsNullOrEmpty(thought))
@@ -70,7 +70,7 @@ public class ReActProcessingStrategy : IAevatarAIProcessingStrategy
             
             dependencies.Logger?.LogDebug("ReAct Thought [{Iteration}]: {Thought}", iteration, thought);
             
-            // Step 2: Action - 决定动作
+            // Step 2: Action - Determine action
             var action = await DetermineActionAsync(thought, dependencies, cancellationToken);
             
             if (action == null)
@@ -88,7 +88,7 @@ public class ReActProcessingStrategy : IAevatarAIProcessingStrategy
                 return action.Result ?? thought;
             }
             
-            // Step 3: Observation - 执行动作并观察结果
+            // Step 3: Observation - Execute action and observe result
             var observation = await ExecuteActionAndObserveAsync(action, dependencies, cancellationToken);
             observations.Add(observation);
             
@@ -110,7 +110,7 @@ public class ReActProcessingStrategy : IAevatarAIProcessingStrategy
     }
     
     /// <summary>
-    /// 生成推理思考
+    /// Generate reasoning thought
     /// </summary>
     private async Task<string> GenerateThoughtAsync(
         AevatarAIContext context,
@@ -149,7 +149,7 @@ public class ReActProcessingStrategy : IAevatarAIProcessingStrategy
     }
     
     /// <summary>
-    /// 基于思考决定行动
+    /// Determine action based on thought
     /// </summary>
     private async Task<ReActAction?> DetermineActionAsync(
         string thought,
@@ -230,7 +230,7 @@ public class ReActProcessingStrategy : IAevatarAIProcessingStrategy
     }
     
     /// <summary>
-    /// 执行动作并观察结果
+    /// Execute action and observe result
     /// </summary>
     private async Task<ReActObservation> ExecuteActionAndObserveAsync(
         ReActAction action,
@@ -275,7 +275,7 @@ public class ReActProcessingStrategy : IAevatarAIProcessingStrategy
     }
     
     /// <summary>
-    /// 判断任务是否完成
+    /// Determine if task is complete
     /// </summary>
     private async Task<bool> IsTaskCompleteAsync(
         AevatarAIContext context,
@@ -283,14 +283,14 @@ public class ReActProcessingStrategy : IAevatarAIProcessingStrategy
         AevatarAIStrategyDependencies dependencies,
         CancellationToken cancellationToken)
     {
-        // 简单的启发式：如果有足够的成功观察，可能已完成
+        // Simple heuristic: If enough successful observations, may be complete
         var successfulObservations = observations.Count(o => o.Success);
         if (successfulObservations < 2)
         {
             return false;
         }
         
-        // 使用LLM判断是否有足够信息回答问题
+        // Use LLM to determine if have enough information to answer question
         var observationsSummary = string.Join("\n", observations.Select(o => 
             $"- {o.Action}: {o.Content}"));
         
@@ -313,7 +313,7 @@ public class ReActProcessingStrategy : IAevatarAIProcessingStrategy
     }
     
     /// <summary>
-    /// 生成最终答案
+    /// Generate final answer
     /// </summary>
     private async Task<string> GenerateFinalAnswerAsync(
         AevatarAIContext context,
@@ -357,7 +357,7 @@ public class ReActProcessingStrategy : IAevatarAIProcessingStrategy
 }
 
 /// <summary>
-/// ReAct动作
+/// ReAct action
 /// </summary>
 internal class ReActAction
 {
@@ -368,7 +368,7 @@ internal class ReActAction
 }
 
 /// <summary>
-/// ReAct观察结果
+/// ReAct observation result
 /// </summary>
 internal class ReActObservation
 {

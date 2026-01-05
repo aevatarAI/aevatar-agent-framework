@@ -1,8 +1,11 @@
 using System.Collections.Concurrent;
+using System.Text.Encodings.Web;
+using System.Text.Json;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Core;
+using Aevatar.Agents.Abstractions.Tracing;
 using Aevatar.Agents.Cognitive.Execution;
 using Aevatar.Agents.Cognitive.Engine;
 using Aevatar.Agents.Cognitive.Messages;
@@ -85,6 +88,9 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
     private Action<WorkflowStepEvent>? _onStepEvent;
     private readonly object _stepEventsLock = new(); // May have concurrent writes during vote parallel generation
     private readonly object _statsLock = new(); // Accumulate statistics under multiple parallel tasks, avoid loss/confusion
+
+    // ExecutionTrace store (injected by ExecutionTraceStoreInjector, best-effort)
+    protected IExecutionTraceStore? ExecutionTraceStore { get; set; }
     
     // ============================================================
     //  Constructor
@@ -230,7 +236,6 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
                 worker.EnableChatHistoryCompaction = EnableChatHistoryCompaction;
                 worker.ChatHistoryMaxMessages = ChatHistoryMaxMessages;
                 worker.ChatHistorySummaryMaxChars = ChatHistorySummaryMaxChars;
-                worker.ArchiveCompactedHistoryToAIMemory = ArchiveCompactedHistoryToAIMemory;
 
                 // Initialize Worker's LLM Provider (otherwise Worker.LLMProvider will throw exception)
                 if (!string.IsNullOrWhiteSpace(providerName))
@@ -589,8 +594,62 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
 
     private Task<PrimitiveResult> ExecuteCheckpointAsync(StepDefinition step)
     {
+        // Checkpoint is a token-free observability primitive.
+        // It can optionally emit a JSON snapshot of selected workflow variables (or dotted paths),
+        // so the UI / transcript can show incremental state without waiting for workflow completion.
+        //
+        // DSL usage:
+        // - id: checkpoint_state
+        //   type: checkpoint
+        //   variables: ["state", "state.theorems"]
         Logger.LogDebug("Checkpoint at step: {StepId}", step.Id);
-        return Task.FromResult(PrimitiveResult.Ok(null));
+
+        var varsObj = step.Parameters.GetValueOrDefault("variables");
+        var names = varsObj switch
+        {
+            IEnumerable<string> ss => ss.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).ToList(),
+            System.Collections.IEnumerable e => e.Cast<object?>()
+                .Select(x => x?.ToString())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x!.Trim())
+                .ToList(),
+            _ => new List<string>()
+        };
+
+        var snapshot = new Dictionary<string, object?>(StringComparer.Ordinal);
+        foreach (var name in names)
+        {
+            if (string.IsNullOrWhiteSpace(name)) continue;
+            var val = ResolvePathValue(_workflowVariables, name);
+            snapshot[name] = val;
+        }
+
+        string body;
+        try
+        {
+            body = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                // Same spirit as TemplateEngine: keep non-ASCII readable in UI output.
+                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            });
+        }
+        catch
+        {
+            body = snapshot.ToString() ?? "";
+        }
+
+        var userPrompt = names.Count > 0
+            ? $"Checkpoint variables: {string.Join(", ", names)}"
+            : "Checkpoint";
+
+        return Task.FromResult(new PrimitiveResult
+        {
+            Success = true,
+            Value = snapshot,
+            UserPrompt = userPrompt,
+            AssistantResponse = body
+        });
     }
 
     // ============================================================

@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package Aevatar.Agents.Memory;
+
+option csharp_namespace = "Aevatar.Agents.Abstractions.Memory";
+
+import "google/protobuf/timestamp.proto";
+
+// ============================================================
+//  Memory (Unified) - 统一记忆资源协议
+//
+//  WHY:
+//  - Provide a cross-runtime, versionable contract for "Memory as a Resource".
+//  - Make memory shareable with explicit scope boundaries (private/session/run/...).
+//
+//  NOTES:
+//  - This proto defines DATA CONTRACTS only. Stores/indexes are DI boundaries (C# interfaces).
+// ============================================================
+
+enum MemoryScopeType {
+  MEMORY_SCOPE_TYPE_UNSPECIFIED = 0;
+
+  // private(agent_id)
+  MEMORY_SCOPE_TYPE_PRIVATE_AGENT = 1;
+
+  // session(session_id)
+  MEMORY_SCOPE_TYPE_SESSION = 2;
+
+  // run(run_id)
+  MEMORY_SCOPE_TYPE_RUN = 3;
+
+  // execution(execution_id) - for ExecutionTrace bundles
+  MEMORY_SCOPE_TYPE_EXECUTION = 4;
+
+  // graph(graph_id@version)
+  MEMORY_SCOPE_TYPE_GRAPH = 5;
+
+  // tenant(tenant_id) - shared knowledge base
+  MEMORY_SCOPE_TYPE_TENANT = 6;
+}
+
+message MemoryScope {
+  MemoryScopeType type = 1;
+  string scope_id = 2;
+}
+
+message MemoryEntry {
+  // Unique id for this entry (stable for indexing).
+  string entry_id = 1;
+
+  // Memory resource id (partition key).
+  string memory_id = 2;
+
+  // Explicit scope boundary (SSOT for sharing + governance).
+  MemoryScope scope = 3;
+
+  // Optional linkage for auditing / UI navigation.
+  string run_id = 4;
+  string agent_id = 5;
+
+  // user/assistant/system/tool/...
+  string role = 6;
+
+  // Human-readable memory content (keep it compact; large blobs should be stored as attachments elsewhere).
+  string content = 7;
+
+  google.protobuf.Timestamp created_at = 8;
+
+  // Lightweight tags for indexing/filters.
+  map<string, string> tags = 100;
+}
+
+message MemoryResourceSummary {
+  string memory_id = 1;
+  MemoryScope scope = 2;
+  int32 entry_count = 3;
+  google.protobuf.Timestamp latest_at = 4;
+}
+
+

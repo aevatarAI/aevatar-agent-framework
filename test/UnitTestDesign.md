@@ -501,17 +501,7 @@ dotnet test --collect:"XPlat Code Coverage"
 - **ProcessAsync_ReachingMaxIterations_ShouldStop**: 验证迭代限制的遵守
 - **IsTaskComplete_WithSufficientObservations_ShouldReturnTrue**: 测试任务完成判断逻辑
 
-### 12.4 Memory Management Tests 💾
-
-#### IAevatarAIMemory Tests
-- **AddMessageAsync_ShouldStoreMessage**: 验证消息存储功能
-- **GetHistoryAsync_ShouldReturnInOrder**: 测试历史记录的顺序性
-- **GetHistoryAsync_WithLimit_ShouldRespectLimit**: 验证历史记录限制
-- **ClearHistoryAsync_ShouldRemoveAllMessages**: 测试清空历史记录
-- **SearchAsync_ShouldReturnRelevantResults**: 验证语义搜索相关性
-- **SearchAsync_WithTopK_ShouldLimitResults**: 测试搜索结果数量限制
-
-### 12.5 Prompt Management Tests
+### 12.4 Prompt Management Tests
 
 #### IAevatarPromptManager Tests
 - **GetSystemPromptAsync_WithKey_ShouldReturnCorrectPrompt**: 验证系统提示词获取

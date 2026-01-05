@@ -47,8 +47,11 @@
     <!-- Agent Framework (CRITICAL for Grain discovery) -->
     <ProjectReference Include="../../../../src/Aevatar.Agents.Abstractions/Aevatar.Agents.Abstractions.csproj" />
     <ProjectReference Include="../../../../src/Aevatar.Agents.Core/Aevatar.Agents.Core.csproj" />
+    <ProjectReference Include="../../../../src/Aevatar.Agents.AI.Abstractions/Aevatar.Agents.AI.Abstractions.csproj" />
+    <ProjectReference Include="../../../../src/Aevatar.Agents.AI.MEAI/Aevatar.Agents.AI.MEAI.csproj" />
     <ProjectReference Include="../../../../src/Aevatar.Agents.Runtime.Orleans/Aevatar.Agents.Runtime.Orleans.csproj" />
     <ProjectReference Include="../../../../src/Aevatar.Agents.Persistence.MongoDB/Aevatar.Agents.Persistence.MongoDB.csproj" />
+    <ProjectReference Include="../../../../src/Aevatar.Agents.Persistence.MongoDB.GAgent/Aevatar.Agents.Persistence.MongoDB.GAgent.csproj" />
     <ProjectReference Include="../../../../src/Aevatar.Agents.Runtime.Orleans.MongoDB/Aevatar.Agents.Runtime.Orleans.MongoDB.csproj" />
     <ProjectReference Include="../../../../plugins/Aevatar.Agents.Plugins.MassTransit/Aevatar.Agents.Plugins.MassTransit.csproj" />
     <ProjectReference Include="../../../../plugins/Aevatar.Agents.Plugins.CQRS/Aevatar.Agents.Plugins.CQRS.csproj" />

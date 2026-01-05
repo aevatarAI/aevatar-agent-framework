@@ -1,6 +1,6 @@
 using System;
-using System.Collections.Generic;
 using System.Threading.Tasks;
+using Aevatar.Agents.Abstractions.CQRS;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Volo.Abp.AspNetCore.Mvc;
@@ -33,7 +33,7 @@ public class StateQueryController : AbpControllerBase
     /// <param name="agentId">Agent ID</param>
     /// <returns>Agent state</returns>
     [HttpGet("{agentType}/{agentId}")]
-    public async Task<ActionResult<StateQueryResponseDto>> GetById(
+    public async Task<ActionResult<StateQueryResult>> GetById(
         [FromRoute] string agentType,
         [FromRoute] string agentId)
     {
@@ -62,7 +62,7 @@ public class StateQueryController : AbpControllerBase
     /// <param name="request">Query request</param>
     /// <returns>Paged state results</returns>
     [HttpPost("query")]
-    public async Task<ActionResult<PagedStateQueryResponseDto>> Query([FromBody] StateQueryRequestDto request)
+    public async Task<ActionResult<PagedStateQueryResult>> Query([FromBody] StateQuery request)
     {
         _logger.LogInformation(
             "📊 Querying states for type {AgentType}, query: {Query}, page: {Page}",
@@ -107,97 +107,6 @@ public class StateQueryController : AbpControllerBase
     }
 }
 
-// ========== DTOs ==========
-
-/// <summary>
-/// State query request
-/// </summary>
-public class StateQueryRequestDto
-{
-    /// <summary>
-    /// Agent type (index name)
-    /// </summary>
-    public string AgentType { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Lucene query string (optional)
-    /// Examples: "status:active", "version:>10", "name:John*"
-    /// </summary>
-    public string? QueryString { get; set; }
-
-    /// <summary>
-    /// Page index (0-based)
-    /// </summary>
-    public int PageIndex { get; set; }
-
-    /// <summary>
-    /// Page size (default: 20)
-    /// </summary>
-    public int PageSize { get; set; } = 20;
-
-    /// <summary>
-    /// Sort fields (format: "field:asc" or "field:desc")
-    /// </summary>
-    public List<string> SortFields { get; set; } = new();
-}
-
-/// <summary>
-/// Single state query response
-/// </summary>
-public class StateQueryResponseDto
-{
-    /// <summary>
-    /// Agent ID
-    /// </summary>
-    public string AgentId { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Agent type
-    /// </summary>
-    public string AgentType { get; set; } = string.Empty;
-
-    /// <summary>
-    /// State data
-    /// </summary>
-    public Dictionary<string, object?> Data { get; set; } = new();
-
-    /// <summary>
-    /// Version
-    /// </summary>
-    public long Version { get; set; }
-}
-
-/// <summary>
-/// Paged state query response
-/// </summary>
-public class PagedStateQueryResponseDto
-{
-    /// <summary>
-    /// Total count of matching documents
-    /// </summary>
-    public long TotalCount { get; set; }
-
-    /// <summary>
-    /// Result items
-    /// </summary>
-    public List<StateQueryResponseDto> Items { get; set; } = new();
-
-    /// <summary>
-    /// Current page index
-    /// </summary>
-    public int PageIndex { get; set; }
-
-    /// <summary>
-    /// Page size
-    /// </summary>
-    public int PageSize { get; set; }
-
-    /// <summary>
-    /// Total pages
-    /// </summary>
-    public int TotalPages { get; set; }
-}
-
 /// <summary>
 /// State count response
 /// </summary>
@@ -212,17 +121,5 @@ public class StateCountResponseDto
     /// Count of matching states
     /// </summary>
     public long Count { get; set; }
-}
-
-// ========== Service Interface ==========
-
-/// <summary>
-/// State query service interface (to be implemented by Silo)
-/// </summary>
-public interface IStateQueryService
-{
-    Task<StateQueryResponseDto?> GetByIdAsync(string agentType, string agentId);
-    Task<PagedStateQueryResponseDto> QueryAsync(StateQueryRequestDto request);
-    Task<long> CountAsync(string agentType, string? queryString);
 }
 

@@ -58,6 +58,31 @@ h1 { margin: 0 0 6px; font-size: 22px; }
 .row { display: flex; gap: 10px; margin-top: 10px; }
 .row-tight { margin-top: 0; }
 
+.chk {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: rgba(232,236,255,0.90);
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255,255,255,0.03);
+}
+.chk input { accent-color: var(--accent); }
+
+.select {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--text);
+  outline: none;
+}
+.select:focus { border-color: rgba(110,168,254,0.5); }
+
+.input-small { max-width: 260px; }
+
 .input {
   flex: 1;
   background: rgba(255,255,255,0.04);
@@ -69,6 +94,24 @@ h1 { margin: 0 0 6px; font-size: 22px; }
 }
 .input::placeholder { color: rgba(168,176,216,0.65); }
 .input:focus { border-color: rgba(110,168,254,0.5); }
+
+.textarea {
+  width: 100%;
+  margin-top: 10px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  color: var(--text);
+  outline: none;
+  min-height: 160px;
+  resize: vertical;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+  font-size: 12px;
+  line-height: 1.35;
+}
+.textarea::placeholder { color: rgba(168,176,216,0.65); }
+.textarea:focus { border-color: rgba(110,168,254,0.5); }
 
 .btn {
   border: 1px solid rgba(110,168,254,0.35);
@@ -122,10 +165,16 @@ h1 { margin: 0 0 6px; font-size: 22px; }
   margin: 0;
   min-height: 180px;
   overflow: auto;
+  /* Auto wrap long JSON / token streams so a single long word won't break the layout */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   color: rgba(232,236,255,0.92);
   font-size: 12px;
   line-height: 1.35;
 }
+
+.pre-small { min-height: 120px; }
 
 .footer { margin-top: 18px; color: rgba(168,176,216,0.75); font-size: 12px; }
 code { color: rgba(232,236,255,0.92); }

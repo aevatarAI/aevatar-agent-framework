@@ -8,8 +8,8 @@ using Microsoft.Extensions.Logging;
 namespace Aevatar.Agents.AI.WithProcessStrategy.Strategies;
 
 /// <summary>
-/// AI处理策略工厂
-/// 负责创建和管理不同的处理策略实例
+/// AI processing strategy factory
+/// Responsible for creating and managing different processing strategy instances
 /// </summary>
 public class AevatarAIProcessingStrategyFactory : IAevatarAIProcessingStrategyFactory
 {
@@ -19,7 +19,7 @@ public class AevatarAIProcessingStrategyFactory : IAevatarAIProcessingStrategyFa
     private readonly Dictionary<AevatarAIProcessingMode, Type> _strategyTypes;
     
     /// <summary>
-    /// 构造函数
+    /// Constructor
     /// </summary>
     public AevatarAIProcessingStrategyFactory(
         IServiceProvider? serviceProvider = null,
@@ -29,7 +29,7 @@ public class AevatarAIProcessingStrategyFactory : IAevatarAIProcessingStrategyFa
         _logger = logger;
         _strategies = new ConcurrentDictionary<AevatarAIProcessingMode, IAevatarAIProcessingStrategy>();
         
-        // 注册内置策略类型
+        // Register built-in strategy types
         _strategyTypes = new Dictionary<AevatarAIProcessingMode, Type>
         {
             [AevatarAIProcessingMode.Standard] = typeof(StandardProcessingStrategy),
@@ -42,28 +42,28 @@ public class AevatarAIProcessingStrategyFactory : IAevatarAIProcessingStrategyFa
     }
     
     /// <summary>
-    /// 获取处理策略
+    /// Get processing strategy
     /// </summary>
     public IAevatarAIProcessingStrategy GetStrategy(AevatarAIProcessingMode mode)
     {
-        // 尝试从缓存获取
+        // Try to get from cache
         if (_strategies.TryGetValue(mode, out var cachedStrategy))
         {
             _logger?.LogDebug("Using cached strategy for mode {Mode}", mode);
             return cachedStrategy;
         }
         
-        // 创建新策略
+        // Create new strategy
         var strategy = CreateStrategy(mode);
         
-        // 缓存策略（策略是无状态的，可以重用）
+        // Cache strategy (strategies are stateless, can be reused)
         _strategies.TryAdd(mode, strategy);
         
         return strategy;
     }
     
     /// <summary>
-    /// 获取或创建处理策略（带依赖注入）
+    /// Get or create processing strategy (with dependency injection)
     /// </summary>
     public IAevatarAIProcessingStrategy GetOrCreateStrategy(
         AevatarAIProcessingMode mode,
@@ -85,7 +85,7 @@ public class AevatarAIProcessingStrategyFactory : IAevatarAIProcessingStrategyFa
     }
     
     /// <summary>
-    /// 注册自定义策略类型
+    /// Register custom strategy type
     /// </summary>
     public void RegisterStrategyType(AevatarAIProcessingMode mode, Type strategyType)
     {
@@ -98,7 +98,7 @@ public class AevatarAIProcessingStrategyFactory : IAevatarAIProcessingStrategyFa
         
         _strategyTypes[mode] = strategyType;
         
-        // 清除缓存的策略实例
+        // Clear cached strategy instance
         _strategies.TryRemove(mode, out _);
         
         _logger?.LogInformation("Registered custom strategy type {Type} for mode {Mode}", 
@@ -106,7 +106,7 @@ public class AevatarAIProcessingStrategyFactory : IAevatarAIProcessingStrategyFa
     }
     
     /// <summary>
-    /// 注册自定义策略实例
+    /// Register custom strategy instance
     /// </summary>
     public void RegisterStrategy(AevatarAIProcessingMode mode, IAevatarAIProcessingStrategy strategy)
     {
@@ -115,7 +115,7 @@ public class AevatarAIProcessingStrategyFactory : IAevatarAIProcessingStrategyFa
     }
     
     /// <summary>
-    /// 获取所有可用的处理模式
+    /// Get all available processing modes
     /// </summary>
     public IEnumerable<AevatarAIProcessingMode> GetAvailableModes()
     {
@@ -123,7 +123,7 @@ public class AevatarAIProcessingStrategyFactory : IAevatarAIProcessingStrategyFa
     }
     
     /// <summary>
-    /// 清除策略缓存
+    /// Clear strategy cache
     /// </summary>
     public void ClearCache()
     {
@@ -132,7 +132,7 @@ public class AevatarAIProcessingStrategyFactory : IAevatarAIProcessingStrategyFa
     }
     
     /// <summary>
-    /// 创建策略实例
+    /// Create strategy instance
     /// </summary>
     private IAevatarAIProcessingStrategy CreateStrategy(AevatarAIProcessingMode mode)
     {
@@ -146,7 +146,7 @@ public class AevatarAIProcessingStrategyFactory : IAevatarAIProcessingStrategyFa
         _logger?.LogDebug("Creating strategy instance for mode {Mode} using type {Type}", 
             mode, strategyType.Name);
         
-        // 优先使用DI容器创建
+        // Prefer using DI container to create
         if (_serviceProvider != null)
         {
             try
@@ -164,7 +164,7 @@ public class AevatarAIProcessingStrategyFactory : IAevatarAIProcessingStrategyFa
             }
         }
         
-        // 回退到Activator创建
+        // Fallback to Activator creation
         try
         {
             var strategy = Activator.CreateInstance(strategyType) as IAevatarAIProcessingStrategy;
@@ -185,28 +185,28 @@ public class AevatarAIProcessingStrategyFactory : IAevatarAIProcessingStrategyFa
 }
 
 /// <summary>
-/// DI扩展方法
+/// DI extension methods
 /// </summary>
 public static class AevatarAIProcessingStrategyExtensions
 {
     /// <summary>
-    /// 注册AI处理策略服务
+    /// Register AI processing strategy services
     /// </summary>
     public static IServiceCollection AddAevatarAIProcessingStrategies(this IServiceCollection services)
     {
-        // 注册工厂
+        // Register factory
         services.AddSingleton<IAevatarAIProcessingStrategyFactory, AevatarAIProcessingStrategyFactory>();
 
-        // 注册各个策略为瞬态服务（它们是无状态的）
+        // Register each strategy as transient service (they are stateless)
         services.AddTransient<StandardProcessingStrategy>();
         services.AddTransient<ChainOfThoughtProcessingStrategy>();
         services.AddTransient<ReActProcessingStrategy>();
         services.AddTransient<TreeOfThoughtsProcessingStrategy>();
 
-        // 注册泛型策略解析
+        // Register generic strategy resolution
         services.AddTransient<IAevatarAIProcessingStrategy>(provider =>
         {
-            // 默认返回标准策略
+            // Default returns standard strategy
             return provider.GetRequiredService<StandardProcessingStrategy>();
         });
 

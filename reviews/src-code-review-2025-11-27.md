@@ -135,7 +135,7 @@
 
 3. **Conversation History 管理**
    - 基于 Protobuf `RepeatedField` 的高效存储
-   - `ToolAwareConversationHistoryManager` 扩展支持工具调用
+   - （后续更新）工具调用历史已并入 `AIGAgentBase.Tools.cs` 的 tool-loop 逻辑中，避免重复实现
 
 #### ⚠️ 待改进
 
@@ -159,7 +159,7 @@
 
 ---
 
-### 4. Aevatar.Agents.AI.WithTool
+### 4. Aevatar.Agents.AI.WithTool（已并入 AI.Core）
 
 **职责**: Tool Calling / Function Calling 支持
 
@@ -169,9 +169,9 @@
    - 支持 npx/uvx 两种启动方式
    - `IAevatarToolManager` 统一管理工具生命周期
 
-2. **Tool 执行协调器**
-   - `ToolExecutionCoordinator` 处理 LLM ↔ Tool 交互循环
-   - 支持工具结果注入对话历史
+2. **Tool loop 已内置到 AIGAgentBase**
+   - 工具注册/函数定义/执行循环由 `AIGAgentBase.Tools.cs` 统一提供
+   - 旧的 `ToolExecutionCoordinator`/`ToolAwareConversationHistoryManager` 已移除以减少重复
 
 3. **声明式工具注册**
    ```csharp

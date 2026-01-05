@@ -64,7 +64,7 @@ public class OrleansGAgentActorFactory : IGAgentActorFactory
         string? id = null, 
         CancellationToken ct = default)
     {
-        // Orleans 下 ActorId 必须包含类型前缀（避免跨类型 id 冲突）：
+        // Under Orleans, ActorId must include type prefix (to avoid cross-type id conflicts):
         // ActorId = "AgentTypeShortName:RawId"
         var inputId = string.IsNullOrWhiteSpace(id) ? Guid.NewGuid().ToString("D") : id.Trim();
         var actorId = AgentId.Normalize(agentType, inputId);

@@ -1,9 +1,11 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI.Core.Helpers;
+using Aevatar.Agents.AI.Core.Hooks;
 using Aevatar.Agents.Core;
 using Aevatar.Agents.Core.Helpers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Aevatar.Agents.AI.Core;
 
@@ -63,7 +65,36 @@ public class AIGAgentFactory : IGAgentFactory
         LoggerInjector.InjectLogger(agent, _serviceProvider);
         AgentStateStoreInjector.InjectStateStore(agent, _serviceProvider);
         AgentConfigStoreInjector.InjectConfigStore(agent, _serviceProvider);
+        ExecutionTraceStoreInjector.InjectExecutionTraceStore(agent, _serviceProvider);
+        MemoryStoreInjector.InjectMemoryStore(agent, _serviceProvider);
+        MemoryVectorIndexInjector.InjectMemoryVectorIndex(agent, _serviceProvider);
+        MemoryGraphStoreInjector.InjectMemoryGraphStore(agent, _serviceProvider);
         AIAgentToolManagerInjector.InjectToolManager(agent, _serviceProvider);
+        AIAgentStateQueryServiceInjector.InjectStateQueryService(agent, _serviceProvider);
+
+        // ============================================================
+        //  Hook/Harness injection (explicit, type-safe, best-effort)
+        //
+        //  中文 + ASCII:
+        //  - Prefer explicit injection over reflection for discoverability.
+        //  - Do NOT fail agent creation if DI is not configured.
+        // ============================================================
+        if (agent is AIGAgentBase aiAgent)
+        {
+            try
+            {
+                var options = _serviceProvider.GetService<IOptions<AevatarAgentHookOptions>>()?.Value
+                              ?? _serviceProvider.GetService<AevatarAgentHookOptions>();
+                aiAgent.InjectHookOptions(options);
+
+                var hooks = _serviceProvider.GetServices<IAevatarAgentHook>();
+                aiAgent.InjectAdditionalHooks(hooks);
+            }
+            catch
+            {
+                // Best-effort: never fail agent creation due to hook injection.
+            }
+        }
 
         // Will be replaced when this agent is wrapped by an actor.
         AgentEventPublisherInjector.InjectEventPublisher(agent, NullEventPublisher.Instance);
@@ -76,11 +107,6 @@ public class AIGAgentFactory : IGAgentFactory
         if (AIAgentEmbeddingFactoryInjector.HasEmbeddingFactory(agent))
         {
             AIAgentEmbeddingFactoryInjector.InjectEmbeddingFactory(agent, _serviceProvider);
-        }
-
-        if (AIAgentAIMemoryInjector.HasAIMemory(agent))
-        {
-            AIAgentAIMemoryInjector.InjectAIMemory(agent, _serviceProvider);
         }
 
         if (AgentEventStoreInjector.HasEventStore(agent))

@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/Aevatar.Agents.Abstractions/Aevatar.Agents.Abstractions.csproj" />
+    <ProjectReference Include="../../src/Aevatar.Agents.Core/Aevatar.Agents.Core.csproj" />
   </ItemGroup>
 
 </Project>

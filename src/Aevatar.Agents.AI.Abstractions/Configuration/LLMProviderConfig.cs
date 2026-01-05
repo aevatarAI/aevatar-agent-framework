@@ -3,77 +3,80 @@ using System.Collections.Generic;
 namespace Aevatar.Agents.AI.Abstractions.Configuration;
 
 /// <summary>
-/// LLM提供商配置
+/// LLM provider configuration
 /// <para/>
-/// 在appsettings.json中配置多个LLM提供商
+/// Configure multiple LLM providers in appsettings.json
 /// </summary>
 public class LLMProviderConfig
 {
     /// <summary>
-    /// 提供商名称（唯一标识，如：openai-gpt4, azure-gpt35, local-llama等）
+    /// Provider name (unique identifier, e.g., openai-gpt4, azure-gpt35, local-llama, etc.)
     /// </summary>
     public string Name { get; set; } = string.Empty;
 
     /// <summary>
-    /// 提供商类型（OpenAI, AzureOpenAI, Local, etc）
+    /// Provider type (OpenAI, AzureOpenAI, Local, etc)
     /// </summary>
     public string ProviderType { get; set; } = string.Empty;
 
     /// <summary>
-    /// API密钥
+    /// API key
     /// </summary>
     public string? ApiKey { get; set; }
 
     /// <summary>
-    /// 模型名称（如：gpt-4, gpt-3.5-turbo, llama2-70b等）
+    /// Model name (e.g., gpt-4, gpt-3.5-turbo, llama2-70b, etc.)
     /// </summary>
     public string Model { get; set; } = "gpt-4";
 
     /// <summary>
-    /// API终结点（可选，用于Azure或本地模型）
+    /// API endpoint (optional, for Azure or local models)
     /// </summary>
     public string? Endpoint { get; set; }
 
     /// <summary>
-    /// 部署名称（Azure OpenAI专用）
+    /// Deployment name (Azure OpenAI specific)
     /// </summary>
     public string? DeploymentName { get; set; }
 
     /// <summary>
-    /// 温度参数（0-2）
+    /// Temperature parameter (0-2)
     /// </summary>
     public double Temperature { get; set; } = 0.7;
 
     /// <summary>
-    /// 最大令牌数
+    /// Maximum tokens
     /// </summary>
-    public int MaxTokens { get; set; } = 2000;
+    public int MaxTokens { get; set; } = AevatarAIDefaults.DefaultMaxOutputTokens;
 
     /// <summary>
-    /// 超时时间（毫秒）
+    /// Timeout duration (milliseconds)
     /// </summary>
-    public int TimeoutMilliseconds { get; set; } = 60000;
+    // NOTE:
+    // - Default to 10 minutes to match current MEAI/OpenAI client behavior (large context + tool loops can be slow).
+    // - Apps can override per-provider in configuration.
+    public int TimeoutMilliseconds { get; set; } = 600_000;
 
     /// <summary>
-    /// 是否启用流式响应
+    /// Whether to enable streaming response
     /// </summary>
     public bool EnableStreaming { get; set; } = false;
 
     /// <summary>
-    /// 提供商特定设置
+    /// Provider-specific settings
     /// </summary>
     public Dictionary<string, object> ProviderSpecificSettings { get; set; } = new();
 
     /// <summary>
-    /// Embedding 通道配置（可选）
+    /// Embedding channel configuration (optional)
     /// </summary>
     public LLMEmbeddingConfig? Embeddings { get; set; }
 }
 
 /// <summary>
-/// LLM提供商集合配置
+/// LLM providers collection configuration
 /// <para/>
-/// 在appsettings.json中的配置示例：
+/// Configuration example in appsettings.json:
 /// <code>
 /// {
 ///   "LLMProviders": {
@@ -105,59 +108,59 @@ public class LLMProviderConfig
 public class LLMProvidersConfig
 {
     /// <summary>
-    /// 默认提供商名称
+    /// Default provider name
     /// </summary>
-    public string Default { get; set; } = "openai-gpt4";
+    public string Default { get; set; }
 
     /// <summary>
-    /// 提供商字典（key: 提供商名称, value: 配置）
+    /// Provider dictionary (key: provider name, value: configuration)
     /// </summary>
     public Dictionary<string, LLMProviderConfig> Providers { get; set; } = new();
 }
 
 /// <summary>
-/// Embedding 配置，用于驱动 IEmbeddingGenerator
+/// Embedding configuration, used to drive IEmbeddingGenerator
 /// </summary>
 public class LLMEmbeddingConfig
 {
     /// <summary>
-    /// 是否启用 Embedding 通道（默认 true）
+    /// Whether to enable Embedding channel (default true)
     /// </summary>
     public bool Enabled { get; set; } = true;
 
     /// <summary>
-    /// Embedding 提供商类型（OpenAI, AzureOpenAI, Ollama 等）。
-    /// 若未指定，默认沿用主配置的 ProviderType。
+    /// Embedding provider type (OpenAI, AzureOpenAI, Ollama, etc.).
+    /// If not specified, defaults to main configuration's ProviderType.
     /// </summary>
     public string? ProviderType { get; set; }
 
     /// <summary>
-    /// Embedding 模型名称（OpenAI 场景）
+    /// Embedding model name (OpenAI scenario)
     /// </summary>
     public string? Model { get; set; }
 
     /// <summary>
-    /// Embedding 部署名称（Azure OpenAI 场景）
+    /// Embedding deployment name (Azure OpenAI scenario)
     /// </summary>
     public string? DeploymentName { get; set; }
 
     /// <summary>
-    /// 可覆盖的 Endpoint
+    /// Overridable Endpoint
     /// </summary>
     public string? Endpoint { get; set; }
 
     /// <summary>
-    /// 可覆盖的 API Key
+    /// Overridable API Key
     /// </summary>
     public string? ApiKey { get; set; }
 
     /// <summary>
-    /// 维度（部分模型需要手动指定）
+    /// Dimensions (some models require manual specification)
     /// </summary>
     public int? Dimensions { get; set; }
 
     /// <summary>
-    /// 提供商特定扩展字段
+    /// Provider-specific extension fields
     /// </summary>
     public Dictionary<string, object> ProviderSpecificSettings { get; set; } = new();
 }

@@ -32,6 +32,26 @@ Or set environment variables:
 export DEEPSEEK_API_KEY=your-key
 ```
 
+## Trace Bundle 输出（默认启用）
+
+默认情况下，框架会把每次执行的 `ExecutionTrace` 输出到 `<repoRoot>/trace`（best-effort）。
+
+如果你希望把输出目录改到其他位置（覆盖默认），请设置：
+
+```bash
+export AEVATAR_TRACE_DIR="/abs/path/to/aevatar_traces"
+```
+
+输出目录结构（Trace Bundle v1）：
+
+```
+${AEVATAR_TRACE_DIR}/<executionId>/
+  trace.pb
+  trace.json
+  manifest.json
+  artifacts/
+```
+
 ## Projects
 
 ### 八字推演 (Bazi Analysis)

@@ -9,34 +9,32 @@ namespace Aevatar.Agents.Runtime.Local;
 
 /// <summary>
 /// Extension methods for configuring the Local agent runtime in dependency injection.
-/// 用于在依赖注入中配置Local运行时的扩展方法
 /// </summary>
 public static class ServiceCollectionExtensions
 {
     /// <summary>
     /// Adds the Local agent runtime core services to the service collection.
-    /// 将Local运行时核心服务添加到服务集合
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <returns>The service collection for chaining.</returns>
     public static IServiceCollection AddAevatarLocalRuntime(this IServiceCollection services)
     {
-        // 注册工厂
+        // Register factory
         services.TryAddSingleton<LocalGAgentActorFactory>();
         services.TryAddSingleton<IGAgentActorFactory>(provider =>
             provider.GetRequiredService<LocalGAgentActorFactory>());
 
-        // 注册管理器
+        // Register manager
         services.TryAddSingleton<IGAgentActorManager, LocalGAgentActorManager>();
         
-        // 注册 Local 特有的组件
+        // Register Local-specific components
         services.TryAddSingleton<LocalMessageStreamRegistry>();
         services.TryAddSingleton<LocalSubscriptionManager>();
 
-        // 注册 MassTransit 支持所需的 Handler (即使它只是抛出异常)
+        // Register Handler required for MassTransit support (even if it just throws exception)
         services.TryAddSingleton<IStreamNotFoundHandler, LocalStreamNotFoundHandler>();
 
-        // 注册默认工厂提供者 (如果未注册)
+        // Register default factory provider (if not registered)
         services.TryAddSingleton<IGAgentActorFactoryProvider, DefaultGAgentActorFactoryProvider>();
         services.TryAddSingleton<IGAgentFactory, AIGAgentFactory>();
 

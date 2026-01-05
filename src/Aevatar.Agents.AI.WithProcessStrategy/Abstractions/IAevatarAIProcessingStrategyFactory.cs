@@ -4,37 +4,37 @@ using Aevatar.Agents.AI.WithProcessStrategy.Messages;
 namespace Aevatar.Agents.AI.WithProcessStrategy.Abstractions;
 
 /// <summary>
-/// AI处理策略工厂接口
+/// AI processing strategy factory interface
 /// </summary>
 public interface IAevatarAIProcessingStrategyFactory
 {
     /// <summary>
-    /// 获取处理策略
+    /// Get processing strategy
     /// </summary>
     IAevatarAIProcessingStrategy GetStrategy(AevatarAIProcessingMode mode);
     
     /// <summary>
-    /// 获取或创建处理策略
+    /// Get or create processing strategy
     /// </summary>
     IAevatarAIProcessingStrategy GetOrCreateStrategy(AevatarAIProcessingMode mode, bool useCache = true);
     
     /// <summary>
-    /// 注册自定义策略类型
+    /// Register custom strategy type
     /// </summary>
     void RegisterStrategyType(AevatarAIProcessingMode mode, Type strategyType);
     
     /// <summary>
-    /// 注册自定义策略实例
+    /// Register custom strategy instance
     /// </summary>
     void RegisterStrategy(AevatarAIProcessingMode mode, IAevatarAIProcessingStrategy strategy);
     
     /// <summary>
-    /// 获取所有可用的处理模式
+    /// Get all available processing modes
     /// </summary>
     IEnumerable<AevatarAIProcessingMode> GetAvailableModes();
     
     /// <summary>
-    /// 清除策略缓存
+    /// Clear strategy cache
     /// </summary>
     void ClearCache();
 }

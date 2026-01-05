@@ -3,6 +3,7 @@ using System.ClientModel.Primitives;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
+using System.Net.Http;
 using Azure;
 using Azure.AI.OpenAI;
 using Aevatar.Agents.AI.MEAI.Internal;
@@ -49,7 +50,7 @@ public sealed class MEAILLMProviderFactory : LLMProviderFactoryBase
             var chatClient = CreateChatClient(providerConfig);
             var logger = _serviceProvider.GetRequiredService<ILogger<MEAILLMProvider>>();
             Logger.LogInformation("[MEAIFactory] Provider '{Name}' created successfully", providerConfig.Name);
-            return new MEAILLMProvider(chatClient, providerConfig, logger);
+            return new MEAILLMProvider(chatClient, providerConfig, logger, BuildPolicy(providerConfig));
         }
         catch (Exception ex)
         {
@@ -57,6 +58,20 @@ public sealed class MEAILLMProviderFactory : LLMProviderFactoryBase
                 providerConfig.Name, ex.Message);
             throw;
         }
+    }
+
+    private static LLMCallPolicy BuildPolicy(LLMProviderConfig config)
+    {
+        // ------------------------------------------------------------
+        //  Keep CallTimeout aligned with client NetworkTimeout.
+        //  Default is already 10 minutes, but allow per-provider override.
+        // ------------------------------------------------------------
+        var timeoutMs = config.TimeoutMilliseconds > 0
+            ? config.TimeoutMilliseconds
+            : (int)TimeSpan.FromMinutes(10).TotalMilliseconds;
+
+        var timeout = TimeSpan.FromMilliseconds(timeoutMs);
+        return LLMCallPolicy.Default with { CallTimeout = timeout };
     }
 
     private IChatClient CreateChatClient(LLMProviderConfig config)
@@ -70,20 +85,66 @@ public sealed class MEAILLMProviderFactory : LLMProviderFactoryBase
 
     private IChatClient CreateOpenAIChatClient(LLMProviderConfig config)
     {
-        if (string.IsNullOrEmpty(config.ApiKey))
-            throw new InvalidOperationException("OpenAI API key is required");
+        if (string.IsNullOrWhiteSpace(config.ApiKey))
+        {
+            // NOTE:
+            // - We use OpenAI-compatible clients for any non-Azure providerType (e.g. OpenAI, DeepSeek, DashScope, etc.).
+            // - So this error is about "missing API key for the selected provider", not necessarily OpenAI service.
+            var name = string.IsNullOrWhiteSpace(config.Name) ? "(unknown)" : config.Name;
+            var type = string.IsNullOrWhiteSpace(config.ProviderType) ? "(unknown)" : config.ProviderType;
+            throw new InvalidOperationException($"API key is required for provider '{name}' (ProviderType={type}).");
+        }
+
+        var timeoutMs = config.TimeoutMilliseconds > 0
+            ? config.TimeoutMilliseconds
+            : (int)TimeSpan.FromMinutes(10).TotalMilliseconds;
+        
+        var enableDeepSeekThinkingModeFix =
+            !string.IsNullOrWhiteSpace(config.Model) &&
+            config.Model.Contains("deepseek-reasoner", StringComparison.OrdinalIgnoreCase);
+        
+        if (enableDeepSeekThinkingModeFix)
+        {
+            Logger.LogInformation(
+                "[MEAIFactory] Enabled DeepSeek thinking-mode fix: inject reasoning_content for assistant messages (Model={Model})",
+                config.Model);
+        }
 
         var clientOptions = new OpenAIClientOptions
         {
             ClientLoggingOptions = MEAIClientLoggingOptionsBuilder.Create(_serviceProvider),
-            // Increase network timeout for large token generation (20K+ tokens can take 5+ minutes)
-            NetworkTimeout = TimeSpan.FromMinutes(10)
+            // Allow per-provider override. Default is 10 minutes.
+            NetworkTimeout = TimeSpan.FromMilliseconds(timeoutMs),
+            // Avoid HttpClient default timeout (100s) fighting our configured timeouts.
+            Transport = new HttpClientPipelineTransport(BuildHttpClient(enableDeepSeekThinkingModeFix))
         };
 
         if (!string.IsNullOrWhiteSpace(config.Endpoint))
             clientOptions.Endpoint = new Uri(config.Endpoint);
 
         return new ChatClient(config.Model, new ApiKeyCredential(config.ApiKey), clientOptions).AsIChatClient();
+    }
+
+    private static HttpClient BuildHttpClient(bool enableDeepSeekThinkingModeFix)
+    {
+        // ------------------------------------------------------------
+        // DeepSeek thinking-mode compatibility:
+        // - deepseek-reasoner requires `reasoning_content` for assistant messages.
+        // - OpenAI SDK adapter doesn't emit it, so we patch at HTTP layer.
+        // ------------------------------------------------------------
+        var inner = new HttpClientHandler();
+        HttpMessageHandler handler = inner;
+
+        if (enableDeepSeekThinkingModeFix)
+        {
+            handler = new DeepSeekThinkingModeFixHandler(handler);
+        }
+
+        return new HttpClient(handler)
+        {
+            // Avoid HttpClient default timeout (100s) fighting our configured timeouts.
+            Timeout = System.Threading.Timeout.InfiniteTimeSpan
+        };
     }
 
     private IChatClient CreateAzureOpenAIChatClient(LLMProviderConfig config)
@@ -94,11 +155,20 @@ public sealed class MEAILLMProviderFactory : LLMProviderFactoryBase
         if (string.IsNullOrEmpty(config.Endpoint))
             throw new InvalidOperationException("Azure OpenAI endpoint is required");
 
+        var timeoutMs = config.TimeoutMilliseconds > 0
+            ? config.TimeoutMilliseconds
+            : (int)TimeSpan.FromMinutes(10).TotalMilliseconds;
+
         var clientOptions = new AzureOpenAIClientOptions
         {
             ClientLoggingOptions = MEAIClientLoggingOptionsBuilder.Create(_serviceProvider),
-            // Increase network timeout for large token generation (20K+ tokens can take 5+ minutes)
-            NetworkTimeout = TimeSpan.FromMinutes(10)
+            // Allow per-provider override. Default is 10 minutes.
+            NetworkTimeout = TimeSpan.FromMilliseconds(timeoutMs),
+            // Avoid HttpClient default timeout (100s) fighting our configured timeouts.
+            Transport = new HttpClientPipelineTransport(new HttpClient
+            {
+                Timeout = System.Threading.Timeout.InfiniteTimeSpan
+            })
         };
 
         var azureClient = new AzureOpenAIClient(

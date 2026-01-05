@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text.Json;
 using Aevatar.Agents.AI.Abstractions.Tests.ToolManager;
 using Aevatar.Agents.AI.WithTool.Abstractions;
 using Google.Protobuf;
@@ -87,6 +88,64 @@ public class ToolSystemTests
         validation.IsValid.ShouldBeFalse();
         validation.Errors.ShouldContain(e => e.Contains("'a' is missing"));
         validation.Errors.ShouldContain(e => e.Contains("'b' is missing"));
+    }
+
+    [Fact]
+    [DisplayName("Tool ValidateParameters should accept whole-number doubles for integer parameters")]
+    public void Tool_ValidateParameters_Integer_WithWholeNumberDouble_ShouldPass()
+    {
+        // Arrange
+        var tool = new SlowTool();
+        var parameters = new Dictionary<string, object?>
+        {
+            ["delay"] = 5000.0
+        };
+
+        // Act
+        var validation = tool.ValidateParameters(parameters);
+
+        // Assert
+        validation.IsValid.ShouldBeTrue();
+        validation.Errors.ShouldBeEmpty();
+    }
+
+    [Fact]
+    [DisplayName("Tool ValidateParameters should accept JsonElement number for integer parameters")]
+    public void Tool_ValidateParameters_Integer_WithJsonElementNumber_ShouldPass()
+    {
+        // Arrange
+        var tool = new SlowTool();
+        using var doc = JsonDocument.Parse("5000");
+        var parameters = new Dictionary<string, object?>
+        {
+            ["delay"] = doc.RootElement
+        };
+
+        // Act
+        var validation = tool.ValidateParameters(parameters);
+
+        // Assert
+        validation.IsValid.ShouldBeTrue();
+        validation.Errors.ShouldBeEmpty();
+    }
+
+    [Fact]
+    [DisplayName("Tool ValidateParameters should reject non-integer numbers for integer parameters")]
+    public void Tool_ValidateParameters_Integer_WithNonWholeNumber_ShouldFail()
+    {
+        // Arrange
+        var tool = new SlowTool();
+        var parameters = new Dictionary<string, object?>
+        {
+            ["delay"] = 1.5
+        };
+
+        // Act
+        var validation = tool.ValidateParameters(parameters);
+
+        // Assert
+        validation.IsValid.ShouldBeFalse();
+        validation.Errors.ShouldContain(e => e.Contains("type mismatch"));
     }
 
     [Fact]

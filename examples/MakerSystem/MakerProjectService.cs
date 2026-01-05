@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using Aevatar.Agents.Abstractions.Tracing;
 using Aevatar.Agents.Maker;
 using Aevatar.Agents.AI.MEAI.Telemetry;
 using MakerSystem.Projects;
@@ -264,6 +265,7 @@ public sealed class MakerProjectService
 {
     private readonly IMakerExecutor _executor;
     private readonly ILogger<MakerProjectService> _logger;
+    private readonly IExecutionTraceStore _traceStore;
     private readonly ConcurrentDictionary<string, ProjectRun> _runs = new();
     
     // Dynamic projects added via API (config-based, zero-code)
@@ -305,10 +307,14 @@ public sealed class MakerProjectService
     // All projects (built-in + dynamic)
     private IEnumerable<ProjectDef> AllProjects => BuiltInProjects.Concat(_dynamicProjects.Values);
 
-    public MakerProjectService(IMakerExecutor executor, ILogger<MakerProjectService> logger)
+    public MakerProjectService(
+        IMakerExecutor executor,
+        ILogger<MakerProjectService> logger,
+        IExecutionTraceStore traceStore)
     {
         _executor = executor;
         _logger = logger;
+        _traceStore = traceStore;
     }
     
     // ============================================================
@@ -1080,6 +1086,30 @@ public sealed class MakerProjectService
                 
                 _logger.LogInformation("[{Project}] Execution finished. Success={Success}, ContentLength={Length}", 
                     projectId, run.Result.Success, run.Result.Content?.Length ?? 0);
+
+                // ============================================================
+                //  Export unified ExecutionTrace bundle (framework-level)
+                //
+                //  - Enabled when AEVATAR_TRACE_DIR is set (FileExecutionTraceStore).
+                //  - Always best-effort: never fail the run because trace export fails.
+                // ============================================================
+                try
+                {
+                    var trace = run.Result.ToExecutionTrace();
+                    trace.Labels["maker_system.project_id"] = projectId;
+                    trace.Labels["maker_system.project_name"] = project.Name;
+                    trace.Labels["maker_system.run_id"] = run.RunId;
+                    trace.Labels["maker_system.output_dir"] = run.OutputDir ?? string.Empty;
+
+                    await _traceStore.SaveAsync(trace, CancellationToken.None);
+
+                    // Also attach JSON trace to this run's output artifacts for quick UI access.
+                    SaveFile(run, "artifacts", "trace.json", trace.ToJsonString());
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to export ExecutionTrace bundle for project {ProjectId}", projectId);
+                }
                 
                 // Record final result as artifact
                 if (!string.IsNullOrEmpty(run.Result.Content))

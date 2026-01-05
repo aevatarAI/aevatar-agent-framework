@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      ============================================================
+       CSP (dev-friendly)
+
+       WHY:
+       - Vite dev needs websocket + eval (HMR).
+       - UI connects to local sidecar via HTTP/SSE (localhost/127.0.0.1).
+
+       NOTE:
+       - Production CSP will also be enforced by `src-tauri/tauri.conf.json`.
+      ============================================================
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' data: blob:; img-src 'self' data: blob:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-eval'; connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*;"
+    />
+    <title>NovelOS</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
+

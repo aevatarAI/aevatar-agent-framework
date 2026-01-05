@@ -14,5 +14,5 @@ public class AllEventHandlerAttribute : Attribute
     /// <summary>
     /// Handler priority (The smaller the number, the higher the priority)
     /// </summary>
-    public int Priority { get; set; } = int.MaxValue; // 默认最低优先级
+    public int Priority { get; set; } = int.MaxValue; // Default lowest priority
 }

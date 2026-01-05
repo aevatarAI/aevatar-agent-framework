@@ -10,7 +10,7 @@ using Proto;
 namespace Aevatar.Agents.Runtime.ProtoActor.Subscription;
 
 /// <summary>
-/// ProtoActor运行时的订阅管理器实现
+/// ProtoActor runtime subscription manager implementation
 /// </summary>
 public class ProtoActorSubscriptionManager : BaseSubscriptionManager
 {
@@ -41,20 +41,20 @@ public class ProtoActorSubscriptionManager : BaseSubscriptionManager
         
         try
         {
-            // 获取父节点的Actor PID
+            // Get parent node's Actor PID
             var parentPid = await GetActorPidAsync(parentId);
             if (parentPid == null)
             {
                 throw new InvalidOperationException($"Parent actor {parentId} not found in registry");
             }
             
-            // 创建ProtoActor message stream
+            // Create ProtoActor message stream
             var messageStream = new ProtoActorMessageStream(parentId, parentPid, _rootContext);
             
-            // 创建过滤器
+            // Create filter
             Func<EventEnvelope, bool>? filter = envelope =>
             {
-                // 过滤掉子节点自己发布的事件，避免循环
+                // Filter out self-published events from child node to avoid loops
                 if (envelope.PublisherId == childId)
                 {
                     Logger.LogTrace("Filtering out self-published event {EventId} for child {ChildId}",
@@ -62,9 +62,9 @@ public class ProtoActorSubscriptionManager : BaseSubscriptionManager
                     return false;
                 }
                 
-                // ProtoActor特定：检查消息路由
-                // ProtoActor的消息是直接发送的，不像Orleans有stream广播
-                // 所以需要特别注意避免循环
+                // ProtoActor-specific: Check message routing
+                // ProtoActor messages are sent directly, unlike Orleans which has stream broadcasting
+                // So need to be particularly careful to avoid loops
                 if (envelope.Direction == EventDirection.Both)
                 {
                     if (envelope.Publishers.Contains(parentId))
@@ -77,10 +77,10 @@ public class ProtoActorSubscriptionManager : BaseSubscriptionManager
                 return true;
             };
             
-            // 包装事件处理器，添加ProtoActor特定的处理逻辑
+            // Wrap event handler, add ProtoActor-specific processing logic
             var wrappedHandler = CreateWrappedEventHandler(eventHandler, childId, parentId);
             
-            // 创建订阅
+            // Create subscription
             var subscription = await messageStream.SubscribeAsync<EventEnvelope>(
                 wrappedHandler,
                 filter,
@@ -108,12 +108,12 @@ public class ProtoActorSubscriptionManager : BaseSubscriptionManager
             return false;
         }
         
-        // ProtoActor的订阅健康状态
+        // ProtoActor subscription health status
         if (subscription.StreamSubscription is ProtoActorStreamSubscription protoSubscription)
         {
             var isHealthy = protoSubscription.IsActive;
             
-            // 额外检查：验证目标Actor是否还存在
+            // Additional check: Verify if target Actor still exists
             if (isHealthy)
             {
                 var parentPid = await GetActorPidAsync(subscription.ParentId);
@@ -125,7 +125,7 @@ public class ProtoActorSubscriptionManager : BaseSubscriptionManager
                     return false;
                 }
                 
-                // 可以发送ping消息来验证Actor是否响应
+                // Can send ping message to verify Actor responsiveness
                 try
                 {
                     var response = await _rootContext.RequestAsync<PingResponse>(
@@ -150,7 +150,7 @@ public class ProtoActorSubscriptionManager : BaseSubscriptionManager
             return isHealthy;
         }
         
-        // 默认认为不健康
+        // Default to unhealthy
         return false;
     }
 
@@ -161,7 +161,7 @@ public class ProtoActorSubscriptionManager : BaseSubscriptionManager
         Logger.LogInformation("Reconnecting ProtoActor stream subscription {SubscriptionId}",
             handle.SubscriptionId);
         
-        // 清理旧订阅
+        // Clean up old subscription
         if (handle.StreamSubscription != null)
         {
             try
@@ -174,19 +174,19 @@ public class ProtoActorSubscriptionManager : BaseSubscriptionManager
             }
         }
         
-        // ProtoActor的重连策略：
-        // 1. 首先尝试Resume（如果订阅对象还存在）
-        // 2. 如果Actor已经重启或不存在，需要重新创建
+        // ProtoActor reconnection strategy:
+        // 1. First try Resume (if subscription object still exists)
+        // 2. If Actor has restarted or doesn't exist, need to recreate
         
         if (handle.StreamSubscription is ProtoActorStreamSubscription protoSubscription)
         {
             try
             {
-                // 检查父Actor是否还存在
+                // Check if parent Actor still exists
                 var parentPid = await GetActorPidAsync(handle.ParentId);
                 if (parentPid != null)
                 {
-                    // Actor存在，尝试恢复订阅
+                    // Actor exists, try to resume subscription
                     await protoSubscription.ResumeAsync();
                     handle.IsHealthy = true;
                     handle.LastActivityAt = DateTime.UtcNow;
@@ -207,14 +207,14 @@ public class ProtoActorSubscriptionManager : BaseSubscriptionManager
             }
         }
         
-        // 无法恢复，抛出异常
+        // Cannot resume, throw exception
         throw new NotImplementedException(
             "Full reconnection requires saving the original event handler. " +
             "ProtoActor subscriptions are in-memory only and cannot be fully recreated without the handler.");
     }
 
     /// <summary>
-    /// 创建包装的事件处理器，添加ProtoActor特定的处理逻辑
+    /// Create wrapped event handler, add ProtoActor-specific processing logic
     /// </summary>
     private Func<EventEnvelope, Task> CreateWrappedEventHandler(
         Func<EventEnvelope, Task> originalHandler,
@@ -228,8 +228,8 @@ public class ProtoActorSubscriptionManager : BaseSubscriptionManager
                 Logger.LogTrace("ProtoActor Child {ChildId} processing event {EventId} from parent {ParentId}",
                     childId, envelope.Id, parentId);
                 
-                // ProtoActor特定：处理BOTH方向的事件
-                // 如果是从父节点接收的BOTH事件，需要转换为DOWN-only
+                // ProtoActor-specific: Handle BOTH direction events
+                // If receiving BOTH event from parent node, need to convert to DOWN-only
                 if (envelope.Direction == EventDirection.Both && 
                     envelope.Publishers.Contains(parentId))
                 {
@@ -237,20 +237,20 @@ public class ProtoActorSubscriptionManager : BaseSubscriptionManager
                         "Converting BOTH event {EventId} to DOWN-only for ProtoActor child {ChildId}",
                         envelope.Id, childId);
                     
-                    // 创建修改后的envelope
+                    // Create modified envelope
                     var modifiedEnvelope = envelope.Clone();
                     modifiedEnvelope.Direction = EventDirection.Down;
                     
-                    // 使用修改后的envelope调用处理器
+                    // Call handler with modified envelope
                     await originalHandler(modifiedEnvelope);
                 }
                 else
                 {
-                    // 其他情况直接调用原始处理器
+                    // Other cases call original handler directly
                     await originalHandler(envelope);
                 }
                 
-                // 更新订阅活动时间
+                // Update subscription activity time
                 UpdateLastActivity(childId, parentId);
             }
             catch (Exception ex)
@@ -259,14 +259,14 @@ public class ProtoActorSubscriptionManager : BaseSubscriptionManager
                     "ProtoActor: Error processing event {EventId} in child {ChildId} from parent {ParentId}",
                     envelope.Id, childId, parentId);
                 
-                // ProtoActor的错误处理：记录错误但继续处理
-                // 不重新抛出异常，避免影响Actor消息处理
+                // ProtoActor error handling: Log error but continue processing
+                // Don't rethrow exception to avoid affecting Actor message processing
             }
         };
     }
 
     /// <summary>
-    /// 更新最后活动时间
+    /// Update last activity time
     /// </summary>
     private void UpdateLastActivity(string childId, string parentId)
     {
@@ -281,25 +281,25 @@ public class ProtoActorSubscriptionManager : BaseSubscriptionManager
     }
 
     /// <summary>
-    /// 从管理器获取Actor PID
+    /// Get Actor PID from manager
     /// </summary>
     private async Task<PID?> GetActorPidAsync(string actorId)
     {
-        // 从管理器获取Actor
+        // Get Actor from manager
         var actor = await _actorManager.GetActorAsync(actorId);
         if (actor is ProtoActorGAgentActor protoActor)
         {
-            // ProtoActorGAgentActor已经提供了GetPid()方法
+            // ProtoActorGAgentActor already provides GetPid() method
             return protoActor.GetPid();
         }
         
-        // 也可以直接从stream registry获取PID
+        // Can also get PID directly from stream registry
         var pid = _streamRegistry.GetPid(actorId);
         return pid;
     }
 
     /// <summary>
-    /// 创建Actor间的直接订阅（ProtoActor特有）
+    /// Create direct subscription between Actors (ProtoActor-specific)
     /// </summary>
     public async Task<ISubscriptionHandle> SubscribeDirectAsync(
         PID parentPid,
@@ -308,10 +308,10 @@ public class ProtoActorSubscriptionManager : BaseSubscriptionManager
         IRetryPolicy? retryPolicy = null,
         CancellationToken cancellationToken = default)
     {
-        // ProtoActor支持通过PID直接订阅，不需要通过Guid查找
-        // 这可以提供更好的性能
+        // ProtoActor supports direct subscription via PID, no need to lookup by Guid
+        // This can provide better performance
         
-        var parentId = Guid.NewGuid().ToString(); // 生成一个临时ID
+        var parentId = Guid.NewGuid().ToString(); // Generate a temporary ID
         var subscription = await SubscribeWithRetryAsync(
             parentId, childId, eventHandler, retryPolicy, cancellationToken);
         
@@ -319,7 +319,7 @@ public class ProtoActorSubscriptionManager : BaseSubscriptionManager
     }
 
     /// <summary>
-    /// 批量创建订阅（优化版本）
+    /// Batch create subscriptions (optimized version)
     /// </summary>
     public async Task<IReadOnlyList<ISubscriptionHandle>> SubscribeBatchOptimizedAsync(
         IReadOnlyList<(string ParentId, string ChildId)> subscriptions,
@@ -327,7 +327,7 @@ public class ProtoActorSubscriptionManager : BaseSubscriptionManager
         IRetryPolicy? retryPolicy = null,
         CancellationToken cancellationToken = default)
     {
-        // ProtoActor可以批量发送消息，优化批量订阅
+        // ProtoActor can batch send messages, optimize batch subscriptions
         var results = new List<ISubscriptionHandle>();
         
         foreach (var (parentId, childId) in subscriptions)
@@ -343,7 +343,7 @@ public class ProtoActorSubscriptionManager : BaseSubscriptionManager
                 Logger.LogError(ex, 
                     "Failed to create subscription for Child {ChildId} -> Parent {ParentId}",
                     childId, parentId);
-                // 继续处理其他订阅
+                // Continue processing other subscriptions
             }
         }
         
@@ -352,12 +352,12 @@ public class ProtoActorSubscriptionManager : BaseSubscriptionManager
 }
 
 /// <summary>
-/// Ping消息，用于健康检查
+/// Ping message for health check
 /// </summary>
 internal class PingMessage { }
 
 /// <summary>
-/// Ping响应
+/// Ping response
 /// </summary>
 internal class PingResponse 
 {

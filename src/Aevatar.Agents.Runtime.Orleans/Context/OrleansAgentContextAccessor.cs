@@ -18,8 +18,8 @@ public class OrleansAgentContextAccessor : IAgentContextAccessor
         set
         {
             // NOTE:
-            // - 这里的语义必须是“替换”(replace)而不是“合并”(merge)，否则 scope 恢复会残留旧 key。
-            // - value == null 代表清空当前上下文。
+            // - The semantics here must be "replace" not "merge", otherwise scope restoration will leave old keys.
+            // - value == null means clear current context.
             var bridge = GetOrCreateBridge();
 
             if (value == null)

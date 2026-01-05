@@ -6,8 +6,8 @@ using Google.Protobuf;
 namespace Aevatar.Agents.Runtime.Local;
 
 /// <summary>
-/// Local 运行时的 Message Stream 实现
-/// 基于 System.Threading.Channels 提供高性能的消息队列
+/// Local runtime Message Stream implementation
+/// Provides high-performance message queue based on System.Threading.Channels
 /// </summary>
 public class LocalMessageStream : IMessageStream
 {
@@ -27,12 +27,12 @@ public class LocalMessageStream : IMessageStream
             FullMode = BoundedChannelFullMode.Wait
         });
 
-        // 启动消息处理循环
+        // Start message processing loop
         _ = ProcessMessagesAsync();
     }
 
     /// <summary>
-    /// 发布消息到 Stream
+    /// Publish message to Stream
     /// </summary>
     public async Task ProduceAsync<T>(T message, CancellationToken ct = default) where T : IMessage
     {
@@ -48,7 +48,7 @@ public class LocalMessageStream : IMessageStream
     }
 
     /// <summary>
-    /// 订阅 Stream 消息
+    /// Subscribe to Stream messages
     /// </summary>
     public Task<IMessageStreamSubscription> SubscribeAsync<T>(
         Func<T, Task> handler, 
@@ -58,7 +58,7 @@ public class LocalMessageStream : IMessageStream
     }
     
     /// <summary>
-    /// 订阅 Stream 消息（带过滤器）
+    /// Subscribe to Stream messages (with filter)
     /// </summary>
     public Task<IMessageStreamSubscription> SubscribeAsync<T>(
         Func<T, Task> handler,
@@ -82,7 +82,7 @@ public class LocalMessageStream : IMessageStream
         }
         else
         {
-            // 只订阅特定类型的事件（通过 Payload 类型 URL 过滤）
+            // Only subscribe to specific type events (filtered by Payload type URL)
             var expectedTypeUrl = $"type.googleapis.com/{typeof(T).FullName}";
             envelopeHandler = async env =>
             {
@@ -90,7 +90,7 @@ public class LocalMessageStream : IMessageStream
                 {
                     try
                     {
-                        // 使用反射 Unpack
+                        // Use reflection to Unpack
                         var unpackMethod = typeof(Google.Protobuf.WellKnownTypes.Any)
                             .GetMethod("Unpack", Type.EmptyTypes)
                             ?.MakeGenericMethod(typeof(T));
@@ -107,7 +107,7 @@ public class LocalMessageStream : IMessageStream
                     }
                     catch (Exception)
                     {
-                        // 忽略类型不匹配的事件
+                        // Ignore type mismatch events
                     }
                 }
             };
@@ -124,13 +124,13 @@ public class LocalMessageStream : IMessageStream
     }
 
     /// <summary>
-    /// 处理消息循环
+    /// Message processing loop
     /// </summary>
     private async Task ProcessMessagesAsync()
     {
         await foreach (var envelope in _channel.Reader.ReadAllAsync(_cts.Token))
         {
-            // 并发调用所有活跃的订阅者
+            // Concurrently call all active subscribers
             var tasks = _subscriptions.Values
                 .Where(sub => sub.IsActive)
                 .Select(subscription =>
@@ -142,7 +142,7 @@ public class LocalMessageStream : IMessageStream
                         }
                         catch (Exception)
                         {
-                            // 忽略订阅者错误，不影响其他订阅者
+                            // Ignore subscriber errors, don't affect other subscribers
                         }
                     }));
 
@@ -151,7 +151,7 @@ public class LocalMessageStream : IMessageStream
     }
 
     /// <summary>
-    /// 停止 Stream
+    /// Stop Stream
     /// </summary>
     public void Stop()
     {

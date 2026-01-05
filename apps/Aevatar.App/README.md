@@ -119,6 +119,23 @@ curl -k -H "Authorization: Bearer $TOKEN" \
 - `AuthServer:Authority`: https://localhost:44320/
 - `AuthServer:RequireHttpsMetadata`: false (开发环境)
 
+### Runtime & Stream Configuration Conventions
+
+To keep configs consistent across `Aevatar.Silo` and `Aevatar.App.HttpApi.Host`, use the following conventions:
+
+- **Orleans runtime (cluster)**
+  - `AgentRuntime:RuntimeType`: `Orleans` (or `Local` for local mode)
+  - `AgentRuntime:Orleans:ClusterId` / `AgentRuntime:Orleans:ServiceId`: must match between Silo and Host
+  - `AgentRuntime:Orleans:SiloPort` / `AgentRuntime:Orleans:GatewayPort`: Silo-only (Host does not need these)
+
+- **Stream provider selection (streaming is MassTransit-only)**
+  - `MessageStream:Provider`: set to `MassTransit`
+  - When `MessageStream:Provider=MassTransit`, **Orleans Streaming is not used** (no Orleans Stream fallback in HttpApi.Host).
+
+- **Kafka base config (single source of truth)**
+  - `Kafka:BootstrapServers`: used by the MassTransit stream plugin
+  - `MassTransit:Stream:Kafka:ConsumerGroupId`: keep per-runtime values (Silo and Host should use different consumer groups)
+
 **认证方案:**
 - JWT Bearer: API请求
 - Cookie: Web UI请求

@@ -1,8 +1,11 @@
 using System.Text.Json;
 using Aevatar.Agents.AI;
-using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.WithTool.Abstractions;
+using Aevatar.Agents.AI.WithTool.Tools.BuiltIn;
+using Aevatar.Agents.AI.WithTool.Tools.CoreTools;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MemoryDemo;
 
@@ -10,11 +13,13 @@ namespace MemoryDemo;
 /// Memory demo agent:
 /// - State.History replay (EnableChatHistoryInState)
 /// - Compaction (sliding window + history_summary)
-/// - Optional long-term memory via IAevatarAIMemory (DI-injected)
 /// - Tool-based recall via built-in 'search_memory'
 /// </summary>
 public sealed class MemoryDemoAgent : AIGAgentBase
 {
+    private const string KnowledgeBaseMemoryIdContextKey = "kb_memory_id";
+    private const string KnowledgeBaseTitleContextKey = "kb_title";
+
     public MemoryDemoAgent()
     {
         // Make the demo deterministic and easy to trigger.
@@ -22,7 +27,17 @@ public sealed class MemoryDemoAgent : AIGAgentBase
         EnableChatHistoryCompaction = true;
         ChatHistoryMaxMessages = 8;
         ChatHistorySummaryMaxChars = 1200;
-        ArchiveCompactedHistoryToAIMemory = true;
+
+        // Long-term memory (resource + vector) - default ON for demo.
+        // (Both are best-effort; failures won't break chat.)
+        EnableMemoryStoreAppend = true;
+        EnableMemoryVectorIndexAppend = true;
+
+        // Tool safety policy (keep demo stable + predictable):
+        // - Allow internal tools like query_state
+        // - Disallow dangerous/confirmation tools (HTTP, side effects, etc.)
+        AllowInternalTools = true;
+        AllowDangerousTools = false;
 
         SystemPrompt =
             """
@@ -36,11 +51,122 @@ public sealed class MemoryDemoAgent : AIGAgentBase
     }
 
     public override Task<string> GetDescriptionAsync() =>
-        Task.FromResult("MemoryDemoAgent (History + Compaction + Long-term Memory + search_memory)");
+        Task.FromResult("MemoryDemoAgent (History + Compaction + CQRS + search_memory)");
 
-    public bool HasLongTermMemory => AIMemory != null;
+    /// <summary>
+    /// Demo: get/set current knowledge-base selection.
+    /// The selected memoryId is stored in <c>State.Context</c> so it survives restarts.
+    /// </summary>
+    public (string? MemoryId, string? Title) GetKnowledgeBase()
+    {
+        var state = GetState();
 
-    public string LongTermMemoryType => AIMemory?.GetType().Name ?? "none";
+        var memoryId = state.Context.TryGetValue(KnowledgeBaseMemoryIdContextKey, out var id) ? id : null;
+        var title = state.Context.TryGetValue(KnowledgeBaseTitleContextKey, out var t) ? t : null;
+
+        return (string.IsNullOrWhiteSpace(memoryId) ? null : memoryId.Trim(),
+            string.IsNullOrWhiteSpace(title) ? null : title.Trim());
+    }
+
+    public void SetKnowledgeBase(string? memoryId, string? title = null)
+    {
+        var state = GetState();
+
+        if (string.IsNullOrWhiteSpace(memoryId))
+        {
+            state.Context.Remove(KnowledgeBaseMemoryIdContextKey);
+            state.Context.Remove(KnowledgeBaseTitleContextKey);
+            return;
+        }
+
+        state.Context[KnowledgeBaseMemoryIdContextKey] = memoryId.Trim();
+
+        if (string.IsNullOrWhiteSpace(title))
+            state.Context.Remove(KnowledgeBaseTitleContextKey);
+        else
+            state.Context[KnowledgeBaseTitleContextKey] = title.Trim();
+    }
+
+    protected override string? GetEffectiveSystemPrompt()
+    {
+        var basePrompt = base.GetEffectiveSystemPrompt() ?? string.Empty;
+        var (kbMemoryId, kbTitle) = GetKnowledgeBase();
+
+        if (string.IsNullOrWhiteSpace(kbMemoryId))
+            return basePrompt;
+
+        var titleLine = string.IsNullOrWhiteSpace(kbTitle) ? "" : $"\n- Book: {kbTitle}";
+
+        // Keep instructions explicit and deterministic: always retrieve before answering.
+        return
+            $"{basePrompt}\n\nKnowledge base (book) is enabled.\n- memoryId: {kbMemoryId}{titleLine}\n" +
+            $"- For EVERY user question, call tool 'search_memory' with memoryType=\"working\" and memoryId=\"{kbMemoryId}\".\n" +
+            "- Use retrieved passages to answer. If nothing relevant is found, say you don't know.\n";
+    }
+
+    /// <summary>
+    /// Demo polish: keep the exposed tool set focused.
+    /// - query_state (read-only, internal)
+    /// - search_memory (memory recall)
+    /// </summary>
+    protected override async Task RegisterToolsAsync(CancellationToken cancellationToken = default)
+    {
+        // Core: state query (read-only, internal access)
+        await RegisterToolAsync(new StateQueryTool(), cancellationToken: cancellationToken);
+
+        // Built-in: memory search (CQRS + MemoryStore/VectorIndex + State snapshot)
+        await RegisterToolAsync(
+            new AevatarMemorySearchTool(
+                new TypedLoggerAdapter<AevatarMemorySearchTool>(Logger),
+                CqrsStateQueryService,
+                MemoryStore,
+                MemoryVectorIndex),
+            cancellationToken: cancellationToken);
+    }
+
+    // ============================================================
+    //  Demo-only: force CQRS projection after each chat
+    //
+    //  WHY:
+    //  - In real systems, CQRS projection happens after state persistence (OnStateChangedAsync).
+    //  - This demo keeps EventStore optional; we still want to show projected read-model.
+    // ============================================================
+    public override async Task<ChatResponse> ChatAsync(ChatRequest request, CancellationToken cancellationToken = default)
+    {
+        var resp = await base.ChatAsync(request, cancellationToken);
+
+        // Best-effort projection: do not break chat if CQRS isn't configured.
+        await ProjectStateAsync(GetState(), cancellationToken);
+
+        return resp;
+    }
+
+    // ============================================================
+    //  Demo-only: seed memory without calling LLM
+    //
+    //  WHY:
+    //  - Helps validate search_memory + CQRS pipeline even without external LLM connectivity.
+    // ============================================================
+    public async Task SeedAsync(string text, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return;
+
+        // Put something into short-term history (Layer 1)
+        AddMessageToHistory(text.Trim(), AevatarChatRole.User);
+        AddMessageToHistory("(seeded) ok, I remember it.", AevatarChatRole.Assistant);
+
+        // Put something into rolling summary (Layer 2) for easier searching
+        var summary = GetHistorySummary() ?? string.Empty;
+        var next = string.IsNullOrWhiteSpace(summary)
+            ? $"[seed] {text}".Trim()
+            : (summary + "\n" + $"[seed] {text}").Trim();
+
+        GetState().Context["history_summary"] = next;
+
+        // Project to CQRS read-model (demo)
+        await ProjectStateAsync(GetState(), ct);
+    }
 
     public string? GetHistorySummary()
     {
@@ -52,6 +178,7 @@ public sealed class MemoryDemoAgent : AIGAgentBase
         string query,
         int maxResults = 10,
         string memoryType = "all",
+        string? memoryId = null,
         CancellationToken ct = default)
     {
         await InitializeToolsAsync(ct);
@@ -63,62 +190,61 @@ public sealed class MemoryDemoAgent : AIGAgentBase
             ["memoryType"] = memoryType
         };
 
+        if (!string.IsNullOrWhiteSpace(memoryId))
+            parameters["memoryId"] = memoryId.Trim();
+
         var execCtx = new ToolExecutionContext
         {
             AgentId = Id.ToString(),
             ToolManager = ToolManager,
-            Memory = AIMemory,
             PublishEventCallback = msg => PublishAsync(msg, ct: ct),
             Logger = Logger,
-            GetSessionId = () => Id.ToString()
+            GetSessionId = () => Id.ToString(),
+            AllowInternalTools = AllowInternalTools,
+            AllowDangerousTools = AllowDangerousTools
         };
 
         return await ToolManager.ExecuteToolAsync("search_memory", parameters, execCtx, ct);
     }
 
-    public async Task<IReadOnlyList<AevatarConversationEntry>> GetLongTermHistoryAsync(
-        int limit = 200,
-        CancellationToken ct = default)
+    public async Task<IReadOnlyList<float>?> TryGenerateEmbeddingVectorAsync(string text, CancellationToken ct = default)
     {
-        if (AIMemory == null)
-            return Array.Empty<AevatarConversationEntry>();
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
 
-        return await AIMemory.GetHistoryAsync(limit: limit, cancellationToken: ct);
+        if (!TryGetEmbeddingGenerator(out _))
+            return null;
+
+        var emb = await GenerateEmbeddingAsync(text.Trim(), cancellationToken: ct);
+        return emb == null ? null : emb.Vector.ToArray();
     }
 
-    public async Task<IReadOnlyList<string>> SearchLongTermAsync(
-        string query,
-        int topK = 5,
-        CancellationToken ct = default)
+    // ============================================================
+    //  Minimal typed logger adapter for tools
+    //
+    //  WHY:
+    //  - Some tool constructors require ILogger<T>.
+    //  - AIGAgentBase exposes ILogger (non-generic).
+    //  - Keep demo self-contained; do not rely on internal/private adapters.
+    // ============================================================
+    private sealed class TypedLoggerAdapter<T> : ILogger<T>
     {
-        if (AIMemory == null)
-            return Array.Empty<string>();
+        private readonly ILogger _inner;
 
-        return await AIMemory.SearchAsync(query, topK: topK, cancellationToken: ct);
-    }
+        public TypedLoggerAdapter(ILogger inner) => _inner = inner ?? NullLogger.Instance;
 
-    public async Task<string?> TryPeekLongTermTailAsync(int maxChars = 1200, CancellationToken ct = default)
-    {
-        var history = await GetLongTermHistoryAsync(limit: 20, ct);
-        if (history.Count == 0) return null;
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull
+            => _inner.BeginScope(state);
 
-        var items = history
-            .Select(x => $"[{x.Role}] {(x.Content ?? string.Empty).Replace("\r", "").Trim()}")
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .ToList();
+        public bool IsEnabled(LogLevel logLevel) => _inner.IsEnabled(logLevel);
 
-        var joined = string.Join("\n", items);
-        if (maxChars > 0 && joined.Length > maxChars)
-        {
-            joined = joined[^maxChars..];
-        }
-
-        // Keep output stable for UI rendering.
-        return JsonSerializer.Serialize(new
-        {
-            count = history.Count,
-            tail = joined
-        });
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+            => _inner.Log(logLevel, eventId, state, exception, formatter);
     }
 }
 

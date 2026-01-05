@@ -6,81 +6,81 @@ using Orleans.Concurrency;
 namespace Aevatar.Agents.Runtime.Orleans;
 
 /// <summary>
-/// Orleans Grain 接口（基础接口）
-/// Agent 业务逻辑在 Grain (Silo) 内执行
+/// Orleans Grain interface (base interface)
+/// Agent business logic executes within Grain (Silo)
 /// </summary>
 public interface IGAgentGrain : IGrainWithStringKey
 {
     /// <summary>
-    /// 获取关联的 Agent ID
+    /// Get associated Agent ID
     /// [AlwaysInterleave] allows this to execute even when Grain is processing other requests
     /// </summary>
     [AlwaysInterleave]
     Task<string> GetIdAsync();
 
     /// <summary>
-    /// 初始化 Agent 实例（在 Silo 内创建）
-    /// Agent ID 从 Grain 的 PrimaryKey 获取（Grain ID = Agent ID）
+    /// Initialize Agent instance (created within Silo)
+    /// Agent ID obtained from Grain's PrimaryKey (Grain ID = Agent ID)
     /// </summary>
-    /// <param name="agentTypeName">Agent 类型的程序集限定名</param>
-    /// <returns>是否成功初始化</returns>
+    /// <param name="agentTypeName">Assembly qualified name of Agent type</param>
+    /// <returns>Whether initialization succeeded</returns>
     Task<bool> InitializeAgentAsync(string agentTypeName);
 
     /// <summary>
-    /// 检查 Agent 是否已初始化
+    /// Check if Agent is initialized
     /// [AlwaysInterleave] allows concurrent read access
     /// </summary>
     [AlwaysInterleave]
     Task<bool> IsInitializedAsync();
 
     /// <summary>
-    /// 获取 Agent 描述
+    /// Get Agent description
     /// [AlwaysInterleave] allows this read-only operation to execute without waiting for other calls
     /// </summary>
     [AlwaysInterleave]
     Task<string> GetDescriptionAsync();
 
     /// <summary>
-    /// 处理事件（在 Silo 内执行业务逻辑）
+    /// Handle event (execute business logic within Silo)
     /// </summary>
     Task HandleEventAsync(byte[] envelopeBytes);
 
     /// <summary>
-    /// 添加子 Agent
+    /// Add child Agent
     /// </summary>
     Task AddChildAsync(string childId);
 
     /// <summary>
-    /// 移除子 Agent
+    /// Remove child Agent
     /// </summary>
     Task RemoveChildAsync(string childId);
 
     /// <summary>
-    /// 设置父 Agent
+    /// Set parent Agent
     /// </summary>
     Task SetParentAsync(string parentId);
 
     /// <summary>
-    /// 清除父 Agent
+    /// Clear parent Agent
     /// </summary>
     Task ClearParentAsync();
 
     /// <summary>
-    /// 获取所有子 Agent ID
+    /// Get all child Agent IDs
     /// [AlwaysInterleave] allows concurrent read access
     /// </summary>
     [AlwaysInterleave]
     Task<IReadOnlyList<string>> GetChildrenAsync();
 
     /// <summary>
-    /// 获取父 Agent ID
+    /// Get parent Agent ID
     /// [AlwaysInterleave] allows concurrent read access
     /// </summary>
     [AlwaysInterleave]
     Task<string?> GetParentAsync();
 
     /// <summary>
-    /// 停用
+    /// Deactivate
     /// </summary>
     Task DeactivateAsync();
 

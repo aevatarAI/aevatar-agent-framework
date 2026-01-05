@@ -7,8 +7,8 @@ using Proto;
 namespace Aevatar.Agents.Runtime.ProtoActor;
 
 /// <summary>
-/// Proto.Actor 运行时的 Agent Actor 实现
-/// 使用 ProtoActorMessageStream 作为消息传输机制
+/// Proto.Actor runtime Agent Actor implementation
+/// Uses ProtoActorMessageStream as message transport mechanism
 /// </summary>
 public class ProtoActorGAgentActor : GAgentActorBase
 {
@@ -16,8 +16,8 @@ public class ProtoActorGAgentActor : GAgentActorBase
     private readonly IRootContext _rootContext;
     private readonly PID _actorPid;
     private readonly ProtoActorMessageStreamRegistry _streamRegistry;
-    private readonly ProtoActorMessageStream _myStream; // 这个 Actor 的 Stream
-    private IMessageStreamSubscription? _parentStreamSubscription; // 父节点stream订阅句柄
+    private readonly ProtoActorMessageStream _myStream; // This Actor's Stream
+    private IMessageStreamSubscription? _parentStreamSubscription; // Parent node stream subscription handle
 
     public ProtoActorGAgentActor(
         IGAgent agent,
@@ -30,41 +30,41 @@ public class ProtoActorGAgentActor : GAgentActorBase
         _actorPid = actorPid ?? throw new ArgumentNullException(nameof(actorPid));
         _streamRegistry = streamRegistry ?? throw new ArgumentNullException(nameof(streamRegistry));
 
-        // 注册 PID 并获取 Stream
+        // Register PID and get Stream
         _streamRegistry.RegisterPid(agent.Id, actorPid);
         _myStream = _streamRegistry.GetStream(agent.Id)!;
     }
 
     /// <summary>
-    /// 获取 Proto.Actor PID
+    /// Get Proto.Actor PID
     /// </summary>
     public PID GetPid() => _actorPid;
 
-    // ============ 层级关系管理（重写基类方法） ============
+    // ============ Hierarchy Management (Override Base Class Methods) ============
 
     protected override async Task SetParentAsync(string parentId, CancellationToken ct = default)
     {
-        // 如果已有父节点，先清除
+        // If parent already exists, clear it first
         if (EventRouter.GetParent() != null)
         {
             await ClearParentAsync(ct);
         }
 
-        // 调用基类方法设置父节点
+        // Call base class method to set parent
         await base.SetParentAsync(parentId, ct);
 
-        // 订阅父节点的stream
+        // Subscribe to parent's stream
         var parentStream = _streamRegistry.GetStream(parentId);
         if (parentStream != null)
         {
-            // 注意：事件类型过滤功能已废弃
-            // 因为Protobuf不支持继承，无法在类型层面进行有效过滤
-            // 所有事件过滤应在Agent的事件处理器内部基于事件内容进行
+            // Note: Event type filtering feature is deprecated
+            // Because Protobuf doesn't support inheritance, effective filtering at type level is not possible
+            // All event filtering should be done within Agent's event handlers based on event content
 
-            // 创建过滤器：过滤掉自己发布的事件
+            // Create filter: filter out self-published events
             Func<EventEnvelope, bool>? combinedFilter = envelope =>
             {
-                // 过滤掉自己发布的事件，避免循环
+                // Filter out self-published events to avoid loops
                 if (envelope.PublisherId == Id.ToString())
                 {
                     return false;
@@ -73,12 +73,12 @@ public class ProtoActorGAgentActor : GAgentActorBase
                 return true;
             };
 
-            // Agent订阅父节点的stream，接收组内广播的事件
+            // Agent subscribes to parent's stream to receive group broadcast events
             _parentStreamSubscription = await parentStream.SubscribeAsync(
                 async envelope =>
                 {
-                    // 从父stream接收到的事件，只需要处理，不需要继续传播
-                    // 因为这个事件已经在父stream中广播了
+                    // Events received from parent stream only need processing, no further propagation needed
+                    // Because this event has already been broadcast in parent stream
                     // Direct call - no reflection needed since IGAgent defines HandleEventAsync
                     await Agent.HandleEventAsync(envelope, ct);
                 },
@@ -91,10 +91,10 @@ public class ProtoActorGAgentActor : GAgentActorBase
 
     protected override async Task ClearParentAsync(CancellationToken ct = default)
     {
-        // 调用基类方法清除父节点
+        // Call base class method to clear parent
         await base.ClearParentAsync(ct);
 
-        // 取消订阅父节点的stream
+        // Unsubscribe from parent's stream
         if (_parentStreamSubscription != null)
         {
             await _parentStreamSubscription.UnsubscribeAsync();
@@ -103,10 +103,10 @@ public class ProtoActorGAgentActor : GAgentActorBase
         }
     }
 
-    // ============ 抽象方法实现 ============
+    // ============ Abstract Method Implementation ============
 
     /// <summary>
-    /// 发送事件给自己（通过自己的 Stream）
+    /// Send event to self (via own Stream)
     /// </summary>
     protected override async Task SendToSelfAsync(EventEnvelope envelope, CancellationToken ct)
     {
@@ -117,7 +117,7 @@ public class ProtoActorGAgentActor : GAgentActorBase
     }
 
     /// <summary>
-    /// 发送事件到指定的 Actor（通过目标 Actor 的 Stream）
+    /// Send event to specified Actor (via target Actor's Stream)
     /// </summary>
     protected override async Task SendEventToActorAsync(string actorId, EventEnvelope envelope, CancellationToken ct)
     {
@@ -132,14 +132,14 @@ public class ProtoActorGAgentActor : GAgentActorBase
         }
     }
 
-    // ============ 生命周期 ============
+    // ============ Lifecycle ============
 
     protected override async Task OnActivateAsync(CancellationToken ct)
     {
         Console.WriteLine($"ProtoActorGAgentActor.ActivateAsync called for agent {Id}");
         Logger.LogInformation("Activating agent {AgentId}", Id);
 
-        // 订阅自己的 Stream
+        // Subscribe to own Stream
         await _myStream.SubscribeAsync<EventEnvelope>(
             async envelope =>
             {
@@ -165,7 +165,7 @@ public class ProtoActorGAgentActor : GAgentActorBase
 
         Logger.LogInformation("ProtoActorGAgentActor {Id} activated and subscribed to stream", Id);
 
-        // 更新活跃 Actor 计数
+        // Update active Actor count
         var count = Interlocked.Increment(ref _activeActorCount);
         AgentMetrics.UpdateActiveActorCount(count);
         Logger.LogDebug("Active actor count: {Count}", count);
@@ -175,15 +175,15 @@ public class ProtoActorGAgentActor : GAgentActorBase
     {
         Logger.LogInformation("Deactivating agent {AgentId}", Id);
 
-        // 停止 Proto.Actor
+        // Stop Proto.Actor
         _rootContext.Send(_actorPid, new Stop());
 
-        // 从 Registry 中移除 Agent，以允许后续重新创建相同 ID 的 Actor
+        // Remove Agent from Registry to allow subsequent recreation of Actor with same ID
         _streamRegistry.Remove(Id);
 
         Logger.LogDebug("Agent {AgentId} removed from registry", Id);
 
-        // 更新活跃 Actor 计数
+        // Update active Actor count
         var count = Interlocked.Decrement(ref _activeActorCount);
         AgentMetrics.UpdateActiveActorCount(count);
         Logger.LogDebug("Active actor count: {Count}", count);

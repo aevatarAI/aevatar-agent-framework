@@ -22,7 +22,7 @@ internal sealed class SessionInputInDto
     public string? Mode { get; init; }
 }
 
-internal sealed class SaveMaterialInDto
+internal sealed class SaveFactInDto
 {
     public string? Title { get; init; }
     public string? Content { get; init; }

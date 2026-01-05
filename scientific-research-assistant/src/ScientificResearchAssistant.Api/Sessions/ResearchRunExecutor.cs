@@ -474,18 +474,30 @@ internal sealed class ResearchRunExecutor
     {
         var ws = session.Workspace;
 
-        ws.Materials.RootDir = snapshot.RootDir;
+        ws.Materials.RootDir = "";
         ws.Materials.LoadedAt = snapshot.LoadedAt.ToString("O");
 
-        ws.Materials.Items = snapshot.Files
-            .Select(x => new MaterialMeta
+        ws.Materials.Items = new List<MaterialMeta>(capacity: snapshot.Facts.Count + snapshot.Sources.Count);
+        foreach (var x in snapshot.Facts)
+        {
+            ws.Materials.Items.Add(new MaterialMeta
             {
                 Id = x.Id,
                 Title = x.Title,
                 RelativePath = x.RelativePath,
                 Kind = x.Kind
-            })
-            .ToList();
+            });
+        }
+        foreach (var x in snapshot.Sources)
+        {
+            ws.Materials.Items.Add(new MaterialMeta
+            {
+                Id = x.Id,
+                Title = x.Title,
+                RelativePath = x.RelativePath,
+                Kind = x.Kind
+            });
+        }
 
         ws.Materials.ContextPreview = Trunc(snapshot.RenderedContext, 2000);
 

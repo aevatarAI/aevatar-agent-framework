@@ -6,10 +6,10 @@
 
 ### 1) 三层抽象：资料 / 推理 / 计算
 
-- **Materials（资料层）**：负责读取、索引、检索“已知输入”
-  - `materials/` 下任意 `.md/.txt` 都是 **sources**（NotebookLM 风格）
-  - 子目录仅用于组织（例如 `papers/`、`notes/`、`axioms/` 都可以，但系统不再强区分）
-  - **可沉淀**：当某个结论被 multi-agent 共识 + 可执行验证通过，可写回为新的 source（让系统“越研究越有资料”）
+- **Knowledge（资料层）**：负责读取、索引、检索“已知输入”
+  - `sources/`：来源资料（可引用，不要求写进去就为真）
+  - `facts/`：已验证结论（可当作事实依赖）
+  - **可沉淀**：当某个结论被 multi-agent 共识 + 可执行验证通过，可写回为新的 **fact**（让系统“越研究越有资料”）
   - 未来演进：借鉴 `notebook/` 的 chunker + vector index，把“资料检索”从 lexical 升级到 embedding
 
 - **Reasoning（推理层）**：负责把输入转成结构化推论
@@ -41,7 +41,7 @@
 ### 3) 当前 MVP 已落地的东西
 
 - **`mode=vibe`**：后端跑 `vibe.materials → vibe.plan → vibe.reason`
-- **Materials MVP**：从 `materials/` 读 `.md/.txt`，做 bounded context 注入
+- **Materials MVP**：从 `facts/` + `sources/` 读 `.md/.txt`，做 bounded context 注入
 - **Multi-agent MVP**：
   - `VibePlannerAgent`：产出研究计划
   - `VibeReasonerAgent`：基于 materials（sources）推理与引用
@@ -49,7 +49,7 @@
 
 ### 4) 下一步（建议）
 
-- **Notebook-style 索引**：把 `materials/` 写进 MemoryStore + VectorIndex（复用 notebook 的边界/预算思路）
+- **Notebook-style 索引**：把 `facts/` + `sources/` 写进 MemoryStore + VectorIndex（复用 notebook 的边界/预算思路）
 - **Graph 可视化**：像 `Aevatar.AxiomReasoning` 一样输出 DAG，并用 `STATE_DELTA` 做增量更新
 - **Compute 沙盒强化**：引入资源限制（CPU/内存/文件系统隔离），或把 python_exec 移到独立 sidecar
 - **可复现实验记录**：把每次 run 的 “输入/资料快照/代码/输出” 保存为 artifact（后续可导出 notebook/report）

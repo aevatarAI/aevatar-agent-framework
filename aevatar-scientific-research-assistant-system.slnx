@@ -15,12 +15,20 @@
     <File Path="scientific-research-assistant\docs\DEVELOPMENT.md" />
   </Folder>
 
+  <Folder Name="/scientific-research-assistant/facts/">
+    <File Path="scientific-research-assistant\facts\README.md" />
+  </Folder>
+
+  <Folder Name="/scientific-research-assistant/sources/">
+    <File Path="scientific-research-assistant\sources\README.md" />
+    <File Path="scientific-research-assistant\sources\axioms\README.md" />
+    <File Path="scientific-research-assistant\sources\axioms\example_axioms.md" />
+    <File Path="scientific-research-assistant\sources\references\README.md" />
+    <File Path="scientific-research-assistant\sources\references\example_reference.md" />
+  </Folder>
+
   <Folder Name="/scientific-research-assistant/materials/">
     <File Path="scientific-research-assistant\materials\README.md" />
-    <File Path="scientific-research-assistant\materials\axioms\README.md" />
-    <File Path="scientific-research-assistant\materials\axioms\example_axioms.md" />
-    <File Path="scientific-research-assistant\materials\references\README.md" />
-    <File Path="scientific-research-assistant\materials\references\example_reference.md" />
   </Folder>
 
   <Folder Name="/src/">

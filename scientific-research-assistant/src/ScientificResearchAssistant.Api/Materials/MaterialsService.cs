@@ -38,17 +38,22 @@ public sealed class MaterialsService
         sessionId = (sessionId ?? string.Empty).Trim();
         query = (query ?? string.Empty).Trim();
 
-        var root = ResolveMaterialsRoot();
-        var files = await LoadFolderAsync(kind: "material", folder: root, ct);
+        var factsRoot = ResolveSystemPath(_options.Value.FactsDir ?? "facts");
+        var sourcesRoot = ResolveSystemPath(_options.Value.SourcesDir ?? "sources");
 
-        var context = BuildContextString(files, query, _options.Value);
+        var facts = await LoadFolderAsync(kind: "fact", folder: factsRoot, ct);
+        var sources = await LoadFolderAsync(kind: "source", folder: sourcesRoot, ct);
+
+        var context = BuildContextString(facts, sources, query, _options.Value);
 
         return new MaterialsSnapshot
         {
             SessionId = sessionId,
             LoadedAt = DateTimeOffset.UtcNow,
-            RootDir = root,
-            Files = files,
+            FactsDir = factsRoot,
+            SourcesDir = sourcesRoot,
+            Facts = facts,
+            Sources = sources,
             RenderedContext = context
         };
     }
@@ -57,7 +62,7 @@ public sealed class MaterialsService
     //  Write-back (optional): persist verified notes as new sources
     // ============================================================
 
-    public async Task<MaterialFile> SaveMaterialAsync(
+    public async Task<MaterialFile> SaveFactAsync(
         string title,
         string content,
         string? relativePath,
@@ -66,7 +71,7 @@ public sealed class MaterialsService
         ct.ThrowIfCancellationRequested();
 
         if (!_options.Value.AllowWrite)
-            throw new InvalidOperationException("Materials write is disabled (Materials:AllowWrite=false).");
+            throw new InvalidOperationException("Facts write is disabled (Materials:AllowWrite=false).");
 
         title = (title ?? string.Empty).Trim();
         content = (content ?? string.Empty).Replace("\r", "").Trim();
@@ -77,52 +82,41 @@ public sealed class MaterialsService
         if (content.Length > maxWrite)
             content = content[..maxWrite];
 
-        var root = ResolveMaterialsRoot();
-        var writeDirName = (_options.Value.WriteDir ?? "notes").Trim();
-        if (writeDirName.Length == 0) writeDirName = "notes";
-
-        // Ensure write target directory exists.
-        var writeDir = Path.GetFullPath(Path.Combine(root, writeDirName));
-        Directory.CreateDirectory(writeDir);
+        var factsRoot = ResolveSystemPath(_options.Value.FactsDir ?? "facts");
+        Directory.CreateDirectory(factsRoot);
 
         var rel = NormalizeRelativePath(relativePath);
         if (rel.Length == 0)
         {
-            // Default: notes/{yyyyMMdd_HHmmss}_{slug}.md
-            var slug = Slugify(title.Length == 0 ? "note" : title, maxChars: 48);
+            // Default: {yyyyMMdd_HHmmss}_{slug}.md
+            var slug = Slugify(title.Length == 0 ? "fact" : title, maxChars: 48);
             var stamp = DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss");
-            rel = $"{writeDirName}/{stamp}_{slug}.md";
-        }
-        else if (!rel.StartsWith(writeDirName + "/", StringComparison.Ordinal))
-        {
-            // Constrain user-specified paths into writeDir for safety.
-            rel = $"{writeDirName}/{rel}";
+            rel = $"{stamp}_{slug}.md";
         }
 
         if (!HasAllowedExtension(rel))
             rel += ".md";
 
-        var full = Path.GetFullPath(Path.Combine(root, rel));
-        EnsureWithinRoot(root, full);
+        var full = Path.GetFullPath(Path.Combine(factsRoot, rel));
+        EnsureWithinRoot(factsRoot, full);
 
-        var md = BuildMarkdownNote(title, content);
+        var md = BuildMarkdownFact(title, content);
         await File.WriteAllTextAsync(full, md, Encoding.UTF8, ct);
 
-        var finalRel = NormalizeRelativePath(Path.GetRelativePath(root, full));
+        var finalRel = NormalizeRelativePath(Path.GetRelativePath(factsRoot, full));
         var finalTitle = title.Length == 0 ? InferTitle(finalRel, md) : title;
 
         return new MaterialFile
         {
-            Kind = "material",
-            Id = $"material:{finalRel}",
+            Kind = "fact",
+            Id = $"fact:{finalRel}",
             Title = finalTitle,
             RelativePath = finalRel,
             FullPath = full,
             Content = md
         };
     }
-
-    private static string BuildMarkdownNote(string title, string content)
+    private static string BuildMarkdownFact(string title, string content)
     {
         var t = (title ?? string.Empty).Trim();
         var body = (content ?? string.Empty).Replace("\r", "").Trim();
@@ -214,18 +208,18 @@ public sealed class MaterialsService
         return outSlug.Length == 0 ? "note" : outSlug;
     }
 
-    private string ResolveMaterialsRoot()
+    private string ResolveSystemPath(string dirName)
     {
         // contentRoot: scientific-research-assistant/src/ScientificResearchAssistant.Api
         var contentRoot = _env.ContentRootPath;
         var systemRoot = Path.GetFullPath(Path.Combine(contentRoot, "..", ".."));
+        var raw = (dirName ?? string.Empty).Trim();
+        if (raw.Length == 0)
+            throw new InvalidOperationException("Knowledge directory name is empty.");
 
-        var raw = (_options.Value.RootDir ?? "materials").Trim();
-        var root = Path.IsPathRooted(raw)
+        return Path.IsPathRooted(raw)
             ? raw
             : Path.GetFullPath(Path.Combine(systemRoot, raw));
-
-        return root;
     }
 
     private async Task<List<MaterialFile>> LoadFolderAsync(string kind, string folder, CancellationToken ct)
@@ -346,7 +340,8 @@ public sealed class MaterialsService
     }
 
     private static string BuildContextString(
-        IReadOnlyList<MaterialFile> materials,
+        IReadOnlyList<MaterialFile> facts,
+        IReadOnlyList<MaterialFile> sources,
         string query,
         MaterialsOptions options)
     {
@@ -361,14 +356,29 @@ public sealed class MaterialsService
             sb.AppendLine(header);
         }
 
-        AppendSection("MATERIALS (sources, relevance-ranked):");
-        if (materials.Count == 0)
+        // Facts first: higher-confidence, usually smaller.
+        AppendSection("FACTS (verified, higher confidence):");
+        if (facts.Count == 0)
         {
             sb.AppendLine("(none)");
         }
         else
         {
-            var ranked = RankMaterials(materials, query)
+            foreach (var f in facts)
+            {
+                if (sb.Length >= maxTotal) break;
+                AppendMaterial(sb, f, maxPerDoc, maxTotal);
+            }
+        }
+
+        AppendSection("SOURCES (evidence, relevance-ranked):");
+        if (sources.Count == 0)
+        {
+            sb.AppendLine("(none)");
+        }
+        else
+        {
+            var ranked = RankMaterials(sources, query)
                 .Take(24)
                 .ToList();
 
@@ -495,8 +505,11 @@ public sealed record MaterialsSnapshot
     public required string SessionId { get; init; }
     public required DateTimeOffset LoadedAt { get; init; }
 
-    public required string RootDir { get; init; }
-    public required List<MaterialFile> Files { get; init; }
+    public required string FactsDir { get; init; }
+    public required string SourcesDir { get; init; }
+
+    public required List<MaterialFile> Facts { get; init; }
+    public required List<MaterialFile> Sources { get; init; }
 
     /// <summary>
     /// Bounded string for LLM injection.
@@ -506,7 +519,7 @@ public sealed record MaterialsSnapshot
 
 public sealed record MaterialFile
 {
-    public required string Kind { get; init; }            // material | note | derived | ...
+    public required string Kind { get; init; }            // fact | source
     public required string Id { get; init; }              // stable id: {kind}:{relativePath}
     public required string Title { get; init; }           // inferred title
     public required string RelativePath { get; init; }

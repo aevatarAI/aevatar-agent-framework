@@ -30,7 +30,7 @@ internal static class ResearchSessionsApi
         MapTools(app);
         MapInput(app);
         MapMcpReconnect(app);
-        MapMaterials(app);
+        MapFacts(app);
         MapAgUiEvents(app);
     }
 
@@ -173,12 +173,12 @@ internal static class ResearchSessionsApi
         });
     }
 
-    private static void MapMaterials(WebApplication app)
+    private static void MapFacts(WebApplication app)
     {
-        // Write-back: allow user to persist a verified conclusion as a new source under materials/
-        app.MapPost("/api/sessions/{sessionId}/materials", async (
+        // Write-back: allow user to persist a verified conclusion as a new fact under facts/
+        app.MapPost("/api/sessions/{sessionId}/facts", async (
             string sessionId,
-            SaveMaterialInDto input,
+            SaveFactInDto input,
             ResearchSessionManager sessions,
             MaterialsService materials,
             CancellationToken ct) =>
@@ -193,7 +193,7 @@ internal static class ResearchSessionsApi
             try
             {
                 var title = (input.Title ?? string.Empty).Trim();
-                var saved = await materials.SaveMaterialAsync(title, content, input.RelativePath, ct);
+                var saved = await materials.SaveFactAsync(title, content, input.RelativePath, ct);
 
                 // Refresh workspace materials snapshot (best-effort; bounded by options)
                 var snapshot = await materials.LoadAsync(session.Id, query: "", ct);
@@ -208,7 +208,7 @@ internal static class ResearchSessionsApi
                 session.Events.Publish(new CustomEvent
                 {
                     Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                    Name = "aevatar.scientific.material_saved",
+                    Name = "aevatar.scientific.fact_saved",
                     Value = new { sessionId = session.Id, id = saved.Id, title = saved.Title, relativePath = saved.RelativePath }
                 });
 
@@ -216,7 +216,7 @@ internal static class ResearchSessionsApi
                 {
                     ok = true,
                     sessionId = session.Id,
-                    material = new { id = saved.Id, title = saved.Title, relativePath = saved.RelativePath }
+                    fact = new { id = saved.Id, title = saved.Title, relativePath = saved.RelativePath }
                 });
             }
             catch (Exception ex)
@@ -336,17 +336,31 @@ internal static class ResearchSessionsApi
     private static void ApplyMaterialsToWorkspace(ResearchSession session, MaterialsSnapshot snapshot)
     {
         var ws = session.Workspace;
-        ws.Materials.RootDir = snapshot.RootDir;
+        ws.Materials.RootDir = "";
         ws.Materials.LoadedAt = snapshot.LoadedAt.ToString("O");
-        ws.Materials.Items = snapshot.Files
-            .Select(x => new MaterialMeta
+        ws.Materials.Items = new List<MaterialMeta>(capacity: snapshot.Facts.Count + snapshot.Sources.Count);
+
+        foreach (var x in snapshot.Facts)
+        {
+            ws.Materials.Items.Add(new MaterialMeta
             {
                 Id = x.Id,
                 Title = x.Title,
                 RelativePath = x.RelativePath,
                 Kind = x.Kind
-            })
-            .ToList();
+            });
+        }
+
+        foreach (var x in snapshot.Sources)
+        {
+            ws.Materials.Items.Add(new MaterialMeta
+            {
+                Id = x.Id,
+                Title = x.Title,
+                RelativePath = x.RelativePath,
+                Kind = x.Kind
+            });
+        }
 
         ws.Materials.ContextPreview = Trunc(snapshot.RenderedContext, 2000);
     }

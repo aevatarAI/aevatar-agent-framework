@@ -25,12 +25,14 @@ internal sealed class InMemoryGraphExecutor : IGraphExecutor<GraphOperation>
             CreateNode op => CreateNode(op),
             UpdateNode op => UpdateNode(op),
             DeleteNode op => DeleteNode(op),
+            DeleteNodes op => DeleteNodes(op),
             QueryNodes op => QueryNodes(op),
             ReadEdge op => ReadEdge(op),
             CreateEdge op => CreateEdge(op),
             UpdateEdge op => UpdateEdge(op),
             DeleteEdge op => DeleteEdge(op),
-            ReadEdgesBetween op => ReadEdgesBetween(op),
+            QueryEdges op => QueryEdges(op),
+            DeleteEdges op => DeleteEdges(op),
             _ => null
         };
 
@@ -111,6 +113,24 @@ internal sealed class InMemoryGraphExecutor : IGraphExecutor<GraphOperation>
         return null;
     }
 
+    private object? DeleteNodes(DeleteNodes op)
+    {
+        var q = op.Query;
+        var toDelete = _store.Nodes
+            .Where(n => string.Equals(n.Type, q.Type, StringComparison.Ordinal))
+            .Where(n => MatchesAll(n.Properties, q.Conditions))
+            .Select(n => n.Id)
+            .ToList();
+
+        // DETACH semantics: same behavior as deleting one-by-one.
+        foreach (var id in toDelete)
+        {
+            DeleteNode(new DeleteNode(id));
+        }
+
+        return null;
+    }
+
     private object? DeleteEdge(DeleteEdge op)
     {
         _store.RemoveEdge(op.Id);
@@ -128,18 +148,38 @@ internal sealed class InMemoryGraphExecutor : IGraphExecutor<GraphOperation>
         return result;
     }
 
-    private object? ReadEdgesBetween(ReadEdgesBetween op)
+    private object? QueryEdges(QueryEdges op)
     {
-        var type = op.Filter?.Type;
-        var conditions = op.Filter?.Conditions ?? Array.Empty<Condition>();
+        var q = op.Query;
+        var type = q.Type;
+        var conditions = q.Conditions;
 
         var result = _store.Edges
-            .Where(e => e.From.Value == op.From.Value && e.To.Value == op.To.Value)
             .Where(e => string.IsNullOrWhiteSpace(type) || string.Equals(e.Type, type, StringComparison.Ordinal))
             .Where(e => MatchesAll(e.Properties, conditions))
             .ToList();
 
         return result;
+    }
+
+    private object? DeleteEdges(DeleteEdges op)
+    {
+        var q = op.Query;
+        var type = q.Type;
+        var conditions = q.Conditions;
+
+        var toDelete = _store.Edges
+            .Where(e => string.IsNullOrWhiteSpace(type) || string.Equals(e.Type, type, StringComparison.Ordinal))
+            .Where(e => MatchesAll(e.Properties, conditions))
+            .Select(e => e.Id)
+            .ToList();
+
+        foreach (var id in toDelete)
+        {
+            _store.RemoveEdge(id);
+        }
+
+        return null;
     }
 
     private static bool MatchesAll(IReadOnlyDictionary<string, Value> props, IReadOnlyList<Condition> conditions)

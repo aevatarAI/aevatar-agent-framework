@@ -68,10 +68,10 @@ AG-UI tool 事件是 `CUSTOM`：
 - 先检查 `tools_snapshot` 是否返回（侧栏 MCP Tools 数量）
 - 再确认 run 触发成功（`RUN_STARTED` / `STEP_STARTED(chat)`）
 
-#### 4) vibe 模式读不到 materials（sources）
+#### 4) vibe 模式读不到 facts / sources
 
-- 检查 `materials/` 下是否存在 `.md` / `.txt`（任意子目录都可以）
-- 检查 `src/ScientificResearchAssistant.Api/appsettings.json` 的 `Materials:RootDir`（默认 `materials`）
+- 检查 `facts/` 与 `sources/` 下是否存在 `.md` / `.txt`
+- 检查 `src/ScientificResearchAssistant.Api/appsettings.json` 的 `Materials:FactsDir` / `Materials:SourcesDir`
 - UI 里打开 `Workspace`（STATE_SNAPSHOT）确认 materials 是否被加载
 
 #### 5) python_exec 不可用

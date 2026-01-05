@@ -1,0 +1,16 @@
+{
+  "id": "snapshot_1767604450320_pdlfvvrnp",
+  "approvalId": "approval_1767604450317_e717ufdqb",
+  "approvalTitle": "Approve steering structure.md (facts/sources + workspace/mailbox directory conventions)",
+  "version": 1,
+  "timestamp": "2026-01-05T09:14:10.320Z",
+  "trigger": "initial",
+  "status": "pending",
+  "content": "# Project Structure\n\n## Directory Organization\n\n本 steering 给出一个**面向 multi-agent 协作**的文件目录约定：把“研究输入/结论沉淀/agent 通信/运行产物”拆开，做到可审计、可复现、可并发。\n\n### Canonical tree（以 scientific-research-assistant 为例）\n\n```\nscientific-research-assistant/\n├── sources/                         # 可引用来源（不要求写进去就为真）\n│   ├── README.md\n│   └── ...                          # 任意子目录自由组织\n├── facts/                           # 已验证结论（希望可当作事实依赖）\n│   ├── README.md\n│   └── ...                          # 按主题/项目/日期组织均可\n├── workspace/                       # Agent 协作工作区（session-scoped，可清理）\n│   └── sessions/\n│       └── {sessionId}/\n│           ├── mailbox/             # agent 间“文件邮箱”通信\n│           │   ├── {agentName}/\n│           │   │   ├── in/          # 接收队列（原子写入）\n│           │   │   └── out/         # 发送队列（等待投递/归档）\n│           │   └── _dead/           # 失败消息（人工排查）\n│           ├── artifacts/           # 运行产物（代码/图/表/中间数据）\n│           ├── runs/                # 每次 run 的结构化记录（参数/摘要/引用集合）\n│           └── tmp/                 # 临时文件（可随时删）\n├── src/                             # 后端/agent 代码\n├── frontend/                        # 前端 UI\n└── docs/                            # 文档\n```\n\n### 目录语义（核心约束）\n\n- `sources/`：可追溯来源；内容可能不完整/可能带噪声，但必须可引用\n- `facts/`：期望高置信条目；建议附带验证方法与证据链接\n- `workspace/sessions/{sessionId}/mailbox/`：**agent 通信专用**，避免把 transient 消息混进 facts/sources\n\n## Naming Conventions\n\n### Files\n\n- **Folders**: `kebab-case`（例如 `protein-folding/`）\n- **Agent names**: `snake_case` 或 `kebab-case`（例如 `python_verifier`）\n- **Mailbox message files**:\n  - `{utcTimestamp}_{messageId}_{from}->{to}.{ext}`\n  - 示例：`20260105T120102Z_9f3a_planner->reasoner.json`\n\n### Code\n\n- C#：类 `PascalCase`，方法 `PascalCase`，局部变量 `camelCase`\n\n## Import Patterns\n\n按现有仓库惯例（无额外约束）。\n\n## Code Structure Patterns\n\n### File Organization Principles\n\n- 边界层（HTTP/AG-UI/Filesystem projection）与推理层严格分离\n- 任何“写文件”的逻辑必须 best-effort + 有界 + 原子写\n\n## Module Boundaries\n\n- **facts/sources**：共享黑板（内容交换）\n- **mailbox**：点对点/多对多通信（流程控制）\n- **artifacts/runs**：可复现产物（审计与复盘）\n\n## Code Size Guidelines\n\n沿用仓库铁律：\n- 单文件 ≤ 800 行\n- 单目录 ≤ 8 个文件（超过就分层）\n\n## Documentation Standards\n\n- 每个系统的根目录必须有 README，说明 facts/sources/workspace 的约定\n- 任何目录级调整必须同步更新 `docs/` 与 steering 的结构树\n\n## File-based Agent Communication Protocol（关键约束）\n\n### Message Schema（必须 Protobuf 定义）\n\n即使消息落盘为 `.json/.md`，其 schema 也必须由 `.proto` 定义（跨 agent 边界）。\n\n建议定义：\n- `AgentMailboxMessage`：from/to/sessionId/type/payload/traceId\n- `FactRecord`：title/content/citations/verification/artifacts\n\n### Atomic Write（必须）\n\n- 写入流程：写到 `tmp/` → `fsync`（可选）→ `rename` 到 `in/`\n- 消费流程：读取后 move 到 `runs/` 或 `artifacts/` 归档（避免重复消费）\n\n### Idempotency（必须）\n\n- messageId 必须全局唯一（或 session 范围唯一）\n- 消费端必须能识别已处理（基于 messageId + archive）\n\n\n",
+  "fileStats": {
+    "size": 3952,
+    "lines": 102,
+    "lastModified": "2026-01-05T09:13:32.835Z"
+  },
+  "comments": []
+}

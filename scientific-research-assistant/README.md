@@ -8,7 +8,7 @@ This project provides a unified interface for scientific research, allowing you 
 
 ### Key Features
 - **AI Agent**: Specialized `ResearchAgent` capable of using scientific tools.
-- **Vibe Researching (NEW)**: Multi-agent inference grounded in your local **materials (sources)** (`materials/`), with optional Python verification.
+- **Vibe Researching (NEW)**: Multi-agent inference grounded in your local **facts + sources**, with optional Python verification.
 - **Web Interface ("Lab Notebook")**: React/Tailwind UI for interactive research.
 - **CLI**: Rapid prototyping console.
 - **Local Privacy**: optional Docker-based execution of scientific tools on your own machine.
@@ -19,7 +19,8 @@ This project provides a unified interface for scientific research, allowing you 
 - `frontend/`: Frontend (React + Vite).
 - `src/ScientificResearchAssistant/`: Core Agent logic (CLI + agent class).
 - `src/ScientificResearchAssistant.Api/`: Backend API (ASP.NET Core 10.0, AG-UI SSE).
-- `materials/`: Local grounding inputs (NotebookLM-style sources) for vibe researching.
+- `facts/`: Verified conclusions (write-back target).
+- `sources/`: Citable sources (raw materials).
 - `docs/`: Deployment and Integration guides.
 
 ## 🏁 Getting Started
@@ -35,8 +36,9 @@ This project provides a unified interface for scientific research, allowing you 
 1.  **Configure LLM Providers**:
     Put your keys in `src/ScientificResearchAssistant.Api/appsettings.secrets.json` (see example file).
 
-2.  **(Optional) Add materials (sources)**:
-    - Put any `.md` / `.txt` under `materials/` (subfolders are fine)
+2.  **(Optional) Add facts / sources**:
+    - Put `.md` / `.txt` under `sources/` (subfolders are fine)
+    - Put verified conclusions under `facts/`
 
 3.  **(Optional) Choose MCP mode**:
     `src/ScientificResearchAssistant.Api/appsettings.json` controls whether Claude Scientific Skills runs via hosted MCP or local Docker.
@@ -64,7 +66,7 @@ This project provides a unified interface for scientific research, allowing you 
 - `GET  /api/sessions`
 - `POST /api/sessions/{id}/input`
   - body: `{ "message": "...", "mode": "chat" | "vibe" }` (`mode` optional, default `chat`)
-- `POST /api/sessions/{id}/materials` (optional; requires `Materials:AllowWrite=true`)
+- `POST /api/sessions/{id}/facts` (optional; requires `Materials:AllowWrite=true`)
 - `GET  /api/sessions/{id}/agui/events` (SSE, snapshot-first)
 
 ## 📚 Documentation

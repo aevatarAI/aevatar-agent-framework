@@ -492,7 +492,7 @@ export default function App() {
               onClick={() => setWorkspaceOpen(true)}
               className="mt-2 w-full text-xs bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded px-2 py-2 transition flex items-center justify-center gap-2 disabled:opacity-50"
               disabled={!connected}
-              title={connected ? "View workspace state (materials/graph)" : "Connect to a session first"}
+                title={connected ? "View workspace state (facts/sources/graph)" : "Connect to a session first"}
             >
               <FileText size={14} /> Workspace
               <span className="ml-auto text-[10px] text-gray-400 font-mono">

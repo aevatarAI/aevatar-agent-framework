@@ -1,7 +1,7 @@
 # Example Axioms (demo)
 
-> 这是一个示例文件，用来验证“materials → multi-agent 推理”的闭环。
-> 你可以删除或替换为真实公理/资料。
+> 这是一个示例文件，用来验证 “sources → multi-agent 推理” 的闭环。
+> 你可以删除或替换为真实资料。
 
 ## A1. Basic algebra (demo)
 

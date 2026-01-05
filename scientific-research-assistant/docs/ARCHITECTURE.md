@@ -8,7 +8,8 @@
 - **`src/ScientificResearchAssistant/Vibe/*`**：vibe researching 多智能体角色：
   - `VibePlannerAgent`：生成研究计划（假设/未知/验证路径）
   - `VibeReasonerAgent`：基于 materials（sources）推理（可选 `python_exec` 验证）
-- **`materials/`**：本地 grounding 输入（NotebookLM 风格 sources），由后端读取并注入 LLM 上下文。
+- **`sources/`**：来源资料（可引用，不要求写进去就为真）
+- **`facts/`**：已验证结论（可当作事实依赖）
 
 ### 事件流（用户输入 → Agent 执行 → AG-UI SSE）
 
@@ -22,7 +23,7 @@
    - 发送 `RUN_STARTED`
    - 发送 `STEP_STARTED(chat)` 或 `STEP_STARTED(vibe.*)`
    - 发送 `TEXT_MESSAGE_*`（user + assistant streaming）
-   - vibe 模式会额外发送 `STATE_SNAPSHOT`（workspace：materials/进度等）
+   - vibe 模式会额外发送 `STATE_SNAPSHOT`（workspace：facts/sources 计数与预览等）
    - tool calling 期间发送 `CUSTOM`（tool_start/tool_end）
    - 结束时发送 `STEP_FINISHED(chat)` → `RUN_FINISHED`（失败则 `RUN_ERROR`）
 
@@ -36,11 +37,11 @@
     - `aevatar.scientific.session`：会话元信息
     - `aevatar.scientific.tools_snapshot`：工具列表（含 MCP 标记）
 
-### Vibe Researching（materials → 多智能体推论）
+### Vibe Researching（facts + sources → 多智能体推论）
 
 vibe 模式的最小闭环（MVP）：
 
-- `vibe.materials`：读取 `materials/` 下的 sources（任意子目录的 `.md/.txt`），构建 bounded context
+- `vibe.materials`：读取 `facts/` + `sources/` 构建 bounded context（facts 优先，其次 sources relevance-ranked）
 - `vibe.plan`：`VibePlannerAgent` 输出研究计划（可执行步骤）
 - `vibe.reason`：`VibeReasonerAgent` 进行推理与引用；如启用 Python，可用 `python_exec` 做计算验证
 

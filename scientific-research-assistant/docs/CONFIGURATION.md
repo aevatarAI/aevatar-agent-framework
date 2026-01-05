@@ -28,18 +28,19 @@
 
 `src/ScientificResearchAssistant.Api/appsettings.json` 的 `Materials` 控制本地资料读取：
 
-- `Materials:RootDir`：默认 `materials`（相对 `scientific-research-assistant/` 根目录）
+- `Materials:FactsDir`：默认 `facts`（相对 `scientific-research-assistant/` 根目录）
+- `Materials:SourcesDir`：默认 `sources`（相对 `scientific-research-assistant/` 根目录）
 - `Materials:MaxContextChars`：注入 LLM 的总字符上限（避免上下文爆炸）
 
-目录约定（NotebookLM 风格）：
+目录约定（两层语义）：
 
-- `materials/` 下 **任意子目录** 的 `.md|.txt` 都会被当作 “sources”
-- 你可以自行用子目录做组织（例如 `axioms/`、`papers/`、`notes/`），但系统不再区分“公理/参考资料”
+- `sources/`：来源资料（可引用，不要求写进去就为真）
+- `facts/`：已验证结论（希望可当作事实依赖）
 
 可选写回（把验证通过的结论沉淀为新的 sources）：
 
 - `Materials:AllowWrite`：默认 `false`
-- `Materials:WriteDir`：默认 `notes`（写入到 `materials/notes/`）
+- 写回目标：默认写入 `facts/`
 
 ### 4) Python 验证（可选，默认关闭）
 

@@ -17,10 +17,16 @@ public sealed class MaterialsOptions
     public const string SectionName = "Materials";
 
     /// <summary>
-    /// Root directory under the system folder.
-    /// Default: scientific-research-assistant/materials
+    /// Facts directory under the system folder.
+    /// Default: scientific-research-assistant/facts
     /// </summary>
-    public string RootDir { get; init; } = "materials";
+    public string FactsDir { get; init; } = "facts";
+
+    /// <summary>
+    /// Sources directory under the system folder.
+    /// Default: scientific-research-assistant/sources
+    /// </summary>
+    public string SourcesDir { get; init; } = "sources";
 
     public int MaxFiles { get; init; } = 200;
 
@@ -37,14 +43,9 @@ public sealed class MaterialsOptions
     public int MaxPerDocChars { get; init; } = 6_000;
 
     // ------------------------------------------------------------
-    //  Optional: allow the system to write "verified notes" back to materials/
+    //  Optional: allow the system to write verified facts back to facts/
     // ------------------------------------------------------------
     public bool AllowWrite { get; init; } = false;
-
-    /// <summary>
-    /// Subdirectory (under RootDir) where server-written notes are placed.
-    /// </summary>
-    public string WriteDir { get; init; } = "notes";
 
     public int MaxWriteChars { get; init; } = 200_000;
 }

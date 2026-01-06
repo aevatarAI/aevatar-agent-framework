@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/llmtornado-claude-agent-sdk/tasks.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-06T03:42:04.965Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767670924962_if5g9n3db",
+      "approvalTitle": "Approve tasks for llmtornado-claude-agent-sdk"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-06T03:42:11.722Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767670924962_if5g9n3db",
+      "approvalTitle": "Approve tasks for llmtornado-claude-agent-sdk"
+    }
+  ]
+}

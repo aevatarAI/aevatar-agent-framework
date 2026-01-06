@@ -172,6 +172,7 @@ allowed-tools:
 - `/*aevatar_tool { ... } */` JSON manifest
 
 `skills_load(register_tools=true)` 会：
+- **前提**：`AllowDangerousTools=true`（否则会跳过导入，并在返回值 `skipped` 中提示原因）
 - 扫描 skill 目录内 `*.cs`（递归，最多 32 个，且文件头 16KB 内包含 `/*aevatar_tool` 才认为是工具）
 - 自动注册为 Tool（通过 `dotnet run --file` 执行）
 
@@ -214,6 +215,7 @@ allowed-tools:
 - **dotnet-file 工具没有被导入**
   - **检查**：`.cs` 文件里是否包含 `/*aevatar_tool ... */`
   - **检查**：`register_tools=true` 或 `AgentSkillsAutoRegisterDotNetFileTools=true`
+  - **检查**：是否 `AllowDangerousTools=true`（导入本地可执行工具需要显式开启）
 
 ---
 

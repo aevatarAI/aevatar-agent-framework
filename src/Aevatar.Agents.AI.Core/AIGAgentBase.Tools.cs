@@ -24,7 +24,7 @@ public abstract partial class AIGAgentBase
     /// <summary>
     /// Safety switch (default: false):
     /// - When false, tools marked <c>RequiresConfirmation</c> or <c>IsDangerous</c> will not be exposed/executed.
-    /// - Explicitly enable in derived agents when you want side-effect tools (HTTP, publish_event, skills_load, etc).
+    /// - Explicitly enable in derived agents when you want side-effect tools (HTTP, publish_event, dotnet-file tools, etc).
     /// </summary>
     public bool AllowDangerousTools { get; set; }
 

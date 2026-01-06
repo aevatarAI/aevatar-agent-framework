@@ -166,7 +166,10 @@ public abstract partial class AIGAgentBase
             Tags = new List<string> { "skills", "agent-skills", "filesystem", "discovery" },
             Parameters = new ToolParameters(),
             RequiresInternalAccess = true,
-            IsDangerous = true,
+            // NOTE:
+            // - Skill discovery is gated by EnableAgentSkills (default false).
+            // - Keep it as an internal tool, but not "dangerous" so users don't need to flip AllowDangerousTools just to list skills.
+            IsDangerous = false,
             CanBeOverridden = true,
             ExecuteAsync = async (_, executionContext, ct) =>
                 await ExecuteSkillsListToolAsync(agentType, executionContext, ct)
@@ -182,7 +185,10 @@ public abstract partial class AIGAgentBase
             Version = "1.0.0",
             Tags = new List<string> { "skills", "agent-skills", "filesystem", "prompt", "import" },
             RequiresInternalAccess = true,
-            IsDangerous = true,
+            // NOTE:
+            // - Loading SKILL.md is gated by EnableAgentSkills (default false).
+            // - Dotnet-file tool import remains guarded by AllowDangerousTools at execution time.
+            IsDangerous = false,
             CanBeOverridden = true,
             Parameters = new ToolParameters
             {
@@ -198,7 +204,7 @@ public abstract partial class AIGAgentBase
                     {
                         Type = "boolean",
                         Description =
-                            "If true, auto-register dotnet-file tools (.cs with /*aevatar_tool*/ manifest) under this skill folder"
+                            "If true, auto-register dotnet-file tools (.cs with /*aevatar_tool*/ manifest) under this skill folder. Requires AllowDangerousTools=true."
                     },
                     ["max_chars"] = new()
                     {
@@ -308,6 +314,26 @@ public abstract partial class AIGAgentBase
 
         var registered = new List<string>();
         var skipped = new List<object>();
+
+        if (registerTools && match.DotNetToolFiles.Count > 0)
+        {
+            // Dotnet-file tool import == local code execution. Guard it explicitly.
+            // We keep skills_load non-dangerous for usability, but importing executable tools still requires opt-in.
+            if (executionContext.AllowDangerousTools == false)
+            {
+                foreach (var toolFile in match.DotNetToolFiles)
+                {
+                    skipped.Add(new
+                    {
+                        file = toolFile,
+                        error =
+                            "Dotnet-file tool import is disabled by policy (AllowDangerousTools=false). Set AllowDangerousTools=true to enable register_tools."
+                    });
+                }
+
+                registerTools = false;
+            }
+        }
 
         if (registerTools && match.DotNetToolFiles.Count > 0)
         {

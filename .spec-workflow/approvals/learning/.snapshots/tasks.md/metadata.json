@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/learning/tasks.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-06T08:54:30.918Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767689670913_2pire8b7v",
+      "approvalTitle": "Spec tasks approval: learning (AI Native Learning System)"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-06T08:55:33.582Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767689670913_2pire8b7v",
+      "approvalTitle": "Spec tasks approval: learning (AI Native Learning System)"
+    }
+  ]
+}

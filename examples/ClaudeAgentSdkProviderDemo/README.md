@@ -1,80 +1,111 @@
-# Claude Agent SDK Provider Demo (offline/mock)
+# Claude Agent SDK Provider Demo (mock by default, real optional)
 
 This demo showcases what makes `ProviderType = "claude_agent_sdk"` different from a typical in-process LLM provider:
 
-- **Project-level settings**: `projectRoot + .claude/*` (File-SSoT style)
-- **Plugins**: plugin loading + deterministic transforms
+- **Project-level settings**: `projectRoot` + project files (mock: `.claude/*`; real: `CLAUDE.md` via `settingSources=['project']`)
 - **Permissions**: allow-list gating (`allowedTools`) for filesystem read/write
 - **Process isolation**: external runner (`node`) instead of in-process model API calls
 - **Streaming**: best-effort token streaming via marker protocol
 - **Tool-loop boundary**: ignores `Functions` and never returns `AevatarFunctionCall`
 
-> This demo is **offline** and does **not** call any real network / model API.
+Default behavior is **mock/offline** (no network, deterministic). You can switch to **real mode** to run the official Claude Agent SDK.
 
 ## Prerequisites
 
 - .NET 10 SDK
-- Node.js (for the mock runner)
+- Node.js (needed for both mock and real runner)
 
-If Node.js is missing, the baseline section will still run, and the demo will print an actionable error for `claude_agent_sdk`.
-
-## Run
-
-```bash
-cd examples/ClaudeAgentSdkProviderDemo
-dotnet run
-```
-
-You can also run from repo root:
+## Run (mock / offline default)
 
 ```bash
 dotnet run --project examples/ClaudeAgentSdkProviderDemo/ClaudeAgentSdkProviderDemo.csproj
 ```
 
-## What to look for in output
+## What to look for (mock mode)
 
 The demo prints three sections:
 
 1) **BASELINE** (in-process, deterministic)
-   - Does not read `.claude`
-   - Does not load plugins
+   - Does not read project settings
    - No runner permissions model
 
 2) **claude_agent_sdk_minimal**
    - `allowedTools` is empty => `filesystem_read` / `filesystem_write` are denied
-   - Shows deny reasons
 
 3) **claude_agent_sdk_full** + **STREAMING**
    - `allowedTools` includes read/write => context read is allowed, and an output file is written
    - Streaming section prints incremental deltas coming from runner markers
 
-You should see:
-- `.claude` settings reported as **FOUND**
-- `pluginsLoaded=2`
+In mock mode you should see:
+- demo project settings reported as **FOUND**
 - `filesystem_write=DENIED` in minimal and `ALLOWED` in full
-- a file created under:
+- a file created at:
   - `demo_project/output/runner_output.txt` (inside the build output directory)
+
+## Switch to real Claude Agent SDK (optional)
+
+Real mode runs `runner/real_claude_agent_sdk_runner.mjs`, which calls the official `@anthropic-ai/claude-agent-sdk` `query()` API.
+
+### 1) Install prerequisites
+
+- Install Claude Code CLI:
+
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
+- Install the Agent SDK (in the runner directory):
+
+```bash
+cd examples/ClaudeAgentSdkProviderDemo/runner
+npm install
+```
+
+### 2) Configure auth
+
+Provide **either**:
+- `ANTHROPIC_API_KEY` (recommended for CI/headless), **or**
+- a Claude Code authenticated session (your local setup)
+
+Never commit secrets.
+
+### 3) Run in real mode
+
+```bash
+cd <repo-root>
+CLAUDE_AGENT_SDK_DEMO_MODE=real ANTHROPIC_API_KEY=... dotnet run --project examples/ClaudeAgentSdkProviderDemo/ClaudeAgentSdkProviderDemo.csproj
+```
+
+### 4) Verify `CLAUDE.md` was loaded
+
+In real mode, `demo_project/CLAUDE.md` forces an observable marker:
+
+- The `claude_agent_sdk_*` output should begin with:
+  - `CLAUDE_MD_LOADED`
+
+> Real mode is **non-deterministic** and may incur **API cost**.
 
 ## Runner protocol (markers)
 
-The mock runner emits:
-- `AEVATAR_AGENT_SDK_STREAM:{text}` (when `stream=true`)
-- `AEVATAR_AGENT_SDK_OUTPUT:{json}` (always; contains `{ "content": "..." }`)
+Both runners emit:
+- `AEVATAR_AGENT_SDK_STREAM:{text}` (optional, when `stream=true`)
+- `AEVATAR_AGENT_SDK_OUTPUT:{json}` (final output; includes `{ "content": "..." }`)
 
-See `runner/README.md` and `runner/mock_claude_agent_sdk_runner.mjs`.
+See `runner/README.md`.
 
-## Swap to a real Claude Agent SDK runner (optional)
+## Troubleshooting (real mode)
 
-This demo uses a mock runner. To use a real runner:
-
-- Keep `ProviderType = "claude_agent_sdk"`
-- Update `ProviderSpecificSettings.runnerCommand` / `runnerArgs` to your real runner entrypoint
-- Provide `ANTHROPIC_API_KEY` via environment or secret store
-- Do **not** commit secrets to the repo
+- **`Missing dependency: @anthropic-ai/claude-agent-sdk`**:
+  - Run `npm install` in `examples/ClaudeAgentSdkProviderDemo/runner`
+- **Auth errors / 401**:
+  - Ensure `ANTHROPIC_API_KEY` is set (or Claude Code is logged-in)
+- **Permissions hang / prompts**:
+  - The demo sets `permissionMode=acceptEdits` for the `claude_agent_sdk_full` provider in real mode
+- **RepoRoot auto-detect failed**:
+  - Real mode expects running from the repo (so it can locate `examples/ClaudeAgentSdkProviderDemo/runner`)
 
 ## Security + Port Policy
 
 - The demo does **not** start any listening service.
 - Do **not** use `:5000` in any default config/example. If you ever add a sidecar in the future, use `:5678` by default.
-
 

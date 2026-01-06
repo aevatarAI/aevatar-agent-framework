@@ -22,6 +22,7 @@
   <ItemGroup>
     <Compile Remove="skills\*.cs" />
     <None Include="skills\*.cs" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="skills\*.py" CopyToOutputDirectory="PreserveNewest" />
     <None Include="agent_skills/**" CopyToOutputDirectory="PreserveNewest" />
     <None Include="docs/**" CopyToOutputDirectory="PreserveNewest" />
     <None Update="appsettings.secrets.json">

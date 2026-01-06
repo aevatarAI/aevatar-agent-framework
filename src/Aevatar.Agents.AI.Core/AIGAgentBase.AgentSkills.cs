@@ -46,9 +46,9 @@ public abstract partial class AIGAgentBase
 
     /// <summary>
     /// Enable Agent Skills tools (<c>skills_list</c>/<c>skills_load</c>).
-    /// Default: false (avoid exposing filesystem reads by default).
+    /// Default: true (favor usability; disable in derived agents if you need tighter safety).
     /// </summary>
-    public bool EnableAgentSkills { get; set; }
+    public bool EnableAgentSkills { get; set; } = true;
 
     /// <summary>
     /// Auto-register dotnet-file tools (.cs + /*aevatar_tool*/ manifest) when loading a skill.
@@ -220,6 +220,7 @@ public abstract partial class AIGAgentBase
 
         await ToolManager.RegisterToolAsync(listTool, cancellationToken);
         await ToolManager.RegisterToolAsync(loadTool, cancellationToken);
+        await RegisterAgentSkillsResourceToolsAsync(cancellationToken);
 
         await RefreshToolCachesAsync(cancellationToken);
     }

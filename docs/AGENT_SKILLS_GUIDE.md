@@ -22,7 +22,10 @@
 - **Skill Root**：技能根目录，包含多个 skill 文件夹。
 - **Skill Folder**：单个技能目录，至少包含 `SKILL.md`。
 - **`SKILL.md`**：技能入口文件，包含 YAML front matter（元信息）+ 正文（流程/规范）。
-- **Agent Skills Tools**：Aevatar 暴露给 LLM 的两个工具：`skills_list`、`skills_load`。
+- **Agent Skills Tools**：Aevatar 暴露给 LLM 的工具：
+  - `skills_list`、`skills_load`（技能发现与加载）
+  - `skills_files`、`skills_read_file`（技能资源浏览与读取）
+  - `skills_run_python`（执行 skill 内的 Python 脚本，危险工具）
 - **dotnet-file tool**：`*.cs` 单文件工具，通过 `.NET 10` 的 `dotnet run --file` 执行（`/*aevatar_tool ... */` manifest）。
 - **MCP tool**：由 MCP server 提供的工具（通过 `ToolManager.RegisterMCPServerAsync(...)` 注册）。
 
@@ -61,7 +64,7 @@ Agent Skills 集成实现位于：
 
 并通过 `AIGAgentBase.RegisterToolsAsync(...)`（见 `AIGAgentBase.Tools.cs`）按开关启用：
 - `EnableAgentSkills == true` 时注册 `skills_list`、`skills_load`
-- 默认 `EnableAgentSkills == false`
+- 当前仓库默认 `EnableAgentSkills == true`（偏“开箱即用”取向；可在派生 Agent 中关闭）
 
 ### 开启 Agent Skills（推荐方式）
 
@@ -86,7 +89,7 @@ export AEVATAR_AGENT_SKILLS_DIRS="/abs/skills;/abs/more-skills"
 
 ### 开关与行为
 
-- **EnableAgentSkills**：是否向模型暴露 `skills_list/skills_load`（默认关闭）
+- **EnableAgentSkills**：是否向模型暴露 `skills_list/skills_load`（当前仓库默认开启，可在派生 Agent 中关闭）
 - **AgentSkillsAutoRegisterDotNetFileTools**：`skills_load` 时是否自动导入 skill 目录内的 dotnet-file tools（默认开启）
 
 ---
@@ -98,6 +101,10 @@ export AEVATAR_AGENT_SKILLS_DIRS="/abs/skills;/abs/more-skills"
 模型调用 `skills_list` 后会拿到：
 - **roots**：当前生效的 skill roots（来自 `AddAgentSkillsRoot` + `AEVATAR_AGENT_SKILLS_DIRS`）
 - **skills[]**：每个 skill 的 `name/description/allowedTools/path/hasDotNetTools` 等摘要
+
+发现规则（重要）：
+- **递归发现**：会在 root 下递归查找包含 `SKILL.md` 的目录（最大深度：3）
+- **会跳过**：`.*/bin/obj/node_modules` 以及 skill 内的 `scripts/references/assets`（这些是资源目录，不是 skill 容器）
 
 适用场景：
 - 用户提出需求是**流程型**/组织知识型（SOP/规范/模板）
@@ -114,6 +121,27 @@ export AEVATAR_AGENT_SKILLS_DIRS="/abs/skills;/abs/more-skills"
 - **markdown**：`SKILL.md` 正文（front matter 已剥离）
 - **allowedTools**：front matter 的 allowlist（若存在）
 - **dotnetToolFiles / registeredTools / skipped**：导入 dotnet-file tools 的结果（若启用）
+
+### 3) `skills_files`：列出 skill 目录内资源
+
+用途：
+- 让模型知道某个 skill 目录里有哪些 `scripts/`、`references/`、`assets/` 文件
+- 支持递归列出（有数量上限）
+
+### 4) `skills_read_file`：读取 skill 目录内文本文件
+
+用途：
+- 读取 `scripts/*.py`、`references/*.md` 等文本资源，把内容放进上下文
+- 受输出预算限制（`max_chars`）
+
+### 5) `skills_run_python`：执行 skill 目录内 Python 脚本（危险工具）
+
+用途：
+- 把 `scripts/*.py` 真正跑起来，形成“可执行验证”闭环
+
+注意：
+- 默认只允许执行 `scripts/` 目录下脚本（可通过参数覆盖，但很危险）
+- 需要本机有 `python3`（或设置 `AEVATAR_PYTHON_BIN`）
 
 ---
 
@@ -181,6 +209,18 @@ allowed-tools:
 
 ---
 
+## python-file tools（补充）
+
+当前仓库提供了 `PythonFileSkillTool`（`python3 -I -u` 执行 `.py`），可通过在 Agent 中显式注册使用：
+- `RegisterPythonFileSkillAsync("/abs/path/to/tool.py")`
+
+说明：
+- python-file 工具的 manifest 建议使用三引号块：`"""aevatar_tool { ... } """`（JSON 结构参考 `examples/SkillsMCPUnifiedDemo/skills/py_calc.py`）
+- 可用环境变量 `AEVATAR_PYTHON_BIN` 指定 python 路径（例如 venv 的 python）
+- **注意**：python-file 工具目前不随 `skills_load(register_tools=true)` 自动导入，需要显式注册
+
+---
+
 ## MCP tools 与 Agent Skills 的组合
 
 你可以：
@@ -191,10 +231,10 @@ allowed-tools:
 
 ## 安全建议（必读）
 
-- **默认关闭是正确的**：`EnableAgentSkills=false` 避免默认暴露文件系统读取能力。
+- **生产建议：默认关闭更安全**：如需降低默认暴露面，可在派生 Agent 中设置 `EnableAgentSkills=false`。
 - **只挂载可信 root**：Skill root 应当是版本控制目录或只读目录。
 - **强制使用 allowed-tools**：让 skill 在执行层有硬边界。
-- **谨慎开启 auto-import**：`AgentSkillsAutoRegisterDotNetFileTools=true` 会把 skill 目录内的 C# 文件变成可执行工具。
+- **谨慎开启 auto-import**：`AgentSkillsAutoRegisterDotNetFileTools=true` 会把 skill 目录内的 `.cs` 文件变成可执行工具。
 
 ---
 
@@ -215,7 +255,7 @@ allowed-tools:
 - **dotnet-file 工具没有被导入**
   - **检查**：`.cs` 文件里是否包含 `/*aevatar_tool ... */`
   - **检查**：`register_tools=true` 或 `AgentSkillsAutoRegisterDotNetFileTools=true`
-  - **检查**：是否 `AllowDangerousTools=true`（导入本地可执行工具需要显式开启）
+  - **检查**：是否 `AllowDangerousTools=true`（导入本地可执行工具需要开启）
 
 ---
 

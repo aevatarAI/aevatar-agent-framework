@@ -1,0 +1,15 @@
+{
+  "name": "claude-agent-sdk-provider-demo-runner",
+  "private": true,
+  "type": "module",
+  "description": "Runner scripts for Aevatar ClaudeAgentSdkProviderDemo (mock + real).",
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "latest"
+  },
+  "scripts": {
+    "node:mock": "node ./mock_claude_agent_sdk_runner.mjs",
+    "node:real": "node ./real_claude_agent_sdk_runner.mjs"
+  }
+}
+
+

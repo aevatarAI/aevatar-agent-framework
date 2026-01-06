@@ -30,6 +30,9 @@ using Microsoft.Extensions.Options;
 // ============================================================================
 
 var demoBin = Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory);
+var demoMode = GetDemoMode();
+var repoRoot = TryFindRepoRoot(demoBin);
+var isRealMode = string.Equals(demoMode, "real", StringComparison.OrdinalIgnoreCase);
 
 var host = Host.CreateDefaultBuilder(args)
     .ConfigureAppConfiguration((context, config) =>
@@ -57,13 +60,15 @@ var host = Host.CreateDefaultBuilder(args)
 var logger = host.Services.GetRequiredService<ILogger<Program>>();
 
 logger.LogInformation("╔══════════════════════════════════════════════════════╗");
-logger.LogInformation("║   Claude Agent SDK Provider Demo (offline/mock)     ║");
+logger.LogInformation("║   Claude Agent SDK Provider Demo (mode: {Mode})     ║", demoMode);
 logger.LogInformation("╚══════════════════════════════════════════════════════╝");
 logger.LogInformation("DemoBin: {DemoBin}", demoBin);
+logger.LogInformation("RepoRoot: {RepoRoot}", repoRoot ?? "(auto-detect failed)");
+logger.LogInformation("Mode switch: set env CLAUDE_AGENT_SDK_DEMO_MODE=real to run real runner; default is mock.");
 
 // Patch __DEMO_BIN__ placeholders BEFORE resolving ILLMProviderFactory (factory copies configs at construction).
 var llmProvidersOptions = host.Services.GetRequiredService<IOptions<LLMProvidersConfig>>();
-NormalizeDemoProviderConfigs(llmProvidersOptions.Value, demoBin);
+NormalizeDemoProviderConfigs(llmProvidersOptions.Value, demoBin, demoMode, repoRoot);
 
 var factory = host.Services.GetRequiredService<ILLMProviderFactory>();
 
@@ -73,7 +78,18 @@ var request = new AevatarLLMRequest
     SystemPrompt = "You are a demo assistant. Keep output deterministic.",
     Messages =
     {
-        new AevatarChatMessage { Role = AevatarChatRole.User, Content = "Explain what makes claude_agent_sdk special." }
+        new AevatarChatMessage
+        {
+            Role = AevatarChatRole.User,
+            Content = isRealMode
+                ? """
+                  (REAL MODE DEMO)
+                  1) Read `data/context.txt`
+                  2) Write `output/runner_output.txt` with a short summary + why claude_agent_sdk is special
+                  3) Reply with a short confirmation (keep it brief)
+                  """
+                : "Explain what makes claude_agent_sdk special."
+        }
     },
     Functions = new List<AevatarFunctionDefinition>
     {
@@ -142,14 +158,16 @@ static async Task RunClaudeAgentSdkOnce(
 {
     try
     {
+        // Clean previous runs so "created vs not created" is meaningful.
+        var expectedOutFile = Path.Combine(demoBin, "demo_project", "output", "runner_output.txt");
+        TryDeleteFile(expectedOutFile);
+
         var provider = factory.GetProvider(providerName);
         var resp = await provider.GenerateAsync(request);
 
         Console.WriteLine(resp.Content);
         Console.WriteLine($"AevatarFunctionCall returned? {(resp.AevatarFunctionCall != null ? "YES (unexpected)" : "NO (expected)")}");
 
-        // Show write effect only for "full" allowlist.
-        var expectedOutFile = Path.Combine(demoBin, "demo_project", "output", "runner_output.txt");
         if (File.Exists(expectedOutFile))
         {
             Console.WriteLine($"Output file created: {expectedOutFile}");
@@ -169,6 +187,21 @@ static async Task RunClaudeAgentSdkOnce(
     {
         Console.WriteLine("[ERROR] claude_agent_sdk run failed.");
         Console.WriteLine(ex);
+    }
+}
+
+static void TryDeleteFile(string path)
+{
+    try
+    {
+        if (File.Exists(path))
+        {
+            File.Delete(path);
+        }
+    }
+    catch
+    {
+        // best-effort (demo only)
     }
 }
 
@@ -213,7 +246,7 @@ static bool IsNodeMissing(Exception ex)
            ex.Message.Contains("not found", StringComparison.OrdinalIgnoreCase);
 }
 
-static void NormalizeDemoProviderConfigs(LLMProvidersConfig cfg, string demoBin)
+static void NormalizeDemoProviderConfigs(LLMProvidersConfig cfg, string demoBin, string demoMode, string? repoRoot)
 {
     foreach (var kv in cfg.Providers)
     {
@@ -242,27 +275,84 @@ static void NormalizeDemoProviderConfigs(LLMProvidersConfig cfg, string demoBin)
             provider.ProviderSpecificSettings["runnerCommand"] = "node";
         }
 
-        provider.ProviderSpecificSettings["runnerArgs"] = new[]
-        {
-            Path.Combine(demoBin, "runner", "mock_claude_agent_sdk_runner.mjs")
-        };
+        // Runner selection:
+        // - mock: use runner copied into build output dir (offline, deterministic)
+        // - real: use source runner path so Node can resolve node_modules from runner/ (after npm install)
+        provider.ProviderSpecificSettings["runnerArgs"] = new[] { ResolveRunnerScriptPath(demoBin, demoMode, repoRoot) };
 
         provider.ProviderSpecificSettings["projectRoot"] = Path.Combine(demoBin, "demo_project");
-        provider.ProviderSpecificSettings["plugins"] = new[]
-        {
-            Path.Combine(demoBin, "plugins")
-        };
+
+        // In real mode, keep plugins empty by default (Claude Agent SDK plugin format differs from mock plugins).
+        // In mock mode, keep deterministic .mjs plugins demo.
+        provider.ProviderSpecificSettings["plugins"] = string.Equals(demoMode, "real", StringComparison.OrdinalIgnoreCase)
+            ? Array.Empty<string>()
+            : new[] { Path.Combine(demoBin, "plugins") };
+
+        // Project instructions (CLAUDE.md):
+        // Agent SDK loads CLAUDE.md only when settingSources includes "project".
+        provider.ProviderSpecificSettings["settingSources"] = string.Equals(demoMode, "real", StringComparison.OrdinalIgnoreCase)
+            ? new[] { "project" }
+            : Array.Empty<string>();
 
         // Keep allow-list deterministic and explicit for demo clarity.
         if (string.Equals(provider.Name, "claude_agent_sdk_full", StringComparison.OrdinalIgnoreCase))
         {
             provider.ProviderSpecificSettings["allowedTools"] = new[] { "filesystem_read", "filesystem_write" };
+
+            // Avoid interactive prompts in real mode while still respecting allowedTools.
+            if (string.Equals(demoMode, "real", StringComparison.OrdinalIgnoreCase))
+            {
+                provider.ProviderSpecificSettings["permissionMode"] = "acceptEdits";
+            }
         }
         else if (string.Equals(provider.Name, "claude_agent_sdk_minimal", StringComparison.OrdinalIgnoreCase))
         {
             provider.ProviderSpecificSettings["allowedTools"] = Array.Empty<string>();
         }
     }
+}
+
+static string GetDemoMode()
+{
+    var mode = Environment.GetEnvironmentVariable("CLAUDE_AGENT_SDK_DEMO_MODE");
+    if (string.Equals(mode, "real", StringComparison.OrdinalIgnoreCase))
+        return "real";
+    return "mock";
+}
+
+static string? TryFindRepoRoot(string demoBin)
+{
+    // Repo root is often reachable by walking up from the build output folder.
+    foreach (var start in new[] { demoBin, Environment.CurrentDirectory })
+    {
+        var dir = new DirectoryInfo(start);
+        for (var i = 0; i < 12 && dir != null; i++)
+        {
+            var candidate = Path.Combine(dir.FullName, "examples", "ClaudeAgentSdkProviderDemo", "runner",
+                "real_claude_agent_sdk_runner.mjs");
+            if (File.Exists(candidate))
+                return dir.FullName;
+            dir = dir.Parent;
+        }
+    }
+    return null;
+}
+
+static string ResolveRunnerScriptPath(string demoBin, string demoMode, string? repoRoot)
+{
+    if (!string.Equals(demoMode, "real", StringComparison.OrdinalIgnoreCase))
+    {
+        return Path.Combine(demoBin, "runner", "mock_claude_agent_sdk_runner.mjs");
+    }
+
+    if (!string.IsNullOrWhiteSpace(repoRoot))
+    {
+        return Path.Combine(repoRoot, "examples", "ClaudeAgentSdkProviderDemo", "runner",
+            "real_claude_agent_sdk_runner.mjs");
+    }
+
+    // Fallback: try running from copied output (may fail to resolve node_modules, but gives a clear error).
+    return Path.Combine(demoBin, "runner", "real_claude_agent_sdk_runner.mjs");
 }
 
 

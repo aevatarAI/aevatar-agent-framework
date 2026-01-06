@@ -94,6 +94,8 @@ public static class Program
         //     "请先调用 skills_list，然后 skills_load 加载 json-pretty skill，把这个 JSON 格式化后返回：{\"a\":1,\"b\":{\"c\":2,\"d\":[3,4]}}");
         // await RunChatAsync(logger, agent,
         //     "请先调用 skills_list，然后 skills_load 加载 slugify-helper skill，把 'Hello, Aevatar Agent Framework!' 转成 slug。");
+        // await RunChatAsync(logger, agent,
+        //     "请先调用 skills_list，然后 skills_load 加载 python-calc skill，再按 skill 的步骤回答：计算 1/7 的小数（至少 30 位）。");
 
         // Optional MCP demo: Context7 (if tools are present)
         var tools = await agent.GetRegisteredToolsAsync();

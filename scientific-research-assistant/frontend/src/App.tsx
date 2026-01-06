@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AgUiClient } from "@agui/sdk";
-import { Activity, FileText, Plus, Search, Send, TestTube, X } from "lucide-react";
+import { Activity, FileText, Plus, RefreshCw, Search, Send, TestTube, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -80,6 +80,8 @@ export default function App() {
   const [toolsOpen, setToolsOpen] = useState(false);
   const [toolSearch, setToolSearch] = useState("");
   const [mcpReconnectBusy, setMcpReconnectBusy] = useState(false);
+  const [skillsSyncBusy, setSkillsSyncBusy] = useState(false);
+  const [skillsSyncNote, setSkillsSyncNote] = useState("");
 
   const [workspace, setWorkspace] = useState<any>(null);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
@@ -160,6 +162,38 @@ export default function App() {
       setLastError(`MCP reconnect failed: ${e?.message ?? String(e)}`);
     } finally {
       setMcpReconnectBusy(false);
+    }
+  }
+
+  async function syncSkillPacks() {
+    if (skillsSyncBusy) return;
+    setSkillsSyncBusy(true);
+    try {
+      setLastError("");
+      setSkillsSyncNote("");
+
+      const res = await fetch("/api/skills/sync", { method: "POST" });
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        const body = json ? JSON.stringify(json) : "";
+        throw new Error(`HTTP ${res.status}${body ? `: ${body}` : ""}`);
+      }
+
+      const packs: any[] = Array.isArray(json?.packs) ? json.packs : [];
+      const okCount = packs.filter((p) => Boolean(p?.ok)).length;
+      const total = packs.length;
+
+      if (json?.ok === true) {
+        setSkillsSyncNote(`Skills updated: ${okCount}/${total} pack(s) ok.`);
+      } else {
+        setSkillsSyncNote(`Skills update partial: ${okCount}/${total} pack(s) ok.`);
+        setLastError(`Skills update partial failure: ${String(json?.error ?? "unknown")}`);
+      }
+    } catch (e: any) {
+      setLastError(`Skills sync failed: ${e?.message ?? String(e)}`);
+    } finally {
+      setSkillsSyncBusy(false);
     }
   }
 
@@ -508,6 +542,16 @@ export default function App() {
             >
               {mcpReconnectBusy ? "Reconnecting…" : "Reconnect MCP"}
             </button>
+
+            <button
+              onClick={() => void syncSkillPacks()}
+              className="mt-2 w-full text-xs bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded px-2 py-2 transition flex items-center justify-center gap-2 disabled:opacity-50"
+              disabled={skillsSyncBusy}
+              title="Sync local Agent Skills packs (git clone/pull). No restart needed."
+            >
+              <RefreshCw size={14} /> {skillsSyncBusy ? "Updating Skills…" : "Update Skills"}
+            </button>
+            {skillsSyncNote && <div className="mt-1 text-[11px] text-gray-500 break-words">{skillsSyncNote}</div>}
           </div>
 
           <div

@@ -191,7 +191,7 @@
   - _Requirements: 10, Non-Functional Requirements_
   - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Frontend build engineer | Task: Scaffold the learning frontend package (React + Vite + TS + @agui/sdk + Tauri) with stable dev port 5173 and scripts for web/tauri. | Restrictions: Do not hardcode backend URL; no :5000. | _Leverage: novel frontend patterns | _Requirements: 10 + NFR | Success: `cd learning/frontend && npm run dev:web` starts Vite on :5173. (Workflow: mark task [-]; log-implementation; mark [x].)_
 
-- [-] 14. Frontend：最小 UI 框架（Session + Chat + State）
+- [x] 14. Frontend：最小 UI 框架（Session + Chat + State）
   - Files:
     - `learning/frontend/index.html`
     - `learning/frontend/src/main.tsx`
@@ -206,7 +206,7 @@
   - _Requirements: 3, 8, 10_
   - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: React developer | Task: Implement minimal UI (session picker + chat + state panel) that can connect to AG-UI SSE and render messages/state. | Restrictions: Backend URL must be configurable (Vite proxy or env); no :5000; keep UI minimal and stable. | _Requirements: 3,8,10 | Success: User can create a session, send input, and see streaming assistant output. (Workflow: mark task [-]; log-implementation; mark [x].)_
 
-- [ ] 15. Frontend：AG‑UI 客户端封装与重连策略
+- [x] 15. Frontend：AG‑UI 客户端封装与重连策略
   - Files:
     - `learning/frontend/src/lib/agui.ts`
     - `learning/frontend/src/App.tsx`
@@ -219,7 +219,7 @@
   - _Requirements: 3, 10_
   - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Frontend engineer (realtime) | Task: Add a small AG-UI client wrapper around @agui/sdk and wire snapshot-first reconnect behavior into the UI. | Restrictions: No replay dependency; no hardcoded backend; no :5000. | _Requirements: 3,10 | Success: Refreshing the UI shows latest messages instantly via snapshot-first without waiting for replay. (Workflow: mark task [-]; log-implementation; mark [x].)_
 
-- [ ] 16. Frontend：Tauri 配置（CSP/connect-src）
+- [x] 16. Frontend：Tauri 配置（CSP/connect-src）
   - Files:
     - `learning/frontend/src-tauri/tauri.conf.json`
     - `learning/frontend/src-tauri/Cargo.toml`
@@ -234,7 +234,7 @@
 
 ---
 
-- [ ] 17. Aspire AppHost：编排后端 + 前端（web dev）
+- [x] 17. Aspire AppHost：编排后端 + 前端（web dev）
   - Files:
     - `learning/Aevatar.Learning.AppHost/Aevatar.Learning.AppHost.csproj`
     - `learning/Aevatar.Learning.AppHost/Program.cs`
@@ -247,7 +247,7 @@
   - _Requirements: 10, Non-Functional Requirements_
   - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Aspire engineer | Task: Create `Aevatar.Learning.AppHost` that orchestrates the API project and the frontend web dev server with stable ports and env injection. | Restrictions: No :5000; avoid extra NuGet; keep consistent with trade AppHost patterns. | _Leverage: trade AppHost | _Requirements: 10 + NFR | Success: `dotnet run --project learning/Aevatar.Learning.AppHost` shows both endpoints in Aspire dashboard and frontend opens on :5173. (Workflow: mark task [-]; log-implementation; mark [x].)_
 
-- [ ] 18. 根目录 slnx：aevatar-learning-system.slnx
+- [x] 18. 根目录 slnx：aevatar-learning-system.slnx
   - Files:
     - `aevatar-learning-system.slnx`
   - Implement:
@@ -260,7 +260,7 @@
 
 ---
 
-- [ ] 19. MVP：Notebook 基线功能（Sources/Q&A/Report）对齐 notebook 系统
+- [x] 19. MVP：Notebook 基线功能（Sources/Q&A/Report）对齐 notebook 系统
   - Files:
     - `learning/docs/NOTEBOOK_PARITY.md`
   - Implement:
@@ -273,7 +273,7 @@
 
 ---
 
-- [ ] 20. Core：Sources 持久化（写入 notebook 目录）
+- [x] 20. Core：Sources 持久化（写入 notebook 目录）
   - Files:
     - `learning/src/Aevatar.Learning/Sources/SourceStore.cs`
   - Implement:
@@ -285,7 +285,7 @@
   - _Requirements: 2_
   - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Backend engineer (storage) | Task: Implement `SourceStore` that persists imported sources into a notebook directory with stable ids and safe size/type validation. | Restrictions: No unbounded memory reads; validate inputs; no secrets. | _Leverage: notebook source patterns + NotebookWorkspace | _Requirements: 2 | Success: Sources can be created/listed/read from the notebook directory deterministically. (Workflow: mark task [-]; log-implementation; mark [x].)_
 
-- [ ] 21. API：Sources 导入与管理接口
+- [x] 21. API：Sources 导入与管理接口
   - Files:
     - `learning/src/Aevatar.Learning.Api/Sources/SourcesApi.cs`
     - `learning/src/Aevatar.Learning.Api/Program.cs`
@@ -299,7 +299,7 @@
   - _Requirements: 2_
   - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Backend API developer | Task: Add Sources APIs for notebook-scoped import/list/get using SourceStore, with clear errors for invalid inputs. | Restrictions: No :5000; size limits; best-effort; no secrets. | _Leverage: notebook sources api patterns | _Requirements: 2 | Success: User can import a source and see it in list; invalid inputs return actionable errors. (Workflow: mark task [-]; log-implementation; mark [x].)_
 
-- [ ] 22. Core：Notebook Context Builder（有界上下文拼装）
+- [x] 22. Core：Notebook Context Builder（有界上下文拼装）
   - Files:
     - `learning/src/Aevatar.Learning/Context/LearningContextBuilder.cs`
   - Implement:
@@ -311,7 +311,7 @@
   - _Requirements: 3, 4, 5, 7_
   - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Retrieval engineer | Task: Implement a bounded, deterministic context builder that includes traceable per-source representations and obeys explicit budgets. | Restrictions: Must be bounded; deterministic ordering; no token explosion; best-effort when sources missing. | _Leverage: notebook context builder | _Requirements: 3,4,5,7 | Success: Context builder output is stable, bounded, and includes sourceId markers for citations. (Workflow: mark task [-]; log-implementation; mark [x].)_
 
-- [ ] 23. Core：Q&A（LLM 调用 + streaming）
+- [x] 23. Core：Q&A（LLM 调用 + streaming）
   - Files:
     - `learning/src/Aevatar.Learning/Chat/LearningChatService.cs`
   - Implement:
@@ -323,7 +323,7 @@
   - _Requirements: 3, 10, Non-Functional Requirements_
   - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: AI backend engineer | Task: Implement `LearningChatService` that builds context, calls configurable LLM provider, and exposes streaming output for AG-UI. | Restrictions: Do not hardcode provider; keep outputs bounded; handle timeouts gracefully; no :5000. | _Leverage: notebook session streaming + LLMProvidersConfig | _Requirements: 3,10 + NFR | Success: Service can stream assistant output for a given query + notebook context. (Workflow: mark task [-]; log-implementation; mark [x].)_
 
-- [ ] 24. API：把 Sessions/input 连接到真实 Q&A run（AG‑UI 输出）
+- [x] 24. API：把 Sessions/input 连接到真实 Q&A run（AG‑UI 输出）
   - Files:
     - `learning/src/Aevatar.Learning.Api/Sessions/LearningSessionsApi.cs`
   - Implement:
@@ -336,7 +336,7 @@
   - _Requirements: 3, 10_
   - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Backend engineer (AG-UI) | Task: Wire sessions input execution to LearningChatService and emit correct AG-UI lifecycle events and metadata. | Restrictions: Must keep snapshot-first SSE behavior; no replay; no :5000. | _Leverage: NotebookSessionsApi + AgUiEvents | _Requirements: 3,10 | Success: Frontend sees correct RUN/STEP/TEXT events and can render citations metadata. (Workflow: mark task [-]; log-implementation; mark [x].)_
 
-- [ ] 25. Core：报告生成（结构化 + 版本化写入 notebook 目录）
+- [-] 25. Core：报告生成（结构化 + 版本化写入 notebook 目录）
   - Files:
     - `learning/src/Aevatar.Learning/Reports/LearningReportService.cs`
   - Implement:

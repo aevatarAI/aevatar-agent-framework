@@ -1,0 +1,21 @@
+{
+  "SkillPacks": {
+    "Packs": [
+      {
+        "Name": "claude-scientific-skills",
+        "Enabled": true,
+        "AutoUpdateOnStartup": true,
+        "RepoUrl": "https://github.com/K-Dense-AI/claude-scientific-skills.git",
+        "Ref": "main",
+        "SkillsSubDir": "scientific-skills",
+        "InstallDir": "",
+        "UpdateTimeoutMs": 60000,
+        "ShallowClone": true,
+        "ShallowDepth": 1,
+        "SetAgentSkillsEnv": true
+      }
+    ]
+  }
+}
+
+

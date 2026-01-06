@@ -4,9 +4,12 @@
 
 - **`frontend/`**：React + Vite + Tailwind，使用 **AG-UI SDK** 订阅后端 SSE，渲染消息流、run/step、tool 调用面板。
 - **`src/ScientificResearchAssistant.Api/`**：ASP.NET Core API（**AG-UI**），提供 session API + `/agui/events` SSE（快照优先）。
-- **`src/ScientificResearchAssistant/`**：`ResearchAgent`（基于 `AIGAgentBase`），注册 Claude Scientific Skills 的 MCP 工具并执行 tool loop。
+- **`src/ScientificResearchAssistant/`**：`ResearchAgent`（基于 `AIGAgentBase`），支持：
+  - 连接 Claude Scientific Skills 的 MCP 工具（可选）
+  - 加载本地 Agent Skills（SKILL.md + scripts/references/assets），并通过 skills_* 工具完成“发现→加载→执行”闭环
 - **`src/ScientificResearchAssistant.Contracts/`**：**Protobuf 合约**（mailbox / facts / paper patch），所有跨 agent 边界的文件消息都以此为 schema。
 - **`src/ScientificResearchAssistant.Api/Workspace|Facts|Paper/`**：文件协作基础设施（workspace 目录、facts 生命周期、Markdown 稿件）。
+- **`src/ScientificResearchAssistant.Api/Infrastructure/SkillPacksSync*.cs`**：启动时 best-effort 同步 GitHub skills repos（clone/pull），为本地 Agent Skills 提供可更新的 skill packs（支持多个 repo）。
 - **`src/ScientificResearchAssistant/Vibe/*`**：vibe researching 多智能体角色：
   - `VibePlannerAgent`：生成研究计划（假设/未知/验证路径）
   - `VibeReasonerAgent`：基于 materials（sources）推理（可选 `python_exec` 验证）

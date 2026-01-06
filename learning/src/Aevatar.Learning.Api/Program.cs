@@ -3,9 +3,13 @@ using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.MEAI.DependencyInjection;
 using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Runtime.Local;
+using Aevatar.Learning.Chat;
+using Aevatar.Learning.Context;
 using Aevatar.Learning.Api.Notebooks;
+using Aevatar.Learning.Api.Sources;
 using Aevatar.Learning.Api.Sessions;
 using Aevatar.Learning.Notebooks;
+using Aevatar.Learning.Sources;
 using Microsoft.Extensions.Options;
 
 // ============================================================
@@ -46,6 +50,13 @@ builder.Services.AddSingleton<LearningSessionsApi.LearningSessionManager>();
 
 // Notebooks (directory-backed)
 builder.Services.AddSingleton<NotebookDirectoryStore>();
+
+// Sources (directory-backed)
+builder.Services.AddSingleton<SourceStore>();
+
+// Context + Chat (LLM-backed)
+builder.Services.AddSingleton<LearningContextBuilder>();
+builder.Services.AddSingleton<LearningChatService>();
 
 var app = builder.Build();
 
@@ -90,6 +101,9 @@ app.MapLearningSessionsApi();
 
 // Notebooks API
 app.MapNotebooksApi();
+
+// Sources API
+app.MapSourcesApi();
 
 app.Run();
 

@@ -12,6 +12,24 @@
 - Backend: `http://localhost:5678`
 - Frontend: `http://localhost:5173`
 
+### 同步 Claude Scientific Skills（可选）
+
+如果你启用了 `ClaudeScientificSkills:AutoUpdateOnStartup=true`，后端启动时会 best-effort 自动同步。
+
+你也可以手动执行一次同步（只 sync，然后退出）：
+
+```bash
+cd src/ScientificResearchAssistant.Api
+dotnet run -- --sync-skills
+```
+
+### 前端一键更新（无需重启）
+
+左侧栏新增按钮 **Update Skills**：
+- 会调用后端 `POST /api/skills/sync`
+- 后端执行 git clone/pull（best-effort），并把本地 skills root 追加到 `AEVATAR_AGENT_SKILLS_DIRS`
+- 更新完成后，LLM 下一次调用 `skills_list/skills_load` 就能看到新技能（无需重启）
+
 ### Aspire AppHost（可选）
 
 如果你希望由 Aspire Dashboard 统一编排前后端：

@@ -4,6 +4,8 @@ using System.Text.Json;
 using System.Threading.Channels;
 using Aevatar.Agents.AGUI;
 using Aevatar.Agents.AI.Abstractions.Configuration;
+using Aevatar.Learning.Chat;
+using Aevatar.Learning.Notebooks;
 using Microsoft.Extensions.Options;
 
 namespace Aevatar.Learning.Api.Sessions;
@@ -48,7 +50,8 @@ internal static class LearningSessionsApi
             string sessionId,
             SessionInputInDto input,
             LearningSessionManager sessions,
-            IOptions<LLMProvidersConfig> llm,
+            NotebookDirectoryStore notebooks,
+            LearningChatService chat,
             ILogger<LearningSessionManager> logger,
             CancellationToken ct) =>
         {
@@ -61,13 +64,16 @@ internal static class LearningSessionsApi
             if (!string.IsNullOrWhiteSpace(input.ProviderName))
                 session.ProviderName = input.ProviderName.Trim();
 
+            if (!string.IsNullOrWhiteSpace(input.NotebookId))
+                session.NotebookId = input.NotebookId.Trim();
+
             // Fire-and-forget run; clients receive progress via AG-UI SSE.
             var runSeq = session.NextRunSeq();
             var runId = $"{session.Id}:{runSeq}";
 
             _ = Task.Run(async () =>
             {
-                await ExecuteSkeletonRunAsync(session, runId, input, llm, logger, CancellationToken.None);
+                await ExecuteChatRunAsync(session, runId, input, notebooks, chat, logger, CancellationToken.None);
             }, CancellationToken.None);
 
             return Results.Accepted($"/api/sessions/{session.Id}", new { ok = true, sessionId = session.Id, runId });
@@ -130,7 +136,8 @@ internal static class LearningSessionsApi
                 {
                     sessionId = session.Id,
                     createdAt = session.CreatedAt.ToString("O"),
-                    providerName = session.ProviderName ?? ""
+                    providerName = session.ProviderName ?? "",
+                    notebookId = session.NotebookId ?? ""
                 }
             }, ct);
 
@@ -143,11 +150,12 @@ internal static class LearningSessionsApi
         });
     }
 
-    private static async Task ExecuteSkeletonRunAsync(
+    private static async Task ExecuteChatRunAsync(
         LearningSession session,
         string runId,
         SessionInputInDto input,
-        IOptions<LLMProvidersConfig> llm,
+        NotebookDirectoryStore notebooks,
+        LearningChatService chat,
         ILogger logger,
         CancellationToken ct)
     {
@@ -155,7 +163,8 @@ internal static class LearningSessionsApi
         await session.RunLock.WaitAsync(ct);
         try
         {
-            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            long Ts() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var now = Ts();
 
             // RUN_STARTED first
             session.Events.Publish(new RunStartedEvent
@@ -174,7 +183,7 @@ internal static class LearningSessionsApi
             // Emit user message
             var userText = (input.Message ?? string.Empty).Trim();
             var userMessageId = $"msg:{session.Id}:user:{runId}";
-            session.AppendMessage(new AgUiMessage { Id = userMessageId, Role = "user", Content = userText });
+            session.UpsertMessage(userMessageId, "user", userText);
 
             session.Events.Publish(new TextMessageStartEvent
             {
@@ -194,59 +203,102 @@ internal static class LearningSessionsApi
                 MessageId = userMessageId
             });
 
-            // Emit assistant placeholder (real AI wiring comes later).
-            var defaultProvider = string.IsNullOrWhiteSpace(llm.Value.Default) ? "default" : llm.Value.Default;
-            var providerHint = session.ProviderName ?? llm.Value.Default ?? "";
+            // Resolve notebook workspace (MVP: require notebookId or auto-pick when only 1 notebook exists)
+            var notebookId = (input.NotebookId ?? session.NotebookId ?? string.Empty).Trim();
+            NotebookInfo? notebook = null;
+            if (notebookId.Length > 0)
+                notebook = notebooks.GetNotebook(notebookId);
 
-            var assistantText =
-                """
-                (MVP skeleton)
-                已收到输入。后续任务会把 LLMProviders + Notebook context + streaming 真正接入这里。
-                """.Trim();
+            if (notebook == null)
+            {
+                var list = notebooks.ListNotebooks();
+                if (list.Count == 1)
+                    notebook = list[0];
+            }
 
-            var assistantMessageId = $"msg:{session.Id}:assistant:{runId}";
-            session.AppendMessage(new AgUiMessage { Id = assistantMessageId, Role = "assistant", Content = assistantText });
+            if (notebook == null)
+                throw new InvalidOperationException("notebookId is required (create/select a notebook first).");
+
+            session.NotebookId = notebook.NotebookId;
+            var rootDir = Path.GetDirectoryName(notebook.DirectoryPath) ?? string.Empty;
+            var workspace = new NotebookWorkspace(notebook.NotebookId, rootDir, notebook.DirectoryPath);
+
+            // Start real chat run (context + provider selection + streaming tokens)
+            var run = await chat.StartAsync(new LearningChatInput(
+                Workspace: workspace,
+                Message: userText,
+                ProviderName: session.ProviderName,
+                SelectedSourceIds: null,
+                Budget: null,
+                History: null), ct);
 
             session.Events.Publish(new CustomEvent
             {
-                Timestamp = now,
-                Name = "aevatar.learning.run_meta",
+                Timestamp = Ts(),
+                Name = "aevatar.learning.context",
                 Value = new
                 {
-                    threadId = session.Id,
-                    runId,
-                    llmDefault = defaultProvider,
-                    providerName = providerHint
+                    notebookId = notebook.NotebookId,
+                    providerName = run.ProviderName,
+                    budget = new
+                    {
+                        maxTotalChars = run.Context.Budget.MaxTotalChars,
+                        maxPerSourceChars = run.Context.Budget.MaxPerSourceChars,
+                        maxSources = run.Context.Budget.MaxSources
+                    },
+                    sources = run.Context.Slices.Select(s => new
+                    {
+                        sourceId = s.SourceId,
+                        title = s.Title,
+                        mimeType = s.MimeType,
+                        reason = s.Reason,
+                        originalChars = s.OriginalChars,
+                        preview = string.IsNullOrEmpty(s.Content)
+                            ? ""
+                            : (s.Content.Length <= 160 ? s.Content : s.Content[..160] + "...")
+                    }).ToList()
                 }
             });
 
+            var assistantMessageId = $"msg:{session.Id}:assistant:{runId}";
+            session.UpsertMessage(assistantMessageId, "assistant", string.Empty);
+
             session.Events.Publish(new TextMessageStartEvent
             {
-                Timestamp = now,
+                Timestamp = Ts(),
                 MessageId = assistantMessageId,
                 Role = "assistant"
             });
-            session.Events.Publish(new TextMessageContentEvent
+
+            await foreach (var token in run.Tokens.WithCancellation(ct))
             {
-                Timestamp = now,
-                MessageId = assistantMessageId,
-                Delta = assistantText
-            });
+                var delta = (token?.Content ?? string.Empty);
+                if (delta.Length == 0) continue;
+
+                session.AppendMessageDelta(assistantMessageId, "assistant", delta);
+                session.Events.Publish(new TextMessageContentEvent
+                {
+                    Timestamp = Ts(),
+                    MessageId = assistantMessageId,
+                    Delta = delta
+                });
+            }
+
             session.Events.Publish(new TextMessageEndEvent
             {
-                Timestamp = now,
+                Timestamp = Ts(),
                 MessageId = assistantMessageId
             });
 
             session.Events.Publish(new StepFinishedEvent
             {
-                Timestamp = now,
+                Timestamp = Ts(),
                 StepName = "chat"
             });
 
             session.Events.Publish(new RunFinishedEvent
             {
-                Timestamp = now,
+                Timestamp = Ts(),
                 ThreadId = session.Id,
                 RunId = runId,
                 Result = new { ok = true }
@@ -284,7 +336,7 @@ internal static class LearningSessionsApi
     // ============================================================
 
     private sealed record CreateSessionInDto(string? ProviderName);
-    private sealed record SessionInputInDto(string Message, string? ProviderName);
+    private sealed record SessionInputInDto(string Message, string? ProviderName, string? NotebookId);
 
     // ============================================================
     //  In-memory session manager (MVP)
@@ -341,20 +393,64 @@ internal static class LearningSessionsApi
         public string Id { get; }
         public DateTimeOffset CreatedAt { get; } = DateTimeOffset.UtcNow;
         public string? ProviderName { get; set; }
+        public string? NotebookId { get; set; }
         public SemaphoreSlim RunLock { get; } = new(1, 1);
         public BroadcastEventHub<AgUiEvent> Events { get; } = new(replayBufferSize: 0);
 
         public int NextRunSeq() => Interlocked.Increment(ref _runSeq);
 
-        public void AppendMessage(AgUiMessage msg)
+        public void UpsertMessage(string id, string role, string content)
         {
-            if (msg == null) return;
+            id = (id ?? string.Empty).Trim();
+            role = (role ?? "assistant").Trim();
+            content ??= string.Empty;
+
+            if (id.Length == 0) return;
 
             lock (_messagesLock)
             {
-                _messages.Add(msg);
+                var idx = _messages.FindIndex(x => string.Equals(x.Id, id, StringComparison.Ordinal));
+                if (idx >= 0)
+                {
+                    _messages[idx] = new AgUiMessage { Id = id, Role = role, Content = content };
+                }
+                else
+                {
+                    _messages.Add(new AgUiMessage { Id = id, Role = role, Content = content });
+                }
 
                 // Keep bounded in-memory transcript (MVP).
+                if (_messages.Count > 400)
+                    _messages.RemoveRange(0, Math.Max(0, _messages.Count - 400));
+            }
+        }
+
+        public void AppendMessageDelta(string id, string role, string delta)
+        {
+            id = (id ?? string.Empty).Trim();
+            role = (role ?? "assistant").Trim();
+            delta ??= string.Empty;
+
+            if (id.Length == 0 || delta.Length == 0) return;
+
+            lock (_messagesLock)
+            {
+                var idx = _messages.FindIndex(x => string.Equals(x.Id, id, StringComparison.Ordinal));
+                if (idx >= 0)
+                {
+                    var cur = _messages[idx];
+                    _messages[idx] = new AgUiMessage
+                    {
+                        Id = cur.Id,
+                        Role = cur.Role,
+                        Content = (cur.Content ?? string.Empty) + delta
+                    };
+                }
+                else
+                {
+                    _messages.Add(new AgUiMessage { Id = id, Role = role, Content = delta });
+                }
+
                 if (_messages.Count > 400)
                     _messages.RemoveRange(0, Math.Max(0, _messages.Count - 400));
             }

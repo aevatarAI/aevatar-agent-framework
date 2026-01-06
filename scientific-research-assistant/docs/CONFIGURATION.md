@@ -24,6 +24,34 @@
 - `MCP:DockerImage`: docker image
 - `MCP:RequestTimeoutMs`: 单次调用超时（毫秒）
 
+### 2.5) Git Skill Packs（本地 repo 自动同步，可选，支持多个 repo）
+
+如果你希望 **LLM 能直接读取/执行 skill 目录内的 `scripts/`**（闭环跑起来），推荐把 skills repo 下载到本地并自动更新：
+
+- 上游示例 repo（K-Dense）：[K-Dense-AI/claude-scientific-skills](https://github.com/K-Dense-AI/claude-scientific-skills/tree/main)
+- 启动时后端 best-effort `git clone/pull`（失败不阻塞服务启动）
+- 同步成功后，会把每个 pack 的 `SkillsSubDir` 目录加入 `AEVATAR_AGENT_SKILLS_DIRS`，供 `skills_list/skills_load` 发现
+- 下载目录默认在本项目根目录的 `.skillpacks/`（已加入 `.gitignore`：谁用谁下载，不进仓库）
+
+#### 配置方式 A（推荐）：`skillpacks.json`（可多 repo）
+
+位置：`src/ScientificResearchAssistant.Api/skillpacks.json`（不提交，参考 `skillpacks.json.example`）
+
+核心字段（每个 pack 至少需要）：
+- `RepoUrl`：git repo URL
+- `SkillsSubDir`：repo 内 skills 根目录（例如 K-Dense 是 `scientific-skills`）
+
+#### 配置方式 B（兼容）：`appsettings.json` 单 pack
+
+如果你不想单独维护 `skillpacks.json`，也可以继续用 `src/ScientificResearchAssistant.Api/appsettings.json` 的 `ClaudeScientificSkills` 段（只支持一个 repo）。
+
+#### 手动同步命令（只执行 sync，然后退出）
+
+```bash
+cd scientific-research-assistant/src/ScientificResearchAssistant.Api
+dotnet run -- --sync-skills
+```
+
 ### 3) Materials（vibe researching grounding）
 
 `src/ScientificResearchAssistant.Api/appsettings.json` 的 `Materials` 控制本地资料读取：

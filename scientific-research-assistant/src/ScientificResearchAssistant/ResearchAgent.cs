@@ -24,12 +24,21 @@ public class ResearchAgent : AIGAgentBase
         ChatHistoryMaxMessages = 40;
         ChatHistorySummaryMaxChars = 6000;
 
-        SystemPrompt = "You are an advanced Scientific Research Assistant.\n" +
-                       "You have access to a wide range of scientific tools via the Claude Scientific Skills MCP server.\n" +
-                       "Use these tools to assist with literature search, bioinformatics analysis, chemical informatics, and more.\n" +
-                       "Always cite your sources when performing literature reviews.\n" +
-                       "When analyzing data, explain your methodology clearly.\n" +
-                       "If a tool fails, explain why and suggest alternatives.";
+        SystemPrompt =
+            "You are an advanced Scientific Research Assistant.\n" +
+            "\n" +
+            "You may have two kinds of capabilities:\n" +
+            "1) Agent Skills (SKILL.md) on disk (e.g. 'Claude Scientific Skills' pack).\n" +
+            "   - If a relevant skill exists, you MUST call skills_list then skills_load before acting.\n" +
+            "   - Skills may bundle scripts/references/assets.\n" +
+            "     Use skills_files to discover resources, skills_read_file to load references, and skills_run_python to execute scripts when needed.\n" +
+            "2) MCP tools (optional): a Claude Scientific Skills MCP server may be configured.\n" +
+            "\n" +
+            "Rules:\n" +
+            "- Always cite your sources when performing literature reviews.\n" +
+            "- When analyzing data, explain your methodology clearly.\n" +
+            "- If a tool fails, explain why and suggest alternatives.\n" +
+            "- Never fabricate tool results. Prefer executable verification when possible.";
     }
 
     protected override IAevatarToolManager CreateToolManager()

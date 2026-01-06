@@ -52,7 +52,8 @@ export AEVATAR_TRACE_DIR="/abs/path/to/aevatar_traces"
 
 ### 3. Open Browser
 
-Navigate to `http://localhost:5000` to access the creative reasoning console.
+Navigate to `http://localhost:5678` to access the creative reasoning console.  
+(If you changed the port via `ASPNETCORE_URLS` / `--urls`, open that URL instead.)
 
 ## Sample Problems
 

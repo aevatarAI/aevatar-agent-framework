@@ -100,7 +100,7 @@ ASPNETCORE_ENVIRONMENT=Development dotnet run
 
 ```bash
 cd examples/CQRSDemo
-dotnet run -- --api http://localhost:5000
+dotnet run -- --api https://localhost:44345
 ```
 
 ---
@@ -149,7 +149,7 @@ ASPNETCORE_ENVIRONMENT=Production dotnet run
 
 ```bash
 cd examples/CQRSDemo
-dotnet run -- --api http://localhost:5000
+dotnet run -- --api https://localhost:44345
 ```
 
 ---
@@ -184,10 +184,10 @@ dotnet run -- --api http://localhost:5000
 dotnet run -- --api <HttpApi地址>
 
 # 示例
-dotnet run -- --api http://localhost:5000
+dotnet run -- --api https://localhost:44345
 
 # 完整参数
-dotnet run -- --api http://localhost:5000 --verbose
+dotnet run -- --api https://localhost:44345 --verbose
 ```
 
 ---
@@ -214,10 +214,10 @@ dotnet run -- --api http://localhost:5000 --verbose
 
 ```bash
 # 1. 按 ID 查询
-curl http://localhost:5000/api/states/UserAgent/123e4567-e89b-12d3-a456-426614174000
+curl -k https://localhost:44345/api/states/UserAgent/123e4567-e89b-12d3-a456-426614174000
 
 # 2. Lucene 查询
-curl -X POST http://localhost:5000/api/states/query \
+curl -k -X POST https://localhost:44345/api/states/query \
   -H "Content-Type: application/json" \
   -d '{
     "agentType": "UserAgent",
@@ -226,7 +226,7 @@ curl -X POST http://localhost:5000/api/states/query \
   }'
 
 # 3. 计数
-curl "http://localhost:5000/api/states/UserAgent/count?queryString=isActive:true"
+curl -k "https://localhost:44345/api/states/UserAgent/count?queryString=isActive:true"
 ```
 
 ---
@@ -253,14 +253,14 @@ Agent Event → HandleEventAsync → OnStateChangedAsync → IStateProjector →
 ```bash
 #!/bin/bash
 # test_cqrs.sh
-API_URL="${1:-http://localhost:5000}"
+API_URL="${1:-https://localhost:44345}"
 
 echo "=== CQRS Test ==="
 echo "API: $API_URL"
 
 # 1. 创建 Agent
 echo "1. Creating agent..."
-RESPONSE=$(curl -s -X POST "$API_URL/api/agents/create" \
+RESPONSE=$(curl -sk -X POST "$API_URL/api/agents/create" \
   -H "Content-Type: application/json" \
   -d '{"agentType": "UserAgent"}')
 AGENT_ID=$(echo $RESPONSE | jq -r '.agentId')
@@ -269,7 +269,7 @@ echo "   Agent: $AGENT_ID"
 # 2. 发布事件
 echo "2. Publishing events..."
 for i in {1..3}; do
-  curl -s -X POST "$API_URL/api/agents/$AGENT_ID/publish" \
+  curl -sk -X POST "$API_URL/api/agents/$AGENT_ID/publish" \
     -H "Content-Type: application/json" \
     -d '{"eventType": "UserLoggedIn"}' > /dev/null
   echo "   Event $i"
@@ -278,7 +278,7 @@ done
 # 3. 查询状态
 sleep 1
 echo "3. Query state:"
-curl -s "$API_URL/api/states/UserAgent/$AGENT_ID" | jq
+curl -sk "$API_URL/api/states/UserAgent/$AGENT_ID" | jq
 
 echo "=== Done ==="
 ```

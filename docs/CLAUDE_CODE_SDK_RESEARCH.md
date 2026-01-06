@@ -166,7 +166,7 @@ Aevatar 已有：
 
 适用：你要的是一套“工程化编码/运维代理”来驱动 Aevatar 系统（例如自动生成 agent skill、自动跑测试、自动分析 trace、自动做 PR）。
 
-> 端口提醒：repo 规则禁止使用 `:5000`；如果需要 sidecar 默认端口建议用 `:5678`。
+> 端口提醒：repo 规则禁止使用 `:5000`；如需要 sidecar，`5678` 仅作为推荐示例端口（也可以用任意未占用端口）。
 
 ### 方案 D：把 Claude Agent SDK 当作 Aevatar 的 LLMProvider（不推荐，除非强需求）
 

@@ -22,15 +22,15 @@ Aspire Dashboard will open automatically, providing:
 
 | Service | Port | Description |
 |---------|------|-------------|
-| Cognitive Mesh | 5000 | Workflow orchestration with web UI |
+| Cognitive Mesh | 5678 | Workflow orchestration with web UI |
 
 ## 🌐 Endpoints
 
 After starting:
 
-- **Web UI**: http://localhost:5000
-- **Workflow Visualization**: http://localhost:5000/workflow.html
-- **API**: http://localhost:5000/api/projects
+- **Web UI**: http://localhost:5678
+- **Workflow Visualization**: http://localhost:5678/workflow.html
+- **API**: http://localhost:5678/api/projects
 
 ## 🔧 Reasoning Strategies
 

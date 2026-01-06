@@ -304,7 +304,7 @@ var makerOptions = new MakerOptions
 
 2. **访问 UI**
    ```
-   http://localhost:5000
+   http://localhost:5678
    ```
 
 3. **测试项目**
@@ -316,16 +316,16 @@ var makerOptions = new MakerOptions
 
 ```bash
 # 获取项目列表
-curl http://localhost:5000/api/projects
+curl http://localhost:5678/api/projects
 
 # 启动执行
-curl -X POST http://localhost:5000/api/projects/paper-review/run
+curl -X POST http://localhost:5678/api/projects/paper-review/run
 
 # 获取状态
-curl http://localhost:5000/api/projects/paper-review/status
+curl http://localhost:5678/api/projects/paper-review/status
 
 # SSE 事件流
-curl http://localhost:5000/api/projects/paper-review/events
+curl http://localhost:5678/api/projects/paper-review/events
 ```
 
 ---

@@ -10,7 +10,7 @@ dotnet run
 ```
 
 服务将在以下地址启动：
-- HTTP: http://localhost:5000
+- HTTP: http://localhost:5001
 - HTTPS: https://localhost:7001
 - Swagger UI: https://localhost:7001/swagger
 

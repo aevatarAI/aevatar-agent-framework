@@ -8,14 +8,14 @@ using System.Threading.Tasks;
 /// CQRS Demo - Complex Type ES Test Client
 /// 
 /// Usage:
-///   dotnet run -- --api http://localhost:5000
-///   dotnet run -- --api http://localhost:5000 --verbose
+///   dotnet run -- --api https://localhost:44345
+///   dotnet run -- --api https://localhost:44345 --verbose
 /// 
 /// Requires: HttpApi.Host running (Local mode for full test)
 /// Tests: ES handling of List, Dictionary, nested objects
 /// </summary>
 
-var apiUrl = GetArg(args, "--api") ?? "https://localhost:44351";
+var apiUrl = GetArg(args, "--api") ?? "https://localhost:44345";
 var verbose = args.Contains("--verbose");
 
 Console.WriteLine("╔══════════════════════════════════════════════════════╗");

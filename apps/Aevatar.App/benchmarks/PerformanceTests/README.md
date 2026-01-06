@@ -6,7 +6,7 @@ This benchmark suite tests the performance of Orleans Stream with the Aevatar Ag
 
 - MongoDB running on `localhost:27017`
 - Orleans Silo running on `localhost:30000`
-- HttpApi.Host running on `localhost:5000`
+- HttpApi.Host running on `https://localhost:44345` (see `apps/Aevatar.App/src/Aevatar.App.HttpApi.Host/Properties/launchSettings.json`)
 
 ## Running Tests
 

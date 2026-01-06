@@ -48,8 +48,9 @@ cp appsettings.secrets.json.example appsettings.secrets.json
 ## Ports（仓库政策）
 
 - **禁止** `:5000`
-- 默认：
+- 推荐：
   - Notebook UI / API：`5678`（`/`, `/health`, `/api/*`）
+  - 如 `5678` 被占用，可使用任意未占用端口
 
 可用环境变量覆盖（用于 `start.sh`）：
 

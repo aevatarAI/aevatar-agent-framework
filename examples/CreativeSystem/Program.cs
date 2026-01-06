@@ -15,6 +15,17 @@ builder.Configuration
     .AddJsonFile("appsettings.secrets.json", optional: true)
     .AddEnvironmentVariables();
 
+// -------------------------------------------------------------------------
+// Ports (repo policy)
+// -------------------------------------------------------------------------
+// Repo policy: do not bind to :5000 by default (avoid conflicts/misleading docs).
+// If no URLs are configured (ASPNETCORE_URLS / --urls), use 5678 as a
+// recommended local port. Any available port is fine.
+if (string.IsNullOrWhiteSpace(builder.Configuration["urls"]))
+{
+    builder.WebHost.UseUrls("http://localhost:5678");
+}
+
 builder.Services.Configure<LLMProvidersConfig>(builder.Configuration.GetSection("LLMProviders"));
 
 // Add MassTransit Stream Plugin (includes all UoT agents: C/E/T)

@@ -401,7 +401,7 @@ dotnet run
 
 ### 3. 打开浏览器
 
-访问 `http://localhost:5000`
+访问 `http://localhost:5678`（如端口冲突可自行改）
 
 ---
 

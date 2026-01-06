@@ -14,4 +14,9 @@
         <ProjectReference Include="..\Aevatar.Agents.AI.Abstractions\Aevatar.Agents.AI.Abstractions.csproj" />
     </ItemGroup>
 
+    <ItemGroup>
+        <!-- Allow tests to validate internal protocol/runner helpers without making them public API. -->
+        <InternalsVisibleTo Include="Aevatar.Agents.AI.LLMTornado.Tests" />
+    </ItemGroup>
+
 </Project>

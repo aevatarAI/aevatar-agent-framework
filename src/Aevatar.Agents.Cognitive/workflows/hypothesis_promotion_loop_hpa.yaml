@@ -367,7 +367,7 @@ steps:
           Output requirements:
           - Return ONLY JSON (no markdown).
           - The hypothesis MUST be NEW (not identical to any seen hypothesis).
-          - The statement MUST be short, checkable, and likely provable/refutable within <= 10 steps.
+          - The statement MUST be novel, non-trivial, research-grade, checkable, and likely provable/refutable within <= 10 steps.
           - Do NOT add extra premises that are not present as IDs:
             - Avoid "if/assuming/suppose" style statements that smuggle new conditions (e.g., "if G is finite", "if boundary area is finite").
             - If a condition is not an existing axiom/theorem ID, you cannot use it as a premise; instead, weaken the claim to an unconditional one.
@@ -573,7 +573,7 @@ steps:
                 (b) weaken/restrict the statement to remove the contradiction.
               - Each B MUST include depends_on + factor_sequence (ordered generators).
               - Do NOT invent IDs. Use only axiom IDs, assumption IDs, and theorem IDs present in RelevantFacts.
-              - Prefer B candidates that are short, checkable, and likely provable/refutable in <= 10 steps.
+              - Prefer B candidates that are novel, non-trivial, research-grade, checkable, and likely provable/refutable in <= 10 steps.
               - Use ScanTarget to avoid near-duplicates and explore a new generator region.
 
               Axioms:

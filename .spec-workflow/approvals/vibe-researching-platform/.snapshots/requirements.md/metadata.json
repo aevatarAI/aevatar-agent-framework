@@ -1,12 +1,20 @@
 {
   "filePath": ".spec-workflow/specs/vibe-researching-platform/requirements.md",
-  "currentVersion": 1,
+  "currentVersion": 2,
   "snapshots": [
     {
       "version": 1,
       "filename": "snapshot-001.json",
       "timestamp": "2026-01-07T08:35:38.644Z",
       "trigger": "initial",
+      "approvalId": "approval_1767774938621_pw9dlcmev",
+      "approvalTitle": "Spec Phase 1: Requirements — vibe-researching-platform"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-07T08:53:44.754Z",
+      "trigger": "approved",
       "approvalId": "approval_1767774938621_pw9dlcmev",
       "approvalTitle": "Spec Phase 1: Requirements — vibe-researching-platform"
     }

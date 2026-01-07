@@ -2,7 +2,9 @@
 
 ## Introduction
 
-本 spec 定义一个 **Vibe Researching 平台（单人研究工作台）**，基于现有 `scientific-research-assistant` 子系统扩展：支持用户持续维护研究 goals、向一个或多个 AI agents 发送消息/文件、多个 AI agents 在无用户干预下持续科研并生成/增量维护一个可解释的 DAG（推导图），同时由科研助手 agent 在每一轮自动总结输出，让从头到尾的推导逻辑可追溯、可回放、可交互展示。
+本 spec 定义一个 **Vibe Researching 平台（单人研究工作台）**，基于现有 `scientific-research-assistant` 子系统扩展：支持用户持续维护研究 goals，并且**用户默认只与一个 `research_assistant` 对话（单入口）**，由它在后台协调/分发其它 AI agents 的任务与消息；多个 AI agents 在无用户干预下持续科研并生成/增量维护一个可解释的 DAG（推导图）。
+
+关键区别：**DAG 增量不走人工审批**，而是通过 **MAKER System v2（`maker-v2` workflow）** 的多 agent 共识流程（vote + red-flagging）生成/校验后自动写入知识库；科研助手同时在每一轮自动总结输出，让从头到尾的推导逻辑可追溯、可回放、可交互展示。
 
 ## Alignment with Product Vision
 
@@ -32,15 +34,16 @@
 2. WHEN goals 发生变更 THEN 系统 SHALL 触发一次“全体 agents 校准”事件，使所有 agents 在下一步科研前读取并对齐最新 goals。
 3. IF goals 为空 THEN 系统 SHALL 允许继续运行，但 agents 必须明确提示“当前无 goals/需要 goals”或以用户最新消息作为临时 goal。
 
-### Requirement 3 — Targeted / broadcast messaging (with files)
+### Requirement 3 — Single-chat entrypoint (research_assistant) with routed messaging (with files)
 
-**User Story:** 作为科研人员（用户），我希望随时向一个或多个 agent 发送消息（可包含文件），以便提供新材料或纠偏研究方向。
+**User Story:** 作为科研人员（用户），我希望只跟一个 `research_assistant` 聊天就能统筹全局，并且可以在同一个对话入口里选择把消息/文件路由给一个或多个后台 agents，以便提供新材料或纠偏研究方向而不需要维护多条聊天线程。
 
 #### Acceptance Criteria
 
-1. WHEN 用户发送消息并选择目标（全部 agents 或子集）THEN 系统 SHALL 将该消息投递到对应 agents 的收件箱（durable queue / mailbox）。
-2. WHEN 用户上传文件并随消息发送 THEN 系统 SHALL 将文件保存到 session workspace，并在消息中以可解析的路径/引用形式提供给目标 agents。
-3. IF 用户选择的 agent 不存在 THEN 系统 SHALL 返回可理解的错误，并不应影响对其它目标 agents 的投递。
+1. WHEN 用户发送消息 THEN 系统 SHALL 将该消息记录到**单一的用户可见对话线程**（与 `research_assistant`），并作为一次研究触发信号进入编排流程。
+2. WHEN 用户在发送时选择路由目标（全部 agents 或子集）THEN 系统 SHALL 将该消息（含文件引用）投递到对应后台 agents 的收件箱（durable queue / mailbox），但前端**不创建新的独立聊天线程**。
+3. WHEN 用户上传文件并随消息发送 THEN 系统 SHALL 将文件保存到 session workspace，并在路由消息中以可解析的路径/引用形式提供给目标 agents。
+4. IF 用户选择的 agent 不存在 THEN 系统 SHALL 返回可理解的错误，并不应影响对其它目标 agents 的投递。
 
 ### Requirement 4 — Multi-agent autonomous researching loop
 
@@ -68,17 +71,19 @@
 
 #### Acceptance Criteria
 
-1. WHEN agents 产生新结论或依赖关系 THEN 系统 SHALL 以增量方式将 nodes/edges 写入 DAG 存储，并保持可重建的 snapshot。
+1. WHEN agents 产生新结论或依赖关系 THEN 系统 SHALL 通过 **MAKER System v2**（`maker-v2` workflow）运行多 agent 共识流程，对 DAG mutation 进行结构化生成/规范化/去重与基本一致性校验（例如格式、依赖显式化、red-flagging）。
+2. WHEN 共识达成 THEN 系统 SHALL 以增量方式将 nodes/edges 写入 DAG 存储，并保持可重建的 snapshot，同时落盘共识/修复过程的摘要到 Trace（便于复盘）。
+3. IF 在给定预算内无法达成共识或触发 red-flag THEN 系统 SHALL 不将该 mutation 写入最终 DAG snapshot，并将“未达成共识的候选”以 artifact 形式保留并在 Trace 中标记为 blocked（提示缺失证据/下一步行动），但不要求用户逐条 approve/reject。
 2. WHEN 用户查看 DAG THEN 系统 SHALL 返回 nodes/edges 的一致快照，并可按 nodeId 查询 explain（依赖闭包、缺失依赖、环检测、近似可证明性等）。
 3. IF DAG 存储中出现不一致或坏数据 THEN 系统 SHALL 以安全方式降级（例如忽略坏事件/标记为 Unknown），并在 UI 中提示需要人工修复。
 
-### Requirement 7 — Fully interactive, multi-panel UI
+### Requirement 7 — Fully interactive, multi-panel UI (single chat + observable workers)
 
 **User Story:** 作为科研人员（用户），我希望所有交互过程在前端页面可展示、可交互，并以可折叠/可放大的多面板组织，以便在复杂研究中保持全局掌控。
 
 #### Acceptance Criteria
 
-1. WHEN 用户连接到 session THEN 前端 SHALL 显示至少：Goals 面板、Agents 状态面板、对话/输出面板（按 agent 分流）、DAG 面板、Trace（每轮总结）面板。
+1. WHEN 用户连接到 session THEN 前端 SHALL 显示至少：Goals 面板、Agents 状态面板、**ResearchAssistant 对话面板（单线程）**、后台 agents 活动/输出面板（可按 agent 过滤）、DAG 面板、Trace（每轮总结）面板。
 2. WHEN 用户折叠/放大面板 THEN 前端 SHALL 保持布局状态不影响后端状态，且不丢失实时事件更新。
 3. WHEN 用户发送消息 THEN 前端 SHALL 提供收件人选择（全体/多选/单个）与文件上传能力，且输入框始终可用。
 
@@ -113,6 +118,7 @@
 - **Durable mailbox**: agent 通信应以文件队列保证可审计与可恢复（至少在进程内/文件层面）。
 
 ### Usability
-- **Always-available composer**: 输入框与收件人选择应始终可用。\n+- **Trace first**: 每轮总结必须可直接阅读（Markdown）且能关联到对应 agent 输出与 DAG 变更，帮助用户快速理解推导脉络。
+- **Always-available composer**: 输入框与收件人选择应始终可用。
+- **Trace first**: 每轮总结必须可直接阅读（Markdown）且能关联到对应 agent 输出与 DAG 变更，帮助用户快速理解推导脉络。
 
 

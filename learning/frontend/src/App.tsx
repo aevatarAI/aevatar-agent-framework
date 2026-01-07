@@ -5,6 +5,7 @@ import { SourcesPanel } from './features/sources/SourcesPanel'
 import { ReportsPanel } from './features/reports/ReportsPanel'
 import { EncyclopediaPanel } from './features/encyclopedia/EncyclopediaPanel'
 import { CardsPanel } from './features/cards/CardsPanel'
+import { QuizPanel } from './features/quiz/QuizPanel'
 
 type UiMessage = {
   id: string
@@ -72,7 +73,7 @@ export function App() {
   const [debugEvents, setDebugEvents] = useState<DebugEvent[]>([])
   const [isConnected, setIsConnected] = useState(false)
   const [progress, setProgress] = useState<any>(null)
-  const [rightTab, setRightTab] = useState<'sources' | 'reports' | 'encyclopedia' | 'cards' | 'debug'>('sources')
+  const [rightTab, setRightTab] = useState<'sources' | 'reports' | 'encyclopedia' | 'cards' | 'quiz' | 'debug'>('sources')
 
   const connRef = useRef<AgUiConnection | null>(null)
 
@@ -370,6 +371,17 @@ export function App() {
               Cards
             </button>
             <button
+              onClick={() => setRightTab('quiz')}
+              style={{
+                padding: '6px 10px',
+                border: '1px solid #ddd',
+                background: rightTab === 'quiz' ? '#111827' : '#fff',
+                color: rightTab === 'quiz' ? '#fff' : '#111',
+              }}
+            >
+              Quiz
+            </button>
+            <button
               onClick={() => setRightTab('debug')}
               style={{
                 padding: '6px 10px',
@@ -406,6 +418,12 @@ export function App() {
           ) : rightTab === 'cards' ? (
             notebookId ? (
               <CardsPanel notebookId={notebookId} />
+            ) : (
+              <div style={{ fontSize: 12, color: '#999' }}>(select a notebook first)</div>
+            )
+          ) : rightTab === 'quiz' ? (
+            notebookId ? (
+              <QuizPanel notebookId={notebookId} />
             ) : (
               <div style={{ fontSize: 12, color: '#999' }}>(select a notebook first)</div>
             )

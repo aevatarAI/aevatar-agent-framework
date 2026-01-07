@@ -11,18 +11,20 @@
 - 把真实密钥放在 `appsettings.secrets.json`（本地文件、不要提交）
 - 仓库内提供 `appsettings.secrets.json.example` 作为模板
 
-### 2) MCP（Claude Scientific Skills）
+### 2) MCP（Model Context Protocol / 外部工具）
 
-`src/ScientificResearchAssistant.Api/appsettings.json` 的 `MCP` 控制 skills MCP 连接方式：
+科研助手使用框架内置的 MCP 集成（`AIGAgentBase` 在初始化 tools 时 **best-effort 自动连接**），配置风格参考 Cursor：`mcpServers`。
 
-- **Http（默认）**：连接 K-Dense 提供的 hosted MCP server
-- **Docker**：本地启动 `ghcr.io/k-dense-ai/claude-scientific-skills:latest`（更隐私）
+位置：
+- 推荐：`src/ScientificResearchAssistant.Api/appsettings.json` 的 `MCP:mcpServers`
+- 也支持：直接提供 Cursor 原生 `mcp.json`（root 级 `mcpServers`），由宿主把该文件加载进 `IConfiguration`
 
-字段：
-- `MCP:Type`: `"Http"` | `"Docker"`
-- `MCP:HttpUrl`: hosted MCP URL
-- `MCP:DockerImage`: docker image
-- `MCP:RequestTimeoutMs`: 单次调用超时（毫秒）
+关键字段：
+- `MCP:autoConnect`: 是否自动连接（默认 `true`）
+- `MCP:namespaceTools`: 是否对 MCP 工具名做命名空间前缀（默认 `true`，避免多 server 重名；格式 `mcp__{serverKey}__{toolName}`）
+- `MCP:mcpServers:<serverKey>`: 每个 MCP server 的配置
+
+示例（K-Dense Claude Scientific Skills / Hosted + Docker 二选一）见 `appsettings.json` 里的默认配置。
 
 ### 2.5) Git Skill Packs（本地 repo 自动同步，可选，支持多个 repo）
 

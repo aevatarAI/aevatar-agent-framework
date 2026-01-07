@@ -37,7 +37,7 @@ Monorepo 内的分布式智能体框架 + 多个产品化系统（本 steering �
 ### External Integrations (if applicable)
 
 - **LLM Providers**: MEAI provider factory via `LLMProviders` config
-- **MCP**: Claude Scientific Skills（HTTP/Docker）
+- **MCP**: Cursor-style `mcpServers`（HTTP / stdio / Docker），由框架层 `AIGAgentBase` best-effort 自动连接与注册
 
 ### Consensus & Verification (核心闭环)
 

@@ -45,6 +45,10 @@ public abstract partial class AIGAgentBase
             // Ensure built-in tools are registered and cached.
             await InitializeToolsAsync(cancellationToken);
 
+            // Best-effort: if MCP servers are configured but were unreachable earlier,
+            // retry per chat call (throttled) so tools can "eventually become available".
+            await TryReconnectMcpOnChatAsync(cancellationToken);
+
             // Build LLM request from chat request
             var llmRequest = BuildLLMRequest(request);
 
@@ -299,6 +303,9 @@ public abstract partial class AIGAgentBase
 
         // Ensure built-in tools are registered and cached.
         await InitializeToolsAsync(cancellationToken);
+
+        // Best-effort MCP retry (throttled) before building request so tools can be visible to LLM.
+        await TryReconnectMcpOnChatAsync(cancellationToken);
 
         // Build LLM request
         var llmRequest = BuildLLMRequest(request);

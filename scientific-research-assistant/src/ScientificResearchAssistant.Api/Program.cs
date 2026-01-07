@@ -3,6 +3,7 @@ using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.MEAI.DependencyInjection;
 using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Runtime.Local;
+using Aevatar.Agents.AI.WithTool.MCP.Configuration;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.Options;
 using ScientificResearchAssistant.Api.Infrastructure;
@@ -105,7 +106,7 @@ app.MapGet("/api/info", (IOptions<LLMProvidersConfig> llm, IConfiguration cfg) =
     var defaultProvider = string.IsNullOrWhiteSpace(llm.Value.Default) ? "default" : llm.Value.Default;
     llm.Value.Providers.TryGetValue(defaultProvider, out var providerCfg);
 
-    var mcp = cfg.GetSection("MCP");
+    var mcpResolved = MCPServersConfigReader.Resolve(cfg);
 
     return Results.Json(new
     {
@@ -132,10 +133,22 @@ app.MapGet("/api/info", (IOptions<LLMProvidersConfig> llm, IConfiguration cfg) =
         },
         mcp = new
         {
-            type = mcp["Type"] ?? "Http",
-            httpUrl = mcp["HttpUrl"] ?? "",
-            dockerImage = mcp["DockerImage"] ?? "",
-            requestTimeoutMs = mcp.GetValue<int?>("RequestTimeoutMs") ?? 0
+            source = mcpResolved.Source,
+            autoConnect = mcpResolved.AutoConnect,
+            namespaceTools = mcpResolved.NamespaceTools,
+            servers = mcpResolved.Servers
+                .Where(s => s.Enabled)
+                .Select(s => new
+                {
+                    key = s.Key,
+                    name = s.Config.Name,
+                    transport = s.Config.TransportType.ToString(),
+                    url = s.Config.ServerUrl ?? "",
+                    command = s.Config.Command ?? "",
+                    args = s.Config.Arguments ?? new List<string>(),
+                    timeoutMs = s.Config.TimeoutMs
+                })
+                .ToList()
         }
     });
 });

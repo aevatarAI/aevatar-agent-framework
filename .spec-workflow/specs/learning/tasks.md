@@ -557,7 +557,7 @@
   - _Requirements: 6, 8_
   - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Frontend engineer | Task: Implement a cards panel for daily SRS queue and review submission, showing stats and optional mnemonics. | Restrictions: Keep interaction fast; avoid deep nesting; no hardcoded backend. | _Requirements: 6,8 | Success: User can complete a daily review loop and see stats update. (Workflow: mark task [-]; log-implementation; mark [x].)_
 
-- [ ] 42. Frontend：测验（生成/作答/结果）
+- [x] 42. Frontend：测验（生成/作答/结果）
   - Files:
     - `learning/frontend/src/features/quiz/QuizPanel.tsx`
     - `learning/frontend/src/App.tsx`

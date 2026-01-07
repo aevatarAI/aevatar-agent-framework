@@ -53,6 +53,16 @@ public sealed class SkillPacksSyncService
 
     private readonly SemaphoreSlim _lock = new(1, 1);
 
+    // ============================================================
+    //  Sync status (best-effort)
+    //
+    //  WHY:
+    //  - Startup sync can fail (no network/git). We want to retry later.
+    //  - Callers (e.g. per-session runtime) need a cheap "should retry?" signal.
+    // ============================================================
+    private volatile SkillPacksSyncResult? _lastResult;
+    private DateTimeOffset _lastAttemptUtc = DateTimeOffset.MinValue;
+
     public SkillPacksSyncService(
         IOptions<SkillPacksOptions> packs,
         IOptions<LLMProvidersConfig> llm,
@@ -67,12 +77,23 @@ public sealed class SkillPacksSyncService
         _logger = logger;
     }
 
+    public bool HasEnabledPacks =>
+        _packs.Value?.Packs?.Any(p => p.Enabled && !string.IsNullOrWhiteSpace(p.RepoUrl)) == true;
+
+    public bool LastSyncOk => _lastResult?.Ok == true;
+
+    public DateTimeOffset LastAttemptUtc => _lastAttemptUtc;
+
+    public SkillPacksSyncResult? LastResult => _lastResult;
+
     public async Task<SkillPacksSyncResult> TryEnsureSyncedAsync(SkillPackSyncMode mode, CancellationToken ct)
     {
         var specs = GetEnabledSpecs(mode);
         if (specs.Count == 0)
         {
-            return new SkillPacksSyncResult { Ok = false, Error = "no enabled skill packs configured" };
+            var none = new SkillPacksSyncResult { Ok = false, Error = "no enabled skill packs configured" };
+            _lastResult = none;
+            return none;
         }
 
         using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(10 * 60_000));
@@ -81,14 +102,18 @@ public sealed class SkillPacksSyncService
         await _lock.WaitAsync(linked.Token);
         try
         {
+            _lastAttemptUtc = DateTimeOffset.UtcNow;
+
             if (!await IsGitAvailableAsync(linked.Token))
             {
                 _logger.LogWarning("[SkillPacksSync] git not found; skipping sync.");
-                return new SkillPacksSyncResult
+                var missingGit = new SkillPacksSyncResult
                 {
                     Ok = false,
                     Error = "git not found"
                 };
+                _lastResult = missingGit;
+                return missingGit;
             }
 
             var results = new List<SkillPackSyncEntry>();
@@ -102,12 +127,14 @@ public sealed class SkillPacksSyncService
                 if (!r.Ok) allOk = false;
             }
 
-            return new SkillPacksSyncResult
+            var result = new SkillPacksSyncResult
             {
                 Ok = allOk,
                 Packs = results,
                 Error = allOk ? null : "one or more packs failed"
             };
+            _lastResult = result;
+            return result;
         }
         finally
         {

@@ -139,6 +139,9 @@ public abstract partial class AIGAgentBase
 
         // Agent Skills (agentskills.io) - gated by EnableAgentSkills (enabled by default in this repo)
         await RegisterAgentSkillsToolsAsync(cancellationToken);
+
+        // MCP servers (Cursor-style config: MCP:mcpServers) - best-effort
+        await RegisterMcpServersFromConfigurationBestEffortAsync(isRetry: false, cancellationToken);
     }
 
     /// <summary>

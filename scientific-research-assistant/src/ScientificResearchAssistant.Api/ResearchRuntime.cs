@@ -6,6 +6,7 @@ using Aevatar.Agents.AI.Core;
 using Microsoft.Extensions.Options;
 using Aevatar.Agents.AI.WithTool.Abstractions;
 using ScientificResearchAssistant.Vibe;
+using ScientificResearchAssistant.Api.Infrastructure;
 
 namespace ScientificResearchAssistant.Api;
 
@@ -22,6 +23,11 @@ public sealed class ResearchRuntime
     private readonly IGAgentActorFactory _actorFactory;
     private readonly ILogger<ResearchRuntime> _logger;
     private readonly IOptions<LLMProvidersConfig> _llm;
+    private readonly SkillPacksSyncService _skillPacksSync;
+
+    // Per-process retry throttle (best-effort). We don't want to run `git pull` on every request.
+    private DateTimeOffset _lastSkillPacksRetryKickoffUtc = DateTimeOffset.MinValue;
+    private static readonly TimeSpan SkillPacksRetryMinInterval = TimeSpan.FromSeconds(60);
 
     private readonly Dictionary<string, SessionEntry> _sessions = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _sessionsLock = new(1, 1);
@@ -29,11 +35,13 @@ public sealed class ResearchRuntime
     public ResearchRuntime(
         IGAgentActorFactory actorFactory,
         ILogger<ResearchRuntime> logger,
-        IOptions<LLMProvidersConfig> llm)
+        IOptions<LLMProvidersConfig> llm,
+        SkillPacksSyncService skillPacksSync)
     {
         _actorFactory = actorFactory;
         _logger = logger;
         _llm = llm;
+        _skillPacksSync = skillPacksSync;
     }
 
     public async Task<(ResearchAgent Agent, string AgentId)> GetAgentAsync(
@@ -211,6 +219,10 @@ public sealed class ResearchRuntime
         if (sid.Length == 0)
             throw new ArgumentException("sessionId is required", nameof(sessionId));
 
+        // Best-effort: if skill packs are configured but sync failed earlier, retry on session access.
+        // This makes the system "eventually consistent" without requiring manual clicks.
+        TryKickoffSkillPacksSyncRetryBestEffort();
+
         await _sessionsLock.WaitAsync(ct);
         try
         {
@@ -228,6 +240,43 @@ public sealed class ResearchRuntime
         finally
         {
             _sessionsLock.Release();
+        }
+    }
+
+    private void TryKickoffSkillPacksSyncRetryBestEffort()
+    {
+        try
+        {
+            if (_skillPacksSync == null)
+                return;
+
+            if (!_skillPacksSync.HasEnabledPacks)
+                return;
+
+            // If we've synced successfully, no need to retry.
+            if (_skillPacksSync.LastSyncOk)
+                return;
+
+            var now = DateTimeOffset.UtcNow;
+            if (_lastSkillPacksRetryKickoffUtc != DateTimeOffset.MinValue &&
+                now - _lastSkillPacksRetryKickoffUtc < SkillPacksRetryMinInterval)
+            {
+                return;
+            }
+
+            _lastSkillPacksRetryKickoffUtc = now;
+
+            // Fire-and-forget: never block the request path.
+            _ = _skillPacksSync
+                .TryEnsureSyncedAsync(SkillPackSyncMode.Manual, CancellationToken.None)
+                .ContinueWith(t =>
+                {
+                    _logger.LogDebug(t.Exception, "[SkillPacksSync] Session-triggered retry failed (best-effort).");
+                }, TaskContinuationOptions.OnlyOnFaulted);
+        }
+        catch
+        {
+            // best-effort only
         }
     }
 

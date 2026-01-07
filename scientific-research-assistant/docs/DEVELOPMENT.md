@@ -14,7 +14,7 @@
 
 ### 同步 Skill Packs（可选）
 
-如果你配置了 `skillpacks.json` 并启用了某个 pack 的 `AutoUpdateOnStartup=true`，后端启动时会 best-effort 自动同步。
+只要你配置了 `skillpacks.json` 且某个 pack `Enabled=true`，后端启动时会 best-effort 自动同步（失败不阻塞启动；后续每次会话/请求也会 best-effort 触发一次重试）。
 
 你也可以手动执行一次同步（只 sync，然后退出）：
 
@@ -72,9 +72,10 @@ SRA_API_PROXY_TARGET=http://localhost:5678 npm run dev -- --port 5173
 
 #### 2) MCP tools 注册失败
 
-- `MCP:Type=Http`：检查网络与 `MCP:HttpUrl`
-- `MCP:Type=Docker`：检查 Docker Desktop 是否运行，以及 image 拉取是否成功
-- 适当增大 `MCP:RequestTimeoutMs`
+- 检查 `src/ScientificResearchAssistant.Api/appsettings.json` 的 `MCP:mcpServers` 是否配置正确
+- `url` 场景：检查网络连通性 + hosted MCP 是否可用
+- `command: docker` 场景：检查 Docker Desktop 是否运行，以及 image 是否可拉取
+- 适当增大对应 server 的 `timeoutMs`
 
 #### 3) UI 看不到 tool 调用
 

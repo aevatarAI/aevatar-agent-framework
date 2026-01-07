@@ -75,6 +75,94 @@ public static class MCPToolManagerExtensions
     }
 
     /// <summary>
+    /// Registers all tools from an MCP server to the tool manager, with an optional tool-name prefix.
+    /// <para/>
+    /// WHY:
+    /// - MCP tool names are only unique within a server.
+    /// - When you configure multiple MCP servers (Cursor-style), name collisions are possible.
+    /// - Prefixing gives a stable namespace in the LLM tool list (e.g. <c>mcp__github__create_issue</c>).
+    /// </summary>
+    /// <param name="toolManager">The tool manager instance</param>
+    /// <param name="serverUrl">Logical server identifier (e.g., "github")</param>
+    /// <param name="mcpClient">MCP client instance (required)</param>
+    /// <param name="toolNamePrefix">Optional prefix to apply to all tool names (must be stable)</param>
+    /// <param name="config">Optional server configuration</param>
+    /// <param name="logger">Optional logger</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    public static async Task RegisterMCPServerWithPrefixAsync(
+        this IAevatarToolManager toolManager,
+        string serverUrl,
+        IMCPClient mcpClient,
+        string? toolNamePrefix,
+        MCPServerConfig? config = null,
+        ILogger? logger = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(toolManager);
+        ArgumentException.ThrowIfNullOrWhiteSpace(serverUrl);
+        ArgumentNullException.ThrowIfNull(mcpClient);
+
+        var prefix = toolNamePrefix ?? string.Empty;
+
+        logger?.LogInformation("Registering MCP tools from server: {ServerUrl} (Prefix: '{Prefix}')", serverUrl,
+            prefix);
+
+        try
+        {
+            // Discover tools from MCP server
+            var mcpTools = await mcpClient.ListToolsAsync(cancellationToken);
+
+            logger?.LogInformation("Discovered {Count} tools from MCP server: {ServerUrl}",
+                mcpTools.Count, serverUrl);
+
+            // Create adapter
+            var adapter = new MCPToolAdapter(mcpClient, logger as ILogger<MCPToolAdapter>);
+
+            // Register each tool
+            var registeredCount = 0;
+            foreach (var mcpTool in mcpTools)
+            {
+                try
+                {
+                    var toolDef = adapter.CreateToolDefinition(mcpTool);
+
+                    // Apply namespacing if requested (avoid collisions across servers).
+                    var originalName = toolDef.Name;
+                    if (!string.IsNullOrWhiteSpace(prefix))
+                    {
+                        toolDef.Name = prefix + originalName;
+                        toolDef.DisplayName = originalName;
+                    }
+
+                    toolDef.Metadata ??= new Dictionary<string, object>();
+                    toolDef.Metadata["McpServer"] = serverUrl;
+                    toolDef.Metadata["McpToolName"] = originalName;
+
+                    await toolManager.RegisterToolAsync(toolDef, cancellationToken);
+                    registeredCount++;
+
+                    logger?.LogDebug("Registered MCP tool: {ToolName} (Original: {OriginalName}) from {ServerUrl}",
+                        toolDef.Name, originalName, serverUrl);
+                }
+                catch (Exception ex)
+                {
+                    logger?.LogWarning(ex, "Failed to register MCP tool: {ToolName} from {ServerUrl}",
+                        mcpTool.Name, serverUrl);
+                }
+            }
+
+            logger?.LogInformation(
+                "Successfully registered {RegisteredCount}/{TotalCount} MCP tools from {ServerUrl}",
+                registeredCount, mcpTools.Count, serverUrl);
+        }
+        catch (Exception ex)
+        {
+            logger?.LogError(ex, "Failed to register MCP tools from server: {ServerUrl}", serverUrl);
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Registers an MCP server using npx with automatic client creation.
     /// </summary>
     /// <param name="toolManager">The tool manager instance</param>

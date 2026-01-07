@@ -71,6 +71,7 @@ public class AIGAgentFactory : IGAgentFactory
         MemoryGraphStoreInjector.InjectMemoryGraphStore(agent, _serviceProvider);
         AIAgentToolManagerInjector.InjectToolManager(agent, _serviceProvider);
         AIAgentStateQueryServiceInjector.InjectStateQueryService(agent, _serviceProvider);
+        AIAgentHostConfigurationInjector.InjectHostConfiguration(agent, _serviceProvider);
 
         // ============================================================
         //  Hook/Harness injection (explicit, type-safe, best-effort)

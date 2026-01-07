@@ -555,6 +555,16 @@ internal sealed class ResearchRunExecutor
         public async Task EmitToolStartAsync(string toolCallId, string toolName, CancellationToken ct)
         {
             var isMcp = await _runtime.IsMcpToolAsync(_sessionId, toolName, ct);
+            // Frontend expects tools to be attached to the assistant message of the current run
+            var messageId = $"msg:{_threadId}:assistant:{_runId}";
+
+            _hub.Publish(new ToolCallStartEvent
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                MessageId = messageId,
+                ToolCallId = toolCallId,
+                ToolName = toolName
+            });
 
             _hub.Publish(new CustomEvent
             {
@@ -574,6 +584,22 @@ internal sealed class ResearchRunExecutor
             CancellationToken ct)
         {
             var isMcp = await _runtime.IsMcpToolAsync(_sessionId, toolName, ct);
+            var messageId = $"msg:{_threadId}:assistant:{_runId}";
+
+            _hub.Publish(new ToolCallResultEvent
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                MessageId = messageId,
+                ToolCallId = toolCallId,
+                Result = resultPreview ?? (error ?? string.Empty)
+            });
+
+            _hub.Publish(new ToolCallEndEvent
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                MessageId = messageId,
+                ToolCallId = toolCallId
+            });
 
             _hub.Publish(new CustomEvent
             {

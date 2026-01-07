@@ -1,0 +1,82 @@
+# Tasks Document
+
+- [x] 1. Add real Claude Agent SDK runner script (Node) that emits Aevatar marker protocol
+  - Files:
+    - `examples/ClaudeAgentSdkProviderDemo/runner/real_claude_agent_sdk_runner.mjs` (new)
+  - Implement:
+    - Read stdin JSON (same shape produced by `ClaudeAgentSdkProvider`)
+    - Call `@anthropic-ai/claude-agent-sdk` `query({ prompt, options })`
+    - Map options:
+      - `projectRoot` → `options.cwd`
+      - `settingSources` → `options.settingSources` (include `"project"` to load `CLAUDE.md`)
+      - `plugins` (string[] paths) → `options.plugins = [{ type: "local", path }]` (best-effort)
+      - Map demo allow-list (filesystem_read/write) best-effort to SDK tool allow-list (`Read`/`Write`/`Edit`) without enabling bypass
+      - Use `systemPrompt: { type: "preset", preset: "claude_code", append?: ... }` when loading project settings
+    - Streaming mapping (best-effort):
+      - For each assistant text chunk observed, print `AEVATAR_AGENT_SDK_STREAM:{text}`
+      - Always print final `AEVATAR_AGENT_SDK_OUTPUT:{json}` with `{ "content": "..." }`
+    - Never print secrets; keep stderr actionable
+  - Purpose: Real mode runner compatible with `ClaudeAgentSdkProvider` marker protocol
+  - _Leverage: `examples/ClaudeAgentSdkProviderDemo/runner/mock_claude_agent_sdk_runner.mjs`, `src/Aevatar.Agents.AI.LLMTornado/ClaudeAgentSdk/ClaudeAgentSdkProtocol.cs`, Agent SDK docs: install `@anthropic-ai/claude-agent-sdk`, `settingSources: ['project']`, `systemPrompt.preset='claude_code'`_
+  - _Requirements: 1, 2_
+  - _Prompt: Implement the task for spec claude-agent-sdk-provider-demo-real, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Node.js/TypeScript runtime engineer | Task: Add `real_claude_agent_sdk_runner.mjs` that invokes the official `@anthropic-ai/claude-agent-sdk` `query()` and maps its message stream into Aevatar marker protocol (STREAM/OUTPUT). | Restrictions: Do not print secrets; do not bypass permissions by default; no listening ports; best-effort streaming; keep file < 500 lines. | _Leverage: existing mock runner + ClaudeAgentSdkProtocol marker strings + Agent SDK docs (query/options) | _Requirements: 1,2 | Success: With Agent SDK installed + key configured, running the script manually produces markers and respects settingSources/project cwd. Without install, error is actionable. (Workflow: mark task [-] in tasks.md before coding; after completion use log-implementation with artifacts; then mark [x].)
+
+- [x] 2. Add npm package scaffold for real runner (no lockfiles committed)
+  - Files:
+    - `examples/ClaudeAgentSdkProviderDemo/runner/package.json` (new)
+  - Implement:
+    - Minimal `package.json` declaring dependency on `@anthropic-ai/claude-agent-sdk`
+    - Add a script (e.g. `node:real`) to run `real_claude_agent_sdk_runner.mjs`
+  - Purpose: Make real mode setup copy-pastable (`npm install` in runner dir)
+  - _Leverage: Agent SDK docs: `npm install -g @anthropic-ai/claude-code`, `npm install @anthropic-ai/claude-agent-sdk`_
+  - _Requirements: 2, 3_
+  - _Prompt: Implement the task for spec claude-agent-sdk-provider-demo-real, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Node.js tooling maintainer | Task: Add a minimal `package.json` under the demo runner directory to make installing and running the real runner straightforward. | Restrictions: Do not add lockfiles; do not download packages in this repo; keep it minimal and documented. | _Requirements: 2,3 | Success: A developer can run `cd runner && npm install && npm run node:real` locally (outside this sandbox). (Workflow: mark task [-] in tasks.md before coding; after completion use log-implementation with artifacts; then mark [x].)
+
+- [x] 3. Add demo project `CLAUDE.md` for real mode (observable effect)
+  - Files:
+    - `examples/ClaudeAgentSdkProviderDemo/demo_project/CLAUDE.md` (new)
+  - Implement:
+    - Add a short project instruction that forces an observable output constraint (e.g., prefix a marker line)
+    - Keep content safe and repo-appropriate
+  - Purpose: Validate that `settingSources: ['project']` successfully loads project instructions in real mode
+  - _Leverage: Agent SDK docs: must set `settingSources: ['project']` to load CLAUDE.md_
+  - _Requirements: 2, 4_
+  - _Prompt: Implement the task for spec claude-agent-sdk-provider-demo-real, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Prompt designer | Task: Add a minimal `CLAUDE.md` that causes an easily verifiable output marker so users can confirm project settings were loaded in real mode. | Restrictions: No secrets; avoid dangerous instructions; keep it short and deterministic. | _Requirements: 2,4 | Success: In real mode, the agent output visibly follows the CLAUDE.md constraint. (Workflow: mark task [-] in tasks.md before coding; after completion use log-implementation with artifacts; then mark [x].)
+
+- [x] 4. Add mode switch wiring in demo `Program.cs` (mock default, real optional)
+  - Files:
+    - `examples/ClaudeAgentSdkProviderDemo/Program.cs` (modify)
+  - Implement:
+    - Read `CLAUDE_AGENT_SDK_DEMO_MODE=mock|real` (default mock)
+    - In `NormalizeDemoProviderConfigs`, choose runner args:
+      - mock → `runner/mock_claude_agent_sdk_runner.mjs` (output dir)
+      - real → `runner/real_claude_agent_sdk_runner.mjs` (source dir; for node_modules resolution)
+    - When in real mode:
+      - set `settingSources = ["project"]`
+      - set `projectRoot = <demoBin>/demo_project` (sandbox)
+      - keep plugin list empty by default (or best-effort) to avoid requiring plugin manifests
+    - Update header output to clearly indicate mock vs real
+  - Purpose: A single env var toggles the demo between offline mock and real Claude Agent SDK
+  - _Leverage: existing `Program.cs` normalization approach_
+  - _Requirements: 1, 4_
+  - _Prompt: Implement the task for spec claude-agent-sdk-provider-demo-real, first run spec-workflow-guide to get the workflow guide then implement the task: Role: .NET demo maintainer | Task: Add a mode switch to the existing demo so it defaults to mock but can run the real runner when `CLAUDE_AGENT_SDK_DEMO_MODE=real` is set, while keeping filesystem sandboxing under demo_project. | Restrictions: Must not break default mock demo; no port 5000; do not rely on current working directory. | _Leverage: current NormalizeDemoProviderConfigs pattern | _Requirements: 1,4 | Success: `dotnet run` still works offline by default; `CLAUDE_AGENT_SDK_DEMO_MODE=real dotnet run` uses the real runner path and injects settingSources=['project']. (Workflow: mark task [-] in tasks.md before coding; after completion use log-implementation with artifacts; then mark [x].)
+
+- [x] 5. Rewrite demo `README.md` to document real environment setup + troubleshooting
+  - Files:
+    - `examples/ClaudeAgentSdkProviderDemo/README.md` (modify)
+    - `examples/ClaudeAgentSdkProviderDemo/runner/README.md` (modify)
+  - Include:
+    - Mock vs real modes, and how to switch (`CLAUDE_AGENT_SDK_DEMO_MODE`)
+    - Real prerequisites:
+      - `npm install -g @anthropic-ai/claude-code`
+      - `npm install @anthropic-ai/claude-agent-sdk` (in runner dir)
+      - set `ANTHROPIC_API_KEY` (or use Claude Code authenticated session)
+    - Costs warning for real mode
+    - How to verify `CLAUDE.md` is loaded (expected marker in output)
+    - Troubleshooting: module not found, auth failed, permissions prompts, timeouts
+  - Purpose: Make real mode setup self-serve and safe
+  - _Leverage: `src/Aevatar.Agents.AI.LLMTornado/docs/ClaudeAgentSdkProvider.md`, Agent SDK docs (quickstart/plugins/settingSources)_
+  - _Requirements: 3, 4_
+  - _Prompt: Implement the task for spec claude-agent-sdk-provider-demo-real, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Technical writer | Task: Update the demo README(s) to explain real-mode setup and configuration steps precisely (install/runtime/auth), including common troubleshooting and safety notes. | Restrictions: No secrets; no port 5000; keep instructions copy-pastable; clearly warn about costs. | _Leverage: ClaudeAgentSdkProvider.md + Agent SDK docs snippets (install, settingSources/project, plugins) | _Requirements: 3,4 | Success: A developer can configure real mode in <10 minutes (assuming they have access/key) and understands common failure modes. (Workflow: mark task [-] in tasks.md before coding; after completion use log-implementation with artifacts; then mark [x].)
+
+

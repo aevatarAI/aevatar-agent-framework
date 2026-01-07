@@ -229,7 +229,7 @@ public abstract partial class AIGAgentBase : GAgentBase<AevatarAIAgentState, Aev
         LLMProviderConfig? providerConfig,
         CancellationToken cancellationToken)
     {
-        if (providerConfig is not { Embeddings.Enabled: true })
+        if (providerConfig?.Embeddings == null)
         {
             return;
         }

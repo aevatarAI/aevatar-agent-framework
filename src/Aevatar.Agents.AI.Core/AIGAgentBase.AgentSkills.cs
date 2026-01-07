@@ -46,9 +46,9 @@ public abstract partial class AIGAgentBase
 
     /// <summary>
     /// Enable Agent Skills tools (<c>skills_list</c>/<c>skills_load</c>).
-    /// Default: false (avoid exposing filesystem reads by default).
+    /// Default: true (favor usability; disable in derived agents if you need tighter safety).
     /// </summary>
-    public bool EnableAgentSkills { get; set; }
+    public bool EnableAgentSkills { get; set; } = true;
 
     /// <summary>
     /// Auto-register dotnet-file tools (.cs + /*aevatar_tool*/ manifest) when loading a skill.
@@ -160,16 +160,32 @@ public abstract partial class AIGAgentBase
         var listTool = new ToolDefinition
         {
             Name = "skills_list",
-            Description = "List available Agent Skills (folders containing SKILL.md) from configured roots",
+            Description =
+                "List available Agent Skills (legacy). Prefer find_helpful_skills for task-driven work to avoid large outputs.",
             Category = ToolCategory.Core,
             Version = "1.0.0",
             Tags = new List<string> { "skills", "agent-skills", "filesystem", "discovery" },
-            Parameters = new ToolParameters(),
+            Parameters = new ToolParameters
+            {
+                Items = new Dictionary<string, ToolParameter>
+                {
+                    ["max_results"] = new()
+                    {
+                        Type = "integer",
+                        Required = false,
+                        Description = "Max skills to return (default: 30; range 1..200).",
+                        DefaultValue = 30
+                    }
+                }
+            },
             RequiresInternalAccess = true,
-            IsDangerous = true,
+            // NOTE:
+            // - Skill discovery is gated by EnableAgentSkills (default false).
+            // - Keep it as an internal tool, but not "dangerous" so users don't need to flip AllowDangerousTools just to list skills.
+            IsDangerous = false,
             CanBeOverridden = true,
-            ExecuteAsync = async (_, executionContext, ct) =>
-                await ExecuteSkillsListToolAsync(agentType, executionContext, ct)
+            ExecuteAsync = async (parameters, executionContext, ct) =>
+                await ExecuteSkillsListToolAsync(agentType, parameters, executionContext, ct)
         };
 
         // skills_load
@@ -182,7 +198,10 @@ public abstract partial class AIGAgentBase
             Version = "1.0.0",
             Tags = new List<string> { "skills", "agent-skills", "filesystem", "prompt", "import" },
             RequiresInternalAccess = true,
-            IsDangerous = true,
+            // NOTE:
+            // - Loading SKILL.md is gated by EnableAgentSkills (default false).
+            // - Dotnet-file tool import remains guarded by AllowDangerousTools at execution time.
+            IsDangerous = false,
             CanBeOverridden = true,
             Parameters = new ToolParameters
             {
@@ -198,7 +217,7 @@ public abstract partial class AIGAgentBase
                     {
                         Type = "boolean",
                         Description =
-                            "If true, auto-register dotnet-file tools (.cs with /*aevatar_tool*/ manifest) under this skill folder"
+                            "If true, auto-register dotnet-file tools (.cs with /*aevatar_tool*/ manifest) under this skill folder. Requires AllowDangerousTools=true."
                     },
                     ["max_chars"] = new()
                     {
@@ -214,12 +233,15 @@ public abstract partial class AIGAgentBase
 
         await ToolManager.RegisterToolAsync(listTool, cancellationToken);
         await ToolManager.RegisterToolAsync(loadTool, cancellationToken);
+        await RegisterAgentSkillsResourceToolsAsync(cancellationToken);
+        await RegisterAgentSkillsDynamicReadToolsAsync(cancellationToken);
 
         await RefreshToolCachesAsync(cancellationToken);
     }
 
     private async Task<IMessage> ExecuteSkillsListToolAsync(
         string agentType,
+        Dictionary<string, object> parameters,
         ToolExecutionContext? executionContext,
         CancellationToken cancellationToken)
     {
@@ -227,14 +249,11 @@ public abstract partial class AIGAgentBase
 
         var roots = GetEffectiveAgentSkillsRoots();
         var skills = DiscoverAgentSkills(roots, cancellationToken);
+        var maxResults = ClampInt(parameters.GetValueOrDefault("max_results"), fallback: 30, min: 1, max: 200);
 
-        var result = new
-        {
-            success = true,
-            enabled = EnableAgentSkills,
-            roots,
-            count = skills.Count,
-            skills = skills.Select(s => new
+        var returned = skills
+            .Take(maxResults)
+            .Select(s => new
             {
                 name = s.Name,
                 description = s.Description,
@@ -242,6 +261,20 @@ public abstract partial class AIGAgentBase
                 path = s.DirectoryPath,
                 hasDotNetTools = s.DotNetToolFiles.Count > 0
             })
+            .ToList();
+
+        var result = new
+        {
+            success = true,
+            enabled = EnableAgentSkills,
+            roots,
+            count = skills.Count,
+            returned = returned.Count,
+            truncated = returned.Count < skills.Count,
+            skills = returned,
+            note = returned.Count < skills.Count
+                ? "Output truncated. Prefer find_helpful_skills for task-driven work, or use list_skills for full inventory (debug)."
+                : null
         };
 
         return JsonParser.Default.Parse<Struct>(JsonSerializer.Serialize(result));
@@ -298,7 +331,9 @@ public abstract partial class AIGAgentBase
             {
                 success = false,
                 error = $"Skill '{name}' not found.",
-                available = skills.Select(s => s.Name).ToArray()
+                availableCount = skills.Count,
+                available = skills.Select(s => s.Name).Take(50).ToArray(),
+                hint = "Use find_helpful_skills to search, or list_skills for full inventory (debug)."
             };
             return JsonParser.Default.Parse<Struct>(JsonSerializer.Serialize(notFound));
         }
@@ -308,6 +343,26 @@ public abstract partial class AIGAgentBase
 
         var registered = new List<string>();
         var skipped = new List<object>();
+
+        if (registerTools && match.DotNetToolFiles.Count > 0)
+        {
+            // Dotnet-file tool import == local code execution. Guard it explicitly.
+            // We keep skills_load non-dangerous for usability, but importing executable tools still requires opt-in.
+            if (executionContext.AllowDangerousTools == false)
+            {
+                foreach (var toolFile in match.DotNetToolFiles)
+                {
+                    skipped.Add(new
+                    {
+                        file = toolFile,
+                        error =
+                            "Dotnet-file tool import is disabled by policy (AllowDangerousTools=false). Set AllowDangerousTools=true to enable register_tools."
+                    });
+                }
+
+                registerTools = false;
+            }
+        }
 
         if (registerTools && match.DotNetToolFiles.Count > 0)
         {

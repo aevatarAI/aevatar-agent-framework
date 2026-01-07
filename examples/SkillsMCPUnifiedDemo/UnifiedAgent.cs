@@ -27,7 +27,7 @@ public sealed class UnifiedAgent : AIGAgentBase
 
         SystemPrompt =
             "You are a helpful AI assistant.\n" +
-            "If a relevant Agent Skill exists, you MUST call skills_list then skills_load before acting.\n" +
+            "If a relevant Agent Skill exists, you MUST call find_helpful_skills first, then skills_load before acting.\n" +
             "For runtime/system information, prefer dotnet-file tools.\n" +
             "For external context, prefer MCP tools when available.";
     }
@@ -43,14 +43,18 @@ public sealed class UnifiedAgent : AIGAgentBase
         await RegisterToolAsync(new JsonPrettifyTool(), cancellationToken: cancellationToken);
         await RegisterToolAsync(new SlugifyTool(), cancellationToken: cancellationToken);
 
-        // dotnet-file tools (skills/*.cs)
+        // file-based tools (skills/*.cs + skills/*.py)
+        // - Only files that contain the aevatar_tool manifest marker will be registered.
+        // - This keeps the demo clean: drop a tool file into /skills and it becomes available automatically.
         var skillsDir = Path.Combine(AppContext.BaseDirectory, "skills");
-        await RegisterDotNetFileSkillAsync(Path.Combine(skillsDir, "get_time.cs"), cancellationToken);
-        await RegisterDotNetFileSkillAsync(Path.Combine(skillsDir, "system_info.cs"), cancellationToken);
-        await RegisterDotNetFileSkillAsync(Path.Combine(skillsDir, "get_env.cs"), cancellationToken);
-        await RegisterDotNetFileSkillAsync(Path.Combine(skillsDir, "file_read.cs"), cancellationToken);
-        await RegisterDotNetFileSkillAsync(Path.Combine(skillsDir, "file_search.cs"), cancellationToken);
-        await RegisterDotNetFileSkillAsync(Path.Combine(skillsDir, "bazi_chart.cs"), cancellationToken);
+        await RegisterFileSkillsFromDirectoryAsync(
+            skillsDir,
+            includeDotNet: true,
+            includePython: true,
+            searchOption: SearchOption.TopDirectoryOnly,
+            maxFilesPerType: 64,
+            requireManifestMarker: true,
+            cancellationToken: cancellationToken);
 
         // MCP servers (best-effort)
         await RegisterMcpServersBestEffortAsync(cancellationToken);

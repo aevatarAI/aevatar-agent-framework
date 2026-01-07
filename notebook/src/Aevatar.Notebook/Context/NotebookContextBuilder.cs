@@ -422,7 +422,7 @@ internal sealed class NotebookContextBuilder
                 return _embeddingGenerator;
 
             var cfg = _llmProviderFactory.GetDefaultProviderConfig();
-            if (cfg is not { Embeddings.Enabled: true })
+            if (cfg.Embeddings == null)
                 return null;
 
             _embeddingOptions = BuildEmbeddingOptions(cfg);

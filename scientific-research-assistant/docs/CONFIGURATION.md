@@ -11,18 +11,59 @@
 - 把真实密钥放在 `appsettings.secrets.json`（本地文件、不要提交）
 - 仓库内提供 `appsettings.secrets.json.example` 作为模板
 
-### 2) MCP（Claude Scientific Skills）
+### 2) MCP（Model Context Protocol / 外部工具）
 
-`src/ScientificResearchAssistant.Api/appsettings.json` 的 `MCP` 控制 skills MCP 连接方式：
+科研助手使用框架内置的 MCP 集成（`AIGAgentBase` 在初始化 tools 时 **best-effort 自动连接**），配置风格参考 Cursor：`mcpServers`。
 
-- **Http（默认）**：连接 K-Dense 提供的 hosted MCP server
-- **Docker**：本地启动 `ghcr.io/k-dense-ai/claude-scientific-skills:latest`（更隐私）
+位置：
+- 推荐：`src/ScientificResearchAssistant.Api/appsettings.json` 的 `MCP:mcpServers`
+- 也支持：直接提供 Cursor 原生 `mcp.json`（root 级 `mcpServers`）
+  - 本项目已在 `Program.cs` 中 `AddJsonFile("mcp.json", optional: true)`，放在 `src/ScientificResearchAssistant.Api/mcp.json` 即可（不提交，参考 `mcp.json.example`）
 
-字段：
-- `MCP:Type`: `"Http"` | `"Docker"`
-- `MCP:HttpUrl`: hosted MCP URL
-- `MCP:DockerImage`: docker image
-- `MCP:RequestTimeoutMs`: 单次调用超时（毫秒）
+关键字段：
+- `MCP:autoConnect`: 是否自动连接（默认 `true`）
+- `MCP:namespaceTools`: 是否对 MCP 工具名做命名空间前缀（默认 `true`，避免多 server 重名；格式 `mcp__{serverKey}__{toolName}`）
+- `MCP:retryMinIntervalSeconds`: 会话触发的 MCP 重连最小间隔（默认 30 秒；设为 0 表示不节流，更激进）
+- `MCP:mcpServers:<serverKey>`: 每个 MCP server 的配置
+
+合并与优先级（更激进、尽可能用已配置能力）：
+- 同时支持三种来源并做 merge：
+  - legacy：`MCP:Type/HttpUrl/DockerImage/RequestTimeoutMs`（最低优先级）
+  - `MCP:mcpServers`（中）
+  - `mcp.json` 的 root `mcpServers`（最高；同名 server 以这里为准）
+
+示例（K-Dense Claude Scientific Skills / Hosted + Docker 二选一）见 `appsettings.json` 里的默认配置。
+
+### 2.5) Git Skill Packs（本地 repo 自动同步，可选，支持多个 repo）
+
+如果你希望 **LLM 能直接读取/执行 skill 目录内的 `scripts/`**（闭环跑起来），推荐把 skills repo 下载到本地并自动更新：
+
+- 上游示例 repo（K-Dense）：[K-Dense-AI/claude-scientific-skills](https://github.com/K-Dense-AI/claude-scientific-skills/tree/main)
+- 启动时后端 best-effort `git clone/pull`（失败不阻塞服务启动）
+- 同步成功后，会把每个 pack 的 `SkillsSubDir` 目录加入 `AEVATAR_AGENT_SKILLS_DIRS`，供 `find_helpful_skills/skills_load` 发现
+- 下载目录默认在本项目根目录的 `.skillpacks/`（已加入 `.gitignore`：谁用谁下载，不进仓库）
+
+可选：语义检索（embeddings）
+- 如果配置了 `LLMProviders:Embeddings`（全局默认）或 `LLMProviders:Providers:<name>:Embeddings`（provider 覆盖），sync 时会 best-effort 构建 embeddings 索引到 `.skillpacks/.index/`
+- `find_helpful_skills` 会优先使用该索引做语义排序（索引缺失时会 query 时惰性构建）
+
+#### 配置方式 A（推荐）：`skillpacks.json`（可多 repo）
+
+位置：`src/ScientificResearchAssistant.Api/skillpacks.json`（不提交，参考 `skillpacks.json.example`）
+
+核心字段（每个 pack 至少需要）：
+- `RepoUrl`：git repo URL
+- `SkillsSubDir`：repo 内 skills 根目录（例如 K-Dense 是 `scientific-skills`）
+
+可选（更激进的“失败自动重试”节流）：
+- `SkillPacks:RetryMinIntervalSeconds`：会话触发的后台重试最小间隔（默认 60 秒；太小会频繁 git pull）
+
+#### 手动同步命令（只执行 sync，然后退出）
+
+```bash
+cd scientific-research-assistant/src/ScientificResearchAssistant.Api
+dotnet run -- --sync-skills
+```
 
 ### 3) Materials（vibe researching grounding）
 
@@ -37,10 +78,12 @@
 - `sources/`：来源资料（可引用，不要求写进去就为真）
 - `facts/`：已验证结论（希望可当作事实依赖）
 
-可选写回（把验证通过的结论沉淀为新的 sources）：
+可选写回（写入文件真相层；默认安全关闭）：
 
 - `Materials:AllowWrite`：默认 `false`
-- 写回目标：默认写入 `facts/`
+- 当前写入用途：
+  - `POST /api/sessions/{id}/facts`：创建 `facts_proposed/` 下的候选事实
+  - promote 时写入 `facts/`
 
 ### 4) Python 验证（可选，默认关闭）
 

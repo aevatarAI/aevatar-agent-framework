@@ -38,6 +38,12 @@ public class MCPToolAdapter
             Version = "1.0",
             IsEnabled = true,
             CanBeOverridden = false,
+            // ------------------------------------------------------------
+            // Safety:
+            // - MCP tools are external-by-definition and may cause side effects.
+            // - Mark as dangerous so callers can gate them via AllowDangerousTools.
+            // ------------------------------------------------------------
+            IsDangerous = true,
             Parameters = ConvertSchemaToParameters(mcpTool.InputSchema),
             ExecuteAsync = CreateExecutionDelegate(mcpTool.Name),
             Metadata = new Dictionary<string, object>

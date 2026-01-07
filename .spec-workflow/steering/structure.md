@@ -2,123 +2,119 @@
 
 ## Directory Organization
 
-本 steering 给出一个**面向 multi-agent 协作**的文件目录约定：把“研究输入/结论沉淀/agent 通信/运行产物”拆开，做到可审计、可复现、可并发。
-
-### Canonical tree（以 scientific-research-assistant 为例）
+本仓库是一个 **monorepo**：既包含框架核心库，也包含运行时实现、插件、业务 Agent、示例项目与多个完整子系统/应用。
 
 ```
-scientific-research-assistant/
-├── facts/                           # 已验证结论（希望可当作事实依赖）
-│   ├── README.md
-│   └── ...                          # 按主题/项目/日期组织均可
-├── sources/                         # （可选）可引用来源/证据库
-│   ├── README.md
-│   └── ...                          # 任意子目录自由组织
-├── workspace/                       # Agent 协作工作区（session-scoped，可清理）
-│   └── sessions/
-│       └── {sessionId}/
-│           ├── paper/               # 论文稿件（Markdown）
-│           │   ├── outline.md
-│           │   ├── draft.md
-│           │   └── citations.json
-│           ├── facts_proposed/      # 候选事实（待共识/验证）
-│           ├── decisions/           # 投票/审核/最终决策（promote 依据）
-│           ├── mailbox/             # agent 间“文件邮箱”通信
-│           │   ├── {agentName}/
-│           │   │   ├── in/          # 接收队列（原子写入）
-│           │   │   ├── processing/  # 处理中（move 锁定）
-│           │   │   ├── out/         # 发送队列（等待投递/归档）
-│           │   │   └── archive/     # 已处理归档（幂等/追溯）
-│           │   └── _dead/           # 失败消息（人工排查）
-│           ├── artifacts/           # 运行产物（代码/图/表/中间数据）
-│           ├── runs/                # 每次 run 的结构化记录（参数/摘要/引用集合）
-│           └── tmp/                 # 临时文件（可随时删）
-├── src/                             # 后端/agent 代码
-├── frontend/                        # 前端 UI
-└── docs/                            # 文档
+project-root/
+├── src/                             # 框架核心库（可发布为 NuGet 包）
+│   ├── Aevatar.Agents.Abstractions/ # 公共接口 + 事件契约（含 Protobuf 定义）
+│   ├── Aevatar.Agents.Core/         # 基础实现（GAgentBase、路由、层级、EventSourcing 等）
+│   ├── Aevatar.Agents.Runtime.*     # 三运行时：Local / ProtoActor / Orleans
+│   ├── Aevatar.Agents.AI.*          # AI 抽象与 Provider（MEAI / LLMTornado / Tool/MCP 等）
+│   └── ...                          # Maker/Cognitive/Persistence 等能力模块
+│
+├── plugins/                         # 可插拔生态插件（如 MassTransit、CQRS 等）
+│
+├── agents/                          # 业务 Agent 实现（领域侧，可迁移至任意运行时）
+│
+├── examples/                        # 示例项目（Quickstart、集成演示、AppHost 示例等）
+│
+├── apps/                            # Aspire AppHost（本地编排与演示入口）
+│   └── *AppHost/
+│
+├── cognitive-mesh/                  # Cognitive Mesh 系统（独立子系统，含 docs/）
+├── scientific-research-assistant/   # 科研助手系统（独立子系统，含 docs/、frontend/）
+├── notebook/                        # Notebook 系统（独立子系统）
+├── novel/                           # Novel 系统（独立子系统，含 frontend/、protos/）
+├── trade/                           # Trade 系统（独立子系统，含 frontend/、docs/）
+│
+├── docs/                            # 框架级文档（指南/架构/规范/可观测性等）
+├── .spec-workflow/                  # Spec Workflow：specs/、steering/、templates/、approvals/
+├── Directory.Packages.props         # Central Package Management（统一依赖版本源）
+├── *.slnx                           # 多解决方案入口（框架/各系统）
+└── README*.md                       # 仓库入口文档
 ```
-
-### 目录语义（核心约束）
-
-- `facts/`：已通过共识/验证的事实（可依赖），建议附带验证方法与证据链接
-- `workspace/sessions/{sessionId}/facts_proposed/`：候选事实（不可当作前提依赖）
-- `workspace/sessions/{sessionId}/paper/`：稿件（Markdown），仅允许单写者合并
-- `workspace/sessions/{sessionId}/mailbox/`：**agent 通信专用**；所有跨 agent 指令/投票/结果都必须走文件
-- `sources/`（可选）：证据库/引用摘录；如果删除该目录，要求把证据摘录以附件形式放进 `artifacts/` 并被事实引用
 
 ## Naming Conventions
 
 ### Files
-
-- **Folders**: `kebab-case`（例如 `protein-folding/`）
-- **Agent names**: `snake_case` 或 `kebab-case`（例如 `python_verifier`）
-- **Mailbox message files**:
-  - `{utcTimestamp}_{messageId}_{from}->{to}.{ext}`
-  - 示例：`20260105T120102Z_9f3a_planner->reasoner.json`
+- **Protobuf**: `snake_case.proto`
+- **C# Projects/Namespaces**: `Aevatar.Agents.<Capability>` / `Aevatar.Agents.Runtime.<Runtime>` / `Aevatar.Agents.AI.<Module>`
+- **Tests**: `test/Aevatar.Agents.<Module>.Tests/`（与被测模块同名对齐）
+- **Docs**: 框架级文档放 `docs/`；子系统文档放各自目录下的 `docs/` 与 `README.md`
+- **Spec Workflow**:
+  - `.spec-workflow/specs/<spec-name>/{requirements,design,tasks}.md`
+  - `.spec-workflow/steering/{product,tech,structure}.md`
 
 ### Code
-
-- C#：类 `PascalCase`，方法 `PascalCase`，局部变量 `camelCase`
+- **Agent 类**: `XxxAgent` 或 `XxxGAgent`（必须无参构造），描述方法 `GetDescriptionAsync()` 必须实现
+- **State/Event/Config 类型**: 必须由 `.proto` 生成（命名通常为 `XxxState` / `XxxEvent` / `XxxConfig`）
+- **事件命名**: 语义优先（通常使用过去式），避免 Command 风格
+- **Event Handler**: `async Task`，使用 `[EventHandler]` / `[AllEventHandler]` 或约定名 `HandleAsync`
 
 ## Import Patterns
 
-按现有仓库惯例（无额外约束）。
+### Import Order
+（C# 约定）
+1. `System.*`
+2. 第三方依赖（Orleans/Proto.Actor/Protobuf/OTel 等）
+3. 内部依赖（`Aevatar.*`）
+
+### Module/Package Organization
+- 依赖版本统一写入 `Directory.Packages.props`，避免在各 `*.csproj` 内散落版本号
+- Protobuf 文件通过构建流程生成代码（不要手写可序列化跨边界类型）
 
 ## Code Structure Patterns
 
-### File Organization Principles
+### Module/Class Organization
+常见文件组织：
+1. `using` / `namespace`
+2. 公共类型（对外 API）
+3. 内部实现与私有 helper
 
-- 边界层（HTTP/AG-UI/Filesystem projection）与推理层严格分离
-- 任何“写文件”的逻辑必须 best-effort + 有界 + 原子写
+### Function/Method Organization
+- **输入校验靠前**，核心逻辑居中，错误处理与日志贯穿
+- **Event Handler 不阻塞**：只用 `async/await`，禁止 `Thread.Sleep()`
+- **State 修改位置受限**：只在 `OnActivateAsync` 或事件处理器中修改 `State`（不要在构造函数赋值/替换 State）
+
+### File Organization Principles
+- 尽量 **一个公共类型一个文件**（尤其在 `src/` 核心库）
+- 运行时相关代码放 `Runtime.*`；业务 Agent 与领域契约尽量保持运行时无关
+
+## Code Organization Principles
+
+1. **Single Responsibility**：每个项目/文件明确职责边界（Core/Runtime/Plugins/Agents）
+2. **Modularity**：能力通过模块与插件组合，而非在 Core 内引入特例
+3. **Testability**：关键路径（事件处理、层级关系、传播方向、跨运行时兼容）必须可测
+4. **Consistency**：跨边界类型一律 Protobuf；依赖版本一律集中管理
 
 ## Module Boundaries
 
-- **facts**：共享黑板（已验证事实）
-- **facts_proposed + decisions**：验证闭环（从推论到事实的“闸门”）
-- **mailbox**：点对点/多对多通信（流程控制）
-- **artifacts/runs**：可复现产物（审计与复盘）
+- **`Aevatar.Agents.Abstractions`**：公共接口与契约（含 Protobuf），是稳定边界
+- **`Aevatar.Agents.Core`**：业务侧可复用的核心实现（不依赖具体运行时）
+- **`Aevatar.Agents.Runtime.*`**：运行时适配层（依赖 Core/Abstractions；运行时差异收敛在这里）
+- **`Aevatar.Agents.AI.*`**：AI 能力与 Provider（尽量保持运行时无关；与 Core 集成）
+- **`plugins/`**：外部系统集成（可选依赖，不应反向侵入 Core）
+- **`agents/`**：业务 Agent（领域逻辑；事件/状态契约用 `.proto`）
+- **`examples/`**：示例演示（允许依赖运行时/宿主；不作为框架稳定 API）
+- **子系统目录（`cognitive-mesh/` 等）**：独立应用，按各自 README/docs 管理
 
 ## Code Size Guidelines
 
-沿用仓库铁律：
-- 单文件 ≤ 800 行
-- 单目录 ≤ 8 个文件（超过就分层）
+- **File size**: 单文件不超过 800 行（超过应拆分）
+- **Function/Method size**: 函数尽量 ≤ 20 行；超过需反思抽象/职责
+- **Nesting depth**: 缩进不超过 3 层；3 个以上 if/else 分支应重构设计而非继续加分支
+
+## Dashboard/Monitoring Structure (if applicable)
+
+- 框架级可观测性以 **OpenTelemetry + Aspire AppHost** 为主；具体系统的 UI/监控放在各自子系统目录下（如 `*/frontend/`、`*/docs/`）。
+- **Port Policy**：仓库内**禁止使用 `:5000`** 作为示例/默认端口；`5678` 仅作为推荐示例端口（如 sidecar），如有冲突可使用任意未占用端口。
 
 ## Documentation Standards
 
-- 每个系统的根目录必须有 README，说明 facts/sources/workspace 的约定
-- 任何目录级调整必须同步更新 `docs/` 与 steering 的结构树
-
-## File-based Agent Communication Protocol（关键约束）
-
-### Message Schema（必须 Protobuf 定义）
-
-即使消息落盘为 `.json/.md`，其 schema 也必须由 `.proto` 定义（跨 agent 边界）。
-
-建议定义：
-- `AgentMailboxMessage`：from/to/sessionId/type/payload/traceId
-- `FactRecord`：title/content/citations/verification/artifacts
- - `FactDecision`：factId/threshold/votes/verifications/finalDecision
-
-### Atomic Write（必须）
-
-- 写入流程：写到 `tmp/` → `fsync`（可选）→ `rename` 到 `in/`
-- 消费流程：`in/` → move 到 `processing/`（锁定）→ 处理 → `archive/`（避免重复消费）
-
-### Idempotency（必须）
-
-- messageId 必须全局唯一（或 session 范围唯一）
-- 消费端必须能识别已处理（基于 messageId + archive）
-
-### Paper / Facts 的并发写（必须）
-
-- **Single writer**：
-  - 只有 `paper_editor`（或同等角色）可以写 `paper/*` 与 promote 到 `facts/`
-  - 其他 agent 只能提交 `patch_proposal` / `fact_proposal`
-- **事实闭环**：
-  - `facts_proposed/{factId}.md|json`（候选）
-  - reviewers 写 vote：`decisions/votes/{factId}/{agent}.json`
-  - verifier 写验证：`decisions/verifications/{factId}/{agent}.json`（含 artifacts 路径）
-  - promoter 写最终决策：`decisions/final/{factId}.json` 并执行 promote
+- `docs/` 存放框架级权威文档；子系统目录内 `README.md` / `docs/` 作为该子系统入口
+- **架构级变更必须同步更新文档**（目录结构、模块职责、对外 API、运行时约束）
+- Protobuf schema 变更需遵循兼容性规则（可加字段，不改号，不复用字段号）
+- Spec Workflow 文档是需求/设计/任务的“可追溯记录”，steering 文档是跨 spec 的“共识锚点”
 
 

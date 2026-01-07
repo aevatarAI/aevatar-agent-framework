@@ -13,8 +13,21 @@ public sealed class ResearchWorkspaceState
     public string Kind { get; init; } = "sra.workspace";
     public required string SessionId { get; init; }
 
+    // File-SSoT snapshot (facts / facts_proposed / sources counts).
+    public KnowledgeState Knowledge { get; set; } = new();
+
     public MaterialsState Materials { get; set; } = new();
     public VibeState Vibe { get; set; } = new();
+}
+
+public sealed class KnowledgeState
+{
+    public int FactsCount { get; set; }
+    public int FactsProposedCount { get; set; }
+    public int SourcesCount { get; set; }
+
+    // Relative paths under workspace/sessions/{sessionId}/ (bounded).
+    public List<string> FactsProposedRecent { get; set; } = new();
 }
 
 public sealed class MaterialsState

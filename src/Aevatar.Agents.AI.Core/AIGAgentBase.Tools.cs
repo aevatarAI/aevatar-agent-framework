@@ -16,17 +16,19 @@ using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
+using Aevatar.Agents.AI.Core.Messages;
+
 namespace Aevatar.Agents.AI.Core;
 
 // ReSharper disable InconsistentNaming
 public abstract partial class AIGAgentBase
 {
     /// <summary>
-    /// Safety switch (default: false):
+    /// Safety switch (default: true):
     /// - When false, tools marked <c>RequiresConfirmation</c> or <c>IsDangerous</c> will not be exposed/executed.
-    /// - Explicitly enable in derived agents when you want side-effect tools (HTTP, publish_event, skills_load, etc).
+    /// - Disable in derived agents if you want to prevent side-effect tools (HTTP, publish_event, dotnet-file/python-file tools, etc).
     /// </summary>
-    public bool AllowDangerousTools { get; set; }
+    public bool AllowDangerousTools { get; set; } = true;
 
     /// <summary>
     /// Safety switch (default: true):
@@ -137,8 +139,11 @@ public abstract partial class AIGAgentBase
                 MemoryVectorIndex),
             cancellationToken: cancellationToken);
 
-        // Agent Skills (agentskills.io) - disabled by default via EnableAgentSkills
+        // Agent Skills (agentskills.io) - gated by EnableAgentSkills (enabled by default in this repo)
         await RegisterAgentSkillsToolsAsync(cancellationToken);
+
+        // MCP servers (Cursor-style config: MCP:mcpServers) - best-effort
+        await RegisterMcpServersFromConfigurationBestEffortAsync(isRetry: false, cancellationToken);
     }
 
     /// <summary>
@@ -154,6 +159,137 @@ public abstract partial class AIGAgentBase
             cancellationToken: cancellationToken);
 
         await RegisterToolAsync(tool, Logger, cancellationToken);
+    }
+
+    /// <summary>
+    /// Import a single-file Python "skill" as a tool via <c>python3 -I -u</c>.
+    /// </summary>
+    public async Task RegisterPythonFileSkillAsync(
+        string filePath,
+        CancellationToken cancellationToken = default)
+    {
+        var tool = await PythonFileSkillTool.LoadFromFileAsync(
+            filePath,
+            logger: Logger,
+            cancellationToken: cancellationToken);
+
+        await RegisterToolAsync(tool, Logger, cancellationToken);
+    }
+
+    /// <summary>
+    /// Auto-register file-based tools from a directory.
+    /// <para/>
+    /// By default this registers:
+    /// - dotnet-file tools: <c>*.cs</c> that contain <c>/*aevatar_tool</c> within the first 16KB
+    /// - python-file tools: <c>*.py</c> that contain <c>"""aevatar_tool</c> or <c>'''aevatar_tool</c> within the first 16KB
+    /// <para/>
+    /// This is intended for demo/dev convenience (so agents don't have to list each tool file manually).
+    /// </summary>
+    public async Task RegisterFileSkillsFromDirectoryAsync(
+        string directoryPath,
+        bool includeDotNet = true,
+        bool includePython = true,
+        SearchOption searchOption = SearchOption.TopDirectoryOnly,
+        int maxFilesPerType = 64,
+        bool requireManifestMarker = true,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(directoryPath))
+            return;
+
+        string fullDir;
+        try
+        {
+            fullDir = Path.GetFullPath(directoryPath.Trim());
+        }
+        catch
+        {
+            return;
+        }
+
+        if (!Directory.Exists(fullDir))
+            return;
+
+        EnsureToolManagerInitialized();
+
+        // Build once and reuse (avoid per-file cache refresh cost).
+        var toolContext = BuildToolRegistrationContext();
+        var registeredAny = false;
+
+        if (includeDotNet)
+        {
+            IEnumerable<string> files = Array.Empty<string>();
+            try
+            {
+                files = Directory.EnumerateFiles(fullDir, "*.cs", searchOption);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogDebug(ex, "Failed to enumerate dotnet-file skills under '{Dir}' (best-effort).", fullDir);
+            }
+
+            foreach (var file in files
+                         .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+                         .Take(Math.Clamp(maxFilesPerType, 0, 512)))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (requireManifestMarker && !LooksLikeAevatarDotNetToolFile(file))
+                    continue;
+
+                try
+                {
+                    var tool = await DotNetFileSkillTool.LoadFromFileAsync(file, Logger, cancellationToken);
+                    var def = tool.CreateToolDefinition(toolContext, Logger);
+                    await ToolManager.RegisterToolAsync(def, cancellationToken);
+                    registeredAny = true;
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogWarning(ex, "Failed to register dotnet-file skill '{File}' (best-effort).", file);
+                }
+            }
+        }
+
+        if (includePython)
+        {
+            IEnumerable<string> files = Array.Empty<string>();
+            try
+            {
+                files = Directory.EnumerateFiles(fullDir, "*.py", searchOption);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogDebug(ex, "Failed to enumerate python-file skills under '{Dir}' (best-effort).", fullDir);
+            }
+
+            foreach (var file in files
+                         .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+                         .Take(Math.Clamp(maxFilesPerType, 0, 512)))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (requireManifestMarker && !LooksLikeAevatarPythonToolFile(file))
+                    continue;
+
+                try
+                {
+                    var tool = await PythonFileSkillTool.LoadFromFileAsync(file, Logger, cancellationToken);
+                    var def = tool.CreateToolDefinition(toolContext, Logger);
+                    await ToolManager.RegisterToolAsync(def, cancellationToken);
+                    registeredAny = true;
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogWarning(ex, "Failed to register python-file skill '{File}' (best-effort).", file);
+                }
+            }
+        }
+
+        if (registeredAny)
+        {
+            await RefreshToolCachesAsync(cancellationToken);
+        }
     }
 
     /// <summary>
@@ -190,6 +326,28 @@ public abstract partial class AIGAgentBase
             GetSessionIdCallback = () => Id.ToString(),
             Logger = Logger
         };
+    }
+
+    private static bool LooksLikeAevatarPythonToolFile(string filePath)
+    {
+        try
+        {
+            using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            var max = (int)Math.Min(16 * 1024, fs.Length);
+            if (max <= 0) return false;
+
+            var buf = new byte[max];
+            var read = fs.Read(buf, 0, max);
+            if (read <= 0) return false;
+
+            var head = Encoding.UTF8.GetString(buf, 0, read);
+            return head.Contains("\"\"\"aevatar_tool", StringComparison.OrdinalIgnoreCase) ||
+                   head.Contains("'''aevatar_tool", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private ToolExecutionContext BuildToolExecutionContext(string sessionId, CancellationToken cancellationToken)
@@ -246,14 +404,66 @@ public abstract partial class AIGAgentBase
     /// <summary>
     /// Execute a tool by name with parameters.
     /// </summary>
-    protected Task<ToolExecutionResult> ExecuteToolAsync(
+    protected async Task<ToolExecutionResult> ExecuteToolAsync(
         string toolName,
         Dictionary<string, object> parameters,
         ToolExecutionContext? context = null,
         CancellationToken cancellationToken = default)
     {
         EnsureToolManagerInitialized();
-        return ToolManager.ExecuteToolAsync(toolName, parameters, context, cancellationToken);
+
+        var msgId = Guid.NewGuid().ToString("N");
+        var tcId = Guid.NewGuid().ToString("N");
+
+        // Publish START (Protobuf)
+        await PublishAsync(new ToolCallStartEvent
+        {
+            MessageId = msgId,
+            ToolCallId = tcId,
+            ToolName = toolName,
+            ArgumentsJson = JsonSerializer.Serialize(parameters),
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+        }, EventDirection.Down, cancellationToken);
+
+        ToolExecutionResult result;
+        try
+        {
+            result = await ToolManager.ExecuteToolAsync(toolName, parameters, context, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // Publish ERROR result
+            await PublishAsync(new ToolCallResultEvent
+            {
+                MessageId = msgId,
+                ToolCallId = tcId,
+                Result = "",
+                IsSuccess = false,
+                ErrorMessage = ex.Message,
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+            }, EventDirection.Down, cancellationToken);
+            throw;
+        }
+
+        // Publish SUCCESS result
+        await PublishAsync(new ToolCallResultEvent
+        {
+            MessageId = msgId,
+            ToolCallId = tcId,
+            Result = result.Content ?? "",
+            IsSuccess = result.IsSuccess,
+            ErrorMessage = result.ErrorMessage ?? "",
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+        }, EventDirection.Down, cancellationToken);
+
+        await PublishAsync(new ToolCallEndEvent
+        {
+            MessageId = msgId,
+            ToolCallId = tcId,
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+        }, EventDirection.Down, cancellationToken);
+
+        return result;
     }
 
     private string BuildToolInstructionBlock()

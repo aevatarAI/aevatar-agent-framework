@@ -51,3 +51,37 @@ message AITrainingFeedbackEvent {
     bool is_correct = 5;                        // Whether response was correct
     google.protobuf.Timestamp timestamp = 6;    // When feedback was provided
 }
+
+// ============================================================
+// Tool Execution Events
+// ============================================================
+
+message ToolCallStartEvent {
+    string message_id = 1;
+    string tool_call_id = 2;
+    string tool_name = 3;
+    string arguments_json = 4; // Optional full args if available at start
+    google.protobuf.Timestamp timestamp = 5;
+}
+
+message ToolCallArgsEvent {
+    string message_id = 1;
+    string tool_call_id = 2;
+    string args_delta = 3;
+    google.protobuf.Timestamp timestamp = 4;
+}
+
+message ToolCallEndEvent {
+    string message_id = 1;
+    string tool_call_id = 2;
+    google.protobuf.Timestamp timestamp = 3;
+}
+
+message ToolCallResultEvent {
+    string message_id = 1;
+    string tool_call_id = 2;
+    string result = 3;
+    bool is_success = 4;
+    string error_message = 5;
+    google.protobuf.Timestamp timestamp = 6;
+}

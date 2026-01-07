@@ -24,7 +24,31 @@ public class AgUiEventsTests
         new StateDeltaEvent { Delta = new object[] { new { op = "add" } } }.Type.ShouldBe("STATE_DELTA");
         new MessagesSnapshotEvent { Messages = new List<AgUiMessage>() }.Type.ShouldBe("MESSAGES_SNAPSHOT");
         new CustomEvent { Name = "n" }.Type.ShouldBe("CUSTOM");
+        
+        // Tool events
+        new ToolCallStartEvent { MessageId = "m", ToolCallId = "c", ToolName = "t" }.Type.ShouldBe("TOOL_CALL_START");
+        new ToolCallArgsEvent { MessageId = "m", ToolCallId = "c", ArgsDelta = "a" }.Type.ShouldBe("TOOL_CALL_ARGS");
+        new ToolCallEndEvent { MessageId = "m", ToolCallId = "c" }.Type.ShouldBe("TOOL_CALL_END");
+        new ToolCallResultEvent { MessageId = "m", ToolCallId = "c", Result = "r" }.Type.ShouldBe("TOOL_CALL_RESULT");
     }
+
+    [Fact]
+    public void ToolCallEvents_ShouldSerialize_Correctly()
+    {
+        var evt = new ToolCallStartEvent
+        {
+            Timestamp = 123456789,
+            MessageId = "msg-123",
+            ToolCallId = "call-abc",
+            ToolName = "get_weather"
+        };
+        
+        var json = JsonSerializer.Serialize(evt);
+        json.ShouldContain("TOOL_CALL_START");
+        json.ShouldContain("get_weather");
+        json.ShouldContain("msg-123");
+    }
+
 
     [Fact]
     public void MessagesSnapshotEvent_ShouldSerialize_ToJson()

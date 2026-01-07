@@ -105,7 +105,7 @@
 
 - `/api/info` 中 providers 显示 `mongodb`
 - Sources/Chat/Report 行为同 1.x
-- 如果 embeddings 未开启（默认 `appsettings.secrets.json` 里 `Embeddings.Enabled=false`）：
+- 如果 embeddings 未配置或不可用（例如未配置 `LLMProviders:Embeddings` / provider embeddings，或 embedding 服务不可达）：
   - `retrieve_chunks` / 语义检索会自动退化为 lexical（正常）
 
 ---

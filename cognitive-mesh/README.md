@@ -36,7 +36,7 @@ cognitive-mesh/
 # 运行通用平台
 cd Aevatar.CognitiveMesh
 dotnet run
-# → http://localhost:5000
+# → http://localhost:5678
 
 # 运行论文评审
 cd Aevatar.PaperReview

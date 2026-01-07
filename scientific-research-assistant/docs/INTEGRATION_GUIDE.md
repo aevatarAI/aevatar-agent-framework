@@ -1,68 +1,62 @@
-# Integration Guide: Claude Scientific Skills
+# Integration Guide: Claude Scientific Skills (MCP)
 
-This guide explains how to integrate and customize the `claude-scientific-skills` repository with your Research Assistant.
+This guide explains how to connect the `claude-scientific-skills` toolset via **Model Context Protocol (MCP)**.
 
-**Repository**: [https://github.com/K-Dense-AI/claude-scientific-skills](https://github.com/K-Dense-AI/claude-scientific-skills)
+**Repository**: `https://github.com/K-Dense-AI/claude-scientific-skills`
 
-## 1. Overview
-The Aevatar Framework connects to these skills using the **Model Context Protocol (MCP)**. This means the Python code in the repository runs in a separate process (or server), and the Agent communicates with it via a standardized protocol. You do **not** need to manually copy Python files into C#.
+## 1) Overview
 
-## 2. Integration Methods
+In Aevatar, MCP servers are configured **at the host/framework boundary** (Cursor-style `mcpServers`) and are **auto-connected best-effort** by `AIGAgentBase` during tool initialization.
 
-### Option A: Hosted Server (Zero Setup)
-By default, the agent is configured to use the hosted MCP server provided by K-Dense AI.
-- **Config**: `Type: "Http"`
-- **URL**: `https://mcp.k-dense.ai/claude-scientific-skills/mcp`
-- **Pros**: Instant start, no installation.
-- **Cons**: Data leaves your network.
+## 2) Configuration (Cursor-style `mcpServers`)
 
-### Option B: Local Docker (Recommended for Privacy)
-Run the exact environment from the repo locally using Docker.
-1.  **Requirement**: Docker Desktop installed.
-2.  **Config**: Update `appsettings.json`:
-    ```json
-    "MCP": {
-      "Type": "Docker",
-      "DockerImage": "ghcr.io/k-dense-ai/claude-scientific-skills:latest"
+Location (recommended):
+- `scientific-research-assistant/src/ScientificResearchAssistant.Api/appsettings.json` → `MCP:mcpServers`
+
+Key ideas:
+- Each MCP server lives under a stable key (server alias).
+- Tools are namespaced by default to avoid collisions: `mcp__{serverKey}__{toolName}`.
+- If MCP is misconfigured or unreachable, the app still starts; MCP is best-effort.
+
+### Option A: Hosted server (zero setup)
+
+```json
+{
+  "MCP": {
+    "autoConnect": true,
+    "namespaceTools": true,
+    "mcpServers": {
+      "scientific-skills": {
+        "name": "Scientific Skills (Hosted)",
+        "url": "https://mcp.k-dense.ai/claude-scientific-skills/mcp",
+        "timeoutMs": 300000
+      }
     }
-    ```
-3.  **How it works**: The Agent will automatically spin up the Docker container when it starts and communicate via Stdio/Http.
+  }
+}
+```
 
-### Option C: Custom Python Integration (Advanced)
-If you want to modify the skills or add your own (e.g., from `tree/main/scientific-skills`):
+### Option B: Local Docker (privacy)
 
-1.  **Clone the Repo**:
-    ```bash
-    git clone https://github.com/K-Dense-AI/claude-scientific-skills.git
-    cd claude-scientific-skills
-    ```
+```json
+{
+  "MCP": {
+    "autoConnect": true,
+    "namespaceTools": true,
+    "mcpServers": {
+      "scientific-skills-docker": {
+        "name": "Scientific Skills (Docker)",
+        "command": "docker",
+        "args": ["run", "-i", "--rm", "ghcr.io/k-dense-ai/claude-scientific-skills:latest"],
+        "timeoutMs": 300000
+      }
+    }
+  }
+}
+```
 
-2.  **Modify Python Code**:
-    Edit the scripts in `scientific-skills/` as needed.
+## 3) Troubleshooting
 
-3.  **Run Locally**:
-    Ensure you have `uv` or `pip` installed.
-    ```bash
-    # Run the MCP server manually
-    uv run mcp-server-scientific-skills
-    ```
-
-4.  **Connect Agent**:
-    Change `appsettings.json` to use `Stdio` transport pointing to your local python script:
-    *(Requires minor code change in `ResearchAgent.cs` to support generic Stdio path if not fully implemented, or use the Docker method with a locally built image)*.
-
-    **Easiest Path for Custom Code**:
-    1. Modify code.
-    2. Build local Docker image: `docker build -t my-scientific-skills .`
-    3. Update `appsettings.json` `DockerImage`: `my-scientific-skills`.
-
-## 3. Supported Skills
-The integration currently supports:
-- **Bioinformatics**: BLAST, PDB search.
-- **Cheminformatics**: PubChem search, RDKit.
-- **Calculators**: Unit conversion, statistical analysis.
-- **Literature**: PubMed and ArXiv search.
-
-## 4. Troubleshooting
-- **Connection Refused**: Ensure the MCP server is running or Docker is accessible.
-- **Tool Timeout**: Complex scientific queries can take time. Increase `"RequestTimeoutMs"` in `appsettings.json`.
+- **Connection refused / 5xx**: check your `url` reachability (or Docker runtime if using `command: docker`).
+- **Tool timeout**: increase the server’s `timeoutMs`.
+- **Tool name collisions**: keep `namespaceTools=true` (default).

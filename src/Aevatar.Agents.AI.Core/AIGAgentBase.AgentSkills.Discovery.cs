@@ -5,6 +5,16 @@ namespace Aevatar.Agents.AI.Core;
 
 public abstract partial class AIGAgentBase
 {
+    // ============================================================
+    //  Agent Skills discovery (recursive)
+    //
+    //  NOTE:
+    //  - AgentSkills spec: a skill is a folder containing SKILL.md
+    //  - Some skill packs group skills by domain, e.g. root/domain/skill/SKILL.md
+    //  - We support bounded recursion to keep discovery fast and predictable.
+    // ============================================================
+    private const int AgentSkillsDiscoveryMaxDepth = 3;
+
     private IReadOnlyList<AgentSkillDescriptor> DiscoverAgentSkills(
         IReadOnlyList<string> roots,
         CancellationToken cancellationToken)
@@ -18,22 +28,7 @@ public abstract partial class AIGAgentBase
             if (!Directory.Exists(root))
                 continue;
 
-            IEnumerable<string> dirs;
-            try
-            {
-                dirs = Directory.EnumerateDirectories(root);
-            }
-            catch (Exception ex)
-            {
-                LogAgentSkillsDebugOnce(
-                    $"enumerate_dirs::{root}",
-                    ex,
-                    "Failed to enumerate agent skills root '{Root}' (best-effort).",
-                    root);
-                continue;
-            }
-
-            foreach (var dir in dirs)
+            foreach (var dir in EnumerateSkillCandidateDirectories(root, AgentSkillsDiscoveryMaxDepth, cancellationToken))
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -68,6 +63,99 @@ public abstract partial class AIGAgentBase
         return list
             .OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    private IEnumerable<string> EnumerateSkillCandidateDirectories(
+        string root,
+        int maxDepth,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(root))
+            yield break;
+
+        maxDepth = Math.Clamp(maxDepth, 1, 10);
+
+        // BFS: stable + bounded.
+        var queue = new Queue<(string Dir, int Depth)>();
+
+        IEnumerable<string> firstLevel;
+        try
+        {
+            firstLevel = Directory.EnumerateDirectories(root);
+        }
+        catch (Exception ex)
+        {
+            LogAgentSkillsDebugOnce(
+                $"enumerate_dirs::{root}",
+                ex,
+                "Failed to enumerate agent skills root '{Root}' (best-effort).",
+                root);
+            yield break;
+        }
+
+        foreach (var d in firstLevel.OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (ShouldSkipSkillDiscoveryDirectory(d))
+                continue;
+            queue.Enqueue((d, 1));
+        }
+
+        while (queue.Count > 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var (dir, depth) = queue.Dequeue();
+            yield return dir;
+
+            if (depth >= maxDepth)
+                continue;
+
+            IEnumerable<string> children;
+            try
+            {
+                children = Directory.EnumerateDirectories(dir);
+            }
+            catch (Exception ex)
+            {
+                LogAgentSkillsDebugOnce(
+                    $"enumerate_dirs::{dir}",
+                    ex,
+                    "Failed to enumerate agent skill subdir '{Dir}' (best-effort).",
+                    dir);
+                continue;
+            }
+
+            foreach (var child in children.OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (ShouldSkipSkillDiscoveryDirectory(child))
+                    continue;
+                queue.Enqueue((child, depth + 1));
+            }
+        }
+    }
+
+    private static bool ShouldSkipSkillDiscoveryDirectory(string dirPath)
+    {
+        if (string.IsNullOrWhiteSpace(dirPath))
+            return true;
+
+        var name = Path.GetFileName(dirPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        if (string.IsNullOrWhiteSpace(name))
+            return true;
+
+        // Skip hidden dirs and common build artifacts.
+        if (name.StartsWith(".", StringComparison.Ordinal))
+            return true;
+
+        return string.Equals(name, "bin", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(name, "obj", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(name, "node_modules", StringComparison.OrdinalIgnoreCase) ||
+               // Resource folders inside a skill: not skill containers.
+               string.Equals(name, "scripts", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(name, "references", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(name, "assets", StringComparison.OrdinalIgnoreCase);
     }
 
     private IReadOnlyList<string> DiscoverDotNetToolFiles(string skillDir, CancellationToken cancellationToken)

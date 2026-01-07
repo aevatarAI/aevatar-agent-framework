@@ -21,15 +21,15 @@ Console.WriteLine("===================================");
 // Web-based LLM workflow orchestration with real-time visualization.
 // Supports multiple reasoning strategies and DSL-defined workflows.
 var cognitiveMesh = builder.AddProject<Projects.Aevatar_CognitiveMesh>("cognitive-mesh")
-    .WithHttpEndpoint(port: 5000, name: "http")
+    .WithHttpEndpoint(port: 5678, name: "http")
     .WithExternalHttpEndpoints();
 
 Console.WriteLine("✅ Cognitive Mesh: Workflow Orchestration Service");
 Console.WriteLine("");
 Console.WriteLine("📊 服务端点:");
-Console.WriteLine("   - Web UI:    http://localhost:5000");
-Console.WriteLine("   - Workflow:  http://localhost:5000/workflow.html");
-Console.WriteLine("   - API:       http://localhost:5000/api/projects");
+Console.WriteLine("   - Web UI:    http://localhost:5678");
+Console.WriteLine("   - Workflow:  http://localhost:5678/workflow.html");
+Console.WriteLine("   - API:       http://localhost:5678/api/projects");
 Console.WriteLine("");
 Console.WriteLine("🔧 支持的推理策略:");
 Console.WriteLine("   - direct:    直接 LLM 调用");

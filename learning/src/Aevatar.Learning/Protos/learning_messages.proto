@@ -1,0 +1,90 @@
+syntax = "proto3";
+
+package Aevatar.Learning;
+
+option csharp_namespace = "Aevatar.Learning.Contracts";
+
+import "google/protobuf/timestamp.proto";
+
+// ============================================================
+//  Learning Domain Contracts (Protobuf)
+//
+//  WHY:
+//  - Cross-boundary / long-lived contracts MUST be versionable.
+//  - Agent State / Events are transmitted across runtime boundaries.
+//
+//  RULES:
+//  - Do NOT change existing field numbers.
+//  - Do NOT reuse field numbers after deletion.
+//  - Avoid decimal; use double/int.
+// ============================================================
+
+enum LearningChatRole {
+  LEARNING_CHAT_ROLE_UNSPECIFIED = 0;
+  LEARNING_CHAT_ROLE_SYSTEM = 1;
+  LEARNING_CHAT_ROLE_USER = 2;
+  LEARNING_CHAT_ROLE_ASSISTANT = 3;
+  LEARNING_CHAT_ROLE_TOOL = 4;
+}
+
+message LearningChatMessage {
+  string id = 1;
+  LearningChatRole role = 2;
+  string content = 3;
+  google.protobuf.Timestamp timestamp = 4;
+
+  // Small, bounded metadata for tracing/debugging (string-only).
+  map<string, string> metadata = 10;
+}
+
+message LearningProgressSummary {
+  int32 due_cards = 1;
+  int32 new_cards = 2;
+  int32 total_sources = 3;
+  int32 quizzes_taken = 4;
+  google.protobuf.Timestamp last_activity = 5;
+
+  map<string, string> tags = 100;
+}
+
+message LearningNotebookState {
+  string notebook_id = 1;
+
+  // Conversation history (bounded window recommended).
+  repeated LearningChatMessage history = 2;
+
+  // Aggregated progress for notebook home page (best-effort).
+  LearningProgressSummary progress = 3;
+
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
+
+  // Small working context (string-only, bounded).
+  map<string, string> context = 10;
+
+  map<string, string> tags = 100;
+}
+
+// ============================================================
+//  Events (cross-boundary)
+// ============================================================
+
+message LearningUserInputEvent {
+  string session_id = 1;
+  string run_id = 2;
+  string notebook_id = 3;
+  string message = 4;
+  google.protobuf.Timestamp created_at = 5;
+
+  map<string, string> tags = 100;
+}
+
+message LearningNotebookCreatedEvent {
+  string notebook_id = 1;
+  string display_name = 2;
+  google.protobuf.Timestamp created_at = 3;
+
+  map<string, string> tags = 100;
+}
+
+

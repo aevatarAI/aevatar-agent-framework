@@ -1,6 +1,6 @@
 {
   "filePath": ".spec-workflow/steering/tech.md",
-  "currentVersion": 2,
+  "currentVersion": 3,
   "snapshots": [
     {
       "version": 1,
@@ -17,6 +17,14 @@
       "trigger": "approved",
       "approvalId": "approval_1767605100357_jp4jmmy0z",
       "approvalTitle": "Approve steering tech.md (v2: file-only agent comm + consensus/verification pipeline)"
+    },
+    {
+      "version": 3,
+      "filename": "snapshot-003.json",
+      "timestamp": "2026-01-06T05:50:17.212Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767678549312_mmk1my0im",
+      "approvalTitle": "Steering: tech.md"
     }
   ]
 }

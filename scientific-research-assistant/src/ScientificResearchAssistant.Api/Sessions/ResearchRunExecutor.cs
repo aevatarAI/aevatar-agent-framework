@@ -5,6 +5,7 @@ using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Microsoft.Extensions.Options;
 using ScientificResearchAssistant.Api.Materials;
+using ScientificResearchAssistant.Api.Workspace;
 using ScientificResearchAssistant.Streaming;
 
 namespace ScientificResearchAssistant.Api.Sessions;
@@ -26,17 +27,20 @@ internal sealed class ResearchRunExecutor
 {
     private readonly ResearchRuntime _runtime;
     private readonly MaterialsService _materials;
+    private readonly WorkspaceService _workspace;
     private readonly IOptions<LLMProvidersConfig> _llm;
     private readonly ILogger<ResearchRunExecutor> _logger;
 
     public ResearchRunExecutor(
         ResearchRuntime runtime,
         MaterialsService materials,
+        WorkspaceService workspace,
         IOptions<LLMProvidersConfig> llm,
         ILogger<ResearchRunExecutor> logger)
     {
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         _materials = materials ?? throw new ArgumentNullException(nameof(materials));
+        _workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
         _llm = llm ?? throw new ArgumentNullException(nameof(llm));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -270,6 +274,7 @@ internal sealed class ResearchRunExecutor
 
                 var snapshot = await _materials.LoadAsync(session.Id, query: question, ct);
                 HydrateWorkspace(session, runId, question, snapshot);
+                ApplyKnowledgeToWorkspace(session, _workspace.ScanWorkspace(session.Id));
 
                 session.Events.Publish(new StateSnapshotEvent
                 {
@@ -504,6 +509,15 @@ internal sealed class ResearchRunExecutor
         ws.Vibe.LastRunId = runId;
         ws.Vibe.LastGoal = question;
         ws.Vibe.Steps = ["vibe.materials", "vibe.plan", "vibe.reason"];
+    }
+
+    private static void ApplyKnowledgeToWorkspace(ResearchSession session, WorkspaceScanResult scan)
+    {
+        var k = session.Workspace.Knowledge;
+        k.FactsCount = scan.FactsCount;
+        k.FactsProposedCount = scan.FactsProposedCount;
+        k.SourcesCount = scan.SourcesCount;
+        k.FactsProposedRecent = scan.FactsProposedRecent;
     }
 
     private static string Trunc(string? s, int maxChars)

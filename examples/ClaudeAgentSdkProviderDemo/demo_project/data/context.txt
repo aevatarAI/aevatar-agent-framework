@@ -1,0 +1,7 @@
+This is demo context.txt.
+
+It is only readable when allowedTools includes "filesystem_read".
+
+The runner will print a preview of this file content to prove permission gating works.
+
+

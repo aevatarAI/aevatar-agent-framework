@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/claude-agent-sdk-provider-demo/design.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-06T05:41:04.383Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767678064378_nkcpqhtzm",
+      "approvalTitle": "Approve design for claude-agent-sdk-provider-demo"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-06T05:47:21.429Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767678064378_nkcpqhtzm",
+      "approvalTitle": "Approve design for claude-agent-sdk-provider-demo"
+    }
+  ]
+}

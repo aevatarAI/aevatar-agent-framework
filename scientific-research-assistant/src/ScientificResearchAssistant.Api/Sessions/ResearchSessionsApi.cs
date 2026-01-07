@@ -1,7 +1,12 @@
 using System.Text;
 using System.Text.Json;
 using Aevatar.Agents.AGUI;
+using Microsoft.Extensions.Options;
+using ScientificResearchAssistant.Api.Facts;
 using ScientificResearchAssistant.Api.Materials;
+using ScientificResearchAssistant.Api.Paper;
+using ScientificResearchAssistant.Api.Workspace;
+using ScientificResearchAssistant.Contracts.Collab;
 
 namespace ScientificResearchAssistant.Api.Sessions;
 
@@ -31,14 +36,25 @@ internal static class ResearchSessionsApi
         MapInput(app);
         MapMcpReconnect(app);
         MapFacts(app);
+        MapWorkspace(app);
         MapAgUiEvents(app);
     }
 
     private static void MapCreate(WebApplication app)
     {
-        app.MapPost("/api/sessions", (CreateSessionInDto? input, ResearchSessionManager sessions) =>
+        app.MapPost("/api/sessions", async (
+            CreateSessionInDto? input,
+            ResearchSessionManager sessions,
+            WorkspaceService workspace,
+            PaperService paper,
+            CancellationToken ct) =>
         {
             var s = sessions.Create(input?.ProviderName);
+
+            // File-SSoT: ensure workspace + paper scaffold exists at creation time.
+            workspace.EnsureSessionWorkspace(s.Id);
+            await paper.EnsurePaperFilesAsync(s.Id, ct);
+
             return Results.Json(new { ok = true, sessionId = s.Id });
         });
     }
@@ -175,16 +191,22 @@ internal static class ResearchSessionsApi
 
     private static void MapFacts(WebApplication app)
     {
-        // Write-back: allow user to persist a verified conclusion as a new fact under facts/
+        // Facts workflow: create a proposal under workspace facts_proposed/ (NOT directly into facts/).
         app.MapPost("/api/sessions/{sessionId}/facts", async (
             string sessionId,
             SaveFactInDto input,
             ResearchSessionManager sessions,
-            MaterialsService materials,
+            FactLifecycleService facts,
+            IOptions<MaterialsOptions> materialsOptions,
+            WorkspaceService workspace,
             CancellationToken ct) =>
         {
             if (!sessions.TryGet(sessionId, out var session))
                 return Results.NotFound(new { error = "session not found" });
+
+            // Safe-by-default: reuse existing write switch (same as previous facts write-back).
+            if (!materialsOptions.Value.AllowWrite)
+                return Results.Problem(title: "facts write is disabled", detail: "Materials:AllowWrite=false", statusCode: 403);
 
             var content = (input.Content ?? string.Empty).Trim();
             if (content.Length == 0)
@@ -193,12 +215,20 @@ internal static class ResearchSessionsApi
             try
             {
                 var title = (input.Title ?? string.Empty).Trim();
-                var saved = await materials.SaveFactAsync(title, content, input.RelativePath, ct);
+                var maxWrite = Math.Clamp(materialsOptions.Value.MaxWriteChars, 1, 500_000);
+                if (content.Length > maxWrite)
+                    content = content[..maxWrite];
 
-                // Refresh workspace materials snapshot (best-effort; bounded by options)
-                var snapshot = await materials.LoadAsync(session.Id, query: "", ct);
-                ApplyMaterialsToWorkspace(session, snapshot);
+                var proposal = await facts.CreateProposalAsync(
+                    session.Id,
+                    title,
+                    content,
+                    evidencePaths: input.EvidencePaths,
+                    proposedBy: "api",
+                    ct);
 
+                // Refresh file-backed workspace snapshot for UI.
+                ApplyKnowledgeToWorkspace(session, workspace.ScanWorkspace(session.Id));
                 session.Events.Publish(new StateSnapshotEvent
                 {
                     Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
@@ -208,21 +238,172 @@ internal static class ResearchSessionsApi
                 session.Events.Publish(new CustomEvent
                 {
                     Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                    Name = "aevatar.scientific.fact_saved",
-                    Value = new { sessionId = session.Id, id = saved.Id, title = saved.Title, relativePath = saved.RelativePath }
+                    Name = "aevatar.scientific.fact_proposed",
+                    Value = new { sessionId = session.Id, factId = proposal.FactId, title = proposal.Title }
                 });
 
                 return Results.Json(new
                 {
                     ok = true,
                     sessionId = session.Id,
-                    fact = new { id = saved.Id, title = saved.Title, relativePath = saved.RelativePath }
+                    proposal = new { factId = proposal.FactId, title = proposal.Title }
                 });
             }
             catch (Exception ex)
             {
-                return Results.Problem(title: "save material failed", detail: ex.Message, statusCode: 500);
+                return Results.Problem(title: "fact proposal failed", detail: ex.Message, statusCode: 500);
             }
+        });
+    }
+
+    private static void MapWorkspace(WebApplication app)
+    {
+        // Bounded snapshot derived from file-backed workspace.
+        app.MapGet("/api/sessions/{sessionId}/workspace", (
+            string sessionId,
+            ResearchSessionManager sessions,
+            WorkspaceService workspace) =>
+        {
+            if (!sessions.TryGet(sessionId, out var session))
+                return Results.NotFound(new { error = "session not found" });
+
+            var scan = workspace.ScanWorkspace(session.Id);
+            return Results.Json(new { ok = true, sessionId = session.Id, workspace = scan });
+        });
+
+        app.MapPost("/api/sessions/{sessionId}/facts/{factId}/votes", async (
+            string sessionId,
+            string factId,
+            FactVoteInDto input,
+            ResearchSessionManager sessions,
+            FactLifecycleService facts,
+            WorkspaceService workspace,
+            CancellationToken ct) =>
+        {
+            if (!sessions.TryGet(sessionId, out var session))
+                return Results.NotFound(new { error = "session not found" });
+
+            var reviewerId = (input.ReviewerId ?? string.Empty).Trim();
+            var voteRaw = (input.Vote ?? string.Empty).Trim().ToLowerInvariant();
+
+            if (reviewerId.Length == 0)
+                return Results.BadRequest(new { error = "reviewerId is required" });
+
+            var vote = voteRaw switch
+            {
+                "approve" => FactVoteValue.Approve,
+                "reject" => FactVoteValue.Reject,
+                "needs_work" or "needswork" => FactVoteValue.NeedsWork,
+                _ => FactVoteValue.Unspecified
+            };
+
+            if (vote == FactVoteValue.Unspecified)
+                return Results.BadRequest(new { error = "vote must be approve|reject|needs_work" });
+
+            var msg = new FactVote
+            {
+                FactId = factId,
+                ReviewerId = reviewerId,
+                Vote = vote,
+                Comment = (input.Comment ?? string.Empty).Trim()
+            };
+
+            await facts.RecordVoteAsync(session.Id, msg, ct);
+
+            ApplyKnowledgeToWorkspace(session, workspace.ScanWorkspace(session.Id));
+            session.Events.Publish(new StateSnapshotEvent
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Snapshot = session.Workspace
+            });
+
+            return Results.Json(new { ok = true, sessionId = session.Id, factId });
+        });
+
+        app.MapPost("/api/sessions/{sessionId}/facts/{factId}/verifications", async (
+            string sessionId,
+            string factId,
+            FactVerificationInDto input,
+            ResearchSessionManager sessions,
+            FactLifecycleService facts,
+            WorkspaceService workspace,
+            CancellationToken ct) =>
+        {
+            if (!sessions.TryGet(sessionId, out var session))
+                return Results.NotFound(new { error = "session not found" });
+
+            var verifierId = (input.VerifierId ?? string.Empty).Trim();
+            if (verifierId.Length == 0)
+                return Results.BadRequest(new { error = "verifierId is required" });
+
+            if (input.Result is null)
+                return Results.BadRequest(new { error = "result is required" });
+
+            var msg = new FactVerification
+            {
+                FactId = factId,
+                VerifierId = verifierId,
+                Tool = (input.Tool ?? "unknown").Trim(),
+                Result = input.Result.Value,
+                LogExcerpt = (input.LogExcerpt ?? string.Empty).Trim()
+            };
+
+            if (input.ArtifactPaths != null)
+            {
+                foreach (var p in input.ArtifactPaths)
+                {
+                    var t = (p ?? string.Empty).Trim();
+                    if (t.Length == 0) continue;
+                    msg.ArtifactPaths.Add(t);
+                }
+            }
+
+            await facts.RecordVerificationAsync(session.Id, msg, ct);
+
+            ApplyKnowledgeToWorkspace(session, workspace.ScanWorkspace(session.Id));
+            session.Events.Publish(new StateSnapshotEvent
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Snapshot = session.Workspace
+            });
+
+            return Results.Json(new { ok = true, sessionId = session.Id, factId });
+        });
+
+        app.MapPost("/api/sessions/{sessionId}/facts/{factId}/promote", async (
+            string sessionId,
+            string factId,
+            PromoteFactInDto? input,
+            ResearchSessionManager sessions,
+            FactLifecycleService facts,
+            WorkspaceService workspace,
+            CancellationToken ct) =>
+        {
+            if (!sessions.TryGet(sessionId, out var session))
+                return Results.NotFound(new { error = "session not found" });
+
+            var finalizedBy = (input?.FinalizedBy ?? "api").Trim();
+            var decision = await facts.EvaluateAndPromoteAsync(session.Id, factId, finalizedBy, ct);
+
+            ApplyKnowledgeToWorkspace(session, workspace.ScanWorkspace(session.Id));
+            session.Events.Publish(new StateSnapshotEvent
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Snapshot = session.Workspace
+            });
+
+            if (decision == null)
+                return Results.Json(new { ok = true, sessionId = session.Id, factId, pending = true });
+
+            return Results.Json(new
+            {
+                ok = true,
+                sessionId = session.Id,
+                factId,
+                decision = decision.Decision.ToString(),
+                basis = decision.Basis,
+                rationale = decision.Rationale
+            });
         });
     }
 
@@ -233,6 +414,7 @@ internal static class ResearchSessionsApi
             string sessionId,
             ResearchSessionManager sessions,
             ResearchRuntime runtime,
+            WorkspaceService workspace,
             CancellationToken ct) =>
         {
             if (!sessions.TryGet(sessionId, out var session))
@@ -299,6 +481,7 @@ internal static class ResearchSessionsApi
             }, ct);
 
             // Optional visual state (workspace / materials / graph)
+            ApplyKnowledgeToWorkspace(session, workspace.ScanWorkspace(session.Id));
             await WriteSseAsync(new StateSnapshotEvent
                     {
                         Timestamp = Ts(DateTimeOffset.UtcNow),
@@ -363,6 +546,15 @@ internal static class ResearchSessionsApi
         }
 
         ws.Materials.ContextPreview = Trunc(snapshot.RenderedContext, 2000);
+    }
+
+    private static void ApplyKnowledgeToWorkspace(ResearchSession session, WorkspaceScanResult scan)
+    {
+        var k = session.Workspace.Knowledge;
+        k.FactsCount = scan.FactsCount;
+        k.FactsProposedCount = scan.FactsProposedCount;
+        k.SourcesCount = scan.SourcesCount;
+        k.FactsProposedRecent = scan.FactsProposedRecent;
     }
 
     private static string Trunc(string? s, int maxChars)

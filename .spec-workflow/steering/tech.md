@@ -1,97 +1,105 @@
 # Technology Stack
 
 ## Project Type
-
-Monorepo 内的分布式智能体框架 + 多个产品化系统（本 steering 聚焦“科研助手平台”的可交付工程约束）。
+以 **.NET 10** 为核心的分布式智能体框架（Library-first），提供多运行时（Local/ProtoActor/Orleans）能力，并在 monorepo 中包含示例项目、应用宿主（Aspire AppHost）与若干业务系统/实验性子项目。
 
 ## Core Technologies
 
 ### Primary Language(s)
-- **Language**: C# (.NET 10) + TypeScript (React/Vite)
-- **Runtime/Compiler**: .NET 10 SDK, Node.js
+- **Language**: C# / .NET 10
+- **Runtime/Compiler**: .NET SDK 10.0.x
+- **Language-specific tools**: `dotnet build`, `dotnet test`, Central Package Management（`Directory.Packages.props`）
 
 ### Key Dependencies/Libraries
-- **Aevatar Agent Framework**: Actor Model + event-driven agent runtime
-- **AG-UI**: snapshot-first SSE 事件流协议（Run/Step/Text/State/Custom）
-- **Protocol Buffers**: 跨边界类型的唯一可信 schema（state/event/config/message）
+- **Google.Protobuf (3.33.0)**: 跨边界数据契约与序列化（State/Event/Config 强制 Protobuf）
+- **Microsoft Orleans (9.2.1)**: 分布式虚拟 Actor 运行时与 Streaming 支撑
+- **Proto.Actor / Proto.Remote (1.8.0)**: 高性能 Actor 运行时与远程通信
+- **Microsoft.Extensions.AI (10.0.0)**: AI 能力抽象层（配合 Provider：OpenAI/Azure OpenAI/LLMTornado 等）
+- **OpenTelemetry (1.12.0) + Aspire (9.5.2)**: 可观测性与本地编排/示例宿主
+- **MassTransit (8.3.0)**: 消息系统/流插件生态（Kafka/RabbitMQ 等）
+- **MongoDB.Driver (3.5.2)**: MongoDB 持久化（状态/事件存储等模块化支持）
+- **xUnit (2.9.2) + Moq (4.20.72) / FluentAssertions (7.1.0)**: 测试体系
 
 ### Application Architecture
-
-- **Event-driven (internal)**: agent 内部仍可用事件/stream 协作（runtime-agnostic）
-- **File-SSoT (external)**: **文件系统是唯一事实来源**；agent 协作、写作与验证通过文件落盘完成
-- **Boundary projection**: UI/AG-UI 只是投影层，必须能从文件重建
+- **Actor Model + Event-Driven**：业务逻辑写在 `GAgent`，运行时/网络/路由写在 `GAgentActor`；Agent 间交互通过事件（Stream）传播完成。
+- **Runtime Abstraction**：同一 Agent 逻辑可在 Local/ProtoActor/Orleans 运行时之间切换，差异收敛在 Actor 包装与基础设施适配层。
+- **Hierarchy + Stream Routing**：父子层级关系 + Up/Down/Both 传播方向，支撑群体广播与协作模式。
 
 ### Data Storage (if applicable)
-
-- **Primary storage (MVP)**: 文件系统
-  - `facts/`：已验证事实（可依赖）
-  - `workspace/sessions/{sessionId}/facts_proposed/`：候选事实（待共识/验证）
-  - `workspace/sessions/{sessionId}/paper/`：Markdown 稿件（draft/outline/citations）
-  - `workspace/sessions/{sessionId}/mailbox/`：agent 间文件消息
-  - `sources/`（可选）：证据库/引用摘录
-- **Optional**: MemoryStore / VectorIndex（Embedding 检索）
-- **Data formats**:
-  - **Protobuf schema**：所有跨边界类型必须有 `.proto`
-  - **Human-readable**：可用 Protobuf JSON 映射落盘为 `.json/.md`（便于 review）
+- **Primary storage**: 以可插拔方式提供（示例包含 InMemory 与 MongoDB 模块；Orleans 生态可接入多种 Provider）
+- **Caching**: 以运行时/宿主配置为准（可通过 `Microsoft.Extensions.*` 与具体实现扩展）
+- **Data formats**: **Protocol Buffers**（跨边界统一格式），配置/宿主层常见为 JSON
 
 ### External Integrations (if applicable)
-
-- **LLM Providers**: MEAI provider factory via `LLMProviders` config
-- **MCP**: Claude Scientific Skills（HTTP/Docker）
-
-### Consensus & Verification (核心闭环)
-
-- **Soft consensus**（Maker system 风格）：
-  - 多 agent 对同一个 `facts_proposed/*` 给出 vote/review
-  - 达到阈值后由 promoter 产生 decision 文件并执行 promote
-- **Hard verification**（一锤定音）：
-  - 可执行工具（例如 Python）给出可复现输出
-  - 验证通过可直接 promote（并把验证产物落盘作为证据）
+- **APIs**: OpenAI / Azure OpenAI / 其他 LLM Provider（通过 `Microsoft.Extensions.AI` 或 Provider 包接入）
+- **Protocols**: Stream 事件传播；Proto.Remote（gRPC/网络传输）；HTTP（示例/应用系统）
+- **Authentication**: 业务应用侧可选 ABP / OpenIddict 体系（框架层尽量保持运行时无关）
 
 ### Monitoring & Dashboard Technologies (if applicable)
-
-- **Dashboard Framework**: React + Vite + Tailwind
-- **Real-time Communication**: SSE (AG-UI)
+- **Dashboard Framework**: 以 OpenTelemetry 生态与 Aspire 观测面板为主（具体 UI 由部署环境决定）
+- **Real-time Communication**: OTel 导出与后端聚合（实时性取决于后端/采样策略）
+- **Visualization Libraries**: 由 OTel 后端决定（Prometheus/Grafana/OTLP 等）
+- **State Management**: 框架内部状态必须 Protobuf；运行时/存储实现负责跨边界一致性
 
 ## Development Environment
 
 ### Build & Development Tools
-- `dotnet build` / `dotnet test`
-- `npm run dev` / `npm run build`
+- **Build System**: `dotnet` + 多项目解决方案（`.slnx`）
+- **Package Management**: NuGet（Central Package Management：`Directory.Packages.props`）
+- **Development workflow**: 本地运行示例（`examples/*`）、AppHost（`apps/*AppHost`）驱动端到端验证
 
 ### Code Quality Tools
-- .NET analyzers + TypeScript compiler + ESLint
+- **Static Analysis**: 以 .NET SDK/编译器分析为主（可按团队标准补充 analyzers）
+- **Formatting**: 以仓库既定风格为准（建议将格式化/分析器规则沉淀到统一配置）
+- **Testing Framework**: xUnit + Mocking/Assertion 工具；覆盖运行时兼容性与事件传播关键路径
+- **Documentation**: `docs/` + 各子系统 README；Spec Workflow 用于需求/设计/任务与 steering 文档
+
+### Version Control & Collaboration
+- **VCS**: Git
+- **Branching Strategy**: 以仓库实践为准（建议 PR 驱动）
+- **Code Review Process**: PR 规范（模块名 + 简述），提交前确保 `dotnet build && dotnet test`
+
+### Dashboard Development (if applicable)
+- **Live Reload**: 依赖具体子项目实现（Web/前端目录存在于部分子系统）
+- **Port Management**: **禁止使用 `:5000`**；`5678` 仅作为推荐示例端口（如 sidecar），如有冲突可使用任意未占用端口（端口应可配置）
+- **Multi-Instance Support**: 以 AppHost/多项目并行运行策略为准（端口显式配置）
+
+## Deployment & Distribution (if applicable)
+- **Target Platform(s)**: macOS/Linux 优先（Windows 需保证 Protobuf 工具链），运行时可本地/单机/集群/分布式部署
+- **Distribution Method**: NuGet 包（核心库/运行时/插件）+ 源码仓库示例与应用系统
+- **Installation Requirements**: .NET 10 SDK，Protobuf 工具链（随构建触发生成）
+- **Update Mechanism**: 语义化版本与 Protobuf 的前后向兼容策略（新增字段/不复用字段号）
 
 ## Technical Requirements & Constraints
 
-### Security & Compliance
+### Performance Requirements
+- **高吞吐/低延迟目标**：在 ProtoActor 运行时优先；Local 用于最快反馈；Orleans 用于分布式鲁棒性。
+- **约束**：跨边界数据必须 Protobuf，以避免运行时序列化失败与性能回退。
 
-- **Dangerous tools default-off**：例如 `python_exec` 必须显式开启
-- **Secrets hygiene**：真实密钥只允许在本地 secrets 文件，不可提交
+### Compatibility Requirements
+- **Platform Support**: .NET 10 支持的平台；分布式场景按 Orleans/ProtoActor 支持矩阵部署
+- **Dependency Versions**: 统一由 `Directory.Packages.props` 管理（Central Package Management）
+- **Standards Compliance**: Protobuf schema 演进规则（可加字段，不改号，不复用）
+
+### Security & Compliance
+- **Security Requirements**: 由宿主/应用层注入（例如密钥管理、认证授权）；框架侧默认不在契约层泄漏敏感信息
+- **Threat Model**: 事件注入、消息放大、配置泄露与越权发布等（应用层需做事件校验与隔离）
 
 ### Scalability & Reliability
-
-- 工程约束：任何 UI/投影逻辑 best-effort，不允许杀主流程
-- snapshot-first：断线重连不依赖 replay tool/token spam
+- **Expected Load**: 大规模 Agent 交互（事件驱动）与横向扩展（Orleans/ProtoActor）
+- **Availability Requirements**: Orleans 集群能力与可观测性/告警体系支撑
+- **Growth Projections**: 以插件化方式扩展存储/消息系统/AI Provider
 
 ## Technical Decisions & Rationale
 
 ### Decision Log
-
-1. **facts + sources 分层**
-   - *Why*: 区分“可依赖事实”和“可引用来源”，让推理更可控、更可复用
-   - *Update*: `sources/` 变为可选；核心闭环是 `facts_proposed/` → promote → `facts/`
-2. **文件目录作为可审计产物**
-   - *Why*: 研究过程需要复现与 review；文件系统天然支持版本化与协作
-3. **Protobuf schema-first**
-   - *Why*: 跨 runtime/跨 agent 的边界必须可演进、可验证、可序列化
-4. **facts_proposed → consensus/verify → facts**
-   - *Why*: 把“未验证推论”与“可依赖事实”隔离，避免污染推理前提
-5. **Single-writer for paper/facts**
-   - *Why*: 多 agent 并发写同一文件会冲突；通过 patch proposal + 单写者合并保证一致性
+1. **Protobuf-First**: 任何跨边界类型（State/Event/Config）强制 Protobuf，换取跨运行时一致性与可演进契约。
+2. **GAgent / GAgentActor 分离**: 业务逻辑不感知运行时，基础设施可替换，避免“运行时绑死业务”。
+3. **Central Package Management**: 统一版本管理，降低 monorepo 依赖漂移与升级成本。
+4. **OTel + Aspire**: 默认可观测性通路与示例编排，让“能跑”升级为“可观测地跑”。
 
 ## Known Limitations
-
-- 文件目录协作在并发场景下需要额外机制（原子写、锁、幂等）；MVP 先固化协议与目录结构
+- **Monorepo 复杂度**: 子系统众多，首次阅读成本较高；需依赖 `docs/` 与 steering/structure 来降低认知负担。
+- **运行时差异不可完全消除**: 不同运行时在生命周期、网络与存储上仍有细节差异，需要通过测试矩阵持续收敛。
 
 

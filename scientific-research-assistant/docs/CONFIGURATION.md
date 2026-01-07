@@ -17,12 +17,20 @@
 
 位置：
 - 推荐：`src/ScientificResearchAssistant.Api/appsettings.json` 的 `MCP:mcpServers`
-- 也支持：直接提供 Cursor 原生 `mcp.json`（root 级 `mcpServers`），由宿主把该文件加载进 `IConfiguration`
+- 也支持：直接提供 Cursor 原生 `mcp.json`（root 级 `mcpServers`）
+  - 本项目已在 `Program.cs` 中 `AddJsonFile("mcp.json", optional: true)`，放在 `src/ScientificResearchAssistant.Api/mcp.json` 即可（不提交，参考 `mcp.json.example`）
 
 关键字段：
 - `MCP:autoConnect`: 是否自动连接（默认 `true`）
 - `MCP:namespaceTools`: 是否对 MCP 工具名做命名空间前缀（默认 `true`，避免多 server 重名；格式 `mcp__{serverKey}__{toolName}`）
+- `MCP:retryMinIntervalSeconds`: 会话触发的 MCP 重连最小间隔（默认 30 秒；设为 0 表示不节流，更激进）
 - `MCP:mcpServers:<serverKey>`: 每个 MCP server 的配置
+
+合并与优先级（更激进、尽可能用已配置能力）：
+- 同时支持三种来源并做 merge：
+  - legacy：`MCP:Type/HttpUrl/DockerImage/RequestTimeoutMs`（最低优先级）
+  - `MCP:mcpServers`（中）
+  - `mcp.json` 的 root `mcpServers`（最高；同名 server 以这里为准）
 
 示例（K-Dense Claude Scientific Skills / Hosted + Docker 二选一）见 `appsettings.json` 里的默认配置。
 
@@ -46,6 +54,9 @@
 核心字段（每个 pack 至少需要）：
 - `RepoUrl`：git repo URL
 - `SkillsSubDir`：repo 内 skills 根目录（例如 K-Dense 是 `scientific-skills`）
+
+可选（更激进的“失败自动重试”节流）：
+- `SkillPacks:RetryMinIntervalSeconds`：会话触发的后台重试最小间隔（默认 60 秒；太小会频繁 git pull）
 
 #### 手动同步命令（只执行 sync，然后退出）
 

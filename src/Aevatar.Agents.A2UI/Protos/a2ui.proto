@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package aevatar.agents.a2ui;
+option csharp_namespace = "Aevatar.Agents.A2UI.Protobuf";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+// ============================================================
+//  A2UI (Agent Adaptive UI) Protocol
+// ============================================================
+
+// Sent by Agent to Client: Update the UI structure (Template)
+message SurfaceUpdate {
+    string surface_id = 1;
+    
+    // The UI definition (Adaptive Cards, HTML, or custom DSL JSON string)
+    string template = 2; 
+    
+    // Initial data model for the template
+    google.protobuf.Struct initial_data = 3;
+    
+    // Optional title or metadata
+    string title = 4;
+}
+
+// Sent by Agent to Client: Update the data model (binding)
+message DataModelUpdate {
+    string surface_id = 1;
+    
+    // The data delta/patch (JSON Patch or Merge Patch)
+    google.protobuf.Struct delta = 2;
+}
+
+// Sent by Agent to Client: Signal to start rendering or bring to focus
+message BeginRendering {
+    string surface_id = 1;
+    int32 priority = 2;
+}
+
+// Sent by Agent to Client: Remove a surface
+message DeleteSurface {
+    string surface_id = 1;
+    string reason = 2;
+}
+
+// Sent by Client to Agent: User interaction
+message A2UiUserAction {
+    string surface_id = 1;
+    string action_id = 2;
+    
+    // Action parameters/form data
+    google.protobuf.Struct payload = 3;
+    
+    google.protobuf.Timestamp timestamp = 4;
+}
+

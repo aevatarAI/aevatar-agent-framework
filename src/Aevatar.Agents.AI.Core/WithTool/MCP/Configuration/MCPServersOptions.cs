@@ -35,6 +35,16 @@ public sealed class MCPServersOptions
     public bool AutoConnect { get; set; } = true;
 
     /// <summary>
+    /// Minimum interval (seconds) between MCP reconnect attempts triggered by chat/session activity.
+    /// <para/>
+    /// Default: 30 seconds.
+    /// <para/>
+    /// Notes:
+    /// - Set to 0 to disable throttling (more aggressive; may spam when server is down).
+    /// </summary>
+    public int RetryMinIntervalSeconds { get; set; } = 30;
+
+    /// <summary>
     /// Whether to namespace MCP tool names with a stable prefix.
     /// <para/>
     /// WHY:

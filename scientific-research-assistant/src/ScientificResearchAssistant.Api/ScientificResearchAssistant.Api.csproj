@@ -21,6 +21,7 @@
     </ItemGroup>
 
     <ItemGroup>
+      <None Include="mcp.json" />
       <None Include="skillpacks.json" />
     </ItemGroup>
 

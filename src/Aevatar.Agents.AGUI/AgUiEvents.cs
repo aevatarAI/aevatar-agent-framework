@@ -131,3 +131,38 @@ public sealed record CustomEvent : AgUiEvent
     public object? Value { get; init; }
 }
 
+// ─────────────────────────────────────────────────────────────
+//  Tool usage
+// ─────────────────────────────────────────────────────────────
+
+public sealed record ToolCallStartEvent : AgUiEvent
+{
+    public override string Type => "TOOL_CALL_START";
+    public required string MessageId { get; init; }
+    public required string ToolCallId { get; init; }
+    public required string ToolName { get; init; }
+}
+
+public sealed record ToolCallArgsEvent : AgUiEvent
+{
+    public override string Type => "TOOL_CALL_ARGS";
+    public required string MessageId { get; init; }
+    public required string ToolCallId { get; init; }
+    public required string ArgsDelta { get; init; }
+}
+
+public sealed record ToolCallEndEvent : AgUiEvent
+{
+    public override string Type => "TOOL_CALL_END";
+    public required string MessageId { get; init; }
+    public required string ToolCallId { get; init; }
+}
+
+public sealed record ToolCallResultEvent : AgUiEvent
+{
+    public override string Type => "TOOL_CALL_RESULT";
+    public required string MessageId { get; init; }
+    public required string ToolCallId { get; init; }
+    public required string Result { get; init; }
+}
+

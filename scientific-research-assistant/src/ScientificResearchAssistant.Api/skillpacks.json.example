@@ -1,5 +1,6 @@
 {
   "SkillPacks": {
+    "RetryMinIntervalSeconds": 60,
     "Packs": [
       {
         "Name": "claude-scientific-skills",

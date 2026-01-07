@@ -65,9 +65,17 @@ public abstract partial class AIGAgentBase
         // On retries, avoid spamming connection attempts.
         if (isRetry && McpRetryOnEachChat)
         {
+            // Effective min-interval: config (MCP:retryMinIntervalSeconds) overrides code defaults.
+            var effectiveMinInterval = McpRetryMinInterval;
+            if (resolved.RetryMinIntervalSeconds.HasValue)
+            {
+                var seconds = Math.Clamp(resolved.RetryMinIntervalSeconds.Value, 0, 3600);
+                effectiveMinInterval = TimeSpan.FromSeconds(seconds);
+            }
+
             var now = DateTimeOffset.UtcNow;
             if (_mcpLastAttemptUtc != DateTimeOffset.MinValue &&
-                now - _mcpLastAttemptUtc < McpRetryMinInterval)
+                now - _mcpLastAttemptUtc < effectiveMinInterval)
             {
                 return false;
             }

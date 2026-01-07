@@ -19,6 +19,7 @@ public static class MCPServersConfigReader
         public string Source { get; init; } = "none";
         public bool AutoConnect { get; init; } = true;
         public bool NamespaceTools { get; init; } = true;
+        public int? RetryMinIntervalSeconds { get; init; }
         public IReadOnlyList<ResolvedServer> Servers { get; init; } = Array.Empty<ResolvedServer>();
     }
 
@@ -32,94 +33,62 @@ public static class MCPServersConfigReader
 
     /// <summary>
     /// Resolve MCP servers configuration.
-    /// Supports:
-    /// - "MCP:mcpServers" (recommended for Aevatar apps)
-    /// - "mcpServers" (raw Cursor config file)
+    /// Supports (merged with precedence):
+    /// - Legacy: MCP:Type / MCP:HttpUrl / MCP:DockerImage / MCP:RequestTimeoutMs  (lowest)
+    /// - MCP:mcpServers (Aevatar app config)
+    /// - mcpServers (raw Cursor config file, e.g. mcp.json) (highest)
+    /// <para/>
+    /// If the same server key exists in multiple sources, later sources override earlier ones.
     /// </summary>
     public static Resolved Resolve(IConfiguration? configuration)
     {
         if (configuration == null)
             return new Resolved();
 
-        // Prefer "MCP:mcpServers" (so we can also read MCP:autoConnect, MCP:namespaceTools).
+        // "MCP" holds global knobs (autoConnect / namespaceTools) and optionally app-defined servers.
         var mcpSection = configuration.GetSection(MCPServersOptions.SectionName);
-        var serversSection = mcpSection.GetSection(MCPServersOptions.ServersKey);
-        var source = "none";
-
-        if (HasChildren(serversSection))
-        {
-            source = $"{MCPServersOptions.SectionName}:{MCPServersOptions.ServersKey}";
-        }
-        else
-        {
-            // Fallback: raw Cursor config file root.
-            serversSection = configuration.GetSection(MCPServersOptions.ServersKey);
-            if (HasChildren(serversSection))
-                source = MCPServersOptions.ServersKey;
-        }
-
-        if (!HasChildren(serversSection))
-            return new Resolved();
+        var appServersSection = mcpSection.GetSection(MCPServersOptions.ServersKey);
+        var cursorServersSection = configuration.GetSection(MCPServersOptions.ServersKey);
 
         var autoConnect = ReadBool(mcpSection["autoConnect"], defaultValue: true);
         var namespaceTools = ReadBool(mcpSection["namespaceTools"], defaultValue: true);
+        var retryMinIntervalSeconds = ReadIntNullable(mcpSection["retryMinIntervalSeconds"]);
 
-        var servers = new List<ResolvedServer>();
-        foreach (var s in serversSection.GetChildren())
+        // Merge order: legacy -> app -> cursor(mcp.json)
+        var sources = new List<string>();
+        var merged = new Dictionary<string, ResolvedServer>(StringComparer.OrdinalIgnoreCase);
+
+        if (TryBuildLegacyServer(mcpSection, namespaceTools, out var legacy))
         {
-            var key = (s.Key ?? string.Empty).Trim();
-            if (string.IsNullOrWhiteSpace(key))
-                continue;
-
-            var enabled = ReadBool(s["enabled"], defaultValue: true);
-            if (!enabled)
-            {
-                servers.Add(new ResolvedServer
-                {
-                    Key = key,
-                    Enabled = false,
-                    Config = new MCPServerConfig { Name = s["name"] ?? key },
-                    ToolNamePrefix = string.Empty
-                });
-                continue;
-            }
-
-            var name = (s["name"] ?? key).Trim();
-            var timeoutMs = ReadInt(s["timeoutMs"], defaultValue: 120000);
-
-            // Cursor-style fields
-            var url = (s["url"] ?? s["serverUrl"] ?? string.Empty).Trim();
-            var command = (s["command"] ?? string.Empty).Trim();
-            var transportHint = (s["transport"] ?? string.Empty).Trim(); // optional: "stdio" | "http"
-
-            var cfg = TryBuildConfig(name, timeoutMs, url, command, s);
-            if (cfg == null)
-            {
-                // best-effort: ignore malformed entries
-                continue;
-            }
-
-            // tool name prefix
-            var explicitPrefix = (s["toolNamePrefix"] ?? string.Empty).Trim();
-            var prefix = !string.IsNullOrWhiteSpace(explicitPrefix)
-                ? explicitPrefix
-                : (namespaceTools ? BuildDefaultToolPrefix(key) : string.Empty);
-
-            servers.Add(new ResolvedServer
-            {
-                Key = key,
-                Enabled = true,
-                Config = cfg,
-                ToolNamePrefix = prefix
-            });
+            merged[legacy.Key] = legacy;
+            sources.Add("MCP(legacy)");
         }
+
+        if (HasChildren(appServersSection))
+        {
+            MergeSectionInto(merged, appServersSection, namespaceTools);
+            sources.Add($"{MCPServersOptions.SectionName}:{MCPServersOptions.ServersKey}");
+        }
+
+        if (HasChildren(cursorServersSection))
+        {
+            // Highest precedence: raw Cursor config file (mcp.json).
+            MergeSectionInto(merged, cursorServersSection, namespaceTools);
+            sources.Add(MCPServersOptions.ServersKey);
+        }
+
+        if (merged.Count == 0)
+            return new Resolved();
 
         return new Resolved
         {
-            Source = source,
+            Source = sources.Count == 0 ? "none" : string.Join(" + ", sources.Distinct()),
             AutoConnect = autoConnect,
             NamespaceTools = namespaceTools,
-            Servers = servers
+            RetryMinIntervalSeconds = retryMinIntervalSeconds,
+            Servers = merged.Values
+                .OrderBy(s => s.Key, StringComparer.OrdinalIgnoreCase)
+                .ToList()
         };
     }
 
@@ -209,6 +178,14 @@ public static class MCPServersConfigReader
         return int.TryParse(raw, out var v) ? v : defaultValue;
     }
 
+    private static int? ReadIntNullable(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return null;
+
+        return int.TryParse(raw, out var v) ? v : null;
+    }
+
     private static List<string> ReadStringList(IConfigurationSection section)
     {
         var list = new List<string>();
@@ -246,6 +223,115 @@ public static class MCPServersConfigReader
         if (string.IsNullOrWhiteSpace(safe))
             safe = "server";
         return $"mcp__{safe}__";
+    }
+
+    private static void MergeSectionInto(
+        Dictionary<string, ResolvedServer> merged,
+        IConfigurationSection serversSection,
+        bool namespaceTools)
+    {
+        foreach (var s in serversSection.GetChildren())
+        {
+            var key = (s.Key ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(key))
+                continue;
+
+            // Cursor sometimes uses "disabled": true instead of enabled:false.
+            var disabled = ReadBool(s["disabled"], defaultValue: false);
+            var enabled = disabled
+                ? false
+                : ReadBool(s["enabled"], defaultValue: true);
+
+            if (!enabled)
+            {
+                merged[key] = new ResolvedServer
+                {
+                    Key = key,
+                    Enabled = false,
+                    Config = new MCPServerConfig { Name = s["name"] ?? key },
+                    ToolNamePrefix = string.Empty
+                };
+                continue;
+            }
+
+            var name = (s["name"] ?? key).Trim();
+            var timeoutMs = ReadInt(s["timeoutMs"], defaultValue: 120000);
+
+            var url = (s["url"] ?? s["serverUrl"] ?? string.Empty).Trim();
+            var command = (s["command"] ?? string.Empty).Trim();
+
+            var cfg = TryBuildConfig(name, timeoutMs, url, command, s);
+            if (cfg == null)
+                continue;
+
+            var explicitPrefix = (s["toolNamePrefix"] ?? string.Empty).Trim();
+            var prefix = !string.IsNullOrWhiteSpace(explicitPrefix)
+                ? explicitPrefix
+                : (namespaceTools ? BuildDefaultToolPrefix(key) : string.Empty);
+
+            merged[key] = new ResolvedServer
+            {
+                Key = key,
+                Enabled = true,
+                Config = cfg,
+                ToolNamePrefix = prefix
+            };
+        }
+    }
+
+    private static bool TryBuildLegacyServer(
+        IConfigurationSection mcpSection,
+        bool namespaceTools,
+        out ResolvedServer server)
+    {
+        // Legacy schema (scientific-research-assistant historical):
+        // MCP:Type = "Http" | "Docker"
+        // MCP:HttpUrl
+        // MCP:DockerImage
+        // MCP:RequestTimeoutMs
+        var type = (mcpSection["Type"] ?? string.Empty).Trim();
+        var httpUrl = (mcpSection["HttpUrl"] ?? string.Empty).Trim();
+        var dockerImage = (mcpSection["DockerImage"] ?? string.Empty).Trim();
+        var timeout = mcpSection.GetValue<int?>("RequestTimeoutMs") ?? 300000;
+
+        // If none of the legacy fields are present, it's not configured.
+        if (string.IsNullOrWhiteSpace(type) &&
+            string.IsNullOrWhiteSpace(httpUrl) &&
+            string.IsNullOrWhiteSpace(dockerImage))
+        {
+            server = default!;
+            return false;
+        }
+
+        var key = "scientific-skills";
+        MCPServerConfig cfg;
+
+        if (type.Equals("Docker", StringComparison.OrdinalIgnoreCase) || (!string.IsNullOrWhiteSpace(dockerImage) && string.IsNullOrWhiteSpace(httpUrl)))
+        {
+            var image = string.IsNullOrWhiteSpace(dockerImage)
+                ? "ghcr.io/k-dense-ai/claude-scientific-skills:latest"
+                : dockerImage;
+            cfg = MCPServerConfig.CreateDockerConfig(image, name: "Scientific Skills (Legacy Docker)");
+        }
+        else
+        {
+            var url = string.IsNullOrWhiteSpace(httpUrl)
+                ? "https://mcp.k-dense.ai/claude-scientific-skills/mcp"
+                : httpUrl;
+            cfg = MCPServerConfig.CreateHttpConfig(url, name: "Scientific Skills (Legacy HTTP)");
+        }
+
+        cfg.TimeoutMs = Math.Clamp(timeout, 1000, 10 * 60_000);
+
+        server = new ResolvedServer
+        {
+            Key = key,
+            Enabled = true,
+            Config = cfg,
+            ToolNamePrefix = namespaceTools ? BuildDefaultToolPrefix(key) : string.Empty
+        };
+
+        return true;
     }
 }
 

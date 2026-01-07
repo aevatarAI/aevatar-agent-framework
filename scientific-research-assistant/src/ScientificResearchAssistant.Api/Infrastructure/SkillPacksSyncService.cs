@@ -172,7 +172,8 @@ public sealed class SkillPacksSyncService
         var repoDir = ResolveRepoDir(spec);
         var skillsRoot = Path.GetFullPath(Path.Combine(repoDir, spec.SkillsSubDir ?? "skills"));
 
-        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(Math.Clamp(spec.UpdateTimeoutMs, 1000, 10 * 60_000)));
+        using var timeoutCts =
+            new CancellationTokenSource(TimeSpan.FromMilliseconds(Math.Clamp(spec.UpdateTimeoutMs, 1000, 10 * 60_000)));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
 
         try
@@ -236,7 +237,8 @@ public sealed class SkillPacksSyncService
                     };
                 }
 
-                var resetRc = await RunGitAsync(new List<string> { "-C", repoDir, "reset", "--hard", "FETCH_HEAD" }, null, linked.Token);
+                var resetRc = await RunGitAsync(new List<string> { "-C", repoDir, "reset", "--hard", "FETCH_HEAD" },
+                    null, linked.Token);
                 if (resetRc != 0)
                 {
                     return new SkillPackSyncEntry
@@ -308,7 +310,8 @@ public sealed class SkillPacksSyncService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "[SkillPacksSync] Sync failed for {Name} (best-effort): {Message}", spec.Name, ex.Message);
+            _logger.LogWarning(ex, "[SkillPacksSync] Sync failed for {Name} (best-effort): {Message}", spec.Name,
+                ex.Message);
             return new SkillPackSyncEntry
             {
                 Name = spec.Name,
@@ -461,7 +464,8 @@ public sealed class SkillPacksSyncService
         return options;
     }
 
-    private IReadOnlyList<AgentSkillsEmbeddingDocument> DiscoverSkillDocsForEmbedding(string skillsRoot, CancellationToken ct)
+    private IReadOnlyList<AgentSkillsEmbeddingDocument> DiscoverSkillDocsForEmbedding(string skillsRoot,
+        CancellationToken ct)
     {
         // This is intentionally simple and best-effort:
         // - find directories containing SKILL.md up to max depth 3
@@ -489,11 +493,18 @@ public sealed class SkillPacksSyncService
             var skillFile = Path.Combine(dir, "SKILL.md");
             if (File.Exists(skillFile))
             {
-                var folderName = Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                var folderName =
+                    Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
                 var (name, desc) = TryParseNameAndDescription(skillFile, folderName);
                 long ticks;
-                try { ticks = File.GetLastWriteTimeUtc(skillFile).Ticks; }
-                catch { ticks = 0; }
+                try
+                {
+                    ticks = File.GetLastWriteTimeUtc(skillFile).Ticks;
+                }
+                catch
+                {
+                    ticks = 0;
+                }
 
                 results.Add(new AgentSkillsEmbeddingDocument
                 {
@@ -551,7 +562,8 @@ public sealed class SkillPacksSyncService
                string.Equals(name, "assets", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static (string Name, string Description) TryParseNameAndDescription(string skillFilePath, string fallbackName)
+    private static (string Name, string Description) TryParseNameAndDescription(string skillFilePath,
+        string fallbackName)
     {
         try
         {
@@ -725,8 +737,14 @@ public sealed class SkillPacksSyncService
 
     private static async Task<string> Safe(Task<string> t)
     {
-        try { return await t.ConfigureAwait(false); }
-        catch { return string.Empty; }
+        try
+        {
+            return await t.ConfigureAwait(false);
+        }
+        catch
+        {
+            return string.Empty;
+        }
     }
 
     private static void AppendAgentSkillsDirs(string skillsRoot)
@@ -748,5 +766,3 @@ public sealed class SkillPacksSyncService
         Environment.SetEnvironmentVariable("AEVATAR_AGENT_SKILLS_DIRS", existing + ";" + root);
     }
 }
-
-

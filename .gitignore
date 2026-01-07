@@ -506,3 +506,4 @@ workspace/
 scientific-research-assistant/.skillpacks/
 scientific-research-assistant/skillpacks/
 scientific-research-assistant/src/ScientificResearchAssistant.Api/skillpacks.json
+scientific-research-assistant/src/ScientificResearchAssistant.Api/mcp.json

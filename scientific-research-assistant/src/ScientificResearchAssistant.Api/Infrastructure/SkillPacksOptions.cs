@@ -7,6 +7,13 @@ public sealed class SkillPacksOptions
 {
     public const string SectionName = "SkillPacks";
 
+    /// <summary>
+    /// Minimum interval between background retry attempts triggered by session activity.
+    /// <para/>
+    /// Default: 60 seconds.
+    /// </summary>
+    public int RetryMinIntervalSeconds { get; set; } = 60;
+
     public List<SkillPackSpec> Packs { get; set; } = new();
 }
 

@@ -24,10 +24,10 @@ public sealed class ResearchRuntime
     private readonly ILogger<ResearchRuntime> _logger;
     private readonly IOptions<LLMProvidersConfig> _llm;
     private readonly SkillPacksSyncService _skillPacksSync;
+    private readonly TimeSpan _skillPacksRetryMinInterval;
 
     // Per-process retry throttle (best-effort). We don't want to run `git pull` on every request.
     private DateTimeOffset _lastSkillPacksRetryKickoffUtc = DateTimeOffset.MinValue;
-    private static readonly TimeSpan SkillPacksRetryMinInterval = TimeSpan.FromSeconds(60);
 
     private readonly Dictionary<string, SessionEntry> _sessions = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _sessionsLock = new(1, 1);
@@ -36,12 +36,18 @@ public sealed class ResearchRuntime
         IGAgentActorFactory actorFactory,
         ILogger<ResearchRuntime> logger,
         IOptions<LLMProvidersConfig> llm,
-        SkillPacksSyncService skillPacksSync)
+        SkillPacksSyncService skillPacksSync,
+        IOptions<SkillPacksOptions> skillPacksOptions)
     {
         _actorFactory = actorFactory;
         _logger = logger;
         _llm = llm;
         _skillPacksSync = skillPacksSync;
+
+        var seconds = skillPacksOptions?.Value?.RetryMinIntervalSeconds ?? 60;
+        // Keep it sane: prevent accidental zero/negative or extremely spammy values.
+        seconds = Math.Clamp(seconds, 5, 3600);
+        _skillPacksRetryMinInterval = TimeSpan.FromSeconds(seconds);
     }
 
     public async Task<(ResearchAgent Agent, string AgentId)> GetAgentAsync(
@@ -259,7 +265,7 @@ public sealed class ResearchRuntime
 
             var now = DateTimeOffset.UtcNow;
             if (_lastSkillPacksRetryKickoffUtc != DateTimeOffset.MinValue &&
-                now - _lastSkillPacksRetryKickoffUtc < SkillPacksRetryMinInterval)
+                now - _lastSkillPacksRetryKickoffUtc < _skillPacksRetryMinInterval)
             {
                 return;
             }

@@ -81,6 +81,7 @@
     <Project Path="plugins\Aevatar.Agents.Plugins.MassTransit\Aevatar.Agents.Plugins.MassTransit.csproj" />
   </Folder>
   <Folder Name="/src/">
+    <Project Path="src/Aevatar.Agents.A2UI/Aevatar.Agents.A2UI.csproj" />
     <Project Path="src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
     <Project Path="src\Aevatar.Agents.AGUI\Aevatar.Agents.AGUI.csproj" />
     <Project Path="src\Aevatar.Agents.AI.Abstractions\Aevatar.Agents.AI.Abstractions.csproj" />
@@ -110,6 +111,7 @@
     <Project Path="src\Aevatar.Agents.Runtime\Aevatar.Agents.Runtime.csproj" />
   </Folder>
   <Folder Name="/test/">
+    <Project Path="test/Aevatar.Agents.A2UI.Tests/Aevatar.Agents.A2UI.Tests.csproj" />
     <Project Path="test/Aevatar.Agents.AGUI.Tests/Aevatar.Agents.AGUI.Tests.csproj" />
     <Project Path="test/Aevatar.Agents.AI.Core.Tests/Aevatar.Agents.AI.Core.Tests.csproj" />
     <Project Path="test/Aevatar.Agents.Maker.Tests/Aevatar.Agents.Maker.Tests.csproj" />

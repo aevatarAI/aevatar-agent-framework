@@ -16,6 +16,8 @@ using ScientificResearchAssistant.Api.Workspace;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddJsonFile("appsettings.secrets.json", optional: true, reloadOnChange: true);
+// Optional Cursor-style MCP config (raw mcpServers map). Users can copy ~/.cursor/mcp.json here.
+builder.Configuration.AddJsonFile("mcp.json", optional: true, reloadOnChange: true);
 builder.Configuration.AddJsonFile("skillpacks.json", optional: true, reloadOnChange: true);
 
 builder.Logging.ClearProviders();

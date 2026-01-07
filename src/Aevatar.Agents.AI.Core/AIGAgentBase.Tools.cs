@@ -16,6 +16,8 @@ using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
+using Aevatar.Agents.AI.Core.Messages;
+
 namespace Aevatar.Agents.AI.Core;
 
 // ReSharper disable InconsistentNaming
@@ -402,14 +404,66 @@ public abstract partial class AIGAgentBase
     /// <summary>
     /// Execute a tool by name with parameters.
     /// </summary>
-    protected Task<ToolExecutionResult> ExecuteToolAsync(
+    protected async Task<ToolExecutionResult> ExecuteToolAsync(
         string toolName,
         Dictionary<string, object> parameters,
         ToolExecutionContext? context = null,
         CancellationToken cancellationToken = default)
     {
         EnsureToolManagerInitialized();
-        return ToolManager.ExecuteToolAsync(toolName, parameters, context, cancellationToken);
+
+        var msgId = Guid.NewGuid().ToString("N");
+        var tcId = Guid.NewGuid().ToString("N");
+
+        // Publish START (Protobuf)
+        await PublishAsync(new ToolCallStartEvent
+        {
+            MessageId = msgId,
+            ToolCallId = tcId,
+            ToolName = toolName,
+            ArgumentsJson = JsonSerializer.Serialize(parameters),
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+        }, EventDirection.Down, cancellationToken);
+
+        ToolExecutionResult result;
+        try
+        {
+            result = await ToolManager.ExecuteToolAsync(toolName, parameters, context, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // Publish ERROR result
+            await PublishAsync(new ToolCallResultEvent
+            {
+                MessageId = msgId,
+                ToolCallId = tcId,
+                Result = "",
+                IsSuccess = false,
+                ErrorMessage = ex.Message,
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+            }, EventDirection.Down, cancellationToken);
+            throw;
+        }
+
+        // Publish SUCCESS result
+        await PublishAsync(new ToolCallResultEvent
+        {
+            MessageId = msgId,
+            ToolCallId = tcId,
+            Result = result.Content ?? "",
+            IsSuccess = result.IsSuccess,
+            ErrorMessage = result.ErrorMessage ?? "",
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+        }, EventDirection.Down, cancellationToken);
+
+        await PublishAsync(new ToolCallEndEvent
+        {
+            MessageId = msgId,
+            ToolCallId = tcId,
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+        }, EventDirection.Down, cancellationToken);
+
+        return result;
     }
 
     private string BuildToolInstructionBlock()

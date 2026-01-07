@@ -1,0 +1,1467 @@
+# ============================================================
+#  HYPOTHESIS PROMOTION LOOP (HPL) + HPA
+#
+#  Adds Holographic Polar Arithmetic (HPA) as a deterministic evidence layer:
+#   Rotation (scan Θ) → Factorization (depends_on/factor_sequence) → Projection (gap δ)
+#
+#  What changes vs hypothesis_promotion_loop.yaml:
+#  - Coordinator/Workers must output depends_on + factor_sequence (for embedding + associator).
+#  - Token-free hpa steps compute: scan_target, embeddings, coherence/gap, associator stats.
+#  - Verification gate uses both vote-style counts and HPA metrics.
+# ============================================================
+
+name: hypothesis_promotion_loop_hpa
+version: "1.0"
+description: "HPL with HPA: explore hypotheses, compute HPA evidence, verify with MAKER, then promote to theorems."
+
+defaults:
+  llm_call:
+    # --------------------------------------------------------
+    #  LLM call guardrails (Worker + Coordinator)
+    # --------------------------------------------------------
+    max_length: 102400
+    strict_parse: true
+    timeout_seconds: 180
+    idle_timeout_seconds: 30
+    # --------------------------------------------------------
+    #  System prompt (shared) - HPA paper as reference + fast consensus
+    #
+    #  Reference: articles/2025_holographic_polar_arithmetic
+    #
+    #  Goal:
+    #  - Use HPA as a discipline to converge quickly: minimal assumptions, explicit gaps, decisive verdicts.
+    #  - Deterministic HPA ops are computed by the workflow (scan/embedding/evidence); do NOT invent them.
+    # --------------------------------------------------------
+    system: |
+      You are an agent in an HPA-augmented multi-agent theorem discovery loop.
+      Treat the paper "Holographic Polar Arithmetic" (2025) as your reference model.
+
+      Core triad (Rotation → Factorization → Projection):
+      - Rotation (scan Θ): "time" is the iteration/access-order; irrational rotation is used to avoid resonance (golden branch α=φ^{-1}).
+      - Factorization: represent claims by explicit generators (axiom/theorem IDs) and an ordered reasoning path.
+      - Projection/readout: only accept closed arguments; any missing lemma/assumption is a residual gap δ and must be stated explicitly.
+
+      Key constructs you must respect (paper-aligned):
+      - Embedding: Z(n)=ρ(n)·exp(i·θ×(n)); θ× is additive under multiplication (homomorphic phase).
+      - Octonionic lift: unit direction U(n)∈S^7 from a left-normed prime product; ordering matters (path dependence).
+      - Associator A(x,y,z)=(xy)z−x(yz) measures non-associativity; interpret large A as fragile/ordering-dependent reasoning.
+      - Golden branch: minimal complexity + canonical binary encoding (Zeckendorf/Ostrowski intuition) → prefer minimal, checkable steps.
+
+      Fast-consensus mode:
+      - Be decisive: choose accept/refute with one minimal reason.
+      - Prefer minimal repairs: change as little as possible to reduce δ.
+      - If you cannot fully prove, do NOT hedge: output accept=false with the minimal gap δ and propose 1–3 B candidates.
+
+      Hard constraints:
+      - Do NOT invent axioms/facts/IDs.
+      - Follow the output schema exactly.
+      - When JSON is required, output JSON only (no markdown, no commentary).
+
+  fan_out:
+    # --------------------------------------------------------
+    #  fan_out guardrails (Coordinator)
+    # --------------------------------------------------------
+    timeout_seconds: 600
+    include_failures: true
+
+  vote:
+    # --------------------------------------------------------
+    #  vote guardrails (Coordinator)
+    # --------------------------------------------------------
+    red_flag: english
+    max_red_flags: 20
+
+inputs:
+  - name: task
+    type: string
+    required: true
+    description: "Raw task text. Must include AXIOMS lines (O1:/A1: ...)."
+
+  - name: context
+    type: object
+    required: false
+    description: "Optional extra context."
+
+  - name: state
+    type: object
+    required: false
+    description: "Internal loop state (recursive)."
+
+  - name: k
+    type: int
+    default: 3
+    description: "Consensus threshold K. Worker count N is expected to be 2K-1."
+
+  - name: max_rounds
+    type: int
+    default: 10
+    description: "Max rounds for vote steps."
+
+  - name: similarity
+    type: float
+    default: 0.85
+    description: "Semantic clustering threshold (if embeddings enabled)."
+
+  - name: max_depth
+    type: int
+    default: 50
+    description: "Max loop iterations (recursion depth cap)."
+
+  - name: top_k_facts
+    type: int
+    default: 20
+    description: "Top-k relevant theorems for RelevantFacts retrieval."
+
+  # --------------------------------------------------------
+  # HPA knobs (all deterministic, no extra LLM calls)
+  # --------------------------------------------------------
+  - name: hpa_alpha
+    type: float
+    default: 0.6180339887498949
+    description: "Scan slope α (golden branch default: φ^{-1})."
+
+  - name: hpa_seed_phase
+    type: float
+    default: 0.0
+    description: "Scan intercept/seed phase in [0,1)."
+
+  - name: hpa_beta_model
+    type: string
+    default: "random_prime_phase"
+    description: "Phase model: log_phase | omega_phase | random_prime_phase"
+
+  - name: hpa_beta0
+    type: float
+    default: 4.0
+    description: "β0 for log_phase (θ≈β0·log)."
+
+  - name: hpa_beta1
+    type: float
+    default: 2.0
+    description: "β1 for omega_phase (θ≈β1·Ω)."
+
+  - name: hpa_seed
+    type: int
+    default: 0
+    description: "Deterministic hash seed for octonion lift / random-phase."
+
+  - name: hpa_radial_w_base
+    type: float
+    default: 0.12
+    description: "Radial weight base (ρ=exp(sum w))."
+
+  - name: hpa_radial_w_scale
+    type: float
+    default: 0.38
+    description: "Radial weight scale (ρ=exp(sum w))."
+
+  # --------------------------------------------------------
+  # HPA gate thresholds (tunable)
+  # --------------------------------------------------------
+  - name: min_coherence
+    type: float
+    default: 0.55
+    description: "Minimum coherence to enter verification."
+
+  - name: max_gap_norm
+    type: float
+    default: 0.65
+    description: "Maximum normalized gap to enter verification."
+
+  - name: max_associator_mean
+    type: float
+    default: 1.5
+    description: "Maximum associator mean to enter verification."
+
+  - name: language
+    type: string
+    default: "English"
+    description: "Natural language for statements/proofs/reasons (JSON keys remain unchanged)."
+
+steps:
+  # --------------------------------------------------------
+  # Step 0: init state (parse axioms, seed a starting hypothesis)
+  # --------------------------------------------------------
+  - id: ensure_state
+    type: conditional
+    condition: "{{ state != null }}"
+    if_false:
+      - id: init_state
+        type: llm_call
+        prompt: |
+          You are the coordinator of an HPA-augmented Hypothesis Promotion Loop.
+
+          Operate under the HPA triad (Rotation → Factorization → Projection):
+          - Rotation (Θ scan): time = iteration k (access order). A scan_target is computed later; do NOT invent it here.
+          - Factorization (generators): every hypothesis MUST carry:
+              depends_on: minimal set of generator IDs (axiom/theorem IDs)
+              factor_sequence: ordered generator list (your reasoning order; used for octonion/associator signals)
+          - Projection (readout): if a derivation would require ANY extra assumption/lemma not listed in depends_on,
+            you must NOT smuggle it in. Keep the hypothesis narrow and mention the missing piece in motivation.
+
+          CRITICAL:
+          - Extract axioms from raw_task. Each axiom is a line that begins with an ID prefix like "O1:" or "A1:".
+          - Do NOT invent axioms.
+          - Extract optional user guidance from raw_task (if present):
+            - Focus / explore direction: the text under the header "Focus (optional):" (can be multi-line).
+              This corresponds to the UI "Goal" field and should guide what hypotheses to propose next.
+            - Seed hypothesis (optional): the text under the header "SeedHypothesis (optional):" (can be multi-line).
+              If absent, also accept legacy inline formats inside Focus like "SeedHypothesis:" / "InitialHypothesis:".
+            - Store these into state.focus and state.seed_hypothesis for later rounds.
+            - If a user seed hypothesis includes extra premises not represented by allowed IDs, do NOT smuggle them in:
+              either weaken the statement to be unconditional, or move the extra premise into motivation as a gap δ.
+          - Propose EXACTLY ONE additional assumption (S1) as a "quantum-structure setup".
+            - It does NOT have to be derivable from the axioms, but it should be plausible and NOT obviously inconsistent with them.
+            - It MUST be explicit and operational (a concrete structural choice), not a vague slogan.
+            - Typical good forms: "the global state is the ground state of a local Hamiltonian on G", "bulk/boundary code is realized by a tensor network of type X",
+              "local degrees of freedom are qudits of dimension d on vertices", "a stabilizer / gauge constraint is imposed", etc.
+            - This is NOT an axiom: record it under state.assumptions and cite it as [S1] when used.
+          - For depends_on/factor_sequence, use ONLY existing IDs:
+            - Axiom IDs: the prefix before ":" (e.g. "O1", "A2")
+            - Assumption IDs: from state.assumptions (exactly ["S1"])
+            - Theorem IDs (only if present in the initial theorems list, e.g. "T3")
+          - Seed current_hypothesis with a small, checkable statement likely derivable from axioms + assumptions.
+            - If state.seed_hypothesis is non-empty, use it as the seed hypothesis statement (still fill depends_on/factor_sequence).
+              If the provided seed is too strong, minimally weaken it while staying aligned.
+            - Otherwise, pick a seed that aligns with state.focus (if non-empty).
+          - The seed hypothesis MUST NOT rely on any extra premise/lemma.
+            - Avoid conditional premises like "if G is finite / if boundary area is finite / assume ...".
+            - If you notice a missing lemma in motivation, that means the hypothesis is NOT suitable as the seed.
+          - If you are unsure, prefer a structurally safe statement that follows from definitions already implied by the axioms
+            (e.g., from an isometry Φ: ℋ_bulk → ℋ_{∂G}, you may state injectivity or dim(ℋ_bulk) ≤ dim(ℋ_{∂G})).
+          - Return ONLY JSON (no markdown).
+
+          raw_task:
+          {{ task }}
+          {% if context %}
+          context:
+          {{ context | json }}
+          {% endif %}
+
+          Output JSON schema:
+          {
+            "focus": string,
+            "seed_hypothesis": string,
+            "axioms": [string],
+            "assumptions": [
+              { "id": string, "statement": string, "motivation": string }
+            ],
+            "theorems": [
+              { "id": string, "statement": string, "proof": string, "depends_on": [string] }
+            ],
+            "current_hypothesis": {
+              "id": string,
+              "statement": string,
+              "motivation": string,
+              "depends_on": [string],
+              "factor_sequence": [string]
+            },
+            "iteration": int,
+            "max_iterations": int,
+            "seen_hypotheses": [string],
+            "last_candidate": {
+              "id": string,
+              "statement": string,
+              "motivation": string,
+              "depends_on": [string],
+              "factor_sequence": [string]
+            } | null,
+            "last_worker_verdicts": [],
+            "last_b_pool": [],
+            "last_judgement": { "proved": bool, "reason": string } | null,
+            "history": [],
+            "done": bool,
+            "status": "running" | "completed" | "failed" | "limit"
+          }
+
+          Constraints:
+          - iteration MUST start at 0.
+          - max_iterations MUST be set to max_depth={{max_depth}}.
+          - seen_hypotheses MUST start empty.
+          - assumptions MUST contain exactly 1 item with id="S1".
+          - focus MUST be a string (use "" if not provided).
+          - seed_hypothesis MUST be a string (use "" if not provided).
+
+          Language: {{language}}
+        output: json
+        store: state
+
+  # --------------------------------------------------------
+  # Step HPA-0: prepare scan + theorem embeddings (token-free)
+  # --------------------------------------------------------
+  - id: hpa_prepare
+    type: hpa
+    ops:
+      - op: scan_target
+        iteration: "{{ state.iteration }}"
+        alpha: "{{ hpa_alpha }}"
+        seed_phase: "{{ hpa_seed_phase }}"
+        store: scan
+
+      - op: embed_list
+        from: "state.theorems"
+        id_field: "id"
+        attach_field: "hpa"
+        beta_model: "{{ hpa_beta_model }}"
+        beta0: "{{ hpa_beta0 }}"
+        beta1: "{{ hpa_beta1 }}"
+        seed: "{{ hpa_seed }}"
+        radial_w_base: "{{ hpa_radial_w_base }}"
+        radial_w_scale: "{{ hpa_radial_w_scale }}"
+        store: theorem_index
+
+  # --------------------------------------------------------
+  # Step 1: choose hypothesis A for this round
+  # - if state.current_hypothesis exists: use it
+  # - else: coordinator proposes one
+  # --------------------------------------------------------
+  - id: ensure_candidate
+    type: conditional
+    condition: "{{ state.current_hypothesis != null }}"
+    if_true:
+      - id: use_current_hypothesis
+        type: assign
+        from: "state.current_hypothesis"
+        store: candidate
+    if_false:
+      - id: prepare_theorem_context
+        type: transform
+        ops:
+          - op: take_last
+            from: state.theorems
+            n: 30
+            store: recent_theorems_raw
+
+          - op: project_fields
+            from: recent_theorems_raw
+            fields: ["id", "statement"]
+            store: recent_theorems
+
+      - id: propose_hypothesis
+        type: llm_call
+        prompt: |
+          You are the coordinator in an HPA-augmented theorem discovery loop.
+          Propose ONE new hypothesis (Hypothesis A) to explore next.
+
+          Operate under the HPA triad (Rotation → Factorization → Projection):
+
+          1) Rotation (Θ scan / access order):
+             - scan.target_phase01 is a deterministic exploration target (golden irrational rotation).
+             - Prefer a hypothesis that is NOT a near-duplicate of seen_hypotheses.
+             - Prefer a small generator move: change 0–1 dependency vs the last candidate (if any), instead of random jumps.
+
+          2) Factorization (generators):
+             - You MUST output:
+                 depends_on: minimal set of generator IDs
+                 factor_sequence: ordered list of generator IDs (your intended reasoning order)
+             - Allowed IDs:
+                 - Axiom IDs: the prefix before ":" in state.axioms (e.g. "O1", "A2")
+                 - Assumption IDs: from state.assumptions (e.g. "S1")
+                 - Theorem IDs: only those listed in Recent proved theorems below
+             - Never invent IDs. Keep depends_on small (prefer <= 3).
+
+          3) Projection (readout / gap discipline):
+             - Do NOT introduce new axioms/lemmas/assumptions beyond what is provided in state (axioms/theorems/assumptions).
+             - If you suspect an extra lemma is needed, weaken/narrow the statement instead of smuggling assumptions.
+
+          Output requirements:
+          - Return ONLY JSON (no markdown).
+          - The hypothesis MUST be NEW (not identical to any seen hypothesis).
+          - The statement MUST be novel, non-trivial, research-grade, checkable, and likely provable/refutable within <= 10 steps.
+          - Do NOT add extra premises that are not present as IDs:
+            - Avoid "if/assuming/suppose" style statements that smuggle new conditions (e.g., "if G is finite", "if boundary area is finite").
+            - If a condition is not an existing axiom/theorem ID, you cannot use it as a premise; instead, weaken the claim to an unconditional one.
+          - If you are stuck cycling on O2-style boundedness gaps, deliberately pivot to O4 (isometry) or O3 (locality) consequences that are unconditional.
+
+          Axioms:
+          {{ state.axioms | json }}
+
+          Assumptions (extra premises, cite as [S1] when used):
+          {{ state.assumptions | json }}
+
+          User focus / explore direction (optional):
+          {{ state.focus | default: "" }}
+
+          User-provided seed hypothesis (optional, for context only):
+          {{ state.seed_hypothesis | default: "" }}
+
+          Recent proved theorems (id + statement only):
+          {{ recent_theorems | json }}
+
+          Seen hypotheses (normalized strings):
+          {{ state.seen_hypotheses | json }}
+
+          ScanTarget (golden scan):
+          {{ scan | json }}
+
+          Output JSON schema:
+          {
+            "id": string,
+            "statement": string,
+            "motivation": string,
+            "depends_on": [string],
+            "factor_sequence": [string]
+          }
+
+          Language: {{language}}
+        output: json
+        store: candidate
+
+  # --------------------------------------------------------
+  # Step HPA-1: embed candidate (token-free)
+  # --------------------------------------------------------
+  - id: embed_candidate
+    type: hpa
+    ops:
+      - op: embed_node
+        node: "{{ candidate }}"
+        attach_field: "hpa"
+        beta_model: "{{ hpa_beta_model }}"
+        beta0: "{{ hpa_beta0 }}"
+        beta1: "{{ hpa_beta1 }}"
+        seed: "{{ hpa_seed }}"
+        radial_w_base: "{{ hpa_radial_w_base }}"
+        radial_w_scale: "{{ hpa_radial_w_scale }}"
+        store: candidate_hpa
+
+  # --------------------------------------------------------
+  # Step 2: retrieve RelevantFacts (token guardrail)
+  # --------------------------------------------------------
+  - id: retrieve_relevant_facts
+    type: retrieve_facts
+    query: "{{ candidate.statement }}"
+    source: "state.theorems"
+    text_field: "statement"
+    id_field: "id"
+    top_k: "{{ top_k_facts }}"
+    mode: lexical
+    store: relevant_facts
+
+  # --------------------------------------------------------
+  # Step 3: refute-first scouts (2 workers)
+  # --------------------------------------------------------
+  - id: build_scouts
+    type: transform
+    ops:
+      - op: set
+        value:
+          - { id: "scout-0", role: "Counterexample hunter", angle: "Try to find a fatal counterexample or contradiction quickly." }
+          - { id: "scout-1", role: "Missing-premise hunter", angle: "Try to find the minimal missing assumption that breaks the hypothesis." }
+        store: scouts
+
+  - id: refute_scout
+    type: fan_out
+    for_each: scouts
+    include_failures: true
+    reduce: collect
+    step:
+      type: llm_call
+      prompt: |
+        You are {{item.role}} ({{item.id}}).
+        Angle: {{item.angle}}
+
+        Task:
+        Evaluate Hypothesis A. Your top priority is to find a STRONG refutation if it exists.
+
+        HPA operating rules (Factorization → Projection):
+        - Factorization: you MUST report depends_on + factor_sequence (ordered reasoning path).
+        - Projection / gap δ: you must NOT add hidden assumptions. Any missing lemma/assumption is a gap δ:
+          put it in gap_or_counterexample and set accept=false.
+        - Non-associativity signal: factor_sequence MUST reflect your actual reasoning order (path dependence matters).
+
+        Rules:
+        - Use ONLY the axioms + assumptions + relevant facts provided.
+        - Return ONLY valid JSON (no markdown).
+        - If accept=true: provide a short proof (<= 10 steps), with each step citing used IDs like [O1,T2].
+        - If accept=false: provide the minimal gap δ or a counterexample (one short paragraph).
+        - strong_refutation=true ONLY if you can state an explicit fatal counterexample/contradiction
+          derived from provided axioms/facts with NO extra assumptions. If it's merely "missing lemma",
+          set strong_refutation=false and put that lemma in gap_or_counterexample as gap δ.
+        - Do NOT invent IDs. depends_on must be a subset of available axiom/theorem/assumption IDs.
+
+        Axioms:
+        {{ state.axioms | json }}
+
+        Assumptions:
+        {{ state.assumptions | json }}
+
+        User focus / explore direction (optional):
+        {{ state.focus | default: "" }}
+
+        User-provided seed hypothesis (optional, for context only):
+        {{ state.seed_hypothesis | default: "" }}
+
+        RelevantFacts (top-k theorems):
+        {{ relevant_facts | json }}
+
+        Hypothesis A:
+        {{ candidate | json }}
+
+        Output JSON schema:
+        {
+          "worker_id": "{{item.id}}",
+          "accept": bool,
+          "strong_refutation": bool,
+          "confidence": number,
+          "proof": string,
+          "gap_or_counterexample": string,
+          "depends_on": [string],
+          "factor_sequence": [string],
+          "proposed_b": [
+            { "statement": string, "motivation": string, "depends_on": [string], "factor_sequence": [string] }
+          ]
+        }
+
+        Language: {{language}}
+      output: json
+    store: scout_verdicts
+
+  - id: aggregate_scout
+    type: transform
+    ops:
+      # Strong refutation gate (quorum):
+      # - Avoid a single overzealous scout blocking the whole round.
+      # - Require BOTH scouts to independently mark strong_refutation=true.
+      - op: count_where
+        from: scout_verdicts
+        where: { field: "strong_refutation", equals: true }
+        store: scout_strong_refutation_count
+
+      - op: eval
+        expr: "scout_strong_refutation_count >= 2"
+        store: scout_has_strong_refutation
+
+      - op: select_many
+        from: scout_verdicts
+        field: "proposed_b"
+        store: scout_b_raw
+
+      - op: distinct
+        from: scout_b_raw
+        key: "statement"
+        store: scout_b_candidates
+
+  # --------------------------------------------------------
+  # Step 4: branch - early stop if strong refutation
+  # --------------------------------------------------------
+  - id: scout_gate
+    type: conditional
+    condition: "{{ scout_has_strong_refutation == true }}"
+
+    # ===== Early stop: strong refutation => go to B pool vote =====
+    if_true:
+      - id: ensure_b_pool_scout
+        type: conditional
+        condition: "{{ (scout_b_candidates | size) > 0 }}"
+        if_true:
+          - id: set_b_pool_from_scout
+            type: assign
+            from: "scout_b_candidates"
+            store: b_pool
+        if_false:
+          - id: propose_fallback_b_scout
+            type: llm_call
+            prompt: |
+              Scouts reported a strong refutation.
+              In HPA terms: the projection/readout failed with a non-zero gap δ (counterexample or fatal inconsistency).
+
+              Propose 3-5 alternative hypotheses (B candidates) as minimal repairs.
+
+              HPA repair rules:
+              - Each B should fix exactly ONE issue:
+                (a) add exactly ONE missing dependency ID, OR
+                (b) weaken/restrict the statement to remove the contradiction.
+              - Each B MUST include depends_on + factor_sequence (ordered generators).
+              - Do NOT invent IDs. Use only axiom IDs, assumption IDs, and theorem IDs present in RelevantFacts.
+              - Prefer B candidates that are novel, non-trivial, research-grade, checkable, and likely provable/refutable in <= 10 steps.
+              - Use ScanTarget to avoid near-duplicates and explore a new generator region.
+
+              Axioms:
+              {{ state.axioms | json }}
+
+              Assumptions:
+              {{ state.assumptions | json }}
+
+              User focus / explore direction (optional):
+              {{ state.focus | default: "" }}
+
+              User-provided seed hypothesis (optional, for context only):
+              {{ state.seed_hypothesis | default: "" }}
+
+              RelevantFacts:
+              {{ relevant_facts | json }}
+
+              ScanTarget (Θ):
+              {{ scan | json }}
+
+              Refuted Hypothesis A:
+              {{ candidate | json }}
+
+              Scout verdicts:
+              {{ scout_verdicts | json }}
+
+              Output JSON schema (array):
+              [
+                { "statement": string, "motivation": string, "depends_on": [string], "factor_sequence": [string] }
+              ]
+
+              Language: {{language}}
+            output: json_array
+            store: b_pool
+
+      - id: vote_next_hypothesis_scout
+        type: vote
+        k: "{{k}}"
+        max_rounds: "{{max_rounds}}"
+        similarity: "{{similarity}}"
+        generator:
+          type: llm_call
+          prompt: |
+            Choose the EASIEST next hypothesis from the candidate pool.
+
+            HPA selection rules:
+            - Return ONLY JSON.
+            - You MUST pick ONE candidate from B pool and copy these fields EXACTLY (no edits):
+              statement, motivation, depends_on, factor_sequence
+            - Use "reason" to explain why it likely reduces the gap δ found by scouts and is easiest to verify.
+            - Prefer: fewer dependencies, minimal repair, shortest proof path, low ordering fragility.
+            - If user focus is non-empty, prefer a candidate aligned with that direction (unless it fails to repair the gap δ).
+
+            User focus / explore direction (optional):
+            {{ state.focus | default: "" }}
+
+            B pool:
+            {{ b_pool | json }}
+
+            Output JSON schema:
+            {
+              "statement": string,
+              "motivation": string,
+              "depends_on": [string],
+              "factor_sequence": [string],
+              "reason": string
+            }
+
+            Language: {{language}}
+          output: json
+        store: next_hypothesis
+
+      - id: set_next_hypothesis_after_scout
+        type: transform
+        ops:
+          - op: normalize
+            value: "{{ candidate.statement }}"
+            store: candidate_norm
+
+          - op: inc_path
+            target: state
+            path: iteration
+            by: 1
+
+          - op: set_path
+            target: state
+            path: last_candidate
+            value: "{{ candidate }}"
+
+          - op: set_path
+            target: state
+            path: last_worker_verdicts
+            value: "{{ scout_verdicts }}"
+
+          - op: set_path
+            target: state
+            path: last_b_pool
+            value: "{{ b_pool }}"
+
+          - op: set_path
+            target: state
+            path: last_judgement
+            value: null
+
+          - op: append_unique_path
+            target: state
+            path: seen_hypotheses
+            value: "{{ candidate_norm }}"
+
+          - op: set_path
+            target: state
+            path: current_hypothesis
+            value:
+              id: "H{{ state.iteration }}"
+              statement: "{{ next_hypothesis.statement }}"
+              motivation: "{{ next_hypothesis.motivation }}"
+              depends_on: "{{ next_hypothesis.depends_on }}"
+              factor_sequence: "{{ next_hypothesis.factor_sequence }}"
+
+          - op: eval
+            expr: "state.iteration >= max_depth"
+            store: reach_limit
+
+          - op: set_path
+            target: state
+            path: done
+            value: "{{ reach_limit }}"
+
+          - op: set_path
+            target: state
+            path: status
+            value: running
+
+          - op: set_path_if
+            if: "{{ reach_limit }}"
+            target: state
+            path: status
+            value: limit
+
+    # ===== No strong refutation: full exploration =====
+    if_false:
+      # Build N=2K-1 provers (diverse roles)
+      - id: build_provers
+        type: transform
+        ops:
+          - op: make_workers
+            n: "{{ (k * 2) - 1 }}"
+            id_prefix: "worker-"
+            # Bias towards proving (scouts already cover refutation-first).
+            profiles:
+              - { role: "Direct prover", angle: "Try to construct the shortest proof path." }
+              - { role: "Algebraic manipulator", angle: "Try algebraic/rewriting transformations; simplify aggressively." }
+              - { role: "Dependency minimalist", angle: "Try to reduce dependency set; prefer proofs close to axioms." }
+              - { role: "Case-split specialist", angle: "Try a structured case analysis; look for missing branches." }
+              - { role: "Proof auditor", angle: "Audit for hidden leaps; insist on explicit justification." }
+            store: provers
+
+      # Full exploration fan_out
+      - id: prove_or_refute_with_workers
+        type: fan_out
+        for_each: provers
+        include_failures: true
+        reduce: collect
+        step:
+          type: llm_call
+          prompt: |
+            You are {{item.role}} ({{item.id}}).
+            Angle: {{item.angle}}
+
+            Task:
+            Evaluate Hypothesis A: prove it OR refute it (gap/counterexample).
+
+            HPA operating rules (Factorization → Projection):
+            - Factorization: you MUST report depends_on + factor_sequence (ordered reasoning path).
+            - Projection / gap δ: do NOT add hidden assumptions. Any missing lemma/assumption is a gap δ:
+              put it in gap_or_counterexample and set accept=false.
+            - Non-associativity signal: factor_sequence MUST reflect your actual reasoning order (path dependence matters).
+
+            Rules:
+            - Use ONLY the axioms + assumptions + relevant facts provided.
+            - Return ONLY valid JSON (no markdown).
+            - If accept=true: provide a short proof SKETCH (<= 10 steps), each step cites used IDs like [O1,T2].
+              It can be high-level, but MUST stay within provided axioms/facts and MUST NOT introduce new assumptions.
+              If you're uncertain but see no refutation and the sketch is plausible, you may still set accept=true with lower confidence.
+            - If accept=false: provide minimal gap δ or counterexample, and propose 1–3 B candidates as minimal repairs.
+            - strong_refutation=true ONLY for an explicit fatal counterexample/contradiction with no extra assumptions.
+            - Do NOT invent IDs. depends_on must be a subset of available axiom/theorem/assumption IDs.
+
+            Axioms:
+            {{ state.axioms | json }}
+
+            Assumptions:
+            {{ state.assumptions | json }}
+
+            User focus / explore direction (optional):
+            {{ state.focus | default: "" }}
+
+            User-provided seed hypothesis (optional, for context only):
+            {{ state.seed_hypothesis | default: "" }}
+
+            RelevantFacts:
+            {{ relevant_facts | json }}
+
+            Hypothesis A:
+            {{ candidate | json }}
+
+            Output JSON schema:
+            {
+              "worker_id": "{{item.id}}",
+              "accept": bool,
+              "strong_refutation": bool,
+              "confidence": number,
+              "proof": string,
+              "gap_or_counterexample": string,
+              "depends_on": [string],
+              "factor_sequence": [string],
+              "proposed_b": [
+                { "statement": string, "motivation": string, "depends_on": [string], "factor_sequence": [string] }
+              ]
+            }
+
+            Language: {{language}}
+          output: json
+        store: worker_verdicts
+
+      # Aggregate counts + B pool
+      - id: aggregate_verdicts
+        type: transform
+        ops:
+          - op: count_where
+            from: worker_verdicts
+            where: { field: "accept", equals: true }
+            store: accept_count
+
+          - op: count_where
+            from: worker_verdicts
+            where: { field: "strong_refutation", equals: true }
+            store: strong_refutation_count
+
+          - op: select_many
+            from: worker_verdicts
+            field: "proposed_b"
+            store: b_raw
+
+          - op: distinct
+            from: b_raw
+            key: "statement"
+            store: b_pool
+
+      # HPA evidence layer (token-free): coherence / gap / associator
+      - id: hpa_evidence
+        type: hpa
+        ops:
+          - op: evidence_synthesize
+            candidate: "{{ candidate }}"
+            verdicts: "worker_verdicts"
+            relevant: "relevant_facts"
+            theorem_index: "theorem_index"
+            beta_model: "{{ hpa_beta_model }}"
+            beta0: "{{ hpa_beta0 }}"
+            beta1: "{{ hpa_beta1 }}"
+            seed: "{{ hpa_seed }}"
+            radial_w_base: "{{ hpa_radial_w_base }}"
+            radial_w_scale: "{{ hpa_radial_w_scale }}"
+            store: evidence
+
+          - op: associator_stats
+            candidate: "{{ candidate }}"
+            verdicts: "worker_verdicts"
+            beta_model: "{{ hpa_beta_model }}"
+            beta0: "{{ hpa_beta0 }}"
+            beta1: "{{ hpa_beta1 }}"
+            seed: "{{ hpa_seed }}"
+            store: assoc
+
+      # Decide: enter verification?
+      - id: decide_verify
+        type: conditional
+        # Two-tier gate:
+        # - If worker acceptance is strong (>=k), verify regardless of HPA metrics.
+        # - Otherwise require a softer acceptance (>=k-1) + HPA stability metrics.
+        condition: "{{ strong_refutation_count == 0 && (accept_count >= k || (accept_count >= (k - 1) && evidence.coherence >= min_coherence && evidence.gap_norm <= max_gap_norm && assoc.associator_mean <= max_associator_mean)) }}"
+
+        # ===== Verification path =====
+        if_true:
+          - id: maker_argumentation
+            type: workflow_call
+            workflow: maker-v2
+            params:
+              task: |
+                Provide a structured, dependency-cited argumentation for Hypothesis A.
+
+                HPA protocol (Factorization → Projection):
+                - Treat "proof" as projection: every step must be grounded in cited dependencies; no hidden assumptions.
+                - If any step requires an unstated lemma/assumption, declare it as GAP δ and STOP (do not proceed).
+                - Factorization: keep a minimal depends_on list and an ordered factor_sequence that matches your step order.
+
+                Hypothesis A:
+                {{ candidate | json }}
+
+                Deterministic HPA signals (read-only; do NOT recompute):
+                scan: {{ scan | json }}
+                evidence: {{ evidence | json }}
+                associator: {{ assoc | json }}
+
+                Use only the following axioms, assumptions, and relevant facts.
+                Axioms:
+                {{ state.axioms | json }}
+
+                Assumptions:
+                {{ state.assumptions | json }}
+
+                RelevantFacts:
+                {{ relevant_facts | json }}
+
+                Output format (plain text, no JSON):
+                - First line: depends_on: [..] ; factor_sequence: [..]
+                - Then numbered steps 1..N (N<=10), each ends with citations like [O1,T3].
+                - If failed: GAP δ: <minimal missing lemma/counterexample>
+              context: "{{context}}"
+              k: "{{k}}"
+              max_rounds: "{{max_rounds}}"
+              max_depth: "{{max_depth}}"
+            store: maker_output
+
+          - id: extract_maker_solution
+            type: assign
+            from: "maker_output.solution"
+            store: maker_solution
+
+          - id: verify_maker_solution
+            type: vote
+            k: "{{k}}"
+            max_rounds: "{{max_rounds}}"
+            similarity: "{{similarity}}"
+            generator:
+              type: llm_call
+              prompt: |
+                You are a strict verifier in an HPA loop.
+                Decide whether Hypothesis A is PROVED given axioms + assumptions + relevant facts, based on the MAKER solution.
+
+                HPA judgement rules (Projection / gap δ):
+                - proved=true if the argument is internally consistent and stays within provided axioms/facts.
+                - Be pragmatic: allow standard inference steps (algebra/rewriting) as long as they do NOT introduce new assumptions.
+                - Mark proved=false ONLY when you can point to a concrete missing lemma/assumption/counterexample (gap δ).
+
+                Factorization rules:
+                - Output depends_on: minimal set of dependency IDs actually used.
+                - Output factor_sequence: ordered list of dependency IDs matching the proof's citation order.
+                - Do NOT invent IDs. Use only axiom IDs, assumption IDs, and theorem IDs present in RelevantFacts.
+
+                Rules:
+                - Return ONLY JSON (no markdown).
+
+                Axioms:
+                {{ state.axioms | json }}
+
+                Assumptions:
+                {{ state.assumptions | json }}
+
+                RelevantFacts:
+                {{ relevant_facts | json }}
+
+                Hypothesis A:
+                {{ candidate | json }}
+
+                Deterministic HPA signals (read-only):
+                scan: {{ scan | json }}
+                evidence: {{ evidence | json }}
+                associator: {{ assoc | json }}
+
+                MAKER solution:
+                {{ maker_solution }}
+
+                Output JSON schema:
+                {
+                  "proved": bool,
+                  "reason": string,
+                  "final_proof": string,
+                  "depends_on": [string],
+                  "factor_sequence": [string]
+                }
+
+                Language: {{language}}
+              output: json
+            store: judgement
+
+          - id: promote_or_fallback
+            type: conditional
+            condition: "{{ judgement.proved == true }}"
+
+            # ---- Promote to theorem ----
+            if_true:
+              - id: promote_theorem
+                type: transform
+                ops:
+                  - op: normalize
+                    value: "{{ candidate.statement }}"
+                    store: candidate_norm
+
+                  - op: eval
+                    expr: "state.iteration + 1"
+                    store: next_idx
+
+                  - op: set
+                    value: "T{{ next_idx }}"
+                    store: new_theorem_id
+
+                  - op: set
+                    value:
+                      id: "{{ new_theorem_id }}"
+                      statement: "{{ candidate.statement }}"
+                      proof: "{{ judgement.final_proof }}"
+                      depends_on: "{{ judgement.depends_on }}"
+                      factor_sequence: "{{ judgement.factor_sequence }}"
+                    store: new_theorem
+
+                  - op: append_path
+                    target: state
+                    path: theorems
+                    value: "{{ new_theorem }}"
+
+                  # Deduplicate promoted theorems by statement (avoid trivial re-promotions / paraphrase collisions).
+                  - op: distinct
+                    from: state.theorems
+                    key: statement
+                    store: theorems_dedup
+
+                  - op: set_path
+                    target: state
+                    path: theorems
+                    value: "{{ theorems_dedup }}"
+
+                  - op: inc_path
+                    target: state
+                    path: iteration
+                    by: 1
+
+                  - op: set_path
+                    target: state
+                    path: current_hypothesis
+                    value: null
+
+                  - op: set_path
+                    target: state
+                    path: last_candidate
+                    value: "{{ candidate }}"
+
+                  - op: set_path
+                    target: state
+                    path: last_worker_verdicts
+                    value: "{{ worker_verdicts }}"
+
+                  - op: set_path
+                    target: state
+                    path: last_judgement
+                    value: "{{ judgement }}"
+
+                  - op: set_path
+                    target: state
+                    path: hpa_last
+                    value:
+                      scan: "{{ scan }}"
+                      candidate_hpa: "{{ candidate_hpa }}"
+                      evidence: "{{ evidence }}"
+                      assoc: "{{ assoc }}"
+
+                  - op: set_path
+                    target: state
+                    path: last_b_pool
+                    value: "{{ b_pool }}"
+
+                  - op: set_path
+                    target: state
+                    path: hpa_last
+                    value:
+                      scan: "{{ scan }}"
+                      candidate_hpa: "{{ candidate_hpa }}"
+                      evidence: "{{ evidence }}"
+                      assoc: "{{ assoc }}"
+
+                  - op: append_unique_path
+                    target: state
+                    path: seen_hypotheses
+                    value: "{{ candidate_norm }}"
+
+                  - op: eval
+                    expr: "state.iteration >= max_depth"
+                    store: reach_limit
+
+                  - op: set_path
+                    target: state
+                    path: done
+                    value: "{{ reach_limit }}"
+
+                  - op: set_path
+                    target: state
+                    path: status
+                    value: running
+
+                  - op: set_path_if
+                    if: "{{ reach_limit }}"
+                    target: state
+                    path: status
+                    value: limit
+
+              # Token-free snapshot after promotion (lets UI/Graph update before workflow completes).
+              - id: checkpoint_state_after_promote
+                type: checkpoint
+                variables:
+                  - state
+
+            # ---- Verification failed: choose next hypothesis from B pool ----
+            if_false:
+              - id: ensure_b_pool_verify_failed
+                type: conditional
+                condition: "{{ (b_pool | size) > 0 }}"
+                if_false:
+                  - id: propose_fallback_b_verify_failed
+                    type: llm_call
+                    prompt: |
+                      Verification failed.
+                      In HPA terms: the proof did not project to a closed lattice point; there is a gap δ.
+
+                      Propose 3-5 alternative hypotheses (B candidates) as minimal repairs.
+
+                      HPA repair rules:
+                      - Each B should directly address the minimal gap δ described in the judgement.
+                      - Each B MUST include depends_on + factor_sequence (ordered generators).
+                      - Do NOT invent IDs. Use only axiom IDs, assumption IDs, and theorem IDs present in RelevantFacts.
+                      - Prefer minimal changes vs Hypothesis A (add one missing dependency OR weaken the statement).
+                      - Prefer low ordering fragility (simple factor_sequence).
+                      - Use ScanTarget to avoid near-duplicates and explore a new generator region.
+
+                      Axioms:
+                      {{ state.axioms | json }}
+
+                      Assumptions:
+                      {{ state.assumptions | json }}
+
+                      User focus / explore direction (optional):
+                      {{ state.focus | default: "" }}
+
+                      User-provided seed hypothesis (optional, for context only):
+                      {{ state.seed_hypothesis | default: "" }}
+
+                      RelevantFacts:
+                      {{ relevant_facts | json }}
+
+                      Deterministic HPA signals (read-only):
+                      scan: {{ scan | json }}
+                      evidence: {{ evidence | json }}
+                      associator: {{ assoc | json }}
+
+                      Hypothesis A:
+                      {{ candidate | json }}
+
+                      Verification judgement:
+                      {{ judgement | json }}
+
+                      Output JSON schema (array):
+                      [
+                        { "statement": string, "motivation": string, "depends_on": [string], "factor_sequence": [string] }
+                      ]
+
+                      Language: {{language}}
+                    output: json_array
+                    store: b_pool
+
+              - id: vote_next_hypothesis_verify_failed
+                type: vote
+                k: "{{k}}"
+                max_rounds: "{{max_rounds}}"
+                similarity: "{{similarity}}"
+                generator:
+                  type: llm_call
+                  prompt: |
+                    Choose the EASIEST next hypothesis from the candidate pool.
+
+                    HPA selection rules:
+                    - Return ONLY JSON.
+                    - You MUST pick ONE candidate from B pool and copy these fields EXACTLY (no edits):
+                      statement, motivation, depends_on, factor_sequence
+                    - Use "reason" to explain why it best closes the gap δ and is easiest to verify next.
+                    - Prefer: fewer dependencies, minimal repair, low ordering fragility.
+                    - If user focus is non-empty, prefer a candidate aligned with that direction (unless it fails to repair the gap δ).
+
+                    User focus / explore direction (optional):
+                    {{ state.focus | default: "" }}
+
+                    B pool:
+                    {{ b_pool | json }}
+
+                    Output JSON schema:
+                    {
+                      "statement": string,
+                      "motivation": string,
+                      "depends_on": [string],
+                      "factor_sequence": [string],
+                      "reason": string
+                    }
+
+                    Language: {{language}}
+                  output: json
+                store: next_hypothesis
+
+              - id: set_next_hypothesis_verify_failed
+                type: transform
+                ops:
+                  - op: normalize
+                    value: "{{ candidate.statement }}"
+                    store: candidate_norm
+
+                  - op: inc_path
+                    target: state
+                    path: iteration
+                    by: 1
+
+                  - op: set_path
+                    target: state
+                    path: last_candidate
+                    value: "{{ candidate }}"
+
+                  - op: set_path
+                    target: state
+                    path: last_worker_verdicts
+                    value: "{{ worker_verdicts }}"
+
+                  - op: set_path
+                    target: state
+                    path: last_b_pool
+                    value: "{{ b_pool }}"
+
+                  - op: set_path
+                    target: state
+                    path: last_judgement
+                    value: "{{ judgement }}"
+
+                  - op: append_unique_path
+                    target: state
+                    path: seen_hypotheses
+                    value: "{{ candidate_norm }}"
+
+                  - op: set_path
+                    target: state
+                    path: current_hypothesis
+                    value:
+                      id: "H{{ state.iteration }}"
+                      statement: "{{ next_hypothesis.statement }}"
+                      motivation: "{{ next_hypothesis.motivation }}"
+                      depends_on: "{{ next_hypothesis.depends_on }}"
+                      factor_sequence: "{{ next_hypothesis.factor_sequence }}"
+
+                  - op: eval
+                    expr: "state.iteration >= max_depth"
+                    store: reach_limit
+
+                  - op: set_path
+                    target: state
+                    path: done
+                    value: "{{ reach_limit }}"
+
+                  - op: set_path
+                    target: state
+                    path: status
+                    value: running
+
+                  - op: set_path_if
+                    if: "{{ reach_limit }}"
+                    target: state
+                    path: status
+                    value: limit
+
+        # ===== No verification: vote next hypothesis from B pool =====
+        if_false:
+          - id: ensure_b_pool_no_verify
+            type: conditional
+            condition: "{{ (b_pool | size) > 0 }}"
+            if_false:
+              - id: propose_fallback_b_no_verify
+                type: llm_call
+                prompt: |
+                  Workers did not sufficiently accept Hypothesis A (or a strong refutation exists).
+                  In HPA terms: the evidence synthesis/projection did not meet the gate (coherence/gap/associator),
+                  so we should propose repaired hypotheses B.
+
+                  Propose 3-5 alternative hypotheses (B candidates) as minimal repairs.
+
+                  HPA repair rules:
+                  - Each B should reduce the observed gap δ / refutation cause shown below.
+                  - Each B MUST include depends_on + factor_sequence (ordered generators).
+                  - Do NOT invent IDs. Use only axiom IDs, assumption IDs, and theorem IDs present in RelevantFacts.
+                  - Prefer minimal changes vs Hypothesis A (add one missing dependency OR weaken the statement).
+                  - Prefer low ordering fragility (simple factor_sequence).
+                  - Use ScanTarget to avoid near-duplicates and explore a new generator region.
+
+                  Axioms:
+                  {{ state.axioms | json }}
+
+                  Assumptions:
+                  {{ state.assumptions | json }}
+
+                  User focus / explore direction (optional):
+                  {{ state.focus | default: "" }}
+
+                  User-provided seed hypothesis (optional, for context only):
+                  {{ state.seed_hypothesis | default: "" }}
+
+                  RelevantFacts:
+                  {{ relevant_facts | json }}
+
+                  Deterministic HPA signals (read-only):
+                  scan: {{ scan | json }}
+                  evidence: {{ evidence | json }}
+                  associator: {{ assoc | json }}
+
+                  Hypothesis A:
+                  {{ candidate | json }}
+
+                  Worker verdicts:
+                  {{ worker_verdicts | json }}
+
+                  Output JSON schema (array):
+                  [
+                    { "statement": string, "motivation": string, "depends_on": [string], "factor_sequence": [string] }
+                  ]
+
+                  Language: {{language}}
+                output: json_array
+                store: b_pool
+
+          - id: vote_next_hypothesis_no_verify
+            type: vote
+            k: "{{k}}"
+            max_rounds: "{{max_rounds}}"
+            similarity: "{{similarity}}"
+            generator:
+              type: llm_call
+              prompt: |
+                Choose the EASIEST next hypothesis from the candidate pool.
+
+                HPA selection rules:
+                - Return ONLY JSON.
+                - You MUST pick ONE candidate from B pool and copy these fields EXACTLY (no edits):
+                  statement, motivation, depends_on, factor_sequence
+                - Use "reason" to explain why it best reduces the gap δ / refutation cause and is easiest to verify next.
+                - Prefer: fewer dependencies, minimal repair, low ordering fragility.
+                - If user focus is non-empty, prefer a candidate aligned with that direction (unless it fails to repair the gap δ).
+
+                User focus / explore direction (optional):
+                {{ state.focus | default: "" }}
+
+                B pool:
+                {{ b_pool | json }}
+
+                Output JSON schema:
+                {
+                  "statement": string,
+                  "motivation": string,
+                  "depends_on": [string],
+                  "factor_sequence": [string],
+                  "reason": string
+                }
+
+                Language: {{language}}
+              output: json
+            store: next_hypothesis
+
+          - id: set_next_hypothesis_no_verify
+            type: transform
+            ops:
+              - op: normalize
+                value: "{{ candidate.statement }}"
+                store: candidate_norm
+
+              - op: inc_path
+                target: state
+                path: iteration
+                by: 1
+
+              - op: set_path
+                target: state
+                path: last_candidate
+                value: "{{ candidate }}"
+
+              - op: set_path
+                target: state
+                path: last_worker_verdicts
+                value: "{{ worker_verdicts }}"
+
+              - op: set_path
+                target: state
+                path: last_b_pool
+                value: "{{ b_pool }}"
+
+              - op: set_path
+                target: state
+                path: last_judgement
+                value: null
+
+              - op: set_path
+                target: state
+                path: hpa_last
+                value:
+                  scan: "{{ scan }}"
+                  candidate_hpa: "{{ candidate_hpa }}"
+                  evidence: "{{ evidence }}"
+                  assoc: "{{ assoc }}"
+
+              - op: append_unique_path
+                target: state
+                path: seen_hypotheses
+                value: "{{ candidate_norm }}"
+
+              - op: set_path
+                target: state
+                path: current_hypothesis
+                value:
+                  id: "H{{ state.iteration }}"
+                  statement: "{{ next_hypothesis.statement }}"
+                  motivation: "{{ next_hypothesis.motivation }}"
+                  depends_on: "{{ next_hypothesis.depends_on }}"
+                  factor_sequence: "{{ next_hypothesis.factor_sequence }}"
+
+              - op: eval
+                expr: "state.iteration >= max_depth"
+                store: reach_limit
+
+              - op: set_path
+                target: state
+                path: done
+                value: "{{ reach_limit }}"
+
+              - op: set_path
+                target: state
+                path: status
+                value: running
+
+              - op: set_path_if
+                if: "{{ reach_limit }}"
+                target: state
+                path: status
+                value: limit
+
+  # --------------------------------------------------------
+  # Step 5: stop or recurse
+  # --------------------------------------------------------
+  - id: stop_or_continue
+    type: conditional
+    condition: "{{ state.done == true || state.iteration >= max_depth }}"
+    if_false:
+      - id: recurse
+        type: workflow_call
+        workflow: hypothesis_promotion_loop_hpa
+        params:
+          task: "{{task}}"
+          context: "{{context}}"
+          state: "{{state}}"
+          k: "{{k}}"
+          max_rounds: "{{max_rounds}}"
+          similarity: "{{similarity}}"
+          max_depth: "{{max_depth}}"
+          top_k_facts: "{{top_k_facts}}"
+          hpa_alpha: "{{hpa_alpha}}"
+          hpa_seed_phase: "{{hpa_seed_phase}}"
+          hpa_beta_model: "{{hpa_beta_model}}"
+          hpa_beta0: "{{hpa_beta0}}"
+          hpa_beta1: "{{hpa_beta1}}"
+          hpa_seed: "{{hpa_seed}}"
+          hpa_radial_w_base: "{{hpa_radial_w_base}}"
+          hpa_radial_w_scale: "{{hpa_radial_w_scale}}"
+          min_coherence: "{{min_coherence}}"
+          max_gap_norm: "{{max_gap_norm}}"
+          max_associator_mean: "{{max_associator_mean}}"
+          language: "{{language}}"
+        store: recursive_output
+
+      - id: unwrap_state
+        type: assign
+        from: "recursive_output.state"
+        store: state
+
+output:
+  status: "{{state.status}}"
+  iteration: "{{state.iteration}}"
+  state: "{{state}}"
+  theorems: "{{state.theorems}}"
+  current_hypothesis: "{{state.current_hypothesis}}"
+  last_candidate: "{{state.last_candidate}}"
+  last_judgement: "{{state.last_judgement}}"
+

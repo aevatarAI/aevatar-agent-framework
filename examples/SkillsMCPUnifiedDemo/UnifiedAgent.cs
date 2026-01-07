@@ -27,7 +27,7 @@ public sealed class UnifiedAgent : AIGAgentBase
 
         SystemPrompt =
             "You are a helpful AI assistant.\n" +
-            "If a relevant Agent Skill exists, you MUST call skills_list then skills_load before acting.\n" +
+            "If a relevant Agent Skill exists, you MUST call find_helpful_skills first, then skills_load before acting.\n" +
             "For runtime/system information, prefer dotnet-file tools.\n" +
             "For external context, prefer MCP tools when available.";
     }

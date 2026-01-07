@@ -29,9 +29,11 @@ public class ResearchAgent : AIGAgentBase
             "\n" +
             "You may have two kinds of capabilities:\n" +
             "1) Agent Skills (SKILL.md) on disk (e.g. 'Claude Scientific Skills' pack).\n" +
-            "   - If a relevant skill exists, you MUST call skills_list then skills_load before acting.\n" +
+            "   - For domain-specific tasks, you MUST call find_helpful_skills first (avoid dumping the full inventory into context).\n" +
+            "   - Then call skills_load on the best candidate.\n" +
             "   - Skills may bundle scripts/references/assets.\n" +
-            "     Use skills_files to discover resources, skills_read_file to load references, and skills_run_python to execute scripts when needed.\n" +
+            "     Use read_skill_document (pattern-based) to load only the documents you need.\n" +
+            "     Use skills_run_python to execute scripts when needed (dangerous).\n" +
             "2) MCP tools (optional): a Claude Scientific Skills MCP server may be configured.\n" +
             "\n" +
             "Rules:\n" +

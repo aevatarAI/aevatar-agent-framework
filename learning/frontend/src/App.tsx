@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { connectAgUi, type AgUiConnection, type AgUiMessage } from './lib/agui'
+import { NotebookPicker } from './features/notebooks/NotebookPicker'
+import { SourcesPanel } from './features/sources/SourcesPanel'
+import { ReportsPanel } from './features/reports/ReportsPanel'
+import { EncyclopediaPanel } from './features/encyclopedia/EncyclopediaPanel'
+import { CardsPanel } from './features/cards/CardsPanel'
 
 type UiMessage = {
   id: string
@@ -12,41 +17,122 @@ type DebugEvent = {
   payload: unknown
 }
 
-const STORAGE_KEY = 'aevatar.learning.sessionIds'
+const NOTEBOOK_SESSIONS_KEY = 'aevatar.learning.notebookSessions'
+const SELECTED_NOTEBOOK_KEY = 'aevatar.learning.selectedNotebookId'
 
-function loadSessionIds(): string[] {
+function loadNotebookSessions(): Record<string, string> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return []
+    const raw = localStorage.getItem(NOTEBOOK_SESSIONS_KEY)
+    if (!raw) return {}
     const v = JSON.parse(raw)
-    return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []
+    if (!v || typeof v !== 'object') return {}
+    const out: Record<string, string> = {}
+    for (const [k, val] of Object.entries(v)) {
+      if (typeof k === 'string' && typeof val === 'string' && k.trim() && val.trim()) {
+        out[k.trim()] = val.trim()
+      }
+    }
+    return out
   } catch {
-    return []
+    return {}
   }
 }
 
-function saveSessionIds(ids: string[]) {
+function saveNotebookSessions(map: Record<string, string>) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(ids))
+    localStorage.setItem(NOTEBOOK_SESSIONS_KEY, JSON.stringify(map))
+  } catch {
+    // ignore
+  }
+}
+
+function loadSelectedNotebookId(): string {
+  try {
+    return (localStorage.getItem(SELECTED_NOTEBOOK_KEY) ?? '').trim()
+  } catch {
+    return ''
+  }
+}
+
+function saveSelectedNotebookId(id: string) {
+  try {
+    localStorage.setItem(SELECTED_NOTEBOOK_KEY, (id ?? '').trim())
   } catch {
     // ignore
   }
 }
 
 export function App() {
-  const [sessionIds, setSessionIds] = useState<string[]>(() => loadSessionIds())
-  const [sessionId, setSessionId] = useState<string>(sessionIds[0] ?? '')
+  const [notebookSessions, setNotebookSessions] = useState<Record<string, string>>(() => loadNotebookSessions())
+  const [notebookId, setNotebookId] = useState<string>(() => loadSelectedNotebookId())
+  const [sessionId, setSessionId] = useState<string>('')
   const [providerName, setProviderName] = useState<string>('')
   const [input, setInput] = useState<string>('')
   const [messages, setMessages] = useState<UiMessage[]>([])
   const [debugEvents, setDebugEvents] = useState<DebugEvent[]>([])
   const [isConnected, setIsConnected] = useState(false)
+  const [progress, setProgress] = useState<any>(null)
+  const [rightTab, setRightTab] = useState<'sources' | 'reports' | 'encyclopedia' | 'cards' | 'debug'>('sources')
 
   const connRef = useRef<AgUiConnection | null>(null)
 
   useEffect(() => {
-    saveSessionIds(sessionIds)
-  }, [sessionIds])
+    saveNotebookSessions(notebookSessions)
+  }, [notebookSessions])
+
+  useEffect(() => {
+    saveSelectedNotebookId(notebookId)
+  }, [notebookId])
+
+  useEffect(() => {
+    if (!notebookId) return
+
+    // Load notebook detail + progress summary
+    void (async () => {
+      try {
+        const resp = await fetch(`/api/notebooks/${notebookId}`)
+        const data = await resp.json()
+        if (!resp.ok) throw new Error(data?.error ?? 'failed to load notebook')
+        setProgress(data?.progressSummary ?? null)
+      } catch (e: any) {
+        setProgress({ error: String(e?.message ?? e ?? 'failed') })
+      }
+    })()
+  }, [notebookId])
+
+  useEffect(() => {
+    if (!notebookId) {
+      setSessionId('')
+      return
+    }
+
+    const existing = notebookSessions[notebookId]
+    if (existing) {
+      setSessionId(existing)
+      return
+    }
+
+    // Create and bind session for this notebook
+    void (async () => {
+      try {
+        const resp = await fetch('/api/sessions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ providerName: providerName.trim() || undefined }),
+        })
+        const data = await resp.json()
+        if (!resp.ok) throw new Error(data?.error ?? 'failed to create session')
+        const id = String(data.sessionId || '')
+        if (!id) throw new Error('missing sessionId')
+
+        setNotebookSessions((prev) => ({ ...prev, [notebookId]: id }))
+        setSessionId(id)
+      } catch (e) {
+        setSessionId('')
+      }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notebookId])
 
   useEffect(() => {
     if (!sessionId) return
@@ -132,7 +218,8 @@ export function App() {
     }
   }, [sessionId])
 
-  async function createSession() {
+  async function resetSession() {
+    if (!notebookId) return
     const resp = await fetch('/api/sessions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -143,19 +230,19 @@ export function App() {
     const id = String(data.sessionId || '')
     if (!id) throw new Error('missing sessionId')
 
-    setSessionIds((prev) => (prev.includes(id) ? prev : [id, ...prev]))
+    setNotebookSessions((prev) => ({ ...prev, [notebookId]: id }))
     setSessionId(id)
   }
 
   async function sendInput() {
     const msg = input.trim()
-    if (!msg || !sessionId) return
+    if (!msg || !sessionId || !notebookId) return
     setInput('')
 
     await fetch(`/api/sessions/${sessionId}/input`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: msg, providerName: providerName.trim() || undefined }),
+      body: JSON.stringify({ message: msg, providerName: providerName.trim() || undefined, notebookId }),
     })
   }
 
@@ -176,24 +263,31 @@ export function App() {
         </div>
       </header>
 
-      <div style={{ padding: 12, borderBottom: '1px solid #e5e5e5', display: 'flex', gap: 12 }}>
-        <button onClick={() => createSession()} style={{ padding: '6px 10px' }}>
-          New Session
-        </button>
-        <select
-          value={sessionId}
-          onChange={(e) => setSessionId(e.target.value)}
-          style={{ padding: '6px 8px', minWidth: 320 }}
-        >
-          <option value="" disabled>
-            Select session...
-          </option>
-          {sessionIds.map((id) => (
-            <option key={id} value={id}>
-              {id}
-            </option>
-          ))}
-        </select>
+      <div style={{ padding: 12, borderBottom: '1px solid #e5e5e5', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <NotebookPicker value={notebookId} onChange={(id) => setNotebookId(id)} />
+
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <div style={{ fontSize: 12, color: '#444' }}>
+            <strong>session</strong>: <span style={{ color: '#666' }}>{sessionId || '(none)'}</span>
+          </div>
+          <button onClick={() => void resetSession()} disabled={!notebookId} style={{ padding: '6px 10px' }}>
+            New Session for Notebook
+          </button>
+          <div style={{ marginLeft: 'auto', fontSize: 12, color: '#444' }}>
+            <strong>progress</strong>:{' '}
+            {progress?.error ? (
+              <span style={{ color: '#b91c1c' }}>{String(progress.error)}</span>
+            ) : progress ? (
+              <span style={{ color: '#666' }}>
+                due {Number(progress.dueCards ?? 0)} · new {Number(progress.newCards ?? 0)} · sources{' '}
+                {Number(progress.totalSources ?? 0)} · reports {Number(progress.totalReports ?? 0)} · quizzes{' '}
+                {Number(progress.quizzesTaken ?? 0)}
+              </span>
+            ) : (
+              <span style={{ color: '#999' }}>(not loaded)</span>
+            )}
+          </div>
+        </div>
       </div>
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
@@ -230,12 +324,96 @@ export function App() {
         </main>
 
         <aside style={{ flex: 1, minWidth: 360, overflow: 'auto', padding: 12 }}>
-          <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>
-            <strong>State / Events (debug)</strong>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+            <button
+              onClick={() => setRightTab('sources')}
+              style={{
+                padding: '6px 10px',
+                border: '1px solid #ddd',
+                background: rightTab === 'sources' ? '#111827' : '#fff',
+                color: rightTab === 'sources' ? '#fff' : '#111',
+              }}
+            >
+              Sources
+            </button>
+            <button
+              onClick={() => setRightTab('reports')}
+              style={{
+                padding: '6px 10px',
+                border: '1px solid #ddd',
+                background: rightTab === 'reports' ? '#111827' : '#fff',
+                color: rightTab === 'reports' ? '#fff' : '#111',
+              }}
+            >
+              Reports
+            </button>
+            <button
+              onClick={() => setRightTab('encyclopedia')}
+              style={{
+                padding: '6px 10px',
+                border: '1px solid #ddd',
+                background: rightTab === 'encyclopedia' ? '#111827' : '#fff',
+                color: rightTab === 'encyclopedia' ? '#fff' : '#111',
+              }}
+            >
+              Encyclopedia
+            </button>
+            <button
+              onClick={() => setRightTab('cards')}
+              style={{
+                padding: '6px 10px',
+                border: '1px solid #ddd',
+                background: rightTab === 'cards' ? '#111827' : '#fff',
+                color: rightTab === 'cards' ? '#fff' : '#111',
+              }}
+            >
+              Cards
+            </button>
+            <button
+              onClick={() => setRightTab('debug')}
+              style={{
+                padding: '6px 10px',
+                border: '1px solid #ddd',
+                background: rightTab === 'debug' ? '#111827' : '#fff',
+                color: rightTab === 'debug' ? '#fff' : '#111',
+              }}
+            >
+              Debug
+            </button>
+            <span style={{ marginLeft: 'auto', fontSize: 12, color: '#666' }}>
+              {rightTab === 'debug' ? 'last 40 events' : notebookId ? 'notebook-scoped' : 'select notebook'}
+            </span>
           </div>
-          <pre style={{ fontSize: 12, lineHeight: 1.35, background: '#fafafa', padding: 10, border: '1px solid #eee' }}>
-            {JSON.stringify(debugEvents.slice(-40), null, 2)}
-          </pre>
+
+          {rightTab === 'sources' ? (
+            notebookId ? (
+              <SourcesPanel notebookId={notebookId} />
+            ) : (
+              <div style={{ fontSize: 12, color: '#999' }}>(select a notebook first)</div>
+            )
+          ) : rightTab === 'reports' ? (
+            notebookId ? (
+              <ReportsPanel notebookId={notebookId} />
+            ) : (
+              <div style={{ fontSize: 12, color: '#999' }}>(select a notebook first)</div>
+            )
+          ) : rightTab === 'encyclopedia' ? (
+            notebookId ? (
+              <EncyclopediaPanel notebookId={notebookId} />
+            ) : (
+              <div style={{ fontSize: 12, color: '#999' }}>(select a notebook first)</div>
+            )
+          ) : rightTab === 'cards' ? (
+            notebookId ? (
+              <CardsPanel notebookId={notebookId} />
+            ) : (
+              <div style={{ fontSize: 12, color: '#999' }}>(select a notebook first)</div>
+            )
+          ) : (
+            <pre style={{ fontSize: 12, lineHeight: 1.35, background: '#fafafa', padding: 10, border: '1px solid #eee' }}>
+              {JSON.stringify(debugEvents.slice(-40), null, 2)}
+            </pre>
+          )}
         </aside>
       </div>
     </div>

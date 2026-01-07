@@ -18,7 +18,7 @@ public abstract class LLMProviderFactoryBase : ILLMProviderFactory
     {
         Config = config.Value ?? throw new ArgumentNullException(nameof(config));
         Logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        ProviderConfigs = new Dictionary<string, LLMProviderConfig>(Config.Providers);
+        ProviderConfigs = BuildProviderConfigsWithEmbeddingFallback(Config);
         RegisterProviders();
     }
 
@@ -90,5 +90,115 @@ public abstract class LLMProviderFactoryBase : ILLMProviderFactory
         {
             Providers[config.Key] = new Lazy<IAevatarLLMProvider>(() => CreateProvider(config.Value));
         }
+    }
+
+    private static Dictionary<string, LLMProviderConfig> BuildProviderConfigsWithEmbeddingFallback(LLMProvidersConfig config)
+    {
+        var dict = new Dictionary<string, LLMProviderConfig>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var kv in config.Providers)
+        {
+            var name = kv.Key;
+            var src = kv.Value;
+            if (src == null)
+                continue;
+
+            var copy = CloneProviderConfig(src);
+
+            // Make provider name stable even if config omitted Name.
+            if (string.IsNullOrWhiteSpace(copy.Name))
+                copy.Name = name;
+
+            // Embeddings:
+            // - If provider doesn't define embeddings -> inherit global embeddings.
+            // - If provider defines embeddings -> partial-merge missing fields from global embeddings.
+            if (config.Embeddings != null)
+            {
+                if (copy.Embeddings == null)
+                {
+                    copy.Embeddings = CloneEmbeddingConfig(config.Embeddings);
+                }
+                else
+                {
+                    copy.Embeddings = MergeEmbeddingConfig(config.Embeddings, copy.Embeddings);
+                }
+            }
+
+            dict[name] = copy;
+        }
+
+        return dict;
+    }
+
+    private static LLMProviderConfig CloneProviderConfig(LLMProviderConfig src)
+    {
+        return new LLMProviderConfig
+        {
+            Name = src.Name,
+            ProviderType = src.ProviderType,
+            ApiKey = src.ApiKey,
+            Model = src.Model,
+            Endpoint = src.Endpoint,
+            DeploymentName = src.DeploymentName,
+            Temperature = src.Temperature,
+            MaxTokens = src.MaxTokens,
+            TimeoutMilliseconds = src.TimeoutMilliseconds,
+            EnableStreaming = src.EnableStreaming,
+            ProviderSpecificSettings = src.ProviderSpecificSettings != null
+                ? new Dictionary<string, object>(src.ProviderSpecificSettings)
+                : new Dictionary<string, object>(),
+            Embeddings = src.Embeddings != null ? CloneEmbeddingConfig(src.Embeddings) : null
+        };
+    }
+
+    private static LLMEmbeddingConfig CloneEmbeddingConfig(LLMEmbeddingConfig src)
+    {
+        return new LLMEmbeddingConfig
+        {
+            ProviderType = src.ProviderType,
+            Model = src.Model,
+            DeploymentName = src.DeploymentName,
+            Endpoint = src.Endpoint,
+            ApiKey = src.ApiKey,
+            Dimensions = src.Dimensions,
+            ProviderSpecificSettings = src.ProviderSpecificSettings != null
+                ? new Dictionary<string, object>(src.ProviderSpecificSettings)
+                : new Dictionary<string, object>()
+        };
+    }
+
+    private static LLMEmbeddingConfig MergeEmbeddingConfig(LLMEmbeddingConfig global, LLMEmbeddingConfig provider)
+    {
+        // Provider overrides explicitly set fields; missing fields fall back to global.
+        var merged = CloneEmbeddingConfig(provider);
+
+        if (string.IsNullOrWhiteSpace(merged.ProviderType))
+            merged.ProviderType = global.ProviderType;
+        if (string.IsNullOrWhiteSpace(merged.Model))
+            merged.Model = global.Model;
+        if (string.IsNullOrWhiteSpace(merged.DeploymentName))
+            merged.DeploymentName = global.DeploymentName;
+        if (string.IsNullOrWhiteSpace(merged.Endpoint))
+            merged.Endpoint = global.Endpoint;
+        if (string.IsNullOrWhiteSpace(merged.ApiKey))
+            merged.ApiKey = global.ApiKey;
+        if (!merged.Dimensions.HasValue)
+            merged.Dimensions = global.Dimensions;
+
+        // ProviderSpecificSettings: merge global -> provider (provider wins on key conflicts).
+        var mergedSettings = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+        if (global.ProviderSpecificSettings != null)
+        {
+            foreach (var kv in global.ProviderSpecificSettings)
+                mergedSettings[kv.Key] = kv.Value;
+        }
+        if (provider.ProviderSpecificSettings != null)
+        {
+            foreach (var kv in provider.ProviderSpecificSettings)
+                mergedSettings[kv.Key] = kv.Value;
+        }
+        merged.ProviderSpecificSettings = mergedSettings;
+
+        return merged;
     }
 }

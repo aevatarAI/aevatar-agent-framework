@@ -1,4 +1,5 @@
 using Aevatar.Learning.Notebooks;
+using Aevatar.Learning.Progress;
 
 namespace Aevatar.Learning.Api.Notebooks;
 
@@ -51,22 +52,44 @@ internal static class NotebooksApi
 
     private static void MapGet(WebApplication app)
     {
-        app.MapGet("/api/notebooks/{notebookId}", (string notebookId, NotebookDirectoryStore store) =>
+        app.MapGet("/api/notebooks/{notebookId}", async (
+            string notebookId,
+            NotebookDirectoryStore store,
+            ProgressService progress,
+            CancellationToken ct) =>
         {
             var nb = store.GetNotebook(notebookId);
             if (nb == null)
                 return Results.NotFound(new { error = "notebook not found" });
 
-            // progressSummary will be enriched in later tasks.
+            var rootDir = Path.GetDirectoryName(nb.DirectoryPath) ?? string.Empty;
+            var ws = new NotebookWorkspace(nb.NotebookId, rootDir, nb.DirectoryPath);
+
+            var summary = await progress.GetSummaryAsync(ws, nowUtc: null, ct);
+            var tags = summary.Tags.ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
+
+            // Avoid leaking filesystem paths unless explicitly needed.
+            var notebook = new
+            {
+                notebookId = nb.NotebookId,
+                displayName = nb.DisplayName,
+                createdAt = nb.CreatedAt,
+                updatedAt = nb.UpdatedAt
+            };
+
             return Results.Json(new
             {
-                notebook = nb,
+                notebook,
                 progressSummary = new
                 {
-                    dueCards = 0,
-                    newCards = 0,
-                    totalSources = 0,
-                    quizzesTaken = 0
+                    dueCards = summary.DueCards,
+                    newCards = summary.NewCards,
+                    totalSources = summary.TotalSources,
+                    quizzesTaken = summary.QuizzesTaken,
+                    totalReports = tags.TryGetValue("total_reports", out var tr) && int.TryParse(tr, out var v) ? v : 0,
+                    partial = tags.TryGetValue("partial", out var p) && string.Equals(p, "true", StringComparison.OrdinalIgnoreCase),
+                    lastActivity = summary.LastActivity?.ToDateTimeOffset().ToString("O") ?? "",
+                    tags
                 }
             });
         });

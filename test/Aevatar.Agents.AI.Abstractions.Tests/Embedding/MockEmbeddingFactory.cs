@@ -11,7 +11,7 @@ public class MockEmbeddingFactory : IAIAgentEmbeddingFactory
         LLMProviderConfig providerConfig,
         CancellationToken cancellationToken = default)
     {
-        if (providerConfig.Embeddings is not { Enabled: true })
+        if (providerConfig.Embeddings == null)
             return Task.FromResult<IEmbeddingGenerator<string, Embedding<float>>?>(null);
 
         return Task.FromResult<IEmbeddingGenerator<string, Embedding<float>>?>(new MockEmbeddingGenerator());

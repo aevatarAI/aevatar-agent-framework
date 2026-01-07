@@ -30,8 +30,12 @@
 
 - 上游示例 repo（K-Dense）：[K-Dense-AI/claude-scientific-skills](https://github.com/K-Dense-AI/claude-scientific-skills/tree/main)
 - 启动时后端 best-effort `git clone/pull`（失败不阻塞服务启动）
-- 同步成功后，会把每个 pack 的 `SkillsSubDir` 目录加入 `AEVATAR_AGENT_SKILLS_DIRS`，供 `skills_list/skills_load` 发现
+- 同步成功后，会把每个 pack 的 `SkillsSubDir` 目录加入 `AEVATAR_AGENT_SKILLS_DIRS`，供 `find_helpful_skills/skills_load` 发现
 - 下载目录默认在本项目根目录的 `.skillpacks/`（已加入 `.gitignore`：谁用谁下载，不进仓库）
+
+可选：语义检索（embeddings）
+- 如果配置了 `LLMProviders:Embeddings`（全局默认）或 `LLMProviders:Providers:<name>:Embeddings`（provider 覆盖），sync 时会 best-effort 构建 embeddings 索引到 `.skillpacks/.index/`
+- `find_helpful_skills` 会优先使用该索引做语义排序（索引缺失时会 query 时惰性构建）
 
 #### 配置方式 A（推荐）：`skillpacks.json`（可多 repo）
 
@@ -40,10 +44,6 @@
 核心字段（每个 pack 至少需要）：
 - `RepoUrl`：git repo URL
 - `SkillsSubDir`：repo 内 skills 根目录（例如 K-Dense 是 `scientific-skills`）
-
-#### 配置方式 B（兼容）：`appsettings.json` 单 pack
-
-如果你不想单独维护 `skillpacks.json`，也可以继续用 `src/ScientificResearchAssistant.Api/appsettings.json` 的 `ClaudeScientificSkills` 段（只支持一个 repo）。
 
 #### 手动同步命令（只执行 sync，然后退出）
 

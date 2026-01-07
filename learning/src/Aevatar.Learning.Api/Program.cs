@@ -4,12 +4,23 @@ using Aevatar.Agents.AI.MEAI.DependencyInjection;
 using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Runtime.Local;
 using Aevatar.Learning.Chat;
+using Aevatar.Learning.Cards;
 using Aevatar.Learning.Context;
+using Aevatar.Learning.Encyclopedia;
+using Aevatar.Learning.Api.Cards;
+using Aevatar.Learning.Api.Encyclopedia;
 using Aevatar.Learning.Api.Notebooks;
+using Aevatar.Learning.Api.Quiz;
+using Aevatar.Learning.Api.Reports;
+using Aevatar.Learning.Api.Skills;
 using Aevatar.Learning.Api.Sources;
 using Aevatar.Learning.Api.Sessions;
 using Aevatar.Learning.Notebooks;
+using Aevatar.Learning.Progress;
 using Aevatar.Learning.Sources;
+using Aevatar.Learning.Reports;
+using Aevatar.Learning.Skills;
+using Aevatar.Learning.Quiz;
 using Microsoft.Extensions.Options;
 
 // ============================================================
@@ -58,6 +69,24 @@ builder.Services.AddSingleton<SourceStore>();
 builder.Services.AddSingleton<LearningContextBuilder>();
 builder.Services.AddSingleton<LearningChatService>();
 
+// Reports (LLM-backed)
+builder.Services.AddSingleton<LearningReportService>();
+
+// Encyclopedia (LLM-backed)
+builder.Services.AddSingleton<EncyclopediaService>();
+
+// Cards (SRS + optional AI mnemonics)
+builder.Services.AddSingleton<CardsService>();
+
+// Quiz (generation + grading + history)
+builder.Services.AddSingleton<QuizService>();
+
+// Skills (agent skill bundles)
+builder.Services.AddSingleton<SkillsService>();
+
+// Progress (notebook home summary)
+builder.Services.AddSingleton<ProgressService>();
+
 var app = builder.Build();
 
 // ============================================================
@@ -104,6 +133,21 @@ app.MapNotebooksApi();
 
 // Sources API
 app.MapSourcesApi();
+
+// Reports API
+app.MapReportsApi();
+
+// Encyclopedia API
+app.MapEncyclopediaApi();
+
+// Cards API
+app.MapCardsApi();
+
+// Quiz API
+app.MapQuizApi();
+
+// Skills API
+app.MapSkillsApi();
 
 app.Run();
 

@@ -113,21 +113,28 @@ public class LLMProvidersConfig
     public string Default { get; set; }
 
     /// <summary>
+    /// Global/default embedding channel configuration.
+    /// <para/>
+    /// If a specific provider does not specify <see cref="LLMProviderConfig.Embeddings"/>,
+    /// this global config can be used as the fallback.
+    /// </summary>
+    public LLMEmbeddingConfig? Embeddings { get; set; }
+
+    /// <summary>
     /// Provider dictionary (key: provider name, value: configuration)
     /// </summary>
     public Dictionary<string, LLMProviderConfig> Providers { get; set; } = new();
 }
 
 /// <summary>
-/// Embedding configuration, used to drive IEmbeddingGenerator
+/// Embedding configuration, used to drive IEmbeddingGenerator.
+/// <para/>
+/// NOTE:
+/// - There is intentionally no "Enabled" switch here.
+/// - If this section is present (provider-level or global fallback), the system will try to use embeddings (best-effort).
 /// </summary>
 public class LLMEmbeddingConfig
 {
-    /// <summary>
-    /// Whether to enable Embedding channel (default true)
-    /// </summary>
-    public bool Enabled { get; set; } = true;
-
     /// <summary>
     /// Embedding provider type (OpenAI, AzureOpenAI, Ollama, etc.).
     /// If not specified, defaults to main configuration's ProviderType.

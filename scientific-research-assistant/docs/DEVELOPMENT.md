@@ -12,9 +12,9 @@
 - Backend: `http://localhost:5678`
 - Frontend: `http://localhost:5173`
 
-### 同步 Claude Scientific Skills（可选）
+### 同步 Skill Packs（可选）
 
-如果你启用了 `ClaudeScientificSkills:AutoUpdateOnStartup=true`，后端启动时会 best-effort 自动同步。
+如果你配置了 `skillpacks.json` 并启用了某个 pack 的 `AutoUpdateOnStartup=true`，后端启动时会 best-effort 自动同步。
 
 你也可以手动执行一次同步（只 sync，然后退出）：
 

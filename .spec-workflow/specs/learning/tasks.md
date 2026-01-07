@@ -336,7 +336,7 @@
   - _Requirements: 3, 10_
   - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Backend engineer (AG-UI) | Task: Wire sessions input execution to LearningChatService and emit correct AG-UI lifecycle events and metadata. | Restrictions: Must keep snapshot-first SSE behavior; no replay; no :5000. | _Leverage: NotebookSessionsApi + AgUiEvents | _Requirements: 3,10 | Success: Frontend sees correct RUN/STEP/TEXT events and can render citations metadata. (Workflow: mark task [-]; log-implementation; mark [x].)_
 
-- [-] 25. Core：报告生成（结构化 + 版本化写入 notebook 目录）
+- [x] 25. Core：报告生成（结构化 + 版本化写入 notebook 目录）
   - Files:
     - `learning/src/Aevatar.Learning/Reports/LearningReportService.cs`
   - Implement:
@@ -347,7 +347,7 @@
   - _Requirements: 4_
   - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: AI product engineer | Task: Implement a report generator that uses notebook context and persists versioned reports under the notebook directory. | Restrictions: Keep prompts deterministic; outputs bounded; no secrets; no :5000. | _Leverage: notebook report pipeline concepts | _Requirements: 4 | Success: Reports are generated and persisted with stable ids/versions, and include citation markers. (Workflow: mark task [-]; log-implementation; mark [x].)_
 
-- [ ] 26. API：报告接口（generate/list/get）
+- [x] 26. API：报告接口（generate/list/get）
   - Files:
     - `learning/src/Aevatar.Learning.Api/Reports/ReportsApi.cs`
     - `learning/src/Aevatar.Learning.Api/Program.cs`
@@ -362,7 +362,7 @@
 
 ---
 
-- [ ] 27. Core：百科系统（构建/更新 + 查询）
+- [x] 27. Core：百科系统（构建/更新 + 查询）
   - Files:
     - `learning/src/Aevatar.Learning/Encyclopedia/EncyclopediaService.cs`
   - Implement:
@@ -373,7 +373,7 @@
   - _Requirements: 5_
   - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: AI knowledge engineer | Task: Implement encyclopedia build/query service that persists structured entries and can answer symptom queries with structured results + explanations. | Restrictions: Must be notebook-scoped; bounded outputs; best-effort when data insufficient; no :5000. | _Requirements: 5 | Success: Given a notebook with relevant sources, the service can generate entries and answer a sample query with the required sections. (Workflow: mark task [-]; log-implementation; mark [x].)_
 
-- [ ] 28. API：百科接口（build/query）
+- [x] 28. API：百科接口（build/query）
   - Files:
     - `learning/src/Aevatar.Learning.Api/Encyclopedia/EncyclopediaApi.cs`
     - `learning/src/Aevatar.Learning.Api/Program.cs`
@@ -387,7 +387,7 @@
 
 ---
 
-- [ ] 29. Core：学习卡片（SRS）服务（队列 + 复习记录 + AI 记忆技巧）
+- [x] 29. Core：学习卡片（SRS）服务（队列 + 复习记录 + AI 记忆技巧）
   - Files:
     - `learning/src/Aevatar.Learning/Cards/CardsService.cs`
   - Implement:
@@ -399,7 +399,7 @@
   - _Requirements: 6, 8_
   - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Learning systems engineer | Task: Implement CardsService with notebook-scoped storage, SRS scheduling, review recording, and optional AI mnemonics generation with graceful fallback. | Restrictions: Deterministic scheduling; bounded storage; no :5000; AI is optional but must not break flow. | _Requirements: 6,8 | Success: Service can produce a daily queue and update scheduling based on user reviews; mnemonics generation is best-effort. (Workflow: mark task [-]; log-implementation; mark [x].)_
 
-- [ ] 30. API：学习卡片接口（generate/daily/review/stats）
+- [x] 30. API：学习卡片接口（generate/daily/review/stats）
   - Files:
     - `learning/src/Aevatar.Learning.Api/Cards/CardsApi.cs`
     - `learning/src/Aevatar.Learning.Api/Program.cs`
@@ -415,7 +415,7 @@
 
 ---
 
-- [ ] 31. Core：测验系统（生成题目 + 判分/解析 + 记录）
+- [x] 31. Core：测验系统（生成题目 + 判分/解析 + 记录）
   - Files:
     - `learning/src/Aevatar.Learning/Quiz/QuizService.cs`
   - Implement:
@@ -427,7 +427,7 @@
   - _Requirements: 7, 8_
   - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Assessment engineer | Task: Implement QuizService that can generate quizzes from notebook sources, accept answers, produce explanations, and persist results. | Restrictions: Notebook-scoped; bounded outputs; AI grading must be best-effort and configurable; no :5000. | _Requirements: 7,8 | Success: Service supports MCQ/true-false/short-answer generation and records a graded attempt with explanations. (Workflow: mark task [-]; log-implementation; mark [x].)_
 
-- [ ] 32. API：测验接口（generate/submit/history）
+- [x] 32. API：测验接口（generate/submit/history）
   - Files:
     - `learning/src/Aevatar.Learning.Api/Quiz/QuizApi.cs`
     - `learning/src/Aevatar.Learning.Api/Program.cs`
@@ -442,7 +442,7 @@
 
 ---
 
-- [ ] 33. Core：Skills 生成（面向 Agent 的技能包）
+- [x] 33. Core：Skills 生成（面向 Agent 的技能包）
   - Files:
     - `learning/src/Aevatar.Learning/Skills/SkillsService.cs`
   - Implement:
@@ -453,7 +453,7 @@
   - _Requirements: 9_
   - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Agent tooling engineer | Task: Implement SkillsService that generates notebook-scoped skill bundles (prompts/tooling notes/knowledge summary) and persists versioned outputs. | Restrictions: No secrets; bounded outputs; best-effort when sources insufficient; no :5000. | _Requirements: 9 | Success: Service produces a versioned skill bundle file that can be copied into other agents/projects. (Workflow: mark task [-]; log-implementation; mark [x].)_
 
-- [ ] 34. API：Skills 接口（generate/list/get）
+- [x] 34. API：Skills 接口（generate/list/get）
   - Files:
     - `learning/src/Aevatar.Learning.Api/Skills/SkillsApi.cs`
     - `learning/src/Aevatar.Learning.Api/Program.cs`
@@ -468,7 +468,7 @@
 
 ---
 
-- [ ] 35. Core：进度统计汇总（Notebook 首页数据源）
+- [x] 35. Core：进度统计汇总（Notebook 首页数据源）
   - Files:
     - `learning/src/Aevatar.Learning/Progress/ProgressService.cs`
   - Implement:
@@ -479,7 +479,7 @@
   - _Requirements: 8_
   - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Backend engineer (analytics) | Task: Implement a notebook-scoped ProgressService that summarizes sources/reports/cards/quizzes metrics for the notebook home page. | Restrictions: Must be fast and bounded; no heavy scans; no :5000. | _Requirements: 8 | Success: Service returns a small summary object that can be rendered directly on the notebook home page. (Workflow: mark task [-]; log-implementation; mark [x].)_
 
-- [ ] 36. API：Notebook 详情返回进度统计（home dashboard）
+- [x] 36. API：Notebook 详情返回进度统计（home dashboard）
   - Files:
     - `learning/src/Aevatar.Learning.Api/Notebooks/NotebooksApi.cs`
     - `learning/src/Aevatar.Learning.Api/Program.cs`
@@ -493,7 +493,7 @@
 
 ---
 
-- [ ] 37. Frontend：Notebook 列表/创建/选择（连接 session）
+- [x] 37. Frontend：Notebook 列表/创建/选择（连接 session）
   - Files:
     - `learning/frontend/src/features/notebooks/NotebookPicker.tsx`
     - `learning/frontend/src/App.tsx`
@@ -506,7 +506,7 @@
   - _Requirements: 1, 8_
   - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Frontend developer (React) | Task: Add a Notebook picker UI that creates/lists/selects notebooks and binds the selected notebook to a session + AG-UI stream, showing progressSummary. | Restrictions: No hardcoded backend; keep UI minimal; handle loading/errors. | _Requirements: 1,8 | Success: User can create/select a notebook and immediately enter its session chat view. (Workflow: mark task [-]; log-implementation; mark [x].)_
 
-- [ ] 38. Frontend：Sources 面板（导入/列表/预览）
+- [x] 38. Frontend：Sources 面板（导入/列表/预览）
   - Files:
     - `learning/frontend/src/features/sources/SourcesPanel.tsx`
     - `learning/frontend/src/App.tsx`
@@ -518,7 +518,7 @@
   - _Requirements: 2_
   - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Frontend engineer | Task: Add a Sources panel that can import/list/preview sources for the selected notebook via the Sources API. | Restrictions: Keep UI responsive; handle large text with truncation; no hardcoded backend. | _Requirements: 2 | Success: User can import a source and see it appear immediately in the notebook. (Workflow: mark task [-]; log-implementation; mark [x].)_
 
-- [ ] 39. Frontend：Reports 面板（生成/历史/查看）
+- [x] 39. Frontend：Reports 面板（生成/历史/查看）
   - Files:
     - `learning/frontend/src/features/reports/ReportsPanel.tsx`
     - `learning/frontend/src/App.tsx`
@@ -531,7 +531,7 @@
   - _Requirements: 4_
   - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Frontend engineer | Task: Add a Reports panel that can generate and browse versioned reports for the notebook. | Restrictions: Show loading/progress; keep UI minimal; no hardcoded backend. | _Requirements: 4 | Success: User can generate a report and view its history versions. (Workflow: mark task [-]; log-implementation; mark [x].)_
 
-- [ ] 40. Frontend：百科面板（build/query）
+- [x] 40. Frontend：百科面板（build/query）
   - Files:
     - `learning/frontend/src/features/encyclopedia/EncyclopediaPanel.tsx`
     - `learning/frontend/src/App.tsx`
@@ -544,7 +544,7 @@
   - _Requirements: 5_
   - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Frontend engineer | Task: Build an encyclopedia panel that can trigger build and query, and render structured sections from the API response. | Restrictions: Keep UI simple; handle long text with collapsible blocks; no hardcoded backend. | _Requirements: 5 | Success: User can input a symptom query and get structured recommendations with explanations. (Workflow: mark task [-]; log-implementation; mark [x].)_
 
-- [ ] 41. Frontend：学习卡片（daily queue + review）
+- [x] 41. Frontend：学习卡片（daily queue + review）
   - Files:
     - `learning/frontend/src/features/cards/CardsPanel.tsx`
     - `learning/frontend/src/App.tsx`

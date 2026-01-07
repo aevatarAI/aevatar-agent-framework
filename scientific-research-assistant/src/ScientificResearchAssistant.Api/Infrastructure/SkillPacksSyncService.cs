@@ -1,5 +1,10 @@
 using System.Diagnostics;
+using System.Text;
+using Aevatar.Agents.AI.Abstractions.Configuration;
+using Aevatar.Agents.AI.Core.AgentSkills;
+using Aevatar.Agents.AI.Core.Embeddings;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -26,6 +31,9 @@ public sealed class SkillPackSyncEntry
     public required string RepoDir { get; init; }
     public required string SkillsRoot { get; init; }
     public string? Commit { get; init; }
+    public bool? EmbeddingsIndexOk { get; init; }
+    public string? EmbeddingsIndexFile { get; init; }
+    public string? EmbeddingsIndexError { get; init; }
     public bool Ok { get; init; }
     public string? Error { get; init; }
 }
@@ -38,7 +46,8 @@ public sealed class SkillPackSyncEntry
 public sealed class SkillPacksSyncService
 {
     private readonly IOptions<SkillPacksOptions> _packs;
-    private readonly IOptions<ClaudeScientificSkillsSyncOptions> _legacy;
+    private readonly IOptions<LLMProvidersConfig> _llm;
+    private readonly IAIAgentEmbeddingFactory? _embeddingFactory;
     private readonly IHostEnvironment _env;
     private readonly ILogger<SkillPacksSyncService> _logger;
 
@@ -46,12 +55,14 @@ public sealed class SkillPacksSyncService
 
     public SkillPacksSyncService(
         IOptions<SkillPacksOptions> packs,
-        IOptions<ClaudeScientificSkillsSyncOptions> legacy,
+        IOptions<LLMProvidersConfig> llm,
+        IAIAgentEmbeddingFactory? embeddingFactory,
         IHostEnvironment env,
         ILogger<SkillPacksSyncService> logger)
     {
         _packs = packs;
-        _legacy = legacy;
+        _llm = llm;
+        _embeddingFactory = embeddingFactory;
         _env = env;
         _logger = logger;
     }
@@ -108,40 +119,19 @@ public sealed class SkillPacksSyncService
     {
         var list = new List<SkillPackSpec>();
 
-        // Prefer new config (SkillPacks:Packs) when present.
         var configured = _packs.Value?.Packs ?? new List<SkillPackSpec>();
-        if (configured.Count > 0)
+        if (configured.Count == 0)
         {
-            foreach (var p in configured)
-            {
-                if (p == null) continue;
-                if (!p.Enabled) continue;
-                if (mode == SkillPackSyncMode.Startup && !p.AutoUpdateOnStartup) continue;
-                if (string.IsNullOrWhiteSpace(p.RepoUrl)) continue;
-                list.Add(p);
-            }
-
             return list;
         }
 
-        // Fallback: legacy single-pack section.
-        var legacy = _legacy.Value;
-        if (legacy != null && legacy.Enabled && (mode != SkillPackSyncMode.Startup || legacy.AutoUpdateOnStartup))
+        foreach (var p in configured)
         {
-            list.Add(new SkillPackSpec
-            {
-                Name = "claude-scientific-skills",
-                Enabled = legacy.Enabled,
-                AutoUpdateOnStartup = legacy.AutoUpdateOnStartup,
-                RepoUrl = legacy.RepoUrl,
-                Ref = legacy.Ref,
-                SkillsSubDir = legacy.SkillsSubDir,
-                InstallDir = legacy.InstallDir,
-                UpdateTimeoutMs = legacy.UpdateTimeoutMs,
-                ShallowClone = legacy.ShallowClone,
-                ShallowDepth = legacy.ShallowDepth,
-                SetAgentSkillsEnv = legacy.SetAgentSkillsEnv
-            });
+            if (p == null) continue;
+            if (!p.Enabled) continue;
+            if (mode == SkillPackSyncMode.Startup && !p.AutoUpdateOnStartup) continue;
+            if (string.IsNullOrWhiteSpace(p.RepoUrl)) continue;
+            list.Add(p);
         }
 
         return list;
@@ -259,6 +249,9 @@ public sealed class SkillPacksSyncService
                 AppendAgentSkillsDirs(skillsRoot);
             }
 
+            // Build embeddings index best-effort (for semantic find_helpful_skills).
+            var (idxOk, idxFile, idxErr) = await TryBuildEmbeddingsIndexBestEffortAsync(skillsRoot, linked.Token);
+
             return new SkillPackSyncEntry
             {
                 Name = spec.Name,
@@ -267,6 +260,9 @@ public sealed class SkillPacksSyncService
                 RepoDir = repoDir,
                 SkillsRoot = skillsRoot,
                 Commit = commit,
+                EmbeddingsIndexOk = idxOk,
+                EmbeddingsIndexFile = idxFile,
+                EmbeddingsIndexError = idxErr,
                 Ok = true
             };
         }
@@ -332,6 +328,252 @@ public sealed class SkillPacksSyncService
         catch
         {
             return _env.ContentRootPath;
+        }
+    }
+
+    private string GetSkillIndexDir()
+    {
+        var dir = Path.Combine(GetAssistantRoot(), ".skillpacks", ".index");
+        Directory.CreateDirectory(dir);
+
+        // Make sure AIGAgentBase uses the same index dir.
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(AgentSkillsEmbeddingsIndex.IndexDirEnv)))
+        {
+            Environment.SetEnvironmentVariable(AgentSkillsEmbeddingsIndex.IndexDirEnv, dir);
+        }
+
+        return dir;
+    }
+
+    private async Task<(bool? Ok, string? IndexFile, string? Error)> TryBuildEmbeddingsIndexBestEffortAsync(
+        string skillsRoot,
+        CancellationToken ct)
+    {
+        try
+        {
+            // If embeddings are not configured, don't treat as failure.
+            var providerCfg = TryGetDefaultProviderConfig();
+            if (providerCfg == null || providerCfg.Embeddings == null)
+                return (null, null, "embeddings_not_configured");
+
+            if (_embeddingFactory == null)
+                return (null, null, "embedding_factory_not_available");
+
+            var generator = await _embeddingFactory.CreateAsync(providerCfg, ct);
+            if (generator == null)
+                return (null, null, "embedding_generator_not_available");
+
+            var options = BuildEmbeddingOptions(providerCfg);
+            var indexDir = GetSkillIndexDir();
+            var indexFile = AgentSkillsEmbeddingsIndex.GetIndexFilePathForRoot(skillsRoot, indexDir);
+
+            // Discover SKILL.md docs under this root (bounded depth).
+            async Task<IReadOnlyList<AgentSkillsEmbeddingDocument>> Discover(CancellationToken token)
+            {
+                await Task.CompletedTask;
+                return DiscoverSkillDocsForEmbedding(skillsRoot, token);
+            }
+
+            _ = await AgentSkillsEmbeddingsIndex.EnsureIndexAsync(
+                skillsRoot,
+                Discover,
+                generator,
+                options,
+                indexDir,
+                _logger,
+                ct);
+
+            return (true, indexFile, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[SkillPacksSync] Embeddings index build failed (best-effort): {Message}", ex.Message);
+            return (false, null, ex.Message);
+        }
+    }
+
+    private LLMProviderConfig? TryGetDefaultProviderConfig()
+    {
+        var llm = _llm.Value;
+        if (llm == null || llm.Providers.Count == 0)
+            return null;
+
+        var name = string.IsNullOrWhiteSpace(llm.Default) ? "default" : llm.Default.Trim();
+        if (llm.Providers.TryGetValue(name, out var cfg))
+            return cfg;
+
+        // Fallback: first provider
+        return llm.Providers.Values.FirstOrDefault();
+    }
+
+    private static EmbeddingGenerationOptions BuildEmbeddingOptions(LLMProviderConfig providerCfg)
+    {
+        var options = new EmbeddingGenerationOptions();
+
+        if (providerCfg.Embeddings != null)
+        {
+            if (!string.IsNullOrWhiteSpace(providerCfg.Embeddings.Model))
+            {
+                options.ModelId = providerCfg.Embeddings.Model;
+            }
+            else if (!string.IsNullOrWhiteSpace(providerCfg.Model))
+            {
+                options.ModelId = providerCfg.Model;
+            }
+
+            if (providerCfg.Embeddings.Dimensions.HasValue)
+            {
+                options.Dimensions = providerCfg.Embeddings.Dimensions;
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(providerCfg.Model))
+        {
+            options.ModelId = providerCfg.Model;
+        }
+
+        return options;
+    }
+
+    private IReadOnlyList<AgentSkillsEmbeddingDocument> DiscoverSkillDocsForEmbedding(string skillsRoot, CancellationToken ct)
+    {
+        // This is intentionally simple and best-effort:
+        // - find directories containing SKILL.md up to max depth 3
+        // - parse front matter name/description minimally (fallback to folder name)
+        const int maxDepth = 3;
+        const int maxSkills = 2000;
+
+        var root = Path.GetFullPath(skillsRoot);
+        var results = new List<AgentSkillsEmbeddingDocument>();
+
+        if (!Directory.Exists(root))
+            return results;
+
+        var queue = new Queue<(string Dir, int Depth)>();
+        queue.Enqueue((root, 0));
+
+        while (queue.Count > 0)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var (dir, depth) = queue.Dequeue();
+            if (depth > maxDepth)
+                continue;
+
+            var skillFile = Path.Combine(dir, "SKILL.md");
+            if (File.Exists(skillFile))
+            {
+                var folderName = Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                var (name, desc) = TryParseNameAndDescription(skillFile, folderName);
+                long ticks;
+                try { ticks = File.GetLastWriteTimeUtc(skillFile).Ticks; }
+                catch { ticks = 0; }
+
+                results.Add(new AgentSkillsEmbeddingDocument
+                {
+                    Name = name,
+                    FolderName = folderName,
+                    DirectoryPath = dir,
+                    SkillFilePath = skillFile,
+                    SkillFileLastWriteUtcTicks = ticks,
+                    TextToEmbed = $"{name}\n{desc}"
+                });
+
+                if (results.Count >= maxSkills)
+                    break;
+            }
+
+            if (depth == maxDepth)
+                continue;
+
+            IEnumerable<string> children;
+            try
+            {
+                children = Directory.EnumerateDirectories(dir);
+            }
+            catch
+            {
+                continue;
+            }
+
+            foreach (var child in children.OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+            {
+                ct.ThrowIfCancellationRequested();
+                if (ShouldSkipDirForDiscovery(child))
+                    continue;
+                queue.Enqueue((child, depth + 1));
+            }
+        }
+
+        return results;
+    }
+
+    private static bool ShouldSkipDirForDiscovery(string dirPath)
+    {
+        var name = Path.GetFileName(dirPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        if (string.IsNullOrWhiteSpace(name))
+            return true;
+
+        if (name.StartsWith(".", StringComparison.Ordinal))
+            return true;
+
+        return string.Equals(name, "bin", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(name, "obj", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(name, "node_modules", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(name, "scripts", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(name, "references", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(name, "assets", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static (string Name, string Description) TryParseNameAndDescription(string skillFilePath, string fallbackName)
+    {
+        try
+        {
+            // Read a small head; SKILL.md front matter is expected at top.
+            using var fs = new FileStream(skillFilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            var max = (int)Math.Min(32 * 1024, fs.Length);
+            if (max <= 0) return (fallbackName, $"Agent skill at '{fallbackName}'");
+
+            var buf = new byte[max];
+            var read = fs.Read(buf, 0, max);
+            if (read <= 0) return (fallbackName, $"Agent skill at '{fallbackName}'");
+
+            var head = Encoding.UTF8.GetString(buf, 0, read);
+            if (!head.StartsWith("---", StringComparison.Ordinal))
+                return (fallbackName, $"Agent skill at '{fallbackName}'");
+
+            // front matter ends at second '---' line.
+            var idx = head.IndexOf("\n---", StringComparison.Ordinal);
+            if (idx < 0) return (fallbackName, $"Agent skill at '{fallbackName}'");
+
+            var yaml = head.Substring(0, idx).Replace("\r\n", "\n");
+            var lines = yaml.Split('\n');
+            var name = fallbackName;
+            var desc = $"Agent skill at '{fallbackName}'";
+
+            foreach (var raw in lines)
+            {
+                var line = raw.Trim();
+                if (line.StartsWith("name:", StringComparison.OrdinalIgnoreCase))
+                {
+                    name = line.Substring("name:".Length).Trim();
+                }
+                else if (line.StartsWith("description:", StringComparison.OrdinalIgnoreCase))
+                {
+                    desc = line.Substring("description:".Length).Trim();
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(name))
+                name = fallbackName;
+
+            if (string.IsNullOrWhiteSpace(desc))
+                desc = $"Agent skill at '{fallbackName}'";
+
+            return (name, desc);
+        }
+        catch
+        {
+            return (fallbackName, $"Agent skill at '{fallbackName}'");
         }
     }
 

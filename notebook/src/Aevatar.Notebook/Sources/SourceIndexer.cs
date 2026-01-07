@@ -266,7 +266,7 @@ internal sealed class SourceIndexer
 
             // Best-effort: use default provider config.
             var cfg = _llmProviderFactory.GetDefaultProviderConfig();
-            if (cfg is not { Embeddings.Enabled: true })
+            if (cfg.Embeddings == null)
                 return null;
 
             _embeddingOptions = BuildEmbeddingOptions(cfg);

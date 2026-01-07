@@ -500,6 +500,7 @@ scripts/.pids/
 
 memory/
 trace/
+workspace/
 
 # Local skill packs (downloaded/updated at runtime)
 scientific-research-assistant/.skillpacks/

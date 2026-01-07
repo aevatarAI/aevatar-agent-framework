@@ -20,6 +20,28 @@ builder.Configuration.AddJsonFile("skillpacks.json", optional: true, reloadOnCha
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 
+// Keep skills embedding index in a project-local (gitignored) directory by default.
+// This ensures:
+// - sync-time index build and query-time search use the same cache
+// - no need to commit large index files into the repo
+try
+{
+    if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AEVATAR_AGENT_SKILLS_INDEX_DIR")))
+    {
+        var root = new DirectoryInfo(builder.Environment.ContentRootPath).Parent?.Parent?.FullName;
+        if (!string.IsNullOrWhiteSpace(root))
+        {
+            var indexDir = Path.Combine(root, ".skillpacks", ".index");
+            Directory.CreateDirectory(indexDir);
+            Environment.SetEnvironmentVariable("AEVATAR_AGENT_SKILLS_INDEX_DIR", indexDir);
+        }
+    }
+}
+catch
+{
+    // best-effort only
+}
+
 var syncOnly = args.Any(a => string.Equals(a, "--sync-skills", StringComparison.OrdinalIgnoreCase));
 
 // ==========================================
@@ -30,10 +52,7 @@ builder.Services.Configure<MaterialsOptions>(builder.Configuration.GetSection(Ma
 
 // Local skill packs sync (Git clone/pull) - best-effort
 // - New config: SkillPacks:Packs (recommended)
-// - Legacy config: ClaudeScientificSkills (fallback)
 builder.Services.Configure<SkillPacksOptions>(builder.Configuration.GetSection(SkillPacksOptions.SectionName));
-builder.Services.Configure<ClaudeScientificSkillsSyncOptions>(
-    builder.Configuration.GetSection(ClaudeScientificSkillsSyncOptions.SectionName));
 builder.Services.AddSingleton<SkillPacksSyncService>();
 if (!syncOnly)
 {

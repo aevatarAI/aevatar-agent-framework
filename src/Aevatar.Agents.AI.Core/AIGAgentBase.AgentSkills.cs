@@ -160,19 +160,32 @@ public abstract partial class AIGAgentBase
         var listTool = new ToolDefinition
         {
             Name = "skills_list",
-            Description = "List available Agent Skills (folders containing SKILL.md) from configured roots",
+            Description =
+                "List available Agent Skills (legacy). Prefer find_helpful_skills for task-driven work to avoid large outputs.",
             Category = ToolCategory.Core,
             Version = "1.0.0",
             Tags = new List<string> { "skills", "agent-skills", "filesystem", "discovery" },
-            Parameters = new ToolParameters(),
+            Parameters = new ToolParameters
+            {
+                Items = new Dictionary<string, ToolParameter>
+                {
+                    ["max_results"] = new()
+                    {
+                        Type = "integer",
+                        Required = false,
+                        Description = "Max skills to return (default: 30; range 1..200).",
+                        DefaultValue = 30
+                    }
+                }
+            },
             RequiresInternalAccess = true,
             // NOTE:
             // - Skill discovery is gated by EnableAgentSkills (default false).
             // - Keep it as an internal tool, but not "dangerous" so users don't need to flip AllowDangerousTools just to list skills.
             IsDangerous = false,
             CanBeOverridden = true,
-            ExecuteAsync = async (_, executionContext, ct) =>
-                await ExecuteSkillsListToolAsync(agentType, executionContext, ct)
+            ExecuteAsync = async (parameters, executionContext, ct) =>
+                await ExecuteSkillsListToolAsync(agentType, parameters, executionContext, ct)
         };
 
         // skills_load
@@ -221,12 +234,14 @@ public abstract partial class AIGAgentBase
         await ToolManager.RegisterToolAsync(listTool, cancellationToken);
         await ToolManager.RegisterToolAsync(loadTool, cancellationToken);
         await RegisterAgentSkillsResourceToolsAsync(cancellationToken);
+        await RegisterAgentSkillsDynamicReadToolsAsync(cancellationToken);
 
         await RefreshToolCachesAsync(cancellationToken);
     }
 
     private async Task<IMessage> ExecuteSkillsListToolAsync(
         string agentType,
+        Dictionary<string, object> parameters,
         ToolExecutionContext? executionContext,
         CancellationToken cancellationToken)
     {
@@ -234,14 +249,11 @@ public abstract partial class AIGAgentBase
 
         var roots = GetEffectiveAgentSkillsRoots();
         var skills = DiscoverAgentSkills(roots, cancellationToken);
+        var maxResults = ClampInt(parameters.GetValueOrDefault("max_results"), fallback: 30, min: 1, max: 200);
 
-        var result = new
-        {
-            success = true,
-            enabled = EnableAgentSkills,
-            roots,
-            count = skills.Count,
-            skills = skills.Select(s => new
+        var returned = skills
+            .Take(maxResults)
+            .Select(s => new
             {
                 name = s.Name,
                 description = s.Description,
@@ -249,6 +261,20 @@ public abstract partial class AIGAgentBase
                 path = s.DirectoryPath,
                 hasDotNetTools = s.DotNetToolFiles.Count > 0
             })
+            .ToList();
+
+        var result = new
+        {
+            success = true,
+            enabled = EnableAgentSkills,
+            roots,
+            count = skills.Count,
+            returned = returned.Count,
+            truncated = returned.Count < skills.Count,
+            skills = returned,
+            note = returned.Count < skills.Count
+                ? "Output truncated. Prefer find_helpful_skills for task-driven work, or use list_skills for full inventory (debug)."
+                : null
         };
 
         return JsonParser.Default.Parse<Struct>(JsonSerializer.Serialize(result));
@@ -305,7 +331,9 @@ public abstract partial class AIGAgentBase
             {
                 success = false,
                 error = $"Skill '{name}' not found.",
-                available = skills.Select(s => s.Name).ToArray()
+                availableCount = skills.Count,
+                available = skills.Select(s => s.Name).Take(50).ToArray(),
+                hint = "Use find_helpful_skills to search, or list_skills for full inventory (debug)."
             };
             return JsonParser.Default.Parse<Struct>(JsonSerializer.Serialize(notFound));
         }

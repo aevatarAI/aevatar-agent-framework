@@ -20,4 +20,8 @@
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
     </ItemGroup>
 
+    <ItemGroup>
+      <None Include="skillpacks.json" />
+    </ItemGroup>
+
 </Project>

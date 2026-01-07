@@ -11,7 +11,7 @@
 ## 设计目标
 
 - **按需加载**：不要把所有 SOP/知识都塞进 System Prompt；让模型需要时再加载对应 skill。
-- **工具化**：skill 通过工具（`skills_list`/`skills_load`）暴露给模型，避免耦合在 prompt 拼接里。
+- **工具化**：skill 通过工具（`find_helpful_skills`/`skills_load`/`read_skill_document`）暴露给模型，避免耦合在 prompt 拼接里。
 - **可控风险**：`allowed-tools` 变成“硬约束”（不仅是文档字段），避免 skill 滥用高危工具。
 - **可组合**：skill 可以指导调用 dotnet-file tools / MCP tools / 内置 tools，并可通过 allowlist 约束范围。
 
@@ -23,8 +23,11 @@
 - **Skill Folder**：单个技能目录，至少包含 `SKILL.md`。
 - **`SKILL.md`**：技能入口文件，包含 YAML front matter（元信息）+ 正文（流程/规范）。
 - **Agent Skills Tools**：Aevatar 暴露给 LLM 的工具：
-  - `skills_list`、`skills_load`（技能发现与加载）
-  - `skills_files`、`skills_read_file`（技能资源浏览与读取）
+  - `find_helpful_skills`（推荐：任务开始先搜索，避免把全量 inventory 塞进上下文）
+  - `list_skills`（调试：列出完整 skills inventory）
+  - `skills_load`（加载 SKILL.md 正文）
+  - `read_skill_document`（按 pattern 读取 scripts/references/assets 内文本文件；永不执行）
+  - `skills_files`、`skills_read_file`（低阶文件 API，保留兼容）
   - `skills_run_python`（执行 skill 内的 Python 脚本，危险工具）
 - **dotnet-file tool**：`*.cs` 单文件工具，通过 `.NET 10` 的 `dotnet run --file` 执行（`/*aevatar_tool ... */` manifest）。
 - **MCP tool**：由 MCP server 提供的工具（通过 `ToolManager.RegisterMCPServerAsync(...)` 注册）。
@@ -33,7 +36,7 @@
 
 ## Skills vs AI tool / MCP tool（实现与维护对比）
 
-先把概念拉直：**Skills 是“知识/流程层”，tools 是“执行层”**。Skills 不替代 AI tool / MCP tool，而是通过 `skills_list/skills_load` 做技能发现与正文按需加载，并可用 `allowed-tools` 在本次 `ChatAsync/ChatStreamAsync` 的 tool-loop 内收紧可用工具集合（见下文“硬约束语义”一节）。
+先把概念拉直：**Skills 是“知识/流程层”，tools 是“执行层”**。Skills 不替代 AI tool / MCP tool，而是通过 `find_helpful_skills/skills_load` 做技能搜索与正文按需加载，并可用 `allowed-tools` 在本次 `ChatAsync/ChatStreamAsync` 的 tool-loop 内收紧可用工具集合（见下文“硬约束语义”一节）。
 
 ### 对比表（按“实现 & 维护”视角）
 
@@ -41,7 +44,7 @@
 | --- | --- | --- | --- |
 | **主要载体** | `SKILL.md`（YAML front matter + 正文 SOP） | 宿主侧 C# 工具实现 + tool schema | MCP server 对外暴露的 tool |
 | **能力定位** | “告诉模型怎么做”：流程、规范、模板、排错步骤 | “让模型能做事”：本地执行动作 | “让模型能做事”：外部系统/远端执行动作 |
-| **如何暴露给模型** | 先注册 `skills_list/skills_load` 两个入口 tool | 通过 `AIGAgentBase.RegisterToolsAsync(...)` 注册 | 通过 `ToolManager.RegisterMCPServerAsync(...)` 注册 server |
+| **如何暴露给模型** | 注册 `find_helpful_skills/skills_load/read_skill_document`（`skills_list` 为 legacy） | 通过 `AIGAgentBase.RegisterToolsAsync(...)` 注册 | 通过 `ToolManager.RegisterMCPServerAsync(...)` 注册 server |
 | **是否按需加载** | ✅ 是：`skills_load` 才把正文加载进上下文 | ❌ 否：通常每次请求都提前把工具定义给模型 | ❌ 否：注册后工具定义可见；调用时再执行 |
 | **“不提前注册每个工具”的程度** | ✅ 可：skill 目录内 dotnet-file tools 可在 `skills_load(register_tools=true)` 时自动导入 | ❌ 不行：每个工具都要显式注册/维护 | ❌ 不行：必须先注册 server（工具清单由 server 提供） |
 | **安全与权限** | ✅ `allowed-tools` 可做“硬约束”（仅当前 tool-loop） | 取决于宿主侧权限/拦截/参数校验 | 取决于 server/宿主权限；也可被 Skills allowlist 再次收紧 |
@@ -89,28 +92,38 @@ export AEVATAR_AGENT_SKILLS_DIRS="/abs/skills;/abs/more-skills"
 
 ### 开关与行为
 
-- **EnableAgentSkills**：是否向模型暴露 `skills_list/skills_load`（当前仓库默认开启，可在派生 Agent 中关闭）
+- **EnableAgentSkills**：是否向模型暴露 Agent Skills tools（默认开启；可在派生 Agent 中关闭）
 - **AgentSkillsAutoRegisterDotNetFileTools**：`skills_load` 时是否自动导入 skill 目录内的 dotnet-file tools（默认开启）
 
 ---
 
 ## 功能使用（模型侧：怎么“用起来”）
 
-### 1) `skills_list`：发现技能
+### 1) `find_helpful_skills`：搜索最相关技能（推荐）
 
-模型调用 `skills_list` 后会拿到：
-- **roots**：当前生效的 skill roots（来自 `AddAgentSkillsRoot` + `AEVATAR_AGENT_SKILLS_DIRS`）
-- **skills[]**：每个 skill 的 `name/description/allowedTools/path/hasDotNetTools` 等摘要
+为什么要有它：
+- `skills_list` 会返回“所有技能”的摘要；当 skill pack 很大（例如 100+），容易把上下文撑爆
+- `find_helpful_skills` 会只返回少量候选（默认 5 个），更适合作为每次任务的第一步
 
-发现规则（重要）：
+搜索策略：
+- **优先 embeddings**：如果当前 LLM provider 生效的 `Embeddings` 配置存在（provider 自己有 `Embeddings`，或从 `LLMProviders:Embeddings` 继承；并且宿主注册了 `IAIAgentEmbeddingFactory`），会使用 embeddings 语义相似度排序
+- **回退 lexical**：否则使用基于 `name/description/folderName` 的轻量词法匹配（best-effort）
+
+建议用法：
+- 先 `find_helpful_skills(query=用户问题)`
+- 再对 top1/top2 执行 `skills_load(name=...)`
+- 需要读脚本/参考资料时用 `read_skill_document(name, pattern="references/**/*.md")`
+
+### 2) `list_skills`：列出完整 inventory（调试/探索）
+
+用途：
+- 你想检查当前到底加载了哪些 skill roots、多少个 skills、每个 skill 的 doc 数量
+
+### 3) `skills_load`：加载技能正文 +（可选）导入工具
+
+发现规则（重要，适用于 `find_helpful_skills` / `list_skills` / `skills_load`）：
 - **递归发现**：会在 root 下递归查找包含 `SKILL.md` 的目录（最大深度：3）
 - **会跳过**：`.*/bin/obj/node_modules` 以及 skill 内的 `scripts/references/assets`（这些是资源目录，不是 skill 容器）
-
-适用场景：
-- 用户提出需求是**流程型**/组织知识型（SOP/规范/模板）
-- 模型不确定是否存在可复用技能
-
-### 2) `skills_load`：加载技能正文 +（可选）导入工具
 
 参数：
 - **name**（必填）：skill 名称（优先匹配 `SKILL.md` front matter 的 `name`，其次匹配文件夹名）
@@ -122,19 +135,25 @@ export AEVATAR_AGENT_SKILLS_DIRS="/abs/skills;/abs/more-skills"
 - **allowedTools**：front matter 的 allowlist（若存在）
 - **dotnetToolFiles / registeredTools / skipped**：导入 dotnet-file tools 的结果（若启用）
 
-### 3) `skills_files`：列出 skill 目录内资源
+### 4) `read_skill_document`：按 pattern 读取 skill 内文档（推荐）
+
+用途：
+- 读取 `scripts/*.py`、`references/*.md`、`assets/*.txt` 等文本资源，把内容放进上下文
+- 支持 pattern（例如 `references/**/*.md`），并受文件数/字符预算限制
+
+### 5) `skills_files`：列出 skill 目录内资源（低阶）
 
 用途：
 - 让模型知道某个 skill 目录里有哪些 `scripts/`、`references/`、`assets/` 文件
 - 支持递归列出（有数量上限）
 
-### 4) `skills_read_file`：读取 skill 目录内文本文件
+### 6) `skills_read_file`：读取 skill 目录内单个文本文件（低阶）
 
 用途：
 - 读取 `scripts/*.py`、`references/*.md` 等文本资源，把内容放进上下文
 - 受输出预算限制（`max_chars`）
 
-### 5) `skills_run_python`：执行 skill 目录内 Python 脚本（危险工具）
+### 7) `skills_run_python`：执行 skill 目录内 Python 脚本（危险工具）
 
 用途：
 - 把 `scripts/*.py` 真正跑起来，形成“可执行验证”闭环

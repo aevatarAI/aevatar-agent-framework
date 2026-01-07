@@ -1,0 +1,118 @@
+# Requirements Document
+
+## Introduction
+
+本 spec 定义一个 **Vibe Researching 平台（单人研究工作台）**，基于现有 `scientific-research-assistant` 子系统扩展：支持用户持续维护研究 goals、向一个或多个 AI agents 发送消息/文件、多个 AI agents 在无用户干预下持续科研并生成/增量维护一个可解释的 DAG（推导图），同时由科研助手 agent 在每一轮自动总结输出，让从头到尾的推导逻辑可追溯、可回放、可交互展示。
+
+## Alignment with Product Vision
+
+- 符合 **Events are Truth**：所有交互（goals 变更、用户消息、agent 输出、工具调用、DAG 变更、每轮总结）都以事件形式投影到 AG-UI SSE，前端可实时观测与回放关键摘要。
+- 符合 **Boundary Types Must Be Protobuf**：跨 agent 边界（mailbox / file-based 公共资料库）使用 Protobuf 契约，保证稳定与可演进。
+- 符合 **Runtime Agnostic by Design**：agent 逻辑与运行时解耦，MVP 以 Local runtime 跑通端到端闭环，后续可迁移到 Orleans/ProtoActor。
+
+## Requirements
+
+### Requirement 1 — Session-based workbench
+
+**User Story:** 作为科研人员（用户），我希望创建并进入一个研究 session，以便在一个确定的工作区内进行持续的科研协作与产出沉淀。
+
+#### Acceptance Criteria
+
+1. WHEN 用户创建 session THEN 系统 SHALL 返回唯一的 `sessionId`，并为该 session 初始化文件工作区（workspace）与必要的基础文件结构。
+2. WHEN 用户连接到该 session 的事件流 THEN 系统 SHALL 先发送快照（messages/workspace/自定义状态）再进入实时事件流（SSE）。
+3. IF session 不存在 THEN 系统 SHALL 返回明确的 404 错误，并且 SSE 不应悬挂在半连接状态。
+
+### Requirement 2 — Editable Goals with global calibration
+
+**User Story:** 作为科研人员（用户），我希望维护一个 goals 列表（增删改），以便所有 AI agents 能持续对齐最新研究目标并进行校准。
+
+#### Acceptance Criteria
+
+1. WHEN 用户新增/编辑/删除 goal THEN 系统 SHALL 持久化 goals 到 file-based 存储（session workspace 内）。
+2. WHEN goals 发生变更 THEN 系统 SHALL 触发一次“全体 agents 校准”事件，使所有 agents 在下一步科研前读取并对齐最新 goals。
+3. IF goals 为空 THEN 系统 SHALL 允许继续运行，但 agents 必须明确提示“当前无 goals/需要 goals”或以用户最新消息作为临时 goal。
+
+### Requirement 3 — Targeted / broadcast messaging (with files)
+
+**User Story:** 作为科研人员（用户），我希望随时向一个或多个 agent 发送消息（可包含文件），以便提供新材料或纠偏研究方向。
+
+#### Acceptance Criteria
+
+1. WHEN 用户发送消息并选择目标（全部 agents 或子集）THEN 系统 SHALL 将该消息投递到对应 agents 的收件箱（durable queue / mailbox）。
+2. WHEN 用户上传文件并随消息发送 THEN 系统 SHALL 将文件保存到 session workspace，并在消息中以可解析的路径/引用形式提供给目标 agents。
+3. IF 用户选择的 agent 不存在 THEN 系统 SHALL 返回可理解的错误，并不应影响对其它目标 agents 的投递。
+
+### Requirement 4 — Multi-agent autonomous researching loop
+
+**User Story:** 作为科研人员（用户），我希望多个 AI agents 在不干预的情况下持续推进研究，以便自动利用已注册工具完成科研任务并产出 DAG 增量。
+
+#### Acceptance Criteria
+
+1. WHEN session 进入 vibe researching 模式 THEN 系统 SHALL 启动或激活多 agent 编排逻辑（orchestrator），并保证每个 agent 的执行不会并发污染同一会话上下文。
+2. WHEN agents 需要工具 THEN 系统 SHALL 允许其使用已注册工具（含 MCP/skills 等），并将工具调用进度投影到前端可视化事件流。
+3. IF 某个 agent 执行失败 THEN 系统 SHALL 记录错误并继续保持系统可用（best-effort），且其它 agents 不应因单点失败而整体停摆（除非用户显式停止）。
+
+### Requirement 5 — Research assistant agent for per-round summarization (Derivation Trace)
+
+**User Story:** 作为科研人员（用户），我希望科研助手 agent 在每一轮自动总结各 AI agents 的输出与 DAG 变化，以便从头到尾看清楚推导逻辑与决策依据。
+
+#### Acceptance Criteria
+
+1. WHEN 一轮研究迭代结束 THEN 系统 SHALL 触发科研助手 agent 生成“本轮总结”，内容至少包含：本轮触发原因、各 agent 关键结论/下一步、DAG 变更摘要、缺失证据/开放问题。
+2. WHEN 本轮总结生成 THEN 系统 SHALL 将其同时（a）投影到前端事件流可展示，（b）落盘到 file-based trace（便于后续检索/回放）。
+3. IF 某轮总结生成失败 THEN 系统 SHALL 在事件流中报告失败原因，并允许下一轮继续执行（best-effort）。
+
+### Requirement 6 — DAG as a shared, file-based knowledge library
+
+**User Story:** 作为科研人员（用户），我希望科研成果 DAG 作为一个 file-based 公共资料库被所有 agents 访问与扩展，以便围绕同一知识图谱持续科研并产生新节点。
+
+#### Acceptance Criteria
+
+1. WHEN agents 产生新结论或依赖关系 THEN 系统 SHALL 以增量方式将 nodes/edges 写入 DAG 存储，并保持可重建的 snapshot。
+2. WHEN 用户查看 DAG THEN 系统 SHALL 返回 nodes/edges 的一致快照，并可按 nodeId 查询 explain（依赖闭包、缺失依赖、环检测、近似可证明性等）。
+3. IF DAG 存储中出现不一致或坏数据 THEN 系统 SHALL 以安全方式降级（例如忽略坏事件/标记为 Unknown），并在 UI 中提示需要人工修复。
+
+### Requirement 7 — Fully interactive, multi-panel UI
+
+**User Story:** 作为科研人员（用户），我希望所有交互过程在前端页面可展示、可交互，并以可折叠/可放大的多面板组织，以便在复杂研究中保持全局掌控。
+
+#### Acceptance Criteria
+
+1. WHEN 用户连接到 session THEN 前端 SHALL 显示至少：Goals 面板、Agents 状态面板、对话/输出面板（按 agent 分流）、DAG 面板、Trace（每轮总结）面板。
+2. WHEN 用户折叠/放大面板 THEN 前端 SHALL 保持布局状态不影响后端状态，且不丢失实时事件更新。
+3. WHEN 用户发送消息 THEN 前端 SHALL 提供收件人选择（全体/多选/单个）与文件上传能力，且输入框始终可用。
+
+### Requirement 8 — End-to-end observability for the whole process
+
+**User Story:** 作为科研人员（用户），我希望能实时看到每个 agent 在做什么、使用了哪些工具、当前研究状态如何变化，以便及时干预或加速推进。
+
+#### Acceptance Criteria
+
+1. WHEN agents 输出文本或状态变化 THEN 系统 SHALL 通过 AG-UI 标准事件与 CUSTOM 扩展事件推送到前端，并可区分来源 agent。
+2. WHEN 工具调用开始/结束 THEN 系统 SHALL 发送 tool start/end 事件并附带必要元信息（tool 名称、耗时、是否 MCP、错误摘要）。
+3. IF 客户端断线重连 THEN 系统 SHALL 提供快照优先的重连体验，避免依赖长 replay 或丢失关键上下文。
+
+## Non-Functional Requirements
+
+### Code Architecture and Modularity
+- **Single Responsibility Principle**: 新增模块按职责拆分（Goals/DAG/Trace/Orchestrator/UI Panels），避免把所有逻辑堆进一个文件。
+- **Modular Design**: File-SSoT、SSE 投影、agent 编排三者通过清晰接口隔离，便于未来替换存储或运行时。
+- **Dependency Management**: 新依赖版本必须集中到 `Directory.Packages.props`；避免在子项目散落版本号。
+- **Clear Interfaces**: 跨边界类型（mailbox / shared library artifacts）必须由 Protobuf 定义并可演进（不复用 field number）。
+
+### Performance
+- **Bounded state**: agent chat history、materials context、DAG snapshot 与 trace snapshot 都必须有上限（防止 SSE/前端渲染被无限增长拖垮）。
+- **Non-blocking SSE**: SSE 连接建立必须快照优先，不应被 agent/tool 初始化阻塞。
+
+### Security
+- **Safe file handling**: 上传与写盘必须限制目录与路径（避免 traversal），并限制单文件大小与类型（MVP 允许白名单扩展名）。
+- **Tool safety**: 危险工具默认关闭（例如 python_exec），需显式配置启用并在 UI 中标识。
+
+### Reliability
+- **Best-effort projection**: UI 投影失败不应导致后端崩溃；关键流程需要容错并可继续下一轮。
+- **Durable mailbox**: agent 通信应以文件队列保证可审计与可恢复（至少在进程内/文件层面）。
+
+### Usability
+- **Always-available composer**: 输入框与收件人选择应始终可用。\n+- **Trace first**: 每轮总结必须可直接阅读（Markdown）且能关联到对应 agent 输出与 DAG 变更，帮助用户快速理解推导脉络。
+
+

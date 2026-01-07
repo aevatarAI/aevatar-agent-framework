@@ -4,6 +4,25 @@
       "command": "docker",
       "args": ["run", "-i", "--rm", "ghcr.io/k-dense-ai/claude-scientific-skills:latest"],
       "timeoutMs": 300000
+    },
+    "context7": {
+      "enabled": false,
+      "name": "Context7 MCP",
+      "transport": "http",
+      "url": "https://YOUR_CONTEXT7_MCP_SSE_ENDPOINT_HERE",
+      "authToken": "YOUR_CONTEXT7_API_KEY_HERE",
+      "headers": {
+        "CONTEXT7_API_URL": "https://YOUR_CONTEXT7_API_URL_HERE"
+      },
+      "timeoutMs": 120000
+    },
+    "grep_app": {
+      "enabled": false,
+      "name": "grep.app MCP",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "YOUR_GREP_APP_MCP_SERVER_PACKAGE_HERE"],
+      "timeoutMs": 120000
     }
   }
 }

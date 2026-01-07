@@ -20,6 +20,11 @@
 - 也支持：直接提供 Cursor 原生 `mcp.json`（root 级 `mcpServers`）
   - 本项目已在 `Program.cs` 中 `AddJsonFile("mcp.json", optional: true)`，放在 `src/ScientificResearchAssistant.Api/mcp.json` 即可（不提交，参考 `mcp.json.example`）
 
+与 oh-my-opencode 的关系（你选的集成路径 A）：
+- `oh-my-opencode` 默认送 `context7` / `grep_app` 等 curated MCP（可通过其配置禁用）[[oh-my-opencode README.zh-cn](https://raw.githubusercontent.com/code-yeongyu/oh-my-opencode/dev/README.zh-cn.md)]
+- Aevatar 这边不需要“集成插件本体”，只要把 **同一份 Cursor/OpenCode 风格的 `mcpServers` 配置**（例如你本机的 `~/.cursor/mcp.json`）拷贝/同步到 `src/ScientificResearchAssistant.Api/mcp.json` 即可自动连接并注册工具。
+- 仓库内的 `src/ScientificResearchAssistant.Api/mcp.json.example` 已预留了 `context7`（HTTP/SSE）与 `grep_app`（stdio/npx）的字段模板；把 `enabled` 打开并填好 `url/authToken/command/args` 就能跑。
+
 关键字段：
 - `MCP:autoConnect`: 是否自动连接（默认 `true`）
 - `MCP:namespaceTools`: 是否对 MCP 工具名做命名空间前缀（默认 `true`，避免多 server 重名；格式 `mcp__{serverKey}__{toolName}`）

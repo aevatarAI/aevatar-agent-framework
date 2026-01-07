@@ -364,6 +364,16 @@ public sealed class AxiomReasoningService
                 _logger.LogWarning(ex, "[{Id}] Failed to save artifacts (ignored)", session.Id);
             }
 
+            // 保存 session ID 和 CreatedAt 到 session-ids.md（best-effort）
+            try
+            {
+                SaveSessionId(session);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[{Id}] Failed to save session ID (ignored)", session.Id);
+            }
+
             // Dependency Graph (DAG) persistence + SSE snapshot (best-effort)
             // WHY:
             // - HPL/HPA workflows don't necessarily emit a dedicated "update_state" llm_call step.
@@ -665,6 +675,54 @@ public sealed class AxiomReasoningService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "[{Id}] Failed to write file {File}", session.Id, fileName);
+        }
+    }
+
+    // ============================================================
+    //  保存 Session ID 和 CreatedAt 到 session-ids.md
+    // ============================================================
+    private void SaveSessionId(AxiomSession session)
+    {
+        try
+        {
+            // 查找项目根目录（包含 prompt-experiments 目录的位置）
+            var currentDir = Directory.GetCurrentDirectory();
+            var sessionIdsPath = Path.Combine(currentDir, "prompt-experiments", "sessions", "session-ids.md");
+
+            var dir = Path.GetDirectoryName(sessionIdsPath);
+            if (!string.IsNullOrEmpty(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+
+            // 检查文件是否存在以及是否已有表格格式
+            var needsHeader = !File.Exists(sessionIdsPath);
+            if (!needsHeader)
+            {
+                var existingContent = File.ReadAllText(sessionIdsPath);
+                // 如果没有表格分隔符，说明格式不对，需要重新创建
+                if (!existingContent.Contains("| Session ID |"))
+                {
+                    needsHeader = true;
+                }
+            }
+
+            // 如果文件不存在或格式不对，创建并添加标题和表头
+            if (needsHeader)
+            {
+                var header = "# AxiomReasoning Session IDs\n\n" +
+                            "| Session ID | Created At | Status | Workflow |\n" +
+                            "|------------|------------|--------|----------|\n";
+                File.WriteAllText(sessionIdsPath, header);
+            }
+
+            // 追加 session 信息（表格格式）
+            var entry = $"| `{session.Id}` | {session.CreatedAt:yyyy-MM-dd HH:mm:ss} UTC | {session.Status} | {session.Workflow} |\n";
+            File.AppendAllText(sessionIdsPath, entry);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[{Id}] Failed to save session ID to session-ids.md", session.Id);
         }
     }
 

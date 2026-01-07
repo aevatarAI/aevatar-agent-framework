@@ -1,0 +1,15 @@
+<Project>
+  <!-- Global build properties for all projects -->
+  
+  <!-- Override protoc path to use system installation on macOS ARM64 -->
+  <!-- This fixes the "Bad CPU type" error when Grpc.Tools doesn't provide ARM64 binaries -->
+  <PropertyGroup Condition="'$(OS)' == 'Unix' And Exists('/opt/homebrew/bin/protoc')">
+    <Protobuf_Protoc>/opt/homebrew/bin/protoc</Protobuf_Protoc>
+  </PropertyGroup>
+  
+  <!-- Also check for protoc in /usr/local/bin (alternative Homebrew location) -->
+  <PropertyGroup Condition="'$(OS)' == 'Unix' And Exists('/usr/local/bin/protoc') And '$(Protobuf_Protoc)' == ''">
+    <Protobuf_Protoc>/usr/local/bin/protoc</Protobuf_Protoc>
+  </PropertyGroup>
+  
+</Project>

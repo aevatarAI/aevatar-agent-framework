@@ -570,7 +570,7 @@
   - _Requirements: 7, 8_
   - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Frontend engineer | Task: Implement a quiz panel that generates a quiz, collects answers, submits, and renders grading/explanations. | Restrictions: Keep UI minimal; handle multiple question types; no hardcoded backend. | _Requirements: 7,8 | Success: User can take a generated quiz and see explanations and score. (Workflow: mark task [-]; log-implementation; mark [x].)_
 
-- [ ] 43. Frontend：Skills（生成/版本浏览/复制导出）
+- [x] 43. Frontend：Skills（生成/版本浏览/复制导出）
   - Files:
     - `learning/frontend/src/features/skills/SkillsPanel.tsx`
     - `learning/frontend/src/App.tsx`

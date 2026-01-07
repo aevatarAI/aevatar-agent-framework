@@ -50,6 +50,7 @@ public sealed class SkillPacksSyncService
     private readonly IAIAgentEmbeddingFactory? _embeddingFactory;
     private readonly IHostEnvironment _env;
     private readonly ILogger<SkillPacksSyncService> _logger;
+    private readonly SkillPacksSyncProgress _progress;
 
     private readonly SemaphoreSlim _lock = new(1, 1);
 
@@ -68,13 +69,15 @@ public sealed class SkillPacksSyncService
         IOptions<LLMProvidersConfig> llm,
         IAIAgentEmbeddingFactory? embeddingFactory,
         IHostEnvironment env,
-        ILogger<SkillPacksSyncService> logger)
+        ILogger<SkillPacksSyncService> logger,
+        SkillPacksSyncProgress progress)
     {
         _packs = packs;
         _llm = llm;
         _embeddingFactory = embeddingFactory;
         _env = env;
         _logger = logger;
+        _progress = progress;
     }
 
     public bool HasEnabledPacks =>
@@ -103,6 +106,7 @@ public sealed class SkillPacksSyncService
         try
         {
             _lastAttemptUtc = DateTimeOffset.UtcNow;
+            _progress.StartRun(mode, specs.Count);
 
             if (!await IsGitAvailableAsync(linked.Token))
             {
@@ -113,17 +117,27 @@ public sealed class SkillPacksSyncService
                     Error = "git not found"
                 };
                 _lastResult = missingGit;
+                _progress.Step("git_missing", "git not found; skipping sync.");
+                _progress.FinishRun(ok: false, error: missingGit.Error);
                 return missingGit;
             }
 
             var results = new List<SkillPackSyncEntry>();
             var allOk = true;
 
-            foreach (var spec in specs)
+            for (var i = 0; i < specs.Count; i++)
             {
                 linked.Token.ThrowIfCancellationRequested();
+                var spec = specs[i];
+
+                // Publish "current pack" info for the UI.
+                var repoDir = ResolveRepoDir(spec);
+                var skillsRoot = Path.GetFullPath(Path.Combine(repoDir, spec.SkillsSubDir ?? "skills"));
+                _progress.BeginPack(i, spec, repoDir, skillsRoot);
+
                 var r = await TrySyncOneAsync(spec, linked.Token);
                 results.Add(r);
+                _progress.PackResult(r);
                 if (!r.Ok) allOk = false;
             }
 
@@ -134,6 +148,7 @@ public sealed class SkillPacksSyncService
                 Error = allOk ? null : "one or more packs failed"
             };
             _lastResult = result;
+            _progress.FinishRun(allOk, result.Error);
             return result;
         }
         finally
@@ -182,7 +197,9 @@ public sealed class SkillPacksSyncService
             if (!Directory.Exists(repoDir) || !Directory.Exists(Path.Combine(repoDir, ".git")))
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(repoDir)!);
-                _logger.LogInformation("[SkillPacksSync] Cloning {Name} -> {Dir}", spec.Name, repoDir);
+                _logger.LogInformation("[SkillPacksSync] Cloning {Name} -> {Dir} (ref={Ref} url={Url})",
+                    spec.Name, repoDir, @ref, repoUrl);
+                _progress.Step("git_clone", $"git clone {repoUrl} (ref={@ref})");
 
                 var args = new List<string> { "clone" };
                 if (spec.ShallowClone)
@@ -213,7 +230,9 @@ public sealed class SkillPacksSyncService
             }
             else
             {
-                _logger.LogInformation("[SkillPacksSync] Updating {Name} in {Dir}", spec.Name, repoDir);
+                _logger.LogInformation("[SkillPacksSync] Updating {Name} in {Dir} (ref={Ref} url={Url})",
+                    spec.Name, repoDir, @ref, repoUrl);
+                _progress.Step("git_fetch", $"git fetch {repoUrl} (ref={@ref})");
 
                 var fetchArgs = new List<string> { "-C", repoDir, "fetch", "origin", @ref, "--prune" };
                 if (spec.ShallowClone)
@@ -254,6 +273,7 @@ public sealed class SkillPacksSyncService
                 }
 
                 // Clean untracked files (avoid stale scripts)
+                _progress.Step("git_clean", "git clean -fd");
                 _ = await RunGitAsync(new List<string> { "-C", repoDir, "clean", "-fd" }, null, linked.Token);
             }
 
@@ -279,6 +299,7 @@ public sealed class SkillPacksSyncService
             }
 
             // Build embeddings index best-effort (for semantic find_helpful_skills).
+            _progress.Step("index", "building embeddings index (best-effort)");
             var (idxOk, idxFile, idxErr) = await TryBuildEmbeddingsIndexBestEffortAsync(skillsRoot, linked.Token);
 
             return new SkillPackSyncEntry
@@ -312,6 +333,7 @@ public sealed class SkillPacksSyncService
         {
             _logger.LogWarning(ex, "[SkillPacksSync] Sync failed for {Name} (best-effort): {Message}", spec.Name,
                 ex.Message);
+            _progress.Step("error", $"sync failed: {ex.Message}");
             return new SkillPackSyncEntry
             {
                 Name = spec.Name,

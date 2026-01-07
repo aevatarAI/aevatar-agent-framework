@@ -438,6 +438,16 @@ internal static class NotebookSessionsApi
 
         public Task EmitToolStartAsync(string toolCallId, string toolName, CancellationToken ct)
         {
+            var messageId = $"msg:{_threadId}:tool:{toolCallId}";
+
+            _hub.Publish(new ToolCallStartEvent
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                MessageId = messageId,
+                ToolCallId = toolCallId,
+                ToolName = toolName
+            });
+
             _hub.Publish(new CustomEvent
             {
                 Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
@@ -455,6 +465,23 @@ internal static class NotebookSessionsApi
             string? error,
             CancellationToken ct)
         {
+            var messageId = $"msg:{_threadId}:tool:{toolCallId}";
+
+            _hub.Publish(new ToolCallResultEvent
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                MessageId = messageId,
+                ToolCallId = toolCallId,
+                Result = error ?? (success ? "Success" : "Failed")
+            });
+
+            _hub.Publish(new ToolCallEndEvent
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                MessageId = messageId,
+                ToolCallId = toolCallId
+            });
+
             _hub.Publish(new CustomEvent
             {
                 Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),

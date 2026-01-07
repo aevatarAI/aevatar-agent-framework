@@ -56,6 +56,7 @@ builder.Services.Configure<MaterialsOptions>(builder.Configuration.GetSection(Ma
 // Local skill packs sync (Git clone/pull) - best-effort
 // - New config: SkillPacks:Packs (recommended)
 builder.Services.Configure<SkillPacksOptions>(builder.Configuration.GetSection(SkillPacksOptions.SectionName));
+builder.Services.AddSingleton<SkillPacksSyncProgress>();
 builder.Services.AddSingleton<SkillPacksSyncService>();
 if (!syncOnly)
 {
@@ -101,6 +102,12 @@ app.MapPost("/api/skills/sync", async (SkillPacksSyncService sync, CancellationT
 {
     var result = await sync.TryEnsureSyncedAsync(SkillPackSyncMode.Manual, ct);
     return Results.Json(result);
+});
+
+// Live status for frontend polling (best-effort)
+app.MapGet("/api/skills/sync/status", (SkillPacksSyncProgress progress) =>
+{
+    return Results.Json(progress.GetSnapshot());
 });
 
 app.MapGet("/api/info", (IOptions<LLMProvidersConfig> llm, IConfiguration cfg) =>

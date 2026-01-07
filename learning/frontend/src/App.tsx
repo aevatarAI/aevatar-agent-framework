@@ -6,6 +6,7 @@ import { ReportsPanel } from './features/reports/ReportsPanel'
 import { EncyclopediaPanel } from './features/encyclopedia/EncyclopediaPanel'
 import { CardsPanel } from './features/cards/CardsPanel'
 import { QuizPanel } from './features/quiz/QuizPanel'
+import { SkillsPanel } from './features/skills/SkillsPanel'
 
 type UiMessage = {
   id: string
@@ -73,7 +74,9 @@ export function App() {
   const [debugEvents, setDebugEvents] = useState<DebugEvent[]>([])
   const [isConnected, setIsConnected] = useState(false)
   const [progress, setProgress] = useState<any>(null)
-  const [rightTab, setRightTab] = useState<'sources' | 'reports' | 'encyclopedia' | 'cards' | 'quiz' | 'debug'>('sources')
+  const [rightTab, setRightTab] = useState<'sources' | 'reports' | 'encyclopedia' | 'cards' | 'quiz' | 'skills' | 'debug'>(
+    'sources',
+  )
 
   const connRef = useRef<AgUiConnection | null>(null)
 
@@ -382,6 +385,17 @@ export function App() {
               Quiz
             </button>
             <button
+              onClick={() => setRightTab('skills')}
+              style={{
+                padding: '6px 10px',
+                border: '1px solid #ddd',
+                background: rightTab === 'skills' ? '#111827' : '#fff',
+                color: rightTab === 'skills' ? '#fff' : '#111',
+              }}
+            >
+              Skills
+            </button>
+            <button
               onClick={() => setRightTab('debug')}
               style={{
                 padding: '6px 10px',
@@ -424,6 +438,12 @@ export function App() {
           ) : rightTab === 'quiz' ? (
             notebookId ? (
               <QuizPanel notebookId={notebookId} />
+            ) : (
+              <div style={{ fontSize: 12, color: '#999' }}>(select a notebook first)</div>
+            )
+          ) : rightTab === 'skills' ? (
+            notebookId ? (
+              <SkillsPanel notebookId={notebookId} />
             ) : (
               <div style={{ fontSize: 12, color: '#999' }}>(select a notebook first)</div>
             )

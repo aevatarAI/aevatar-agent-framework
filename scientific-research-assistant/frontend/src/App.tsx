@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AgUiClient } from "@agui/sdk";
-import { Activity, FileText, Plus, RefreshCw, Search, Send, TestTube, X } from "lucide-react";
+import { Activity, FileText, Menu, Plus, RefreshCw, Search, Send, TestTube, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -70,6 +70,7 @@ export default function App() {
   const [input, setInput] = useState<string>("");
   const [mode, setMode] = useState<InputMode>("chat");
   const [isSending, setIsSending] = useState<boolean>(false);
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [status, setStatus] = useState<"Disconnected" | "Connecting" | "Connected">("Disconnected");
@@ -82,6 +83,8 @@ export default function App() {
   const [mcpReconnectBusy, setMcpReconnectBusy] = useState(false);
   const [skillsSyncBusy, setSkillsSyncBusy] = useState(false);
   const [skillsSyncNote, setSkillsSyncNote] = useState("");
+  const [skillsSyncStatus, setSkillsSyncStatus] = useState<any>(null);
+  const [skillsSyncLogs, setSkillsSyncLogs] = useState<any[]>([]);
 
   const [workspace, setWorkspace] = useState<any>(null);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
@@ -168,12 +171,43 @@ export default function App() {
   async function syncSkillPacks() {
     if (skillsSyncBusy) return;
     setSkillsSyncBusy(true);
+    let alive = true;
+    let timer: number | null = null;
     try {
       setLastError("");
       setSkillsSyncNote("");
+      setSkillsSyncStatus(null);
+      setSkillsSyncLogs([]);
+
+      // Poll live status while sync is running (best-effort).
+      const pollOnce = async () => {
+        try {
+          const r = await fetch("/api/skills/sync/status");
+          if (!r.ok) return;
+          const st = await r.json().catch(() => null);
+          if (!alive || !st) return;
+          setSkillsSyncStatus(st);
+          const logs = Array.isArray(st?.logs) ? st.logs : [];
+          setSkillsSyncLogs(logs.slice(-12));
+
+          const cur = st?.current;
+          if (st?.running && cur?.repoUrl) {
+            setSkillsSyncNote(`Syncing: ${cur.packName ?? ""} (${cur.repoUrl})`);
+          }
+        } catch {
+          // best-effort
+        }
+      };
+      await pollOnce();
+      timer = window.setInterval(pollOnce, 800);
 
       const res = await fetch("/api/skills/sync", { method: "POST" });
       const json = await res.json().catch(() => null);
+
+      // Stop polling and fetch final snapshot once.
+      if (timer != null) window.clearInterval(timer);
+      await pollOnce();
+      alive = false;
 
       if (!res.ok) {
         const body = json ? JSON.stringify(json) : "";
@@ -193,6 +227,8 @@ export default function App() {
     } catch (e: any) {
       setLastError(`Skills sync failed: ${e?.message ?? String(e)}`);
     } finally {
+      alive = false;
+      if (timer != null) window.clearInterval(timer);
       setSkillsSyncBusy(false);
     }
   }
@@ -212,6 +248,7 @@ export default function App() {
     if (!sid) return;
 
     disconnect();
+    setSidebarOpen(false);
 
     setSessionId(sid);
     setRunStatus("");
@@ -371,6 +408,7 @@ export default function App() {
         return;
       }
 
+      // Backward compatibility for legacy custom events (optional if backend still sends them)
       if (name === "aevatar.scientific.tool_start") {
         const rid = v?.runId;
         const toolCallId = v?.toolCallId;
@@ -403,6 +441,60 @@ export default function App() {
           error: v?.error ? String(v.error) : undefined,
           resultPreview: v?.resultPreview ? String(v.resultPreview) : undefined,
         });
+      }
+    });
+
+    // Standard AG-UI Tool Events
+    client.on("TOOL_CALL_START", (evt: any) => {
+      const mid = evt?.messageId;
+      const toolCallId = evt?.toolCallId;
+      const name = evt?.toolName;
+      if (!mid || !toolCallId || !name) return;
+      
+      upsertTool(mid, {
+        toolCallId,
+        name,
+        status: "running",
+      });
+    });
+
+    client.on("TOOL_CALL_RESULT", (evt: any) => {
+      const mid = evt?.messageId;
+      const toolCallId = evt?.toolCallId;
+      const result = evt?.result;
+      if (!mid || !toolCallId) return;
+
+      const map = messageMapRef.current;
+      const msg = map.get(mid);
+      if (!msg) return;
+
+      const arr = [...(msg.toolOutputs || [])];
+      const idx = arr.findIndex((x) => x.toolCallId === toolCallId);
+      if (idx >= 0) {
+        // Patch existing
+        arr[idx] = { ...arr[idx], resultPreview: result };
+        map.set(mid, { ...msg, toolOutputs: arr });
+        setMessages(Array.from(map.values()));
+      }
+    });
+
+    client.on("TOOL_CALL_END", (evt: any) => {
+      const mid = evt?.messageId;
+      const toolCallId = evt?.toolCallId;
+      if (!mid || !toolCallId) return;
+
+      const map = messageMapRef.current;
+      const msg = map.get(mid);
+      if (!msg) return;
+
+      const arr = [...(msg.toolOutputs || [])];
+      const idx = arr.findIndex((x) => x.toolCallId === toolCallId);
+      if (idx >= 0) {
+        // Mark done. Note: success/error might come from RESULT or implied.
+        // For visual simplicity, we assume success if no error was set previously.
+        arr[idx] = { ...arr[idx], status: "done", success: arr[idx].success ?? true };
+        map.set(mid, { ...msg, toolOutputs: arr });
+        setMessages(Array.from(map.values()));
       }
     });
 
@@ -454,13 +546,31 @@ export default function App() {
   return (
     <div className="flex h-screen bg-gray-900 text-white font-sans overflow-hidden">
       {/* Sidebar */}
-      <div className="w-72 bg-gray-800 border-r border-gray-700 p-4 hidden md:flex flex-col">
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/60 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+      <div
+        className={`w-72 shrink-0 bg-gray-800 border-r border-gray-700 p-4 flex flex-col
+          fixed inset-y-0 left-0 z-50 transition-transform duration-200 ease-out md:static md:translate-x-0 md:z-auto
+          ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} md:transform-none`}
+      >
         <div className="flex items-center gap-2 mb-6">
           <TestTube className="text-purple-400" />
           <div className="min-w-0">
             <div className="font-bold text-lg tracking-tight truncate">Sci-Assist</div>
             <div className="text-xs text-gray-500 truncate">AG-UI sessions (snapshot-first SSE)</div>
           </div>
+          <button
+            className="ml-auto md:hidden p-2 rounded hover:bg-gray-700 text-gray-300"
+            onClick={() => setSidebarOpen(false)}
+            title="Close sidebar"
+          >
+            <X size={16} />
+          </button>
         </div>
 
         <div className="space-y-2">
@@ -552,6 +662,26 @@ export default function App() {
               <RefreshCw size={14} /> {skillsSyncBusy ? "Updating Skills…" : "Update Skills"}
             </button>
             {skillsSyncNote && <div className="mt-1 text-[11px] text-gray-500 break-words">{skillsSyncNote}</div>}
+            {(skillsSyncBusy || skillsSyncLogs.length > 0) && (
+              <div className="mt-2 max-h-28 overflow-auto rounded border border-gray-800 bg-black/30 p-2 font-mono text-[10px] text-gray-400">
+                {skillsSyncBusy && (
+                  <div className="mb-1 text-gray-500">
+                    {skillsSyncStatus?.current?.step
+                      ? `step: ${String(skillsSyncStatus.current.step)}`
+                      : "step: initializing…"}
+                  </div>
+                )}
+                {skillsSyncLogs.length === 0 ? (
+                  <div className="text-gray-600">waiting for sync logs…</div>
+                ) : (
+                  skillsSyncLogs.map((l, idx) => (
+                    <div key={idx} className="whitespace-pre-wrap break-words">
+                      {String(l?.message ?? "")}
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
 
           <div
@@ -573,6 +703,13 @@ export default function App() {
       {/* Main */}
       <div className="flex-1 flex flex-col relative">
         <header className="h-14 border-b border-gray-800 flex items-center px-6 bg-gray-900/50 backdrop-blur">
+          <button
+            className="md:hidden mr-3 p-2 rounded bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200"
+            onClick={() => setSidebarOpen(true)}
+            title="Open sidebar"
+          >
+            <Menu size={16} />
+          </button>
           <div className="flex items-center gap-3 min-w-0">
             <div className="text-sm font-medium text-gray-400 truncate">
               Session: <span className="font-mono text-gray-200">{sessionId || "(none)"}</span>

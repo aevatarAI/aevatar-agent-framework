@@ -112,6 +112,37 @@ dotnet run -- --sync-skills
 - `Python:TimeoutMs`
 - `Python:MaxOutputChars`
 
+### 4.5) Vibe DAG 共识模式（可选，默认：verifier-quorum）
+
+Vibe 的 DAG 写入是 **共识门控** 的：`dag_builder` 只产出 candidate，是否落盘由共识决定。
+
+配置位置：`src/ScientificResearchAssistant.Api/appsettings.json` → `Vibe:DagConsensus`
+
+- **Mode**：`verifier-quorum` | `maker-v2`
+  - `verifier-quorum`（默认，轻量）：多个 `verifier` 投票，满足门限就写入 DAG snapshot
+  - `maker-v2`（可选，偏重）：调用 CognitiveMesh 的 `maker-v2` workflow（多轮/多 worker）
+- **VerifierCount / Quorum**：投票人数与通过门限（例如 3 个 verifier，2 票同意通过）
+- **AnyRedFlagBlocks**：任一 verifier 给出 hard red-flag 时是否一票否决
+- **PerVerifierTimeoutMs**：单个 verifier 投票超时（避免卡死）
+
+#### 如何切换（两种方式）
+
+1) **改 appsettings（长期生效）**
+
+把 `Vibe:DagConsensus:Mode` 改成你要的模式：
+
+- `Mode = "verifier-quorum"`（轻）
+- `Mode = "maker-v2"`（重）
+
+2) **用环境变量（临时切换，优先级更高）**
+
+ASP.NET Core 配置支持 `__` 表示层级，例如：
+
+```bash
+# 临时切换为 maker-v2（一次启动生效）
+Vibe__DagConsensus__Mode=maker-v2 dotnet run --project scientific-research-assistant/src/ScientificResearchAssistant.Api/ScientificResearchAssistant.Api.csproj
+```
+
 ### 5) 端口与环境变量
 
 - **后端端口**：默认 `5678`（仓库政策：禁止 `5000`）

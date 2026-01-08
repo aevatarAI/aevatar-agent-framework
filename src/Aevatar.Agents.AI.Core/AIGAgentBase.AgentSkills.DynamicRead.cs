@@ -68,6 +68,23 @@ public abstract partial class AIGAgentBase
                 await ExecuteFindHelpfulSkillsToolAsync(parameters, executionContext, ct)
         };
 
+        // find_helpful_alls (alias)
+        // Some models occasionally hallucinate this tool name. Keep an alias so we fail soft.
+        var findAllsAliasTool = new ToolDefinition
+        {
+            Name = "find_helpful_alls",
+            Description = "Alias of find_helpful_skills (kept for robustness).",
+            Category = ToolCategory.Core,
+            Version = "1.0.0",
+            Tags = new List<string> { "skills", "agent-skills", "search", "semantic", "alias" },
+            RequiresInternalAccess = true,
+            IsDangerous = false,
+            CanBeOverridden = true,
+            Parameters = findTool.Parameters,
+            ExecuteAsync = async (parameters, executionContext, ct) =>
+                await ExecuteFindHelpfulSkillsToolAsync(parameters, executionContext, ct)
+        };
+
         // list_skills (debug/exploration)
         var listTool = new ToolDefinition
         {
@@ -149,6 +166,7 @@ public abstract partial class AIGAgentBase
         };
 
         await ToolManager.RegisterToolAsync(findTool, cancellationToken);
+        await ToolManager.RegisterToolAsync(findAllsAliasTool, cancellationToken);
         await ToolManager.RegisterToolAsync(listTool, cancellationToken);
         await ToolManager.RegisterToolAsync(readDocTool, cancellationToken);
     }

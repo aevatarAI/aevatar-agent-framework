@@ -235,7 +235,7 @@ message SraAgentStatus {
 }
 
 // ------------------------------------------------------------
-//  DAG (file-based knowledge library, maker-v2 consensus gated)
+//  DAG (file-based knowledge library, consensus gated)
 // ------------------------------------------------------------
 
 enum SraDagNodeType {
@@ -270,7 +270,7 @@ message SraDagMutation {
   repeated SraDagNode upsert_nodes = 4;
   repeated SraDagEdge upsert_edges = 5;
   google.protobuf.Timestamp created_at = 6;
-  map<string, string> labels = 100;   // e.g., "workflow"="maker-v2"
+  map<string, string> labels = 100;   // e.g., "workflow"="verifier-quorum" | "maker-v2"
 }
 
 message SraDagSnapshot {
@@ -320,6 +320,221 @@ message SraRoundSummary {
   repeated string missing_evidence = 9; // bounded (file paths or material ids)
   google.protobuf.Timestamp updated_at = 10;
   map<string, string> metrics = 100;   // e.g., "llm_calls"="12"
+}
+
+// ------------------------------------------------------------
+//  Research Brief (1-page) - issue #67 alignment
+// ------------------------------------------------------------
+
+message SraResearchTerm {
+  string term = 1;
+  string meaning = 2; // bounded
+}
+
+message SraResearchMilestone {
+  // Suggested round index (1-based). 0 means "unspecified".
+  int32 round_index = 1;
+  string expected_output = 2; // bounded
+}
+
+message SraResearchBriefSnapshot {
+  string session_id = 1;
+  int32 version = 2; // monotonically increasing (writer-managed)
+
+  // "Rewrite the question into an executable research problem"
+  string rewritten_question = 3; // bounded
+  string scope = 4;              // bounded (include boundaries)
+  string success_criteria = 5;   // bounded
+
+  repeated SraResearchTerm terms = 6;      // key terms and definitions
+  repeated string assumptions = 7;         // bounded bullets
+  repeated string risks = 8;               // bounded bullets
+  repeated string uncertainties = 9;       // bounded bullets
+  repeated SraResearchMilestone milestones = 10;
+
+  google.protobuf.Timestamp updated_at = 11;
+  map<string, string> labels = 100;
+}
+
+// ------------------------------------------------------------
+//  Compute (programmatic verification/experiment) - issue #67 alignment
+// ------------------------------------------------------------
+
+enum SraComputeCostLevel {
+  SRA_COMPUTE_COST_LEVEL_UNSPECIFIED = 0;
+  SRA_COMPUTE_COST_LEVEL_LOW = 1;
+  SRA_COMPUTE_COST_LEVEL_MEDIUM = 2;
+  SRA_COMPUTE_COST_LEVEL_HIGH = 3;
+}
+
+enum SraComputeRiskLevel {
+  SRA_COMPUTE_RISK_LEVEL_UNSPECIFIED = 0;
+  SRA_COMPUTE_RISK_LEVEL_LOW = 1;
+  SRA_COMPUTE_RISK_LEVEL_MEDIUM = 2;
+  SRA_COMPUTE_RISK_LEVEL_HIGH = 3;
+}
+
+enum SraComputeAction {
+  SRA_COMPUTE_ACTION_UNSPECIFIED = 0;
+  SRA_COMPUTE_ACTION_EXECUTE = 1;
+  SRA_COMPUTE_ACTION_DEGRADE = 2;
+  SRA_COMPUTE_ACTION_SKIP = 3;
+}
+
+enum SraComputeJobState {
+  SRA_COMPUTE_JOB_STATE_UNSPECIFIED = 0;
+  SRA_COMPUTE_JOB_STATE_QUEUED = 1;
+  SRA_COMPUTE_JOB_STATE_RUNNING = 2;
+  SRA_COMPUTE_JOB_STATE_SUCCEEDED = 3;
+  SRA_COMPUTE_JOB_STATE_FAILED = 4;
+  SRA_COMPUTE_JOB_STATE_CANCELLED = 5;
+}
+
+message SraComputeRequest {
+  string session_id = 1;
+  string request_id = 2;         // stable id for correlation/dedupe
+  string requested_by = 3;       // e.g., "verifier"
+
+  // Human-facing explanation
+  string why_required = 4;       // bounded
+  string what_to_compute = 5;    // bounded
+  repeated string expected_outputs = 6; // bounded bullets
+
+  SraComputeCostLevel cost = 7;
+  SraComputeRiskLevel risk = 8;
+
+  // Provide 1-3 fallback paths (bounded), e.g. "degrade to heuristic check"
+  repeated string fallback_options = 9;
+
+  google.protobuf.Timestamp created_at = 10;
+  map<string, string> labels = 100;
+}
+
+message SraComputePlan {
+  string session_id = 1;
+  string plan_id = 2;            // stable id
+  string request_id = 3;
+
+  // Recommendation and whether user confirmation is required.
+  SraComputeAction recommended_action = 4;
+  bool requires_user_confirmation = 5;
+
+  // Human-facing execution plan card (bounded)
+  string plan_summary = 6;
+  repeated string risk_notes = 7;
+  repeated string failure_fallbacks = 8;
+
+  // Where artifacts will be written (relative to session workspace).
+  string artifacts_dir = 9;
+
+  google.protobuf.Timestamp created_at = 10;
+  map<string, string> labels = 100;
+}
+
+message SraComputeJobStatus {
+  string session_id = 1;
+  string job_id = 2;
+  string plan_id = 3;
+  string request_id = 4;
+
+  SraComputeJobState state = 5;
+  int32 progress_pct = 6;        // 0..100 (best-effort)
+  string status = 7;             // bounded one-liner
+
+  // Bounded rolling excerpt for UI; full logs are file refs.
+  string log_excerpt = 8;
+  repeated string artifact_paths = 9; // relative paths under workspace
+
+  string error = 10;             // bounded
+
+  google.protobuf.Timestamp started_at = 11;
+  google.protobuf.Timestamp updated_at = 12;
+  google.protobuf.Timestamp finished_at = 13;
+
+  map<string, string> labels = 100;
+}
+
+// ------------------------------------------------------------
+//  Delivery Center (paper + lists) - issue #67 alignment
+// ------------------------------------------------------------
+
+enum SraConfidenceLevel {
+  SRA_CONFIDENCE_LEVEL_UNSPECIFIED = 0;
+  SRA_CONFIDENCE_LEVEL_LOW = 1;
+  SRA_CONFIDENCE_LEVEL_MEDIUM = 2;
+  SRA_CONFIDENCE_LEVEL_HIGH = 3;
+}
+
+message SraConclusionCard {
+  string card_id = 1;
+  string claim = 2;              // bounded
+  SraConfidenceLevel confidence = 3;
+  repeated string evidence_paths = 4;        // file refs (sources/workspace artifacts)
+  repeated string counter_evidence_paths = 5;
+  repeated string related_dag_node_ids = 6;
+  string notes = 7;              // bounded
+  google.protobuf.Timestamp updated_at = 8;
+  map<string, string> tags = 100;
+}
+
+message SraEvidenceItem {
+  string evidence_id = 1;
+  string title = 2;              // bounded
+  string path = 3;               // file ref (sources/workspace artifacts)
+  string excerpt = 4;            // bounded quote/snippet
+  string relevance = 5;          // bounded
+  google.protobuf.Timestamp updated_at = 6;
+  map<string, string> tags = 100;
+}
+
+message SraNextTaskItem {
+  string task_id = 1;
+  string title = 2;              // bounded
+  string detail = 3;             // bounded
+  int32 priority = 4;            // lower = higher priority
+  repeated string blocked_by = 5; // bounded ids/paths
+  google.protobuf.Timestamp updated_at = 6;
+  map<string, string> tags = 100;
+}
+
+message SraConclusionCardsSnapshot {
+  string session_id = 1;
+  int32 version = 2;
+  repeated SraConclusionCard items = 3;
+  google.protobuf.Timestamp updated_at = 4;
+}
+
+message SraEvidenceTableSnapshot {
+  string session_id = 1;
+  int32 version = 2;
+  repeated SraEvidenceItem items = 3;
+  google.protobuf.Timestamp updated_at = 4;
+}
+
+message SraNextTasksSnapshot {
+  string session_id = 1;
+  int32 version = 2;
+  repeated SraNextTaskItem items = 3;
+  google.protobuf.Timestamp updated_at = 4;
+}
+
+message SraDeliveryCenterSnapshot {
+  string session_id = 1;
+  int32 version = 2;
+
+  // Canonical files (relative to session workspace root)
+  string paper_outline_path = 3;
+  string paper_draft_path = 4;
+
+  string conclusions_path = 5;
+  string evidence_path = 6;
+  string tasks_path = 7;
+
+  // Human-friendly summary of what's new/changed this round (bounded).
+  string changed_summary = 8;
+
+  google.protobuf.Timestamp updated_at = 9;
+  map<string, string> labels = 100;
 }
 
 

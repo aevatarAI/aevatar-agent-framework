@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import DagGraphView from "./DagGraphView";
+import DagGraphView from "../components/DagGraphView";
 
 type DagNode = {
   id: string;

@@ -15,6 +15,12 @@ internal sealed class SessionInputInDto
     public string? RequestId { get; init; }
 
     /// <summary>
+    /// Optional per-request provider override (model/runtime selection).
+    /// When empty, the session's ProviderName (or LLM default) is used.
+    /// </summary>
+    public string? ProviderName { get; init; }
+
+    /// <summary>
     /// Run mode:
     /// - "chat" (default): MCP/tools powered chat
     /// - "vibe": multi-agent axioms+references reasoning
@@ -34,6 +40,13 @@ internal sealed class SessionInputInDto
     /// typically returned by POST /api/sessions/{id}/uploads.
     /// </summary>
     public List<string>? AttachmentPaths { get; init; }
+}
+
+internal sealed class ComputeDecisionInDto
+{
+    public string? PlanId { get; init; }
+    public string? Action { get; init; } // execute | degrade | skip
+    public string? Comment { get; init; }
 }
 
 internal sealed class SaveFactInDto

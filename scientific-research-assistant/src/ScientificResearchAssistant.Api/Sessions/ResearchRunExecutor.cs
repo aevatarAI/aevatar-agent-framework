@@ -84,7 +84,9 @@ internal sealed class ResearchRunExecutor
         await session.RunLock.WaitAsync(ct);
         try
         {
-            var providerOverride = session.ProviderName;
+            var providerOverride = string.IsNullOrWhiteSpace(input.ProviderName)
+                ? session.ProviderName
+                : input.ProviderName.Trim();
 
             // Always emit RUN_STARTED first
             session.Events.Publish(new RunStartedEvent
@@ -293,7 +295,7 @@ internal sealed class ResearchRunExecutor
                 });
 
                 // ------------------------------------------------------------
-                // Step 2+) Orchestrator (research_assistant + workers + maker-v2 + trace)
+                // Step 2+) Orchestrator (research_assistant + workers + DAG consensus + trace)
                 // ------------------------------------------------------------
                 void Emit(string delta)
                 {
@@ -451,7 +453,7 @@ internal sealed class ResearchRunExecutor
             "vibe.librarian",
             "vibe.verifier",
             "vibe.dag_builder",
-            "vibe.maker_v2",
+            "vibe.dag_consensus",
             "vibe.summary"
         ];
     }

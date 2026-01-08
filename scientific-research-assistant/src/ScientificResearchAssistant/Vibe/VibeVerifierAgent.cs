@@ -27,6 +27,14 @@ public sealed class VibeVerifierAgent : VibeAgentBase
         _pythonTimeoutMs = python?.GetValue<int?>("TimeoutMs") ?? 15_000;
         _pythonMaxOutputChars = python?.GetValue<int?>("MaxOutputChars") ?? 8_000;
 
+        // Verifier should be stateless across calls:
+        // - Avoid cross-round bleed and reduce token/state growth.
+        // - Quorum consensus may reuse multiple verifier instances.
+        EnableChatHistoryInState = false;
+        EnableChatHistoryCompaction = false;
+        ChatHistoryMaxMessages = 0;
+        ChatHistorySummaryMaxChars = 0;
+
         AllowDangerousTools = _pythonEnabled;
 
         SystemPrompt =

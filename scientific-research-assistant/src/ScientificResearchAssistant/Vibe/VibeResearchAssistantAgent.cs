@@ -34,6 +34,26 @@ public sealed class VibeResearchAssistantAgent : VibeAgentBase
 
             Modes (the user message will include a mode marker):
 
+            0) [MODE:BRIEF]
+               Output STRICT JSON ONLY (no markdown, no code fences).
+               Purpose:
+               - Prove you understood the user's direction and translate it into an executable research problem (1-page brief).
+               Schema:
+               {
+                 "rewrittenQuestion": "string",
+                 "scope": "string",
+                 "successCriteria": "string",
+                 "terms": [ { "term": "string", "meaning": "string" } ],
+                 "assumptions": ["string"],
+                 "risks": ["string"],
+                 "uncertainties": ["string"],
+                 "milestones": [ { "roundIndex": 1, "expectedOutput": "string" } ]
+               }
+               Requirements:
+               - Keep it bounded and concrete.
+               - milestones should preview what each round will output (2-6 items).
+               - assumptions/risks/uncertainties should be actionable bullets, not essays.
+
             1) [MODE:PLAN]
                Output STRICT JSON ONLY (no markdown, no code fences).
                Schema:

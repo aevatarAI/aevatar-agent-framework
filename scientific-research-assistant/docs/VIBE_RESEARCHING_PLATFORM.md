@@ -23,7 +23,8 @@
    - `librarian`：证据/资料整理与缺口
    - `verifier`：硬验证（可选 python_exec）
    - `dag_builder`：产出 DAG mutation candidate（STRICT JSON）
-4. **maker-v2 共识 gate**：使用 Cognitive DSL workflow `maker-v2.yaml` 对 DAG candidate 做 vote + red-flagging
+4. **DAG 共识 gate（默认：verifier-quorum）**：对 DAG candidate 做轻量 vote + red-flagging
+   - **verifier-quorum**：多个 `verifier` 对同一 candidate 投票；满足 `approve >= quorum` 且无 hard red-flags 即通过
    - **通过**：写入最终 DAG snapshot
    - **失败**：candidate 写入 staged（保留待后续再审/再跑）
 5. **research_assistant（summary）**：生成本轮总结（Markdown），并落盘为 Derivation Trace
@@ -35,21 +36,37 @@
 会话根目录：`workspace/sessions/{sessionId}/`
 
 ```
+paper/
+  outline.md                         # PaperService scaffold（人读）
+  draft.md                           # PaperService scaffold（人读）
+
 decisions/
   goals.json                         # Protobuf-JSON: SraGoalsSnapshot
 
+deliverables/
+  brief.json                         # Protobuf-JSON: SraResearchBriefSnapshot（1-page brief）
+  conclusions.json                   # Protobuf-JSON: SraConclusionCardsSnapshot
+  evidence.json                      # Protobuf-JSON: SraEvidenceTableSnapshot
+  tasks.json                         # Protobuf-JSON: SraNextTasksSnapshot
+  delivery_snapshot.json             # Protobuf-JSON: SraDeliveryCenterSnapshot（paths + changedSummary）
+
 artifacts/
   uploads/                           # 用户上传附件（返回相对路径）
+  ui/
+    ui_snapshot.json                 # UI 快照（messages/meta/tools/run-steps），用于刷新/重连恢复（best-effort）
+  compute/
+    decisions/                       # 用户 compute 决策记录（json, MVP）
   dag/
     snapshot.json                    # Protobuf-JSON: SraDagSnapshot
     staged/                          # 未通过共识的 candidate (json)
-    consensus/                       # maker-v2 共识 artifacts (json)
+    consensus/                       # DAG 共识 artifacts (json)
   trace/
     trace.jsonl                      # 逐行 Protobuf-JSON: SraRoundSummary
 
 runs/
   {runId}/
     summary.md                       # 本轮总结（人读）
+    ui_events.jsonl                  # UI 工作痕迹（RUN/STEP/TOOL/META/MESSAGE_END，best-effort）
 ```
 
 说明：
@@ -64,15 +81,23 @@ SSE endpoint：`GET /api/sessions/{sessionId}/agui/events`
 
 #### 4.1 Bootstrap（reconnect 时立即发送）
 - `aevatar.vibe.goals_snapshot`
+- `aevatar.vibe.message_meta_snapshot`（messageId → agent/stepName；用于刷新恢复每个 agent 的标签）
+- `aevatar.vibe.brief_snapshot`
 - `aevatar.vibe.dag_snapshot`
+- `aevatar.vibe.delivery_snapshot`
 - `aevatar.vibe.trace_snapshot`
 - `aevatar.vibe.agents_snapshot`（best-effort，仅确定性 roster/ids）
+- `aevatar.ui.tools_snapshot`（tool cards：messageId → toolCalls；用于刷新恢复）
+- `aevatar.ui.run_steps_snapshot`（Run Steps 卡片恢复）
 
 #### 4.2 Live updates（run 中/结束后）
 - `aevatar.vibe.goals_updated`（目前作为 signal，前端会再 GET /goals 拉全量）
+- `aevatar.vibe.brief_updated`（signal，前端会再 GET /deliverables 拉全量）
 - `aevatar.vibe.dag_updated`（共识通过并写入 DAG 后）
 - `aevatar.vibe.consensus_blocked`（共识失败，candidate 被 staged）
+- `aevatar.vibe.delivery_updated`（signal：delivery center 更新后）
 - `aevatar.vibe.round_summary`（本轮 trace entry：包含 preview + summaryPath）
+- `aevatar.vibe.compute_decision`（用户点击 execute/degrade/skip 后）
 
 ---
 
@@ -87,19 +112,40 @@ SSE endpoint：`GET /api/sessions/{sessionId}/agui/events`
   - `GET /api/sessions/{id}/dag`
   - `GET /api/sessions/{id}/dag/{nodeId}/explain`
   - `GET /api/sessions/{id}/dag/staged`
+- **Deliverables**
+  - `GET /api/sessions/{id}/deliverables`（brief + delivery center 列表投影）
+- **Compute（MVP）**
+  - `POST /api/sessions/{id}/compute/decision`（execute/degrade/skip；写入 artifacts/compute/decisions）
 - **Single Entry Chat**
   - `POST /api/sessions/{id}/input`
     - 支持 `mode=vibe`
     - 支持可选 `toAgents` / `attachmentPaths`（作为路由 hint 与附件引用）
 
----
+### 6) DAG 共识门控（自动，无人工审批）
 
-### 6) maker-v2 共识门控（自动，无人工审批）
+默认采用 **verifier-quorum**（轻量）：几个 `verifier` 同意即可落盘。
 
-- workflow：`src/Aevatar.Agents.Cognitive/workflows/maker-v2.yaml`
-- 执行器：`DagConsensusRunner`（调用 `CognitiveStrategy.ExecuteAsync`）
+- 配置：`src/ScientificResearchAssistant.Api/appsettings.json` → `Vibe:DagConsensus`
+  - `Mode`: `verifier-quorum` | `maker-v2`
+  - `VerifierCount` / `Quorum`: 门限投票
+- 执行器：`DagConsensusRunner`
+  - `verifier-quorum`: 直接调用 `VibeVerifierAgent` 做投票（更轻）
+  - `maker-v2`: 调用 `CognitiveStrategy.ExecuteAsync`（更重，作为可选模式）
 - 产物落盘：`artifacts/dag/consensus/*.json`
-- 输出约束：STRICT JSON；解析失败/超长/不一致等会被 **red-flagging** 阻断并 staged
+- 输出约束：解析失败/超时/结构性问题会被阻断并 staged（保留候选以便后续再审）
+
+#### Mode 切换（推荐写清楚）
+
+- **长期切换**：修改 `src/ScientificResearchAssistant.Api/appsettings.json`：
+  - 轻量：`"Mode": "verifier-quorum"`
+  - 重：`"Mode": "maker-v2"`
+
+- **临时切换（一次启动）**：用环境变量覆盖（`__` 表示层级）：
+
+```bash
+# 切换为 maker-v2（更重，但更强的“共识/审查”）
+Vibe__DagConsensus__Mode=maker-v2 dotnet run --project scientific-research-assistant/src/ScientificResearchAssistant.Api/ScientificResearchAssistant.Api.csproj
+```
 
 ---
 

@@ -1,18 +1,27 @@
 using System.Text.Json;
+using Aevatar.Agents.AI;
 using Aevatar.CognitiveMesh.Abstractions;
 using Aevatar.CognitiveMesh.Strategies;
 using Google.Protobuf.WellKnownTypes;
+using Microsoft.Extensions.Configuration;
+using ScientificResearchAssistant.Api;
 using ScientificResearchAssistant.Api.Workspace;
 using ScientificResearchAssistant.Contracts.Collab;
+using ScientificResearchAssistant.Vibe;
 
 namespace ScientificResearchAssistant.Api.Vibe.Dag;
 
 // ============================================================
-//  DagConsensusRunner (maker-v2 gate)
+//  DagConsensusRunner (consensus gate)
 //
 //  Goal:
-//  - Run MAKER System v2 (Cognitive DSL workflow: maker-v2) to validate/synthesize
-//    a DAG mutation candidate into an accepted mutation, or red-flag it.
+//  - Validate/synthesize a DAG mutation candidate into an accepted mutation, or red-flag it.
+//
+//  Default:
+//  - verifier-quorum (lightweight): N verifiers vote; pass if approvals >= quorum and no hard red-flags.
+//
+//  Optional:
+//  - maker-v2 (heavier): Cognitive DSL workflow "maker-v2" refines/normalizes the candidate.
 //
 //  Output contract (JSON-only, strict):
 //  {
@@ -27,7 +36,7 @@ namespace ScientificResearchAssistant.Api.Vibe.Dag;
 //  - workspace/sessions/{id}/artifacts/dag/consensus/*.json
 // ============================================================
 
-public sealed class DagConsensusRunner
+public sealed partial class DagConsensusRunner
 {
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -36,12 +45,21 @@ public sealed class DagConsensusRunner
 
     private const int MaxRawChars = 30_000;
 
+    private readonly IConfiguration _configuration;
+    private readonly ResearchRuntime _runtime;
     private readonly CognitiveStrategy _cognitive;
     private readonly WorkspaceService _workspace;
     private readonly ILogger<DagConsensusRunner> _logger;
 
-    public DagConsensusRunner(CognitiveStrategy cognitive, WorkspaceService workspace, ILogger<DagConsensusRunner> logger)
+    public DagConsensusRunner(
+        IConfiguration configuration,
+        ResearchRuntime runtime,
+        CognitiveStrategy cognitive,
+        WorkspaceService workspace,
+        ILogger<DagConsensusRunner> logger)
     {
+        _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+        _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         _cognitive = cognitive ?? throw new ArgumentNullException(nameof(cognitive));
         _workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -52,6 +70,7 @@ public sealed class DagConsensusRunner
         string RunId,
         SraDagSnapshot Current,
         SraDagMutation Candidate,
+        string? MaterialsContext = null,
         string? ProviderName = null,
         int? ConsensusK = null,
         int? MaxRounds = null,
@@ -61,6 +80,7 @@ public sealed class DagConsensusRunner
     public sealed record ConsensusResult(
         bool Ok,
         bool Blocked,
+        string Workflow,
         SraDagMutation? Mutation,
         IReadOnlyList<string> RedFlags,
         string? ArtifactPath,
@@ -70,6 +90,13 @@ public sealed class DagConsensusRunner
     {
         ArgumentNullException.ThrowIfNull(input);
         ct.ThrowIfCancellationRequested();
+
+        var mode = ResolveMode(input);
+        if (!IsMakerV2(mode))
+        {
+            // Default path: verifier-quorum (or unknown -> treated as verifier-quorum).
+            return await RunVerifierQuorumAsync(input, ct);
+        }
 
         var ws = _workspace.EnsureSessionWorkspace(input.SessionId);
         Directory.CreateDirectory(Path.Combine(ws.ArtifactsDir, "dag", "consensus"));
@@ -98,22 +125,26 @@ public sealed class DagConsensusRunner
         }
         catch (Exception ex)
         {
-            var artifact = await WriteArtifactAsync(ws, input, rr: null, extractedJson: null, parsed: null, redFlags: ["cognitive_execute_exception"], error: ex.Message, ct);
-            return new ConsensusResult(false, true, null, ["cognitive_execute_exception"], artifact, ex.Message);
+            var artifact = await WriteArtifactAsync(ws, workflow: "maker-v2", input, rr: null, extractedJson: null, parsed: null,
+                redFlags: ["cognitive_execute_exception"], error: ex.Message, ct);
+            return new ConsensusResult(false, true, "maker-v2", null, ["cognitive_execute_exception"], artifact, ex.Message);
         }
 
         if (!rr.Success || string.IsNullOrWhiteSpace(rr.Content))
         {
             var err = rr.Error ?? "maker-v2 failed";
-            var artifact = await WriteArtifactAsync(ws, input, rr, extractedJson: null, parsed: null, redFlags: ["maker_v2_failed"], error: err, ct);
-            return new ConsensusResult(false, true, null, ["maker_v2_failed"], artifact, err);
+            var artifact = await WriteArtifactAsync(ws, workflow: "maker-v2", input, rr, extractedJson: null, parsed: null,
+                redFlags: ["maker_v2_failed"], error: err, ct);
+            return new ConsensusResult(false, true, "maker-v2", null, ["maker_v2_failed"], artifact, err);
         }
 
         var raw = rr.Content!;
         if (!TryExtractJson(raw, out var json))
         {
-            var artifact = await WriteArtifactAsync(ws, input, rr, extractedJson: null, parsed: null, redFlags: ["json_parse_failed"], error: "failed to extract json from maker-v2 output", ct);
-            return new ConsensusResult(false, true, null, ["json_parse_failed"], artifact, "failed to extract json from maker-v2 output");
+            var artifact = await WriteArtifactAsync(ws, workflow: "maker-v2", input, rr, extractedJson: null, parsed: null,
+                redFlags: ["json_parse_failed"], error: "failed to extract json from maker-v2 output", ct);
+            return new ConsensusResult(false, true, "maker-v2", null, ["json_parse_failed"], artifact,
+                "failed to extract json from maker-v2 output");
         }
 
         DagMutationJson? parsed;
@@ -123,26 +154,30 @@ public sealed class DagConsensusRunner
         }
         catch (Exception ex)
         {
-            var artifact = await WriteArtifactAsync(ws, input, rr, extractedJson: json, parsed: null, redFlags: ["json_deserialize_failed"], error: ex.Message, ct);
-            return new ConsensusResult(false, true, null, ["json_deserialize_failed"], artifact, ex.Message);
+            var artifact = await WriteArtifactAsync(ws, workflow: "maker-v2", input, rr, extractedJson: json, parsed: null,
+                redFlags: ["json_deserialize_failed"], error: ex.Message, ct);
+            return new ConsensusResult(false, true, "maker-v2", null, ["json_deserialize_failed"], artifact, ex.Message);
         }
 
         var redFlags = (parsed?.RedFlags ?? []).Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).ToList();
         if (redFlags.Count > 0)
         {
-            var artifact = await WriteArtifactAsync(ws, input, rr, extractedJson: json, parsed, redFlags, error: "blocked_by_red_flags", ct);
-            return new ConsensusResult(false, true, null, redFlags, artifact, "blocked_by_red_flags");
+            var artifact = await WriteArtifactAsync(ws, workflow: "maker-v2", input, rr, extractedJson: json, parsed, redFlags,
+                error: "blocked_by_red_flags", ct);
+            return new ConsensusResult(false, true, "maker-v2", null, redFlags, artifact, "blocked_by_red_flags");
         }
 
         var mutation = BuildMutation(ws.SessionId, input.Candidate, parsed);
         if (mutation.UpsertNodes.Count == 0 && mutation.UpsertEdges.Count == 0)
         {
-            var artifact = await WriteArtifactAsync(ws, input, rr, extractedJson: json, parsed, redFlags: ["empty_mutation"], error: "empty mutation", ct);
-            return new ConsensusResult(false, true, null, ["empty_mutation"], artifact, "empty mutation");
+            var artifact = await WriteArtifactAsync(ws, workflow: "maker-v2", input, rr, extractedJson: json, parsed,
+                redFlags: ["empty_mutation"], error: "empty mutation", ct);
+            return new ConsensusResult(false, true, "maker-v2", null, ["empty_mutation"], artifact, "empty mutation");
         }
 
-        var okArtifact = await WriteArtifactAsync(ws, input, rr, extractedJson: json, parsed, redFlags: [], error: null, ct);
-        return new ConsensusResult(true, false, mutation, [], okArtifact, null);
+        var okArtifact = await WriteArtifactAsync(ws, workflow: "maker-v2", input, rr, extractedJson: json, parsed, redFlags: [],
+            error: null, ct);
+        return new ConsensusResult(true, false, "maker-v2", mutation, [], okArtifact, null);
     }
 
     private static string BuildTaskPrompt(ConsensusInput input)
@@ -295,6 +330,7 @@ public sealed class DagConsensusRunner
 
     private async Task<string> WriteArtifactAsync(
         WorkspacePaths ws,
+        string workflow,
         ConsensusInput input,
         ReasoningResult? rr,
         string? extractedJson,
@@ -321,7 +357,7 @@ public sealed class DagConsensusRunner
         {
             sessionId = ws.SessionId,
             runId = input.RunId,
-            workflow = "maker-v2",
+            workflow = workflow,
             status = error == null && redFlags.Count == 0 ? "accepted" : "blocked",
             error,
             redFlags,
@@ -352,6 +388,27 @@ public sealed class DagConsensusRunner
         await File.WriteAllTextAsync(path, json, ct);
 
         return Path.GetRelativePath(ws.SessionRoot, path).Replace('\\', '/').Trim('/');
+    }
+
+    private string ResolveMode(ConsensusInput input)
+    {
+        // Allow workflow hint in candidate labels (rare override).
+        if (input?.Candidate != null &&
+            input.Candidate.Labels != null &&
+            input.Candidate.Labels.TryGetValue("workflow", out var w) &&
+            !string.IsNullOrWhiteSpace(w))
+        {
+            return w.Trim();
+        }
+
+        var mode = (_configuration.GetValue<string?>("Vibe:DagConsensus:Mode") ?? string.Empty).Trim();
+        return mode.Length == 0 ? "verifier-quorum" : mode;
+    }
+
+    private static bool IsMakerV2(string mode)
+    {
+        var s = (mode ?? string.Empty).Trim().ToLowerInvariant();
+        return s is "maker-v2" or "maker_v2";
     }
 
     // Best-effort JSON extraction (reused pattern from tools).

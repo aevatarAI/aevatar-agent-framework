@@ -122,6 +122,25 @@ public sealed class ResearchRuntime
         return (entry.VerifierAgent, entry.VerifierAgentId);
     }
 
+    public async Task<(VibeVerifierAgent Agent, string AgentId)> GetVerifierAgentAsync(
+        string sessionId,
+        string? providerName,
+        string verifierKey,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(verifierKey))
+            return await GetVerifierAgentAsync(sessionId, providerName, ct);
+
+        var entry = await GetOrCreateEntryAsync(sessionId, ct);
+        await EnsureVerifierInstanceInitializedAsync(entry, providerName, verifierKey, ct);
+
+        var key = SanitizeToken(verifierKey);
+        if (!entry.VerifierInstances.TryGetValue(key, out var inst) || inst.Agent == null || inst.Actor == null)
+            throw new InvalidOperationException(inst?.LastError ?? "verifier not initialized");
+
+        return (inst.Agent, inst.AgentId);
+    }
+
     public async Task<(VibeDagBuilderAgent Agent, string AgentId)> GetDagBuilderAgentAsync(
         string sessionId,
         string? providerName,
@@ -132,6 +151,18 @@ public sealed class ResearchRuntime
         if (entry.DagBuilderAgent == null || entry.DagBuilderActor == null)
             throw new InvalidOperationException(entry.DagBuilderLastError ?? "dag_builder not initialized");
         return (entry.DagBuilderAgent, entry.DagBuilderAgentId);
+    }
+
+    public async Task<(VibePaperEditorAgent Agent, string AgentId)> GetPaperEditorAgentAsync(
+        string sessionId,
+        string? providerName,
+        CancellationToken ct)
+    {
+        var entry = await GetOrCreateEntryAsync(sessionId, ct);
+        await EnsurePaperEditorInitializedAsync(entry, providerName, ct);
+        if (entry.PaperEditorAgent == null || entry.PaperEditorActor == null)
+            throw new InvalidOperationException(entry.PaperEditorLastError ?? "paper_editor not initialized");
+        return (entry.PaperEditorAgent, entry.PaperEditorAgentId);
     }
 
     public async Task<AevatarAIAgentState?> TryGetAgentStateAsync(string sessionId, CancellationToken ct)
@@ -263,6 +294,17 @@ public sealed class ResearchRuntime
     {
         var s = (sessionId ?? string.Empty).Trim();
         return s;
+    }
+
+    private static string SanitizeToken(string s)
+    {
+        var t = (s ?? string.Empty).Trim();
+        if (t.Length == 0) return string.Empty;
+
+        var sb = new System.Text.StringBuilder(t.Length);
+        foreach (var ch in t)
+            sb.Append(char.IsLetterOrDigit(ch) ? ch : '_');
+        return sb.ToString();
     }
 
     private static string BuildAgentId(string sessionId) => $"sra-{sessionId}";
@@ -585,6 +627,72 @@ public sealed class ResearchRuntime
         }
     }
 
+    private async Task EnsureVerifierInstanceInitializedAsync(
+        SessionEntry entry,
+        string? providerName,
+        string verifierKey,
+        CancellationToken ct)
+    {
+        verifierKey = SanitizeToken(verifierKey);
+        if (verifierKey.Length == 0)
+        {
+            await EnsureVerifierInitializedAsync(entry, providerName, ct);
+            return;
+        }
+
+        await entry.Lock.WaitAsync(ct);
+        try
+        {
+            EnsureProviderName(entry, providerName);
+
+            if (!entry.VerifierInstances.TryGetValue(verifierKey, out var inst))
+            {
+                inst = new VerifierInstance
+                {
+                    AgentId = $"{entry.AgentId}-verifier-{verifierKey}"
+                };
+                entry.VerifierInstances[verifierKey] = inst;
+            }
+
+            if (inst.IsReady)
+                return;
+
+            inst.LastError = null;
+
+            _logger.LogInformation("[ResearchRuntime] Creating verifier agent actor: {AgentId} (session={SessionId})",
+                inst.AgentId, entry.SessionId);
+
+            inst.Actor = await _actorFactory.CreateGAgentActorAsync<VibeVerifierAgent>(inst.AgentId, ct);
+            inst.Agent = (VibeVerifierAgent)inst.Actor.GetAgent();
+
+            var providerCfg = BuildProviderConfigOrThrow(entry.ProviderName);
+            await inst.Agent.InitializeAsync(providerCfg, cfg =>
+            {
+                cfg.Temperature = 0.0f;
+                cfg.MaxOutputTokens = 1400;
+            }, ct);
+
+            inst.IsReady = true;
+        }
+        catch (Exception ex)
+        {
+            // Preserve the record so callers can see the error without rethrowing internal details.
+            if (!entry.VerifierInstances.TryGetValue(verifierKey, out var inst))
+            {
+                inst = new VerifierInstance { AgentId = $"{entry.AgentId}-verifier-{verifierKey}" };
+                entry.VerifierInstances[verifierKey] = inst;
+            }
+
+            inst.LastError = ex.Message;
+            inst.IsReady = false;
+            _logger.LogError(ex, "[ResearchRuntime] Verifier({Key}) init failed: {Message}", verifierKey, ex.Message);
+        }
+        finally
+        {
+            entry.Lock.Release();
+        }
+    }
+
     private async Task EnsureDagBuilderInitializedAsync(SessionEntry entry, string? providerName, CancellationToken ct)
     {
         if (entry.DagBuilderIsReady)
@@ -619,6 +727,46 @@ public sealed class ResearchRuntime
             entry.DagBuilderLastError = ex.Message;
             _logger.LogError(ex, "[ResearchRuntime] DagBuilder init failed: {Message}", ex.Message);
             entry.DagBuilderIsReady = false;
+        }
+        finally
+        {
+            entry.Lock.Release();
+        }
+    }
+
+    private async Task EnsurePaperEditorInitializedAsync(SessionEntry entry, string? providerName, CancellationToken ct)
+    {
+        if (entry.PaperEditorIsReady)
+            return;
+
+        await entry.Lock.WaitAsync(ct);
+        try
+        {
+            if (entry.PaperEditorIsReady)
+                return;
+
+            entry.PaperEditorLastError = null;
+            EnsureProviderName(entry, providerName);
+
+            _logger.LogInformation("[ResearchRuntime] Creating paper_editor agent actor: {AgentId} (session={SessionId})",
+                entry.PaperEditorAgentId, entry.SessionId);
+
+            entry.PaperEditorActor = await _actorFactory.CreateGAgentActorAsync<VibePaperEditorAgent>(entry.PaperEditorAgentId, ct);
+            entry.PaperEditorAgent = (VibePaperEditorAgent)entry.PaperEditorActor.GetAgent();
+
+            await entry.PaperEditorAgent.InitializeAsync(entry.ProviderName, cfg =>
+            {
+                cfg.Temperature = 0.2f;
+                cfg.MaxOutputTokens = 2200;
+            }, ct);
+
+            entry.PaperEditorIsReady = true;
+        }
+        catch (Exception ex)
+        {
+            entry.PaperEditorLastError = ex.Message;
+            _logger.LogError(ex, "[ResearchRuntime] PaperEditor init failed: {Message}", ex.Message);
+            entry.PaperEditorIsReady = false;
         }
         finally
         {
@@ -755,6 +903,7 @@ public sealed class ResearchRuntime
         public string LibrarianAgentId => $"{AgentId}-librarian";
         public string VerifierAgentId => $"{AgentId}-verifier";
         public string DagBuilderAgentId => $"{AgentId}-dag_builder";
+        public string PaperEditorAgentId => $"{AgentId}-paper_editor";
 
         public readonly SemaphoreSlim Lock = new(1, 1);
         public IGAgentActor? MainActor { get; set; }
@@ -789,13 +938,31 @@ public sealed class ResearchRuntime
         public bool VerifierIsReady { get; set; }
         public string? VerifierLastError { get; set; }
 
+        // Extra verifier instances keyed by a small token (e.g., "dag_consensus_v1").
+        // Used by lightweight quorum-based DAG consensus.
+        public Dictionary<string, VerifierInstance> VerifierInstances { get; } = new(StringComparer.Ordinal);
+
         public IGAgentActor? DagBuilderActor { get; set; }
         public VibeDagBuilderAgent? DagBuilderAgent { get; set; }
         public bool DagBuilderIsReady { get; set; }
         public string? DagBuilderLastError { get; set; }
 
+        public IGAgentActor? PaperEditorActor { get; set; }
+        public VibePaperEditorAgent? PaperEditorAgent { get; set; }
+        public bool PaperEditorIsReady { get; set; }
+        public string? PaperEditorLastError { get; set; }
+
         public IReadOnlyList<object>? ToolsSnapshot { get; set; }
         public HashSet<string> McpToolNames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private sealed class VerifierInstance
+    {
+        public required string AgentId { get; init; }
+        public IGAgentActor? Actor { get; set; }
+        public VibeVerifierAgent? Agent { get; set; }
+        public bool IsReady { get; set; }
+        public string? LastError { get; set; }
     }
 }
 

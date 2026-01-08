@@ -16,6 +16,9 @@ using ScientificResearchAssistant.Api.Materials;
 using ScientificResearchAssistant.Api.Paper;
 using ScientificResearchAssistant.Api.Sessions;
 using ScientificResearchAssistant.Api.Workspace;
+using ScientificResearchAssistant.Api.Vibe.Brief;
+using ScientificResearchAssistant.Api.Vibe.Compute;
+using ScientificResearchAssistant.Api.Vibe.Delivery;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -88,6 +91,8 @@ builder.Services.AddMEAI();
 builder.Services.AddSingleton<ResearchRuntime>();
 builder.Services.AddSingleton<MaterialsService>();
 builder.Services.AddSingleton<ResearchSessionManager>();
+builder.Services.AddSingleton<SessionUiSnapshotStore>();
+builder.Services.AddSingleton<SessionUiTraceRecorder>();
 builder.Services.AddSingleton<ResearchRunExecutor>();
 
 // File-SSoT collaboration primitives (paper + facts_proposed + mailbox)
@@ -105,12 +110,21 @@ builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.Uploads.Uploa
 // Vibe: per-round derivation trace (file-backed)
 builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.Trace.TraceStore>();
 
+// Vibe: research brief (1-page) snapshot (file-backed)
+builder.Services.AddSingleton<BriefStore>();
+
 // Vibe: DAG knowledge library (file-backed)
 builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.Dag.DagStore>();
 
-// Vibe: MAKER v2 consensus gate (CognitiveStrategy)
+// Vibe: DAG consensus gate (default: verifier-quorum; optional: maker-v2 via CognitiveStrategy)
 builder.Services.AddSingleton<Aevatar.CognitiveMesh.Strategies.CognitiveStrategy>();
 builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.Dag.DagConsensusRunner>();
+
+// Vibe: delivery center snapshots (paper + lists) (file-backed)
+builder.Services.AddSingleton<DeliveryCenterStore>();
+
+// Vibe: compute decisions (execute/degrade/skip) (file-backed, MVP)
+builder.Services.AddSingleton<ComputeDecisionStore>();
 
 // Vibe: single-round orchestrator (multi-agent + DAG + trace)
 builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.VibeOrchestrator>();
@@ -262,43 +276,8 @@ app.MapGet("/api/llm/status", (
     });
 });
 
-// ============================================================
-//  Secrets API (local-only)
-//
-//  Purpose:
-//  - Let the frontend configure ApiKey and persist it into user secrets (~/.aevatar).
-//  - Keep secrets out of repo-local appsettings.secrets.json copies.
-// ============================================================
-
-app.MapPost("/api/secrets/llm/api-key", (
-    SetLlmApiKeyRequest req,
-    IAevatarUserSecretsStore secrets,
-    IOptionsMonitor<LLMProvidersConfig> llm,
-    HttpContext http) =>
-{
-    if (!IsLocal(http))
-        return Results.Forbid();
-
-    var providerName = (req.ProviderName ?? "").Trim();
-    if (string.IsNullOrWhiteSpace(providerName))
-    {
-        providerName = string.IsNullOrWhiteSpace(llm.CurrentValue.Default) ? "default" : llm.CurrentValue.Default;
-    }
-
-    var apiKey = (req.ApiKey ?? "").Trim();
-    if (string.IsNullOrWhiteSpace(apiKey))
-        return Results.BadRequest(new { error = "apiKey is required" });
-
-    var keyPath = $"LLMProviders:Providers:{providerName}:ApiKey";
-    secrets.Set(keyPath, apiKey);
-
-    return Results.Json(new
-    {
-        ok = true,
-        providerName,
-        keyPath
-    });
-});
+// LLM Secrets API (Secrets.Api compatible; local-only for writes/reveal)
+app.MapLlmSecretsApi();
 
 // Sessions API (AG-UI)
 app.MapResearchSessionsApi();
@@ -310,8 +289,6 @@ static bool IsLocal(HttpContext ctx)
     var ip = ctx.Connection.RemoteIpAddress;
     return ip == null || System.Net.IPAddress.IsLoopback(ip);
 }
-
-sealed record SetLlmApiKeyRequest(string? ProviderName, string? ApiKey);
 
 // ============================================================
 //  LlmProbe (OpenAI-compatible)

@@ -5,7 +5,7 @@ namespace ScientificResearchAssistant.Vibe;
 //
 //  Role:
 //  - Extract a candidate DAG mutation (nodes/edges) from the round context.
-//  - This is a *candidate* only; final acceptance is gated by maker-v2 consensus.
+//  - This is a *candidate* only; final acceptance is gated by DAG consensus (default: verifier-quorum).
 //
 //  Output:
 //  - STRICT JSON ONLY (no markdown, no code fences).

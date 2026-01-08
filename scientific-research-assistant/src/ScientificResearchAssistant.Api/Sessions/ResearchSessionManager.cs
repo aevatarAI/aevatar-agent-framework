@@ -18,6 +18,12 @@ namespace ScientificResearchAssistant.Api.Sessions;
 public sealed class ResearchSessionManager
 {
     private readonly ConcurrentDictionary<string, ResearchSession> _sessions = new(StringComparer.Ordinal);
+    private readonly SessionUiTraceRecorder _uiTrace;
+
+    public ResearchSessionManager(SessionUiTraceRecorder uiTrace)
+    {
+        _uiTrace = uiTrace ?? throw new ArgumentNullException(nameof(uiTrace));
+    }
 
     public IReadOnlyList<object> ListSessions()
     {
@@ -40,6 +46,7 @@ public sealed class ResearchSessionManager
             ProviderName = string.IsNullOrWhiteSpace(providerName) ? null : providerName.Trim()
         };
         _sessions[id] = session;
+        _uiTrace.Attach(session);
         return session;
     }
 

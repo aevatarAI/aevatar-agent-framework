@@ -29,6 +29,7 @@ public sealed class PaperCollabWorkflowTests
         Directory.Exists(ws.MailboxDir).ShouldBeTrue();
         Directory.Exists(ws.RunsDir).ShouldBeTrue();
         Directory.Exists(ws.ArtifactsDir).ShouldBeTrue();
+        Directory.Exists(ws.DeliverablesDir).ShouldBeTrue();
         Directory.Exists(ws.TmpDir).ShouldBeTrue();
 
         File.Exists(ws.PaperOutlinePath).ShouldBeTrue();

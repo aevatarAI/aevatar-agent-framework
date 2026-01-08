@@ -6,6 +6,9 @@ using Microsoft.Extensions.Options;
 using ScientificResearchAssistant.Api.Facts;
 using ScientificResearchAssistant.Api.Materials;
 using ScientificResearchAssistant.Api.Paper;
+using ScientificResearchAssistant.Api.Vibe.Brief;
+using ScientificResearchAssistant.Api.Vibe.Compute;
+using ScientificResearchAssistant.Api.Vibe.Delivery;
 using ScientificResearchAssistant.Api.Vibe.Dag;
 using ScientificResearchAssistant.Api.Vibe.Goals;
 using ScientificResearchAssistant.Api.Vibe.Trace;
@@ -39,6 +42,8 @@ internal static class ResearchSessionsApi
         MapList(app);
         MapTools(app);
         MapGoals(app);
+        MapDeliverables(app);
+        MapCompute(app);
         MapUploads(app);
         MapDag(app);
         MapInput(app);
@@ -46,6 +51,80 @@ internal static class ResearchSessionsApi
         MapFacts(app);
         MapWorkspace(app);
         MapAgUiEvents(app);
+    }
+
+    private static void MapDeliverables(WebApplication app)
+    {
+        app.MapGet("/api/sessions/{sessionId}/deliverables", async (
+            string sessionId,
+            ResearchSessionManager sessions,
+            BriefStore brief,
+            DeliveryCenterStore delivery,
+            CancellationToken ct) =>
+        {
+            if (!sessions.TryGet(sessionId, out _))
+                return Results.NotFound(new { error = "session not found" });
+
+            var b = await brief.LoadAsync(sessionId, ct);
+            var d = await delivery.GetSnapshotForUiAsync(sessionId, ct);
+
+            return Results.Json(new
+            {
+                ok = true,
+                sessionId,
+                brief = new
+                {
+                    version = b.Version,
+                    updatedAt = b.UpdatedAt?.ToDateTime().ToUniversalTime().ToString("O") ?? "",
+                    rewrittenQuestion = b.RewrittenQuestion ?? "",
+                    scope = b.Scope ?? "",
+                    successCriteria = b.SuccessCriteria ?? "",
+                    terms = b.Terms.Select(t => new { term = t.Term, meaning = t.Meaning }).ToList(),
+                    assumptions = b.Assumptions.ToList(),
+                    risks = b.Risks.ToList(),
+                    uncertainties = b.Uncertainties.ToList(),
+                    milestones = b.Milestones.Select(m => new { roundIndex = m.RoundIndex, expectedOutput = m.ExpectedOutput }).ToList()
+                },
+                delivery = d
+            });
+        });
+    }
+
+    private static void MapCompute(WebApplication app)
+    {
+        app.MapPost("/api/sessions/{sessionId}/compute/decision", async (
+            string sessionId,
+            ComputeDecisionInDto? input,
+            ResearchSessionManager sessions,
+            ComputeDecisionStore store,
+            CancellationToken ct) =>
+        {
+            if (!sessions.TryGet(sessionId, out var session))
+                return Results.NotFound(new { error = "session not found" });
+
+            var planId = (input?.PlanId ?? string.Empty).Trim();
+            var action = (input?.Action ?? string.Empty).Trim().ToLowerInvariant();
+            var comment = input?.Comment;
+
+            var path = await store.SaveAsync(sessionId, planId, action, comment, ct);
+
+            session.Events.Publish(new CustomEvent
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Name = "aevatar.vibe.compute_decision",
+                Value = new
+                {
+                    sessionId,
+                    planId,
+                    action,
+                    comment = (comment ?? string.Empty).Replace("\r", "").Trim(),
+                    path,
+                    createdAt = DateTimeOffset.UtcNow.ToString("O")
+                }
+            });
+
+            return Results.Json(new { ok = true, sessionId, planId, action, path });
+        });
     }
 
     private static void MapCreate(WebApplication app)
@@ -652,6 +731,9 @@ internal static class ResearchSessionsApi
             ResearchRuntime runtime,
             WorkspaceService workspace,
             GoalsStore goals,
+            BriefStore brief,
+            DeliveryCenterStore delivery,
+            SessionUiSnapshotStore ui,
             DagStore dag,
             TraceStore trace,
             CancellationToken ct) =>
@@ -693,6 +775,20 @@ internal static class ResearchSessionsApi
 
             long Ts(DateTimeOffset? ts) => (ts ?? DateTimeOffset.UtcNow).ToUnixTimeMilliseconds();
 
+            // Best-effort: hydrate server-side message snapshot from file-backed UI snapshot
+            // so refresh can recover client-only projections (step/tool cards).
+            SessionUiSnapshotStore.UiSnapshot? uiSnap = null;
+            try
+            {
+                uiSnap = await ui.LoadAsync(session.Id, ct);
+                foreach (var m in uiSnap.Messages)
+                    session.SetMessage(m.Id, m.Role, m.Content);
+            }
+            catch
+            {
+                // best-effort
+            }
+
             // ------------------------------------------------------------
             //  0) Fast bootstrap (NEVER block SSE on agent/tool init)
             //
@@ -706,6 +802,74 @@ internal static class ResearchSessionsApi
                 Timestamp = Ts(DateTimeOffset.UtcNow),
                 Messages = session.GetMessagesSnapshot(maxMessages: 60)
             }, ct);
+
+            // Extra bootstrap: UI meta + tool cards + run steps (file-backed)
+            try
+            {
+                if (uiSnap == null)
+                    uiSnap = await ui.LoadAsync(session.Id, ct);
+
+                if (uiSnap.MessageMeta.Count > 0)
+                {
+                    await WriteSseAsync(new CustomEvent
+                    {
+                        Timestamp = Ts(DateTimeOffset.UtcNow),
+                        Name = "aevatar.vibe.message_meta_snapshot",
+                        Value = new
+                        {
+                            sessionId = session.Id,
+                            items = uiSnap.MessageMeta.Select(x => new
+                            {
+                                messageId = x.MessageId,
+                                agent = x.Agent,
+                                stepName = x.StepName
+                            }).ToList()
+                        }
+                    }, ct);
+                }
+
+                if (uiSnap.Tools.Count > 0)
+                {
+                    await WriteSseAsync(new CustomEvent
+                    {
+                        Timestamp = Ts(DateTimeOffset.UtcNow),
+                        Name = "aevatar.ui.tools_snapshot",
+                        Value = new
+                        {
+                            sessionId = session.Id,
+                            tools = uiSnap.Tools.Select(t => new
+                            {
+                                messageId = t.MessageId,
+                                toolCallId = t.ToolCallId,
+                                toolName = t.ToolName,
+                                status = t.Status,
+                                resultPreview = t.ResultPreview ?? "",
+                                error = t.Error ?? ""
+                            }).ToList()
+                        }
+                    }, ct);
+                }
+
+                if (uiSnap.RunSteps != null && uiSnap.RunSteps.Order is { Count: > 0 })
+                {
+                    await WriteSseAsync(new CustomEvent
+                    {
+                        Timestamp = Ts(DateTimeOffset.UtcNow),
+                        Name = "aevatar.ui.run_steps_snapshot",
+                        Value = new
+                        {
+                            sessionId = session.Id,
+                            runId = uiSnap.RunSteps.RunId ?? "",
+                            order = uiSnap.RunSteps.Order ?? new List<string>(),
+                            map = uiSnap.RunSteps.Map ?? new Dictionary<string, SessionUiSnapshotStore.UiRunStep>()
+                        }
+                    }, ct);
+                }
+            }
+            catch
+            {
+                // best-effort
+            }
 
             await WriteSseAsync(new CustomEvent
             {
@@ -742,6 +906,49 @@ internal static class ResearchSessionsApi
                             updatedAt = g.UpdatedAt?.ToDateTime().ToUniversalTime().ToString("O") ?? ""
                         }).ToList()
                     }
+                }, ct);
+            }
+            catch
+            {
+                // best-effort
+            }
+
+            try
+            {
+                var snap = await brief.LoadAsync(session.Id, ct);
+                await WriteSseAsync(new CustomEvent
+                {
+                    Timestamp = Ts(DateTimeOffset.UtcNow),
+                    Name = "aevatar.vibe.brief_snapshot",
+                    Value = new
+                    {
+                        sessionId = session.Id,
+                        version = snap.Version,
+                        updatedAt = snap.UpdatedAt?.ToDateTime().ToUniversalTime().ToString("O") ?? "",
+                        rewrittenQuestion = snap.RewrittenQuestion ?? "",
+                        scope = snap.Scope ?? "",
+                        successCriteria = snap.SuccessCriteria ?? "",
+                        terms = snap.Terms.Select(t => new { term = t.Term, meaning = t.Meaning }).ToList(),
+                        assumptions = snap.Assumptions.ToList(),
+                        risks = snap.Risks.ToList(),
+                        uncertainties = snap.Uncertainties.ToList(),
+                        milestones = snap.Milestones.Select(m => new { roundIndex = m.RoundIndex, expectedOutput = m.ExpectedOutput }).ToList()
+                    }
+                }, ct);
+            }
+            catch
+            {
+                // best-effort
+            }
+
+            try
+            {
+                var snap = await delivery.GetSnapshotForUiAsync(session.Id, ct);
+                await WriteSseAsync(new CustomEvent
+                {
+                    Timestamp = Ts(DateTimeOffset.UtcNow),
+                    Name = "aevatar.vibe.delivery_snapshot",
+                    Value = new { sessionId = session.Id, delivery = snap }
                 }, ct);
             }
             catch

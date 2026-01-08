@@ -51,6 +51,7 @@ public sealed class WorkspaceService
         var mailboxDir = Path.Combine(sessionRoot, "mailbox");
         var runsDir = Path.Combine(sessionRoot, "runs");
         var artifactsDir = Path.Combine(sessionRoot, "artifacts");
+        var deliverablesDir = Path.Combine(sessionRoot, "deliverables");
         var tmpDir = Path.Combine(sessionRoot, "tmp");
 
         // Mailbox internal folders (created lazily per agent, but ensure shared ones).
@@ -64,6 +65,7 @@ public sealed class WorkspaceService
         Directory.CreateDirectory(deadDir);
         Directory.CreateDirectory(runsDir);
         Directory.CreateDirectory(artifactsDir);
+        Directory.CreateDirectory(deliverablesDir);
         Directory.CreateDirectory(tmpDir);
 
         return new WorkspacePaths
@@ -82,6 +84,7 @@ public sealed class WorkspaceService
             MailboxDeadDir = deadDir,
             RunsDir = runsDir,
             ArtifactsDir = artifactsDir,
+            DeliverablesDir = deliverablesDir,
             TmpDir = tmpDir,
             FactsDir = Path.Combine(systemRoot, "facts"),
             SourcesDir = Path.Combine(systemRoot, "sources") // optional; may not exist
@@ -231,6 +234,7 @@ public sealed record WorkspacePaths
 
     public required string RunsDir { get; init; }
     public required string ArtifactsDir { get; init; }
+    public required string DeliverablesDir { get; init; }
     public required string TmpDir { get; init; }
 
     public required string FactsDir { get; init; }

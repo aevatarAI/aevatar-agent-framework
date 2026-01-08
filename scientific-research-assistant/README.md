@@ -32,12 +32,19 @@ This project provides a unified interface for scientific research, allowing you 
 - .NET 10.0 SDK
 - Node.js & npm
 - Docker (optional, for local MCP)
-- LLM Provider API Key (configured via `LLMProviders` in `appsettings.secrets.json`)
+- LLM Provider API Key (configured via `LLMProviders`)
+  - Recommended: user secrets (encrypted) at `~/.aevatar/secrets.json` (use `src/Aevatar.Agents.SecretsCli`)
+  - Optional: per-app override `src/ScientificResearchAssistant.Api/appsettings.secrets.json` (gitignored)
 
 ### Quick Start
 
 1.  **Configure LLM Providers**:
-    Put your keys in `src/ScientificResearchAssistant.Api/appsettings.secrets.json` (see example file).
+    You have 3 options (recommended order):
+    - **In UI (quickest)**: click **"Set API Key"** in the left sidebar after you open the web UI
+    - **Secrets App (web)**: `dotnet run --project apps/Aevatar.Secrets.Api/Aevatar.Secrets.Api.csproj` then open `http://localhost:6677` (browser-safe; `6667` may be blocked by Chrome)
+    - **CLI**: use `src/Aevatar.Agents.SecretsCli` (from env / stdin)
+    
+    All of them write into user secrets (default `~/.aevatar/secrets.json`, encrypted). You can still override per-app via `src/ScientificResearchAssistant.Api/appsettings.secrets.json` (see example file).
 
 2.  **(Optional) Add facts / sources**:
     - Put `.md` / `.txt` under `sources/` (subfolders are fine)

@@ -1,9 +1,9 @@
 using System.Text.Json;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Core;
-using Aevatar.Agents.AI.WithTool.Abstractions;
-using Aevatar.Agents.AI.WithTool.Tools.BuiltIn;
-using Aevatar.Agents.AI.WithTool.Tools.CoreTools;
+using Aevatar.Agents.AI.Tool.Abstractions;
+using Aevatar.Agents.AI.Tool.Tools.BuiltIn;
+using Aevatar.Agents.AI.Tool.Tools.CoreTools;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 

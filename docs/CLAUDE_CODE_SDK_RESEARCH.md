@@ -104,7 +104,7 @@
 这意味着：**不引入 Claude Agent SDK 也能复用 MCP server 生态**（GitHub、filesystem、Context7 等）。
 
 参考（repo 内文档）：
-- `src/Aevatar.Agents.AI.Core/WithTool/MCP/README.md`
+- `src/Aevatar.Agents.AI.Core/Tool/MCP/README.md`
 
 ### 4.3 Aevatar 的 Agent Skills 与 Claude Subagents：形式几乎同构
 
@@ -226,7 +226,7 @@ Aevatar 已有：
 - Hosting：`https://docs.claude.com/zh-CN/api/agent-sdk/hosting`
 - Cost tracking：`https://docs.claude.com/zh-CN/docs/agent-sdk/cost-tracking`
 - MCP 协议：`https://modelcontextprotocol.io/`
-- 本 repo MCP 集成说明：`src/Aevatar.Agents.AI.Core/WithTool/MCP/README.md`
+- 本 repo MCP 集成说明：`src/Aevatar.Agents.AI.Core/Tool/MCP/README.md`
 - 本 repo Agent Skills 指南：`docs/AGENT_SKILLS_GUIDE.md`
 
 

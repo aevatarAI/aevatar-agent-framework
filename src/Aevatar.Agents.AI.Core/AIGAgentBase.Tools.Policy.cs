@@ -1,8 +1,8 @@
 using System.Text.Json;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core.Utils;
-using Aevatar.Agents.AI.WithTool.Abstractions;
-using Aevatar.Agents.AI.WithTool.Messages;
+using Aevatar.Agents.AI.Tool.Abstractions;
+using Aevatar.Agents.AI.Tool.Messages;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 

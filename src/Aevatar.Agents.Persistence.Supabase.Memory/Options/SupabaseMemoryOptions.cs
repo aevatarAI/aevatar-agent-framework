@@ -3,15 +3,15 @@ namespace Aevatar.Agents.Persistence.Supabase.Memory.Options;
 // ============================================================
 //  SupabaseMemoryOptions
 //
-//  目的 / Purpose:
-//  - 用 Supabase(Postgres) 承载 AI Memory:
+//  Purpose:
+//  - Use Supabase(Postgres) to host AI Memory:
 //    - MemoryEntry (IMemoryStore)
 //    - MemoryVectorRecord (IMemoryVectorIndex via pgvector)
 //
-//  设计原则 / Principles:
-//  - 和 Agent State/Config 的 Supabase 持久化解耦（不同 schema/table）
-//  - 初始化幂等（IF NOT EXISTS）
-//  - 默认最小暴露（可选 LockDown/RLS）
+//  Principles:
+//  - Decouple from Agent State/Config Supabase persistence (different schema/table)
+//  - Idempotent initialization (IF NOT EXISTS)
+//  - Default minimal exposure (optional LockDown/RLS)
 // ============================================================
 public sealed class SupabaseMemoryOptions
 {

@@ -1,10 +1,15 @@
 using System.Text;
 using System.Text.Json;
 using Aevatar.Agents.AGUI;
+using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Options;
 using ScientificResearchAssistant.Api.Facts;
 using ScientificResearchAssistant.Api.Materials;
 using ScientificResearchAssistant.Api.Paper;
+using ScientificResearchAssistant.Api.Vibe.Dag;
+using ScientificResearchAssistant.Api.Vibe.Goals;
+using ScientificResearchAssistant.Api.Vibe.Trace;
+using ScientificResearchAssistant.Api.Vibe.Uploads;
 using ScientificResearchAssistant.Api.Workspace;
 using ScientificResearchAssistant.Contracts.Collab;
 
@@ -33,6 +38,9 @@ internal static class ResearchSessionsApi
         MapCreate(app);
         MapList(app);
         MapTools(app);
+        MapGoals(app);
+        MapUploads(app);
+        MapDag(app);
         MapInput(app);
         MapMcpReconnect(app);
         MapFacts(app);
@@ -88,6 +96,234 @@ internal static class ResearchSessionsApi
             {
                 return Results.Problem(title: "tools snapshot failed", detail: ex.Message, statusCode: 500);
             }
+        });
+    }
+
+    private static void MapGoals(WebApplication app)
+    {
+        app.MapGet("/api/sessions/{sessionId}/goals", async (
+            string sessionId,
+            ResearchSessionManager sessions,
+            GoalsStore goals,
+            CancellationToken ct) =>
+        {
+            if (!sessions.TryGet(sessionId, out var session))
+                return Results.NotFound(new { error = "session not found" });
+
+            var snap = await goals.LoadAsync(session.Id, ct);
+            return Results.Json(new
+            {
+                ok = true,
+                sessionId = session.Id,
+                goals = new
+                {
+                    version = snap.Version,
+                    updatedAt = snap.UpdatedAt?.ToDateTime().ToUniversalTime().ToString("O") ?? "",
+                    items = snap.Goals.Select(g => new
+                    {
+                        goalId = g.GoalId,
+                        text = g.Text,
+                        priority = g.Priority,
+                        updatedAt = g.UpdatedAt?.ToDateTime().ToUniversalTime().ToString("O") ?? ""
+                    }).ToList()
+                }
+            });
+        });
+
+        app.MapPut("/api/sessions/{sessionId}/goals", async (
+            string sessionId,
+            GoalsPutInDto input,
+            ResearchSessionManager sessions,
+            GoalsStore goals,
+            FileMailboxService mailbox,
+            CancellationToken ct) =>
+        {
+            if (!sessions.TryGet(sessionId, out var session))
+                return Results.NotFound(new { error = "session not found" });
+
+            var existing = await goals.LoadAsync(session.Id, ct);
+            var targetVersion = input.Version ?? 0;
+            if (targetVersion <= existing.Version)
+                targetVersion = existing.Version + 1;
+
+            var snap = new SraGoalsSnapshot
+            {
+                SessionId = session.Id,
+                Version = targetVersion
+            };
+
+            if (input.Items != null)
+            {
+                foreach (var it in input.Items)
+                {
+                    if (it == null) continue;
+                    var text = (it.Text ?? string.Empty).Trim();
+                    if (text.Length == 0) continue;
+
+                    snap.Goals.Add(new SraGoalItem
+                    {
+                        GoalId = (it.GoalId ?? string.Empty).Trim(),
+                        Text = text,
+                        Priority = it.Priority ?? 0
+                    });
+                }
+            }
+
+            var saved = await goals.SaveAsync(session.Id, snap, ct);
+
+            // UI: notify goals updated (best-effort)
+            session.Events.Publish(new CustomEvent
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Name = "aevatar.vibe.goals_updated",
+                Value = new { sessionId = session.Id, version = saved.Version, count = saved.Goals.Count }
+            });
+
+            // Mailbox broadcast (best-effort) - stable roster for MVP.
+            try
+            {
+                var now = Timestamp.FromDateTime(DateTime.UtcNow);
+                var evt = new SraGoalsUpdated
+                {
+                    SessionId = session.Id,
+                    Snapshot = saved,
+                    Reason = "user_edit",
+                    UpdatedBy = "user",
+                    CreatedAt = now
+                };
+
+                var toAgents = new[] { "research_assistant", "planner", "reasoner", "librarian", "verifier", "dag_builder" };
+                foreach (var a in toAgents)
+                {
+                    var envelope = new SraMailboxMessage
+                    {
+                        SessionId = session.Id,
+                        MessageId = $"goals_updated:{saved.Version}",
+                        FromAgent = "user",
+                        ToAgent = a,
+                        Type = "goals.updated",
+                        CorrelationId = $"goals:{saved.Version}",
+                        CreatedAt = now,
+                        Payload = Any.Pack(evt)
+                    };
+
+                    await mailbox.SendAsync(session.Id, a, envelope, ct);
+                }
+            }
+            catch
+            {
+                // best-effort only
+            }
+
+            return Results.Json(new { ok = true, sessionId = session.Id, version = saved.Version, count = saved.Goals.Count });
+        });
+    }
+
+    private static void MapUploads(WebApplication app)
+    {
+        app.MapPost("/api/sessions/{sessionId}/uploads", async (
+            string sessionId,
+            HttpRequest request,
+            ResearchSessionManager sessions,
+            UploadsStore uploads,
+            CancellationToken ct) =>
+        {
+            if (!sessions.TryGet(sessionId, out var session))
+                return Results.NotFound(new { error = "session not found" });
+
+            if (!request.HasFormContentType)
+                return Results.BadRequest(new { error = "multipart/form-data is required" });
+
+            var form = await request.ReadFormAsync(ct);
+            var files = form.Files;
+            if (files == null || files.Count == 0)
+                return Results.BadRequest(new { error = "no files uploaded" });
+
+            var max = uploads.GetMaxFilesPerRequest();
+            if (files.Count > max)
+                return Results.BadRequest(new { error = $"too many files (max {max})" });
+
+            var paths = new List<string>(capacity: files.Count);
+            foreach (var f in files)
+            {
+                ct.ThrowIfCancellationRequested();
+                var rel = await uploads.SaveAsync(session.Id, f, ct);
+                paths.Add(rel);
+            }
+
+            return Results.Json(new { ok = true, sessionId = session.Id, attachmentPaths = paths });
+        });
+    }
+
+    private sealed record GoalsPutInDto
+    {
+        public int? Version { get; init; }
+        public List<GoalItemInDto>? Items { get; init; }
+    }
+
+    private sealed record GoalItemInDto
+    {
+        public string? GoalId { get; init; }
+        public string? Text { get; init; }
+        public int? Priority { get; init; }
+    }
+
+    private static void MapDag(WebApplication app)
+    {
+        app.MapGet("/api/sessions/{sessionId}/dag", async (
+            string sessionId,
+            ResearchSessionManager sessions,
+            DagStore dag,
+            CancellationToken ct) =>
+        {
+            if (!sessions.TryGet(sessionId, out var session))
+                return Results.NotFound(new { error = "session not found" });
+
+            var snap = await dag.GetSnapshotForListAsync(session.Id, ct);
+            return Results.Json(new { ok = true, sessionId = session.Id, dag = snap });
+        });
+
+        app.MapGet("/api/sessions/{sessionId}/dag/{nodeId}/explain", async (
+            string sessionId,
+            string nodeId,
+            ResearchSessionManager sessions,
+            DagStore dag,
+            CancellationToken ct) =>
+        {
+            if (!sessions.TryGet(sessionId, out var session))
+                return Results.NotFound(new { error = "session not found" });
+
+            var snap = await dag.LoadSnapshotAsync(session.Id, ct);
+            var explain = DagExplain.Explain(snap, nodeId);
+
+            // Return a JSON-friendly shape (avoid protobuf Timestamp JSON issues).
+            return Results.Json(new
+            {
+                ok = true,
+                sessionId = session.Id,
+                nodeId = (nodeId ?? string.Empty).Trim(),
+                explain = new
+                {
+                    hasCycle = explain.HasCycle,
+                    provable = explain.Provable,
+                    directDeps = explain.DirectDeps.ToList(),
+                    topo = explain.Topo.ToList(),
+                    missing = explain.Missing.Select(n => new { id = n.Id, type = n.Type.ToString(), label = n.Label }).ToList()
+                }
+            });
+        });
+
+        app.MapGet("/api/sessions/{sessionId}/dag/staged", async (
+            string sessionId,
+            ResearchSessionManager sessions,
+            DagStore dag,
+            CancellationToken ct) =>
+        {
+            if (!sessions.TryGet(sessionId, out var session))
+                return Results.NotFound(new { error = "session not found" });
+
+            var list = await dag.ListStagedAsync(session.Id, ct);
+            return Results.Json(new { ok = true, sessionId = session.Id, staged = list });
         });
     }
 
@@ -415,6 +651,9 @@ internal static class ResearchSessionsApi
             ResearchSessionManager sessions,
             ResearchRuntime runtime,
             WorkspaceService workspace,
+            GoalsStore goals,
+            DagStore dag,
+            TraceStore trace,
             CancellationToken ct) =>
         {
             if (!sessions.TryGet(sessionId, out var session))
@@ -479,6 +718,111 @@ internal static class ResearchSessionsApi
                     providerName = session.ProviderName ?? ""
                 }
             }, ct);
+
+            // ------------------------------------------------------------
+            //  Vibe bootstrap snapshots (File-SSoT projections)
+            // ------------------------------------------------------------
+            try
+            {
+                var snap = await goals.LoadAsync(session.Id, ct);
+                await WriteSseAsync(new CustomEvent
+                {
+                    Timestamp = Ts(DateTimeOffset.UtcNow),
+                    Name = "aevatar.vibe.goals_snapshot",
+                    Value = new
+                    {
+                        sessionId = session.Id,
+                        version = snap.Version,
+                        updatedAt = snap.UpdatedAt?.ToDateTime().ToUniversalTime().ToString("O") ?? "",
+                        items = snap.Goals.Select(g => new
+                        {
+                            goalId = g.GoalId,
+                            text = g.Text,
+                            priority = g.Priority,
+                            updatedAt = g.UpdatedAt?.ToDateTime().ToUniversalTime().ToString("O") ?? ""
+                        }).ToList()
+                    }
+                }, ct);
+            }
+            catch
+            {
+                // best-effort
+            }
+
+            try
+            {
+                var snap = await dag.GetSnapshotForListAsync(session.Id, ct);
+                await WriteSseAsync(new CustomEvent
+                {
+                    Timestamp = Ts(DateTimeOffset.UtcNow),
+                    Name = "aevatar.vibe.dag_snapshot",
+                    Value = new { sessionId = session.Id, dag = snap }
+                }, ct);
+            }
+            catch
+            {
+                // best-effort
+            }
+
+            try
+            {
+                var list = await trace.LoadLatestAsync(session.Id, max: 20, ct);
+                var ws = workspace.EnsureSessionWorkspace(session.Id);
+                var items = list.Select(s => new
+                {
+                    runId = s.RunId,
+                    roundIndex = s.RoundIndex,
+                    triggerKind = s.TriggerKind,
+                    triggerRef = s.TriggerRef,
+                    updatedAt = s.UpdatedAt?.ToDateTime().ToUniversalTime().ToString("O") ?? "",
+                    agents = s.PerAgent.Select(a => a.Agent).ToList(),
+                    dagChangesCount = s.DagChanges.Count,
+                    summaryPath = string.IsNullOrWhiteSpace(s.RunId)
+                        ? ""
+                        : Path.GetRelativePath(ws.SessionRoot, Path.Combine(ws.RunsDir, s.RunId, "summary.md"))
+                            .Replace('\\', '/')
+                            .Trim('/')
+                }).ToList();
+
+                await WriteSseAsync(new CustomEvent
+                {
+                    Timestamp = Ts(DateTimeOffset.UtcNow),
+                    Name = "aevatar.vibe.trace_snapshot",
+                    Value = new { sessionId = session.Id, items }
+                }, ct);
+            }
+            catch
+            {
+                // best-effort
+            }
+
+            // Agents snapshot (best-effort; deterministic ids only, no init).
+            try
+            {
+                var baseId = $"sra-{session.Id}";
+                await WriteSseAsync(new CustomEvent
+                {
+                    Timestamp = Ts(DateTimeOffset.UtcNow),
+                    Name = "aevatar.vibe.agents_snapshot",
+                    Value = new
+                    {
+                        sessionId = session.Id,
+                        roster = new[]
+                        {
+                            new { agent = "research_assistant", agentId = $"{baseId}-research_assistant" },
+                            new { agent = "planner", agentId = $"{baseId}-planner" },
+                            new { agent = "reasoner", agentId = $"{baseId}-reasoner" },
+                            new { agent = "librarian", agentId = $"{baseId}-librarian" },
+                            new { agent = "verifier", agentId = $"{baseId}-verifier" },
+                            new { agent = "dag_builder", agentId = $"{baseId}-dag_builder" }
+                        }
+                    }
+                }, ct);
+            }
+            catch
+            {
+                // best-effort
+            }
 
             // Optional visual state (workspace / materials / graph)
             ApplyKnowledgeToWorkspace(session, workspace.ScanWorkspace(session.Id));

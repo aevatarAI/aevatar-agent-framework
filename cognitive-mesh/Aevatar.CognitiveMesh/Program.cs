@@ -3,6 +3,7 @@ using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.MEAI.DependencyInjection;
 using Aevatar.Agents.Cognitive.DependencyInjection;
 using Aevatar.Agents.CreativeReasoning;
+using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Maker;
 using Aevatar.Agents.Plugins.MassTransit.DependencyInjection;
 using Aevatar.Agents.Runtime.Local;
@@ -29,6 +30,7 @@ var builder = WebApplication.CreateBuilder(args);
 // ─────────────────────────────────────────────────────────────
 builder.Configuration
     .AddJsonFile("appsettings.json", optional: true)
+    .AddAevatarUserSecrets()
     .AddJsonFile("appsettings.secrets.json", optional: true)
     .AddEnvironmentVariables();
 

@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 namespace Aevatar.Agents.Core.Tests.Agents;
 
 /// <summary>
-/// 测试Agent - 带状态和配置
+/// Test agent - with state and configuration
 /// </summary>
 public class ConfigurableTestAgent : GAgentBase<TestAgentState, TestAgentConfig>
 {
@@ -17,13 +17,13 @@ public class ConfigurableTestAgent : GAgentBase<TestAgentState, TestAgentConfig>
 
     protected override Task OnActivateAsync(CancellationToken ct = default)
     {
-        // 初始化配置
+        // Initialize configuration
         Config.AgentName = "ConfigurableAgent";
-        Config.MaxRetries = 3;
+        Config.MaxRetries =3;
         Config.TimeoutSeconds = 30;
         Config.EnableLogging = true;
-
-        // 初始化状态
+ 
+        // Initialize state
         State.Name = Config.AgentName;
         State.Counter = 0;
 
@@ -40,12 +40,12 @@ public class ConfigurableTestAgent : GAgentBase<TestAgentState, TestAgentConfig>
 
         State.Counter++;
 
-        // 使用配置中的重试逻辑
+        // Use retry logic from configuration
         for (var i = 0; i < Config.MaxRetries; i++)
         {
             try
             {
-                // 模拟可能失败的操作
+                // Simulate operation that might fail
                 await ProcessEventWithRetry(evt);
                 break;
             }
@@ -65,7 +65,7 @@ public class ConfigurableTestAgent : GAgentBase<TestAgentState, TestAgentConfig>
 
     private Task ProcessEventWithRetry(TestEvent evt)
     {
-        // 模拟处理逻辑
+        // Simulate processing logic
         return Task.CompletedTask;
     }
 }

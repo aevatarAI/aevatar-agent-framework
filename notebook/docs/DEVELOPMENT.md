@@ -25,6 +25,6 @@ dotnet run --project notebook/src/Aevatar.Notebook.Api/Aevatar.Notebook.Api.cspr
 - **Port in use**：用 `./notebook/start.sh`（默认会 kill 端口），或设置不同端口：
   - `API_PORT=5679 ./notebook/start.sh`
 - **LLM 调用超时**：调大 `LLMProviders:Providers:<name>:TimeoutMilliseconds`
-- **找不到 provider / missing ApiKey**：检查 `appsettings.secrets.json` 是否在 `notebook/src/Aevatar.Notebook.Api/`
+- **找不到 provider / missing ApiKey**：检查 `~/.aevatar/secrets.json`（推荐）或 `notebook/src/Aevatar.Notebook.Api/appsettings.secrets.json`
 
 

@@ -51,7 +51,10 @@ $ARGUMENTS
 - Provider 配置必须走 `LLMProviders`（见 `Aevatar.Agents.AI.Abstractions.Configuration.LLMProvidersConfig`）
 - 默认 provider 从 `LLMProviders:Default` 选取
 - 允许请求级覆盖（例如创建 session 时传 `providerName`）
-- Secrets 放在 `appsettings.secrets.json`（可选但推荐），并提供 `.example` 文件；不要提交真实密钥到 git
+- Secrets 必须支持 **全局 user secrets（加密，推荐）+ 项目级覆盖**：
+  - **全局（推荐）**：`~/.aevatar/secrets.json`（加密；用 `src/Aevatar.Agents.SecretsCli` 写入；可用 `AEVATAR_SECRETS_PATH/AEVATAR_SECRETS_DIR` 覆盖）
+  - **项目级（可选）**：`appsettings.secrets.json`（gitignored，用于覆盖/团队模板），并提供 `.example` 文件
+  - 后端启动时配置源顺序建议：`appsettings.json` → `AddAevatarUserSecrets()` → `appsettings.secrets.json` → 环境变量
 
 ### 5) Aspire AppHost (Mandatory)
 
@@ -78,6 +81,7 @@ $ARGUMENTS
   - `AxiomAgUiBootstrap`：构建快照（messages/status/state）
   - `AxiomAgUiEventStream`：把业务事件流投影成 AG-UI 事件（RUN/STEP/TEXT/STATE + CUSTOM）
 - **LLMProviders 配置模式**：`notebook/README.md` + `src/Aevatar.Agents.AI.*`
+- **User Secrets（全局加密密钥）**：`src/Aevatar.Agents.Core/docs/UserSecrets.md`
 - **Aspire 编排前后端**：`trade/Aevatar.Trade.AppHost/Program.cs`
 - **一键启动脚本**：`novel/dev.sh`
 
@@ -126,7 +130,7 @@ $ARGUMENTS
   - 运行方式（start.sh / AppHost / 分别启动）
   - 关键权衡（为何选择该前端栈/为何该事件模型）
 - `<system>/docs/CONFIGURATION.md`
-  - `LLMProviders` 配置（含 secrets 示例）
+  - `LLMProviders` 配置（含 user secrets + 项目级 secrets 示例与优先级）
   - 运行时（Local/Orleans）如何切换（如支持）
   - 端口与 env 变量
 - `<system>/docs/DEVELOPMENT.md`

@@ -5,6 +5,7 @@ using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Microsoft.Extensions.Options;
 using ScientificResearchAssistant.Api.Materials;
+using ScientificResearchAssistant.Api.Vibe;
 using ScientificResearchAssistant.Api.Workspace;
 using ScientificResearchAssistant.Streaming;
 
@@ -28,6 +29,7 @@ internal sealed class ResearchRunExecutor
     private readonly ResearchRuntime _runtime;
     private readonly MaterialsService _materials;
     private readonly WorkspaceService _workspace;
+    private readonly VibeOrchestrator _vibe;
     private readonly IOptions<LLMProvidersConfig> _llm;
     private readonly ILogger<ResearchRunExecutor> _logger;
 
@@ -35,12 +37,14 @@ internal sealed class ResearchRunExecutor
         ResearchRuntime runtime,
         MaterialsService materials,
         WorkspaceService workspace,
+        VibeOrchestrator vibe,
         IOptions<LLMProvidersConfig> llm,
         ILogger<ResearchRunExecutor> logger)
     {
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         _materials = materials ?? throw new ArgumentNullException(nameof(materials));
         _workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
+        _vibe = vibe ?? throw new ArgumentNullException(nameof(vibe));
         _llm = llm ?? throw new ArgumentNullException(nameof(llm));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -289,94 +293,24 @@ internal sealed class ResearchRunExecutor
                 });
 
                 // ------------------------------------------------------------
-                // Step 2) Planner agent
+                // Step 2+) Orchestrator (research_assistant + workers + maker-v2 + trace)
                 // ------------------------------------------------------------
-                session.Events.Publish(new StepStartedEvent
+                void Emit(string delta)
                 {
-                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                    StepName = "vibe.plan"
-                });
-
-                EmitAssistantDelta(session, assistantMessageId, "### Plan (multi-agent)\n");
-                assistant.Append("### Plan (multi-agent)\n");
-
-                var (planner, plannerId) = await _runtime.GetPlannerAgentAsync(session.Id, providerOverride, ct);
-                var planRequest = new ChatRequest
-                {
-                    Message = question,
-                    RequestId = input.RequestId ?? Guid.NewGuid().ToString("N"),
-                    StageHint = "session:vibe:plan"
-                };
-                planRequest.Context["agent_id"] = plannerId;
-                planRequest.Context["materials_context"] = snapshot.RenderedContext;
-
-                await foreach (var chunk in planner.ChatStreamAsync(planRequest, ct))
-                {
-                    if (string.IsNullOrEmpty(chunk)) continue;
-                    assistant.Append(chunk);
-                    EmitAssistantDelta(session, assistantMessageId, chunk);
+                    if (string.IsNullOrEmpty(delta)) return;
+                    assistant.Append(delta);
+                    EmitAssistantDelta(session, assistantMessageId, delta);
                 }
 
-                EmitAssistantDelta(session, assistantMessageId, "\n\n");
-                assistant.Append("\n\n");
-
-                session.Events.Publish(new StepFinishedEvent
-                {
-                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                    StepName = "vibe.plan"
-                });
-
-                // ------------------------------------------------------------
-                // Step 3) Reasoner agent (axiom-grounded)
-                // ------------------------------------------------------------
-                session.Events.Publish(new StepStartedEvent
-                {
-                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                    StepName = "vibe.reason"
-                });
-
-                EmitAssistantDelta(session, assistantMessageId, "### Reasoning (axioms + references)\n");
-                assistant.Append("### Reasoning (axioms + references)\n");
-
-                var (reasoner, reasonerId) = await _runtime.GetReasonerAgentAsync(session.Id, providerOverride, ct);
-                var reasonRequest = new ChatRequest
-                {
-                    Message = question,
-                    RequestId = input.RequestId ?? Guid.NewGuid().ToString("N"),
-                    StageHint = "session:vibe:reason"
-                };
-                reasonRequest.Context["agent_id"] = reasonerId;
-                reasonRequest.Context["materials_context"] = snapshot.RenderedContext;
-
-                // Best-effort: make sure tools snapshot includes python tool if enabled.
-                _ = await _runtime.RefreshToolsSnapshotAsync(session.Id, providerOverride, ct);
-
-                var supportsStreaming = await reasoner.SupportsStreamingAsync(ct);
-                if (!supportsStreaming)
-                {
-                    var resp = await reasoner.ChatAsync(reasonRequest, ct);
-                    var text = resp.Content ?? string.Empty;
-                    if (text.Length > 0)
-                    {
-                        assistant.Append(text);
-                        EmitAssistantDelta(session, assistantMessageId, text);
-                    }
-                }
-                else
-                {
-                    await foreach (var chunk in reasoner.ChatStreamAsync(reasonRequest, ct))
-                    {
-                        if (string.IsNullOrEmpty(chunk)) continue;
-                        assistant.Append(chunk);
-                        EmitAssistantDelta(session, assistantMessageId, chunk);
-                    }
-                }
-
-                session.Events.Publish(new StepFinishedEvent
-                {
-                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                    StepName = "vibe.reason"
-                });
+                await _vibe.ExecuteOneRoundAsync(
+                    session,
+                    runId,
+                    input,
+                    question,
+                    snapshot,
+                    providerOverride,
+                    Emit,
+                    ct);
 
                 // ------------------------------------------------------------
                 // Done
@@ -508,7 +442,18 @@ internal sealed class ResearchRunExecutor
 
         ws.Vibe.LastRunId = runId;
         ws.Vibe.LastGoal = question;
-        ws.Vibe.Steps = ["vibe.materials", "vibe.plan", "vibe.reason"];
+        ws.Vibe.Steps =
+        [
+            "vibe.materials",
+            "vibe.ra_plan",
+            "vibe.planner",
+            "vibe.reasoner",
+            "vibe.librarian",
+            "vibe.verifier",
+            "vibe.dag_builder",
+            "vibe.maker_v2",
+            "vibe.summary"
+        ];
     }
 
     private static void ApplyKnowledgeToWorkspace(ResearchSession session, WorkspaceScanResult scan)

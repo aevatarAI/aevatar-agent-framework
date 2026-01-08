@@ -1,6 +1,6 @@
 using System.Text.Json;
-using Aevatar.Agents.AI.WithTool.Abstractions;
-using Aevatar.Agents.AI.WithTool.Tools.CustomTools;
+using Aevatar.Agents.AI.Tool.Abstractions;
+using Aevatar.Agents.AI.Tool.Tools.CustomTools;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;

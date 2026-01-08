@@ -1,4 +1,4 @@
-using Aevatar.Agents.AI.WithTool.Abstractions;
+using Aevatar.Agents.AI.Tool.Abstractions;
 
 namespace Aevatar.Agents.AI.Abstractions;
 

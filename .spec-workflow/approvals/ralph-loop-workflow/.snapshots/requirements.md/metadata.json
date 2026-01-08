@@ -1,0 +1,14 @@
+{
+  "filePath": ".spec-workflow/specs/ralph-loop-workflow/requirements.md",
+  "currentVersion": 1,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-08T04:33:47.990Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767846827963_apovewsxp",
+      "approvalTitle": "Spec Requirements: ralph-loop-workflow"
+    }
+  ]
+}

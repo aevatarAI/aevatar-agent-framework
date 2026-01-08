@@ -3,7 +3,8 @@
 ## 配置文件位置（规范化后）
 
 - **主配置**：`notebook/src/Aevatar.Notebook.Api/appsettings.json`
-- **可选 secrets（gitignored）**：`notebook/src/Aevatar.Notebook.Api/appsettings.secrets.json`
+- **用户级 secrets（加密，推荐）**：默认 `~/.aevatar/secrets.json`（用 `src/Aevatar.Agents.SecretsCli` 写入；可用 `AEVATAR_SECRETS_PATH/AEVATAR_SECRETS_DIR` 覆盖）
+- **可选项目级 secrets（gitignored）**：`notebook/src/Aevatar.Notebook.Api/appsettings.secrets.json`
   - 示例：`notebook/src/Aevatar.Notebook.Api/appsettings.secrets.json.example`
 
 ## LLMProviders（必须配置）
@@ -17,8 +18,9 @@ Notebook 使用 `LLMProviders`（多 provider 可选）：
 
 ```bash
 cd notebook/src/Aevatar.Notebook.Api
+# 方式 A（推荐）：把 key 写入用户级 secrets（一次配置，多系统复用）
+# 方式 B（项目级覆盖）：复制 example（不要提交真实密钥）
 cp appsettings.secrets.json.example appsettings.secrets.json
-# 然后填入 ApiKey / Endpoint / Model
 ```
 
 ## Persistence（可选，配置驱动）

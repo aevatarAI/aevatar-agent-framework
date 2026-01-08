@@ -5,7 +5,7 @@ using Aevatar.Agents.Persistence.Graph.Core.Semantic;
 namespace Aevatar.Agents.Persistence.InMemory.Graph;
 
 /// <summary>
-/// InMemory 图数据存储（线程安全的最小实现）。
+/// InMemory graph data storage (thread-safe minimal implementation).
 /// </summary>
 internal sealed class InMemoryGraphStore
 {

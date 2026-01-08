@@ -20,7 +20,7 @@
   - File: `notebook/Context/NotebookContextBuilder.cs`
   - File: `notebook/Context/NotebookContextBudget.cs`
   - Purpose: 构建问答/报告的 Notebook context：每源至少一段可追踪摘要/预览（全覆盖），并追加与 query 相关的 top‑k chunks（向量优先，store fallback）
-  - _Leverage: `docs/AI_MEMORY_GUIDE.md`（P0/P1/P2/P3）, `src/Aevatar.Agents.AI.Core/WithTool/Tools/BuiltIn/AevatarMemorySearchTool.cs`_
+  - _Leverage: `docs/AI_MEMORY_GUIDE.md`（P0/P1/P2/P3）, `src/Aevatar.Agents.AI.Core/Tool/Tools/BuiltIn/AevatarMemorySearchTool.cs`_
   - _Requirements: 6, 3, 2, 4_
   - _Prompt: Role: Retrieval Engineer | Task: Implement the task for spec aevatar-notebook, first run spec-workflow-guide to get the workflow guide then implement the task: implement NotebookContextBuilder with explicit budgets (maxTotalChars/maxPerSourceChars/maxChunks) and deterministic output ordering; include citation-friendly markers (sourceId + chunkId); support selected sources | Restrictions: Must guarantee every selected source appears at least once in context; must degrade gracefully when vector index unavailable; avoid token explosion | _Leverage: current `BuildNotebookContextAsync` in notebook/Program.cs for baseline | _Requirements: 6,3,2,4 | Success: context builder tested, deterministic, bounded; replace Program.cs ad-hoc context build; log implementation and mark [x]_
 
@@ -60,7 +60,7 @@
   - File: `notebook/Tools/NotebookTools.cs`
   - File: `notebook/Program.cs`
   - Purpose: 提供 `list_sources/get_source/retrieve_chunks/generate_report/get_report/get_execution_graph` 等工具，并接入 ToolManager
-  - _Leverage: `src/Aevatar.Agents.AI.Core/WithTool/Tools/BuiltIn/AevatarMemorySearchTool.cs`, ToolManager 注入机制_
+  - _Leverage: `src/Aevatar.Agents.AI.Core/Tool/Tools/BuiltIn/AevatarMemorySearchTool.cs`, ToolManager 注入机制_
   - _Requirements: 10, 6, 7, 8_
   - _Prompt: Role: Tooling Engineer | Task: Implement the task for spec aevatar-notebook, first run spec-workflow-guide to get the workflow guide then implement the task: create notebook toolset with stable JSON outputs; integrate into agent ToolManager; ensure tools are bounded and safe | Restrictions: Do not expose secrets; tool outputs must be bounded; prefer protobuf-backed ids | _Leverage: built-in tool patterns | _Requirements: 10,6,7,8 | Success: tools registered, callable, and covered by tests; log implementation and mark [x]_
 

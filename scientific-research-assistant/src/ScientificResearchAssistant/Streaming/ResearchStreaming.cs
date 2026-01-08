@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
-using Aevatar.Agents.AI.WithTool.Abstractions;
+using Aevatar.Agents.AI.Tool.Abstractions;
 
 namespace ScientificResearchAssistant.Streaming;
 

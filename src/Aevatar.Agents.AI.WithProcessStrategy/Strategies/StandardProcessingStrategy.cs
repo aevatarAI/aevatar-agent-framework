@@ -7,7 +7,7 @@ using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core.Utils;
 using Aevatar.Agents.AI.Core.Messages;
 using Aevatar.Agents.AI.WithProcessStrategy.Messages;
-using Aevatar.Agents.AI.WithTool.Abstractions;
+using Aevatar.Agents.AI.Tool.Abstractions;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 

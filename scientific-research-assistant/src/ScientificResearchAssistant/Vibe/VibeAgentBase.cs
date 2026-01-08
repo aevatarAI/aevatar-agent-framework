@@ -1,7 +1,7 @@
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core;
-using Aevatar.Agents.AI.WithTool.Abstractions;
+using Aevatar.Agents.AI.Tool.Abstractions;
 using ScientificResearchAssistant.Streaming;
 
 namespace ScientificResearchAssistant.Vibe;

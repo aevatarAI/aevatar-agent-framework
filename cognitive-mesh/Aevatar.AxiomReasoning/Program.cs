@@ -2,6 +2,7 @@ using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.MEAI.DependencyInjection;
 using Aevatar.Agents.Cognitive.DependencyInjection;
+using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Persistence.MongoDB;
 using Aevatar.Agents.Persistence.MongoDB.GAgent.DependencyInjection;
 using Aevatar.Agents.Persistence.Neo4j.Graph.DependencyInjection;
@@ -30,6 +31,7 @@ var builder = WebApplication.CreateBuilder(args);
 // ─────────────────────────────────────────────────────────────
 builder.Configuration
     .AddJsonFile("appsettings.json", optional: true)
+    .AddAevatarUserSecrets()
     .AddJsonFile("appsettings.secrets.json", optional: true)
     .AddEnvironmentVariables();
 

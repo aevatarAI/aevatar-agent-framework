@@ -1,7 +1,7 @@
 using System.Text.Json;
 using Aevatar.Agents.Abstractions.Memory;
 using Aevatar.Agents.AI;
-using Aevatar.Agents.AI.WithTool.Abstractions;
+using Aevatar.Agents.AI.Tool.Abstractions;
 using Aevatar.Notebook.Tools;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;

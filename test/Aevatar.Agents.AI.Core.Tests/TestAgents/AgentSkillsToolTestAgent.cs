@@ -1,6 +1,6 @@
 using Aevatar.Agents.AI.Core.Tests.Messages;
-using Aevatar.Agents.AI.WithTool.Abstractions;
-using Aevatar.Agents.AI.WithTool.Messages;
+using Aevatar.Agents.AI.Tool.Abstractions;
+using Aevatar.Agents.AI.Tool.Messages;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Aevatar.Agents.AI.Core.Tests.TestAgents;

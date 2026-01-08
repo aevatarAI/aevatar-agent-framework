@@ -1,6 +1,6 @@
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core;
-using Aevatar.Agents.AI.WithTool.Abstractions;
+using Aevatar.Agents.AI.Tool.Abstractions;
 using Microsoft.Extensions.Logging;
 using ScientificResearchAssistant.Streaming;
 

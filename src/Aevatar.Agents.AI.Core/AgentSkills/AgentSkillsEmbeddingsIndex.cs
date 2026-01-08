@@ -19,6 +19,12 @@ public static class AgentSkillsEmbeddingsIndex
     public const int CurrentVersion = 1;
 
     /// <summary>
+    /// Some embedding providers enforce strict per-request input limits (e.g. <= 10 texts).
+    /// Keep a safe default, but allow override for providers that support larger batches.
+    /// </summary>
+    public const string EmbeddingBatchSizeEnv = "AEVATAR_AGENT_SKILLS_EMBEDDINGS_BATCH_SIZE";
+
+    /// <summary>
     /// If set, overrides the default index directory.
     /// </summary>
     public const string IndexDirEnv = "AEVATAR_AGENT_SKILLS_INDEX_DIR";
@@ -104,15 +110,16 @@ public static class AgentSkillsEmbeddingsIndex
         Directory.CreateDirectory(Path.GetDirectoryName(indexPath)!);
 
         // Batch embeddings to keep requests bounded.
-        const int BatchSize = 32;
+        // NOTE: some providers reject batch sizes > 10 (see EmbeddingBatchSizeEnv).
+        var batchSize = GetEmbeddingBatchSize(logger);
 
         var entries = new List<AgentSkillsEmbeddingsIndexEntry>(documents.Count);
 
-        for (var i = 0; i < documents.Count; i += BatchSize)
+        for (var i = 0; i < documents.Count; i += batchSize)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var batch = documents.Skip(i).Take(BatchSize).ToList();
+            var batch = documents.Skip(i).Take(batchSize).ToList();
             var inputs = batch.Select(d => d.TextToEmbed ?? string.Empty).ToList();
 
             IReadOnlyList<Embedding<float>> embeds;
@@ -168,6 +175,31 @@ public static class AgentSkillsEmbeddingsIndex
         }
 
         return data;
+    }
+
+    private static int GetEmbeddingBatchSize(ILogger? logger)
+    {
+        // Safe default for providers with strict limits (e.g. DashScope: max 10).
+        const int defaultBatchSize = 10;
+
+        try
+        {
+            var raw = (Environment.GetEnvironmentVariable(EmbeddingBatchSizeEnv) ?? string.Empty).Trim();
+            if (raw.Length == 0)
+                return defaultBatchSize;
+
+            if (!int.TryParse(raw, out var parsed))
+                return defaultBatchSize;
+
+            // Keep sane bounds.
+            parsed = Math.Clamp(parsed, 1, 256);
+            return parsed;
+        }
+        catch (Exception ex)
+        {
+            logger?.LogDebug(ex, "Failed to read {Env}; using default batch size.", EmbeddingBatchSizeEnv);
+            return defaultBatchSize;
+        }
     }
 
     public static async Task<AgentSkillsEmbeddingsIndexData?> EnsureIndexAsync(

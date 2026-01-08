@@ -3,7 +3,7 @@ using System.Text.Json;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core.Hooks;
 using Aevatar.Agents.AI.Core.Hooks.BuiltIn;
-using Aevatar.Agents.AI.WithTool.Abstractions;
+using Aevatar.Agents.AI.Tool.Abstractions;
 using Aevatar.Agents.AI.Core.Utils;
 using Google.Protobuf.WellKnownTypes;
 

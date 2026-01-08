@@ -1,8 +1,8 @@
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
-using Aevatar.Agents.AI.WithTool.Abstractions;
-using Aevatar.Agents.AI.WithTool.Tools.CustomTools;
+using Aevatar.Agents.AI.Tool.Abstractions;
+using Aevatar.Agents.AI.Tool.Tools.CustomTools;
 using Aevatar.Agents.Core;
 using Aevatar.Trade.Tools;
 using Google.Protobuf;

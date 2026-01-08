@@ -1,12 +1,20 @@
 {
   "filePath": ".spec-workflow/specs/vibe-researching-platform/design.md",
-  "currentVersion": 1,
+  "currentVersion": 2,
   "snapshots": [
     {
       "version": 1,
       "filename": "snapshot-001.json",
       "timestamp": "2026-01-07T08:58:43.072Z",
       "trigger": "initial",
+      "approvalId": "approval_1767776323068_k1srcn30t",
+      "approvalTitle": "Spec Phase 2: Design — vibe-researching-platform"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-07T09:39:45.278Z",
+      "trigger": "approved",
       "approvalId": "approval_1767776323068_k1srcn30t",
       "approvalTitle": "Spec Phase 2: Design — vibe-researching-platform"
     }

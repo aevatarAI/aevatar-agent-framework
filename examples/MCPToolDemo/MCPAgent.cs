@@ -2,9 +2,9 @@ using System.Diagnostics;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core;
-using Aevatar.Agents.AI.WithTool.Abstractions;
-using Aevatar.Agents.AI.WithTool.MCP;
-using Aevatar.Agents.AI.WithTool.MCP.Configuration;
+using Aevatar.Agents.AI.Tool.Abstractions;
+using Aevatar.Agents.AI.Tool.MCP;
+using Aevatar.Agents.AI.Tool.MCP.Configuration;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 

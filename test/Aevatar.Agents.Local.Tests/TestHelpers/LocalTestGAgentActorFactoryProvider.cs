@@ -50,19 +50,19 @@ public class LocalTestGAgentActorFactoryProvider : IGAgentActorFactoryProvider
                 throw new InvalidOperationException($"Failed to create agent instance of type {agentType.Name}");
             }
 
-            // 自动注入Logger
+            // Auto-inject Logger
             LoggerInjector.InjectLogger(agent, _serviceProvider);
 
-            // 创建LocalGAgentActor（用于测试）
+            // Create LocalGAgentActor (for testing)
             var actor = new LocalGAgentActor(
                 agent,
                 _streamRegistry
             );
 
-            // 自动注入Actor的Logger
+            // Auto-inject Actor's Logger
             LoggerInjector.InjectLogger(actor, _serviceProvider);
 
-            // 激活
+            // Activate
             await actor.ActivateAsync(ct);
 
             return actor;

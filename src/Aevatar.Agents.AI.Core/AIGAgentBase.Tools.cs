@@ -4,12 +4,12 @@ using Aevatar.Agents.Abstractions.CQRS;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core.Utils;
-using Aevatar.Agents.AI.WithTool.Abstractions;
-using Aevatar.Agents.AI.WithTool.Messages;
-using Aevatar.Agents.AI.WithTool.Tools;
-using Aevatar.Agents.AI.WithTool.Tools.BuiltIn;
-using Aevatar.Agents.AI.WithTool.Tools.CustomTools;
-using Aevatar.Agents.AI.WithTool.Tools.CoreTools;
+using Aevatar.Agents.AI.Tool.Abstractions;
+using Aevatar.Agents.AI.Tool.Messages;
+using Aevatar.Agents.AI.Tool.Tools;
+using Aevatar.Agents.AI.Tool.Tools.BuiltIn;
+using Aevatar.Agents.AI.Tool.Tools.CustomTools;
+using Aevatar.Agents.AI.Tool.Tools.CoreTools;
 using Aevatar.Agents.Abstractions.Attributes;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
@@ -45,7 +45,7 @@ public abstract partial class AIGAgentBase
     protected IStateQueryService? CqrsStateQueryService { get; set; }
 
     // ============================================================
-    //  Tool system (merged from AIGAgentWithToolBase)
+    //  Tool system (now part of AIGAgentBase)
     // ============================================================
 
     private IAevatarToolManager? _toolManager;
@@ -138,6 +138,9 @@ public abstract partial class AIGAgentBase
                 MemoryStore,
                 MemoryVectorIndex),
             cancellationToken: cancellationToken);
+
+        // Built-in: web search (third-party provider; best-effort + opt-in via config/DI)
+        await RegisterWebSearchToolBestEffortAsync(cancellationToken);
 
         // Agent Skills (agentskills.io) - gated by EnableAgentSkills (enabled by default in this repo)
         await RegisterAgentSkillsToolsAsync(cancellationToken);

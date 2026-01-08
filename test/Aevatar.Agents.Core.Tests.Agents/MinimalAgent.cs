@@ -1,6 +1,6 @@
 namespace Aevatar.Agents.Core.Tests.Agents;
 
 /// <summary>
-/// 最小化测试Agent
+/// Minimal test agent
 /// </summary>
 public class MinimalAgent : GAgentBase<MinimalState>;

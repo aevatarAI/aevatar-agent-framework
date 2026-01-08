@@ -10,7 +10,6 @@
     "build": "tauri build"
   },
   "dependencies": {
-    "@agui/sdk": "*",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-dialog": "^2.0.0",
     "@tauri-apps/plugin-fs": "^2.0.0",

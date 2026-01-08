@@ -1,6 +1,6 @@
 using Aevatar.Agents.AI.Core.Hooks;
 using Aevatar.Agents.AI.Core.Hooks.BuiltIn;
-using Aevatar.Agents.AI.WithTool.Messages;
+using Aevatar.Agents.AI.Tool.Messages;
 using FluentAssertions;
 
 namespace Aevatar.Agents.AI.Core.Tests.Hooks;

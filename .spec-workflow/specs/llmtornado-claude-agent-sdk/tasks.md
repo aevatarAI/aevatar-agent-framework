@@ -24,7 +24,7 @@
       - `AEVATAR_AGENT_SDK_OUTPUT:{json}`
       - `AEVATAR_AGENT_SDK_STREAM:{text}` (optional streaming lines)
   - Purpose: Provide a reliable, bounded integration layer for headless Claude Agent SDK execution
-  - _Leverage: `src/Aevatar.Agents.AI.Core/WithTool/Tools/CustomTools/DotNetFileSkillTool.cs` (DotNetFileSkillRunner process + drain patterns)_
+  - _Leverage: `src/Aevatar.Agents.AI.Core/Tool/Tools/CustomTools/DotNetFileSkillTool.cs` (DotNetFileSkillRunner process + drain patterns)_
   - _Requirements: 2, 4, 6, 7_
   - _Prompt: Implement the task for spec llmtornado-claude-agent-sdk, first run spec-workflow-guide to get the workflow guide then implement the task: Role: C# systems engineer | Task: Build `ClaudeAgentSdkRunner` + protocol helpers to execute an external runner process safely (timeouts, cancellation, bounded output, continuous drain). Add marker-based parsing for final JSON + optional streaming text lines. | Restrictions: No networking inside runner layer; no new deps; must avoid deadlocks (always drain pipes); do not leak secrets in logs; keep each file < 500 lines. | _Leverage: DotNetFileSkillRunner’s WaitForExitAsync + drain pattern | _Requirements: 2,4,6,7 | Success: Runner executes reliably, cancels/timeout cleanly, and outputs are parsed deterministically (including noisy stdout). (Workflow: mark task [-] in tasks.md before coding; after completion use log-implementation with artifacts; then mark [x].)
 

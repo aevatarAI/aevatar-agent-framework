@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Demo.Agents;
 
-// 路由Agent
+// Routing agent
 public class RouterAgent : GAgentBase<RouterState>
 {
     
@@ -24,9 +24,9 @@ public class RouterAgent : GAgentBase<RouterState>
     }
 }
 
-// RouterState 已在 demo_messages.proto 中定义
+// RouterState is defined in demo_messages.proto
 
-// 处理器Agent
+// Processor agent
 public class ProcessorAgent : GAgentBase<ProcessorState>
 {
     
@@ -45,9 +45,9 @@ public class ProcessorAgent : GAgentBase<ProcessorState>
     }
 }
 
-// ProcessorState 已在 demo_messages.proto 中定义
+// ProcessorState is defined in demo_messages.proto
 
-// 过滤器Agent
+// Filter agent
 public class FilterAgent : GAgentBase<FilterState>
 {
     
@@ -56,19 +56,19 @@ public class FilterAgent : GAgentBase<FilterState>
     {
         State.MessagesFiltered++;
         
-        // 根据优先级过滤（使用Message字段）
+        // Filter by priority (using Message field)
         if (envelope.Message?.Contains("high") == true)
         {
             State.MessagesPassed++;
             Logger?.LogInformation("Filter {Id} passing high priority message", Id);
-            // 继续传播
+            // Continue propagation
             return Task.CompletedTask;
         }
         else
         {
             State.MessagesFiltered++;
             Logger?.LogInformation("Filter {Id} filtered out low priority message", Id);
-            // 停止传播
+            // Stop propagation
             envelope.ShouldStopPropagation = true;
             return Task.CompletedTask;
         }
@@ -80,9 +80,9 @@ public class FilterAgent : GAgentBase<FilterState>
     }
 }
 
-// FilterState 已在 demo_messages.proto 中定义
+// FilterState is defined in demo_messages.proto
 
-// 日志Agent
+// Logger agent
 public class LoggerAgent : GAgentBase<LoggerState>
 {
     
@@ -93,7 +93,7 @@ public class LoggerAgent : GAgentBase<LoggerState>
         if (!string.IsNullOrEmpty(envelope.Message))
         {
             State.RecentLogs.Add(envelope.Message);
-            if (State.RecentLogs.Count > 10) // 保留最近10条日志
+            if (State.RecentLogs.Count > 10) // Keep last 10 log entries
             {
                 State.RecentLogs.RemoveAt(0);
             }
@@ -108,9 +108,9 @@ public class LoggerAgent : GAgentBase<LoggerState>
     }
 }
 
-// LoggerState 已在 demo_messages.proto 中定义
+// LoggerState is defined in demo_messages.proto
 
-// 广播Agent
+// Broadcast agent
 public class BroadcastAgent : GAgentBase<BroadcastState>
 {
     
@@ -118,7 +118,7 @@ public class BroadcastAgent : GAgentBase<BroadcastState>
     public Task HandleBroadcast(BroadcastMessage broadcast)
     {
         State.MessagesBroadcast++;
-        State.ReceiverCount = 1; // 自己是接收者
+        State.ReceiverCount = 1; // Self is the receiver
         Logger?.LogInformation("BroadcastAgent {Id} received broadcast on topic {Topic}: {Content}", 
             Id, broadcast.Topic, broadcast.Content);
         return Task.CompletedTask;
@@ -130,4 +130,4 @@ public class BroadcastAgent : GAgentBase<BroadcastState>
     }
 }
 
-// BroadcastState 已在 demo_messages.proto 中定义
+// BroadcastState is defined in demo_messages.proto

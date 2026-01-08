@@ -57,9 +57,12 @@ npm run dev
 
 ## 配置入口
 
-- **LLMProviders**：复制示例并填入你自己的 key（不要提交真实密钥）
-  - `learning/src/Aevatar.Learning.Api/appsettings.secrets.json.example`
-  - → `learning/src/Aevatar.Learning.Api/appsettings.secrets.json`
+- **LLMProviders**：
+  - 推荐：把 key 写入用户级 secrets（加密，一次配置多系统复用），默认 `~/.aevatar/secrets.json`（用 `src/Aevatar.Agents.SecretsCli` 写入）
+    - 可用 `AEVATAR_SECRETS_PATH/AEVATAR_SECRETS_DIR` 覆盖
+  - 可选：项目级 secrets（gitignored，便于覆盖/模板）
+    - `learning/src/Aevatar.Learning.Api/appsettings.secrets.json.example`
+    - → `learning/src/Aevatar.Learning.Api/appsettings.secrets.json`
 - 详细说明见：`learning/docs/CONFIGURATION.md`
 
 ## 最小 API（MVP skeleton）

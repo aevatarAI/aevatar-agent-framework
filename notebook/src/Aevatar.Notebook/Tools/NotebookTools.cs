@@ -2,7 +2,7 @@ using System.Text.Json;
 using Aevatar.Agents.Abstractions.Memory;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
-using Aevatar.Agents.AI.WithTool.Abstractions;
+using Aevatar.Agents.AI.Tool.Abstractions;
 using Aevatar.Notebook.Context;
 using Aevatar.Notebook.Contracts;
 using Aevatar.Notebook.Reports;

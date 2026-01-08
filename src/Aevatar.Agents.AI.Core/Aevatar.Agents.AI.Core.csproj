@@ -28,6 +28,7 @@
         <PackageReference Include="Microsoft.Extensions.Options" />
         <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
         <PackageReference Include="Microsoft.Extensions.AI" />
+        <PackageReference Include="Microsoft.Extensions.Http" />
 
         <!-- Protobuf Dynamic Message Creation -->
         <PackageReference Include="Google.Protobuf" />
@@ -42,7 +43,10 @@
     <ItemGroup>
         <Protobuf Include="ai_messages.proto" GrpcServices="None" />
         <Protobuf Include="Messages\ai_events.proto" GrpcServices="None" />
-        <Protobuf Include="WithTool\tool_messages.proto" GrpcServices="None" />
+        <Protobuf Include="Messages\agentic_rag_messages.proto"
+                  GrpcServices="None"
+                  AdditionalImportDirs="..\Aevatar.Agents.Abstractions" />
+        <Protobuf Include="Tool\tool_messages.proto" GrpcServices="None" />
     </ItemGroup>
 
     <ItemGroup>

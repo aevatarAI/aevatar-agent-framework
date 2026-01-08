@@ -80,7 +80,7 @@ graph TD
 
 ### 3.1 UoT: 组合式 (Combinational)
 *   **机制**: Agent 查询向量数据库 (以前想法的嵌入 + 外部知识)。
-*   **代码路径**: `Aevatar.Agents.AI.WithTool` 扩展，允许 Agent 查询 *其他* Agent 的 `EventStore`。
+*   **代码路径**: `Aevatar.Agents.AI.Tool` 扩展，允许 Agent 查询 *其他* Agent 的 `EventStore`。
 
 ### 3.2 UoT: 探索式 (Exploratory)
 *   **机制**: `StrategyAgent` 生成 $N$ 个并行的 `WorkerAgent`。

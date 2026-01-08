@@ -20,6 +20,7 @@ var builder = WebApplication.CreateBuilder(args);
 // Configuration
 builder.Configuration
     .AddJsonFile("appsettings.json", optional: true)
+    .AddAevatarUserSecrets()
     .AddJsonFile("appsettings.secrets.json", optional: true)
     .AddEnvironmentVariables();
 

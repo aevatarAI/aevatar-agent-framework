@@ -2,14 +2,22 @@
 
 ### 1) LLMProviders（必需）
 
-后端读取 `src/ScientificResearchAssistant.Api/appsettings.secrets.json`（可选，但推荐）里的 `LLMProviders`：
+后端通过 `IConfiguration` 读取 `LLMProviders`（支持全局 secrets + 项目级覆盖）：
 
 - **默认 provider**：`LLMProviders:Default`
 - **providers 列表**：`LLMProviders:Providers:*`
 
 建议做法：
-- 把真实密钥放在 `appsettings.secrets.json`（本地文件、不要提交）
-- 仓库内提供 `appsettings.secrets.json.example` 作为模板
+- **推荐（一次配置，全仓复用）**：把真实密钥写入用户级 secrets（加密）：
+  - 默认：`~/.aevatar/secrets.json`
+  - 覆盖：`AEVATAR_SECRETS_PATH` / `AEVATAR_SECRETS_DIR`
+  - key 示例：`LLMProviders:Providers:deepseek:ApiKey`
+  - 写入方式：
+    - UI：前端左侧栏 **Set API Key**
+    - Secrets App：`apps/Aevatar.Secrets.Api`（Web）
+    - CLI：`src/Aevatar.Agents.SecretsCli`（见 `src/Aevatar.Agents.Core/docs/UserSecrets.md`）
+- **可选（项目级覆盖）**：`src/ScientificResearchAssistant.Api/appsettings.secrets.json`（本地文件、不要提交）
+  - 仓库内提供 `appsettings.secrets.json.example` 作为模板
 
 ### 2) MCP（Model Context Protocol / 外部工具）
 

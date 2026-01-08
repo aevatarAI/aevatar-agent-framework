@@ -15,7 +15,6 @@ using Aevatar.Agents.Runtime.Local;
 using Aevatar.Agents.Runtime.Local.Subscription;
 using Aevatar.Agents.Runtime.Orleans.Context;
 using Aevatar.App.Controllers;
-using Aevatar.App.HttpApi.Host.Services;
 using Elastic.Clients.Elasticsearch;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;

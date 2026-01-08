@@ -6,7 +6,7 @@ using Aevatar.Agents.Persistence.Graph.Core.Semantic;
 namespace Aevatar.Agents.Persistence.InMemory.Graph;
 
 /// <summary>
-/// InMemory 执行器：执行 <see cref="GraphOperation"/> 并返回语义对象/标识。
+/// InMemory executor: executes <see cref="GraphOperation"/> and returns semantic objects/identifiers.
 /// </summary>
 internal sealed class InMemoryGraphExecutor : IGraphExecutor<GraphOperation>
 {

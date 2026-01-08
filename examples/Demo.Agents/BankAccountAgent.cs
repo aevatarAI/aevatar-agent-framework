@@ -11,7 +11,7 @@ using Microsoft.Extensions.Logging;
 namespace Demo.Agents;
 
 /// <summary>
-/// 银行账户Agent - 支持Event Sourcing
+/// Bank account agent - supports Event Sourcing
 /// </summary>
 public class BankAccountAgent : GAgentBase<BankAccountState>
 {
@@ -19,7 +19,7 @@ public class BankAccountAgent : GAgentBase<BankAccountState>
     {
         await base.OnActivateAsync(ct);
         
-        // 如果State还没有初始化（没有事件可重放），设置初始值
+        // If State has not been initialized yet (no events to replay), set initial values
         if (string.IsNullOrEmpty(State.AccountId))
         {
             State.AccountId = Id.ToString();
@@ -52,7 +52,7 @@ public class BankAccountAgent : GAgentBase<BankAccountState>
         {
             Logger?.LogInformation("BankAccount {Id} processing withdrawal of {Amount}", Id, withdraw.Amount);
             
-            // 创建状态变更事件
+        // Create state change event
             var stateChange = new BankAccountStateChange
             {
                 EventType = "Withdraw",

@@ -6,10 +6,10 @@ namespace Aevatar.Agents.AI.LLMTornado.ClaudeAgentSdk;
 /// <summary>
 /// Claude Agent SDK provider config (parsed from <see cref="LLMProviderConfig.ProviderSpecificSettings" />).
 ///
-/// 设计目标：
-/// - 输入容忍：支持 string/int/bool/JsonElement/list/dictionary 等常见绑定形态
-/// - 安全默认值：不隐式放大权限；不记录 secrets
-/// - 失败可自助修复：缺失关键字段时给出明确错误
+/// Design goals:
+/// - Input tolerance: supports common binding shapes like string/int/bool/JsonElement/list/dictionary
+/// - Safe defaults: no implicit permission elevation; no secrets logging
+/// - Self-service debugging: clear error messages when required fields are missing
 /// </summary>
 public sealed class ClaudeAgentSdkProviderConfig
 {

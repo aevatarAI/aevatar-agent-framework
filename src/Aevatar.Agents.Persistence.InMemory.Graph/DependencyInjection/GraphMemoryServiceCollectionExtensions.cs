@@ -7,12 +7,12 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 namespace Aevatar.Agents.Persistence.InMemory.Graph;
 
 /// <summary>
-/// InMemory Graph Provider 的 DI 扩展。
+/// DI extensions for InMemory Graph Provider.
 /// </summary>
 public static class GraphInMemoryServiceCollectionExtensions
 {
     /// <summary>
-    /// 注册 InMemory Graph provider（开发/测试最快，无外部依赖）。
+    /// Register InMemory Graph provider (fastest for dev/test, no external dependencies).
     /// </summary>
     public static IServiceCollection AddAevatarGraphInMemory(this IServiceCollection services)
     {
@@ -27,7 +27,7 @@ public static class GraphInMemoryServiceCollectionExtensions
     }
 
     /// <summary>
-    /// 兼容命名：Graph.InMemory 的旧用法/口径（仍然注册 InMemory provider）。
+    /// Compatibility naming: legacy usage/terminology for Graph.InMemory (still registers InMemory provider).
     /// </summary>
     public static IServiceCollection AddAevatarGraphMemory(this IServiceCollection services)
         => services.AddAevatarGraphInMemory();

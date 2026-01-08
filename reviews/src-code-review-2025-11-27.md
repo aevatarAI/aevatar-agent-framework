@@ -159,7 +159,7 @@
 
 ---
 
-### 4. Aevatar.Agents.AI.WithTool（已并入 AI.Core）
+### 4. Aevatar.Agents.AI.Tool（已并入 AI.Core）
 
 **职责**: Tool Calling / Function Calling 支持
 

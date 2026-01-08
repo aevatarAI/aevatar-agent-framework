@@ -4,6 +4,7 @@ using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.LLMTornado;
+using Aevatar.Agents.Core.Extensions;
 using ClaudeAgentSdkProviderDemo;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -41,6 +42,7 @@ var host = Host.CreateDefaultBuilder(args)
         // not from current working directory.
         config.SetBasePath(demoBin);
         config.AddJsonFile("appsettings.json", optional: false)
+            .AddAevatarUserSecrets()
             .AddJsonFile("appsettings.secrets.json", optional: true);
         config.AddEnvironmentVariables();
     })

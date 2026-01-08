@@ -5,7 +5,7 @@ using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.WithProcessStrategy.Abstractions;
 using Aevatar.Agents.AI.WithProcessStrategy.Messages;
 using Aevatar.Agents.AI.WithProcessStrategy.Strategies;
-using Aevatar.Agents.AI.WithTool.Abstractions;
+using Aevatar.Agents.AI.Tool.Abstractions;
 using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.AI.WithProcessStrategy;

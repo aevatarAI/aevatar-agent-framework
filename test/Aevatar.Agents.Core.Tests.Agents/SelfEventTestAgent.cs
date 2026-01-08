@@ -3,7 +3,7 @@ using Aevatar.Agents.Abstractions.Attributes;
 namespace Aevatar.Agents.Core.Tests.Agents;
 
 /// <summary>
-/// 用于测试自身事件处理的Agent
+/// Agent for testing self-event handling
 /// </summary>
 public class SelfEventTestAgent : GAgentBase<TestAgentState>
 {

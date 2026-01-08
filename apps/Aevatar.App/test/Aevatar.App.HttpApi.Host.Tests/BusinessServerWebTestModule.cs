@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Localization;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Aevatar.Agents.Core.Extensions;
 using Aevatar.App.MongoDB;
 using Aevatar.App.HttpApi.Host;
 using Volo.Abp.AspNetCore.TestBase;
@@ -23,6 +24,7 @@ public class AppWebTestModule : AbpModule
     {
         var builder = new ConfigurationBuilder();
         builder.AddJsonFile("appsettings.json", false);
+        builder.AddAevatarUserSecrets();
         builder.AddJsonFile("appsettings.secrets.json", true);
         context.Services.ReplaceConfiguration(builder.Build());
     }

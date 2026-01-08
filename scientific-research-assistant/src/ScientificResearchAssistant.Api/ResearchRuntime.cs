@@ -4,7 +4,7 @@ using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Core;
 using Microsoft.Extensions.Options;
-using Aevatar.Agents.AI.WithTool.Abstractions;
+using Aevatar.Agents.AI.Tool.Abstractions;
 using ScientificResearchAssistant.Vibe;
 using ScientificResearchAssistant.Api.Infrastructure;
 
@@ -22,7 +22,7 @@ public sealed class ResearchRuntime
 {
     private readonly IGAgentActorFactory _actorFactory;
     private readonly ILogger<ResearchRuntime> _logger;
-    private readonly IOptions<LLMProvidersConfig> _llm;
+    private readonly IOptionsMonitor<LLMProvidersConfig> _llm;
     private readonly SkillPacksSyncService _skillPacksSync;
     private readonly TimeSpan _skillPacksRetryMinInterval;
 
@@ -35,7 +35,7 @@ public sealed class ResearchRuntime
     public ResearchRuntime(
         IGAgentActorFactory actorFactory,
         ILogger<ResearchRuntime> logger,
-        IOptions<LLMProvidersConfig> llm,
+        IOptionsMonitor<LLMProvidersConfig> llm,
         SkillPacksSyncService skillPacksSync,
         IOptions<SkillPacksOptions> skillPacksOptions)
     {
@@ -84,6 +84,54 @@ public sealed class ResearchRuntime
         if (entry.ReasonerAgent == null || entry.ReasonerActor == null)
             throw new InvalidOperationException(entry.ReasonerLastError ?? "reasoner not initialized");
         return (entry.ReasonerAgent, entry.ReasonerAgentId);
+    }
+
+    public async Task<(VibeResearchAssistantAgent Agent, string AgentId)> GetResearchAssistantAgentAsync(
+        string sessionId,
+        string? providerName,
+        CancellationToken ct)
+    {
+        var entry = await GetOrCreateEntryAsync(sessionId, ct);
+        await EnsureResearchAssistantInitializedAsync(entry, providerName, ct);
+        if (entry.ResearchAssistantAgent == null || entry.ResearchAssistantActor == null)
+            throw new InvalidOperationException(entry.ResearchAssistantLastError ?? "research_assistant not initialized");
+        return (entry.ResearchAssistantAgent, entry.ResearchAssistantAgentId);
+    }
+
+    public async Task<(VibeLibrarianAgent Agent, string AgentId)> GetLibrarianAgentAsync(
+        string sessionId,
+        string? providerName,
+        CancellationToken ct)
+    {
+        var entry = await GetOrCreateEntryAsync(sessionId, ct);
+        await EnsureLibrarianInitializedAsync(entry, providerName, ct);
+        if (entry.LibrarianAgent == null || entry.LibrarianActor == null)
+            throw new InvalidOperationException(entry.LibrarianLastError ?? "librarian not initialized");
+        return (entry.LibrarianAgent, entry.LibrarianAgentId);
+    }
+
+    public async Task<(VibeVerifierAgent Agent, string AgentId)> GetVerifierAgentAsync(
+        string sessionId,
+        string? providerName,
+        CancellationToken ct)
+    {
+        var entry = await GetOrCreateEntryAsync(sessionId, ct);
+        await EnsureVerifierInitializedAsync(entry, providerName, ct);
+        if (entry.VerifierAgent == null || entry.VerifierActor == null)
+            throw new InvalidOperationException(entry.VerifierLastError ?? "verifier not initialized");
+        return (entry.VerifierAgent, entry.VerifierAgentId);
+    }
+
+    public async Task<(VibeDagBuilderAgent Agent, string AgentId)> GetDagBuilderAgentAsync(
+        string sessionId,
+        string? providerName,
+        CancellationToken ct)
+    {
+        var entry = await GetOrCreateEntryAsync(sessionId, ct);
+        await EnsureDagBuilderInitializedAsync(entry, providerName, ct);
+        if (entry.DagBuilderAgent == null || entry.DagBuilderActor == null)
+            throw new InvalidOperationException(entry.DagBuilderLastError ?? "dag_builder not initialized");
+        return (entry.DagBuilderAgent, entry.DagBuilderAgentId);
     }
 
     public async Task<AevatarAIAgentState?> TryGetAgentStateAsync(string sessionId, CancellationToken ct)
@@ -315,7 +363,8 @@ public sealed class ResearchRuntime
             _logger.LogInformation("[ResearchRuntime] Initializing LLM provider: {Provider} (session={SessionId})",
                 entry.ProviderName, entry.SessionId);
 
-            await entry.MainAgent.InitializeAsync(entry.ProviderName, _ => { }, ct);
+            var providerCfg = BuildProviderConfigOrThrow(entry.ProviderName);
+            await entry.MainAgent.InitializeAsync(providerCfg, _ => { }, ct);
 
             entry.MainIsReady = true;
         }
@@ -351,7 +400,8 @@ public sealed class ResearchRuntime
             entry.PlannerActor = await _actorFactory.CreateGAgentActorAsync<VibePlannerAgent>(entry.PlannerAgentId, ct);
             entry.PlannerAgent = (VibePlannerAgent)entry.PlannerActor.GetAgent();
 
-            await entry.PlannerAgent.InitializeAsync(entry.ProviderName, cfg =>
+            var providerCfg = BuildProviderConfigOrThrow(entry.ProviderName);
+            await entry.PlannerAgent.InitializeAsync(providerCfg, cfg =>
             {
                 cfg.Temperature = 0.2f;
                 cfg.MaxOutputTokens = 1000;
@@ -391,7 +441,8 @@ public sealed class ResearchRuntime
             entry.ReasonerActor = await _actorFactory.CreateGAgentActorAsync<VibeReasonerAgent>(entry.ReasonerAgentId, ct);
             entry.ReasonerAgent = (VibeReasonerAgent)entry.ReasonerActor.GetAgent();
 
-            await entry.ReasonerAgent.InitializeAsync(entry.ProviderName, cfg =>
+            var providerCfg = BuildProviderConfigOrThrow(entry.ProviderName);
+            await entry.ReasonerAgent.InitializeAsync(providerCfg, cfg =>
             {
                 cfg.Temperature = 0.1f;
                 cfg.MaxOutputTokens = 1600;
@@ -411,16 +462,287 @@ public sealed class ResearchRuntime
         }
     }
 
+    private async Task EnsureResearchAssistantInitializedAsync(SessionEntry entry, string? providerName, CancellationToken ct)
+    {
+        if (entry.ResearchAssistantIsReady)
+            return;
+
+        await entry.Lock.WaitAsync(ct);
+        try
+        {
+            if (entry.ResearchAssistantIsReady)
+                return;
+
+            entry.ResearchAssistantLastError = null;
+            EnsureProviderName(entry, providerName);
+
+            _logger.LogInformation("[ResearchRuntime] Creating research_assistant agent actor: {AgentId} (session={SessionId})",
+                entry.ResearchAssistantAgentId, entry.SessionId);
+
+            entry.ResearchAssistantActor = await _actorFactory.CreateGAgentActorAsync<VibeResearchAssistantAgent>(entry.ResearchAssistantAgentId, ct);
+            entry.ResearchAssistantAgent = (VibeResearchAssistantAgent)entry.ResearchAssistantActor.GetAgent();
+
+            var providerCfg = BuildProviderConfigOrThrow(entry.ProviderName);
+            await entry.ResearchAssistantAgent.InitializeAsync(providerCfg, cfg =>
+            {
+                cfg.Temperature = 0.2f;
+                cfg.MaxOutputTokens = 2000;
+            }, ct);
+
+            entry.ResearchAssistantIsReady = true;
+        }
+        catch (Exception ex)
+        {
+            entry.ResearchAssistantLastError = ex.Message;
+            _logger.LogError(ex, "[ResearchRuntime] ResearchAssistant init failed: {Message}", ex.Message);
+            entry.ResearchAssistantIsReady = false;
+        }
+        finally
+        {
+            entry.Lock.Release();
+        }
+    }
+
+    private async Task EnsureLibrarianInitializedAsync(SessionEntry entry, string? providerName, CancellationToken ct)
+    {
+        if (entry.LibrarianIsReady)
+            return;
+
+        await entry.Lock.WaitAsync(ct);
+        try
+        {
+            if (entry.LibrarianIsReady)
+                return;
+
+            entry.LibrarianLastError = null;
+            EnsureProviderName(entry, providerName);
+
+            _logger.LogInformation("[ResearchRuntime] Creating librarian agent actor: {AgentId} (session={SessionId})",
+                entry.LibrarianAgentId, entry.SessionId);
+
+            entry.LibrarianActor = await _actorFactory.CreateGAgentActorAsync<VibeLibrarianAgent>(entry.LibrarianAgentId, ct);
+            entry.LibrarianAgent = (VibeLibrarianAgent)entry.LibrarianActor.GetAgent();
+
+            var providerCfg = BuildProviderConfigOrThrow(entry.ProviderName);
+            await entry.LibrarianAgent.InitializeAsync(providerCfg, cfg =>
+            {
+                cfg.Temperature = 0.1f;
+                cfg.MaxOutputTokens = 1200;
+            }, ct);
+
+            entry.LibrarianIsReady = true;
+        }
+        catch (Exception ex)
+        {
+            entry.LibrarianLastError = ex.Message;
+            _logger.LogError(ex, "[ResearchRuntime] Librarian init failed: {Message}", ex.Message);
+            entry.LibrarianIsReady = false;
+        }
+        finally
+        {
+            entry.Lock.Release();
+        }
+    }
+
+    private async Task EnsureVerifierInitializedAsync(SessionEntry entry, string? providerName, CancellationToken ct)
+    {
+        if (entry.VerifierIsReady)
+            return;
+
+        await entry.Lock.WaitAsync(ct);
+        try
+        {
+            if (entry.VerifierIsReady)
+                return;
+
+            entry.VerifierLastError = null;
+            EnsureProviderName(entry, providerName);
+
+            _logger.LogInformation("[ResearchRuntime] Creating verifier agent actor: {AgentId} (session={SessionId})",
+                entry.VerifierAgentId, entry.SessionId);
+
+            entry.VerifierActor = await _actorFactory.CreateGAgentActorAsync<VibeVerifierAgent>(entry.VerifierAgentId, ct);
+            entry.VerifierAgent = (VibeVerifierAgent)entry.VerifierActor.GetAgent();
+
+            var providerCfg = BuildProviderConfigOrThrow(entry.ProviderName);
+            await entry.VerifierAgent.InitializeAsync(providerCfg, cfg =>
+            {
+                cfg.Temperature = 0.0f;
+                cfg.MaxOutputTokens = 1400;
+            }, ct);
+
+            entry.VerifierIsReady = true;
+        }
+        catch (Exception ex)
+        {
+            entry.VerifierLastError = ex.Message;
+            _logger.LogError(ex, "[ResearchRuntime] Verifier init failed: {Message}", ex.Message);
+            entry.VerifierIsReady = false;
+        }
+        finally
+        {
+            entry.Lock.Release();
+        }
+    }
+
+    private async Task EnsureDagBuilderInitializedAsync(SessionEntry entry, string? providerName, CancellationToken ct)
+    {
+        if (entry.DagBuilderIsReady)
+            return;
+
+        await entry.Lock.WaitAsync(ct);
+        try
+        {
+            if (entry.DagBuilderIsReady)
+                return;
+
+            entry.DagBuilderLastError = null;
+            EnsureProviderName(entry, providerName);
+
+            _logger.LogInformation("[ResearchRuntime] Creating dag_builder agent actor: {AgentId} (session={SessionId})",
+                entry.DagBuilderAgentId, entry.SessionId);
+
+            entry.DagBuilderActor = await _actorFactory.CreateGAgentActorAsync<VibeDagBuilderAgent>(entry.DagBuilderAgentId, ct);
+            entry.DagBuilderAgent = (VibeDagBuilderAgent)entry.DagBuilderActor.GetAgent();
+
+            var providerCfg = BuildProviderConfigOrThrow(entry.ProviderName);
+            await entry.DagBuilderAgent.InitializeAsync(providerCfg, cfg =>
+            {
+                cfg.Temperature = 0.1f;
+                cfg.MaxOutputTokens = 2000;
+            }, ct);
+
+            entry.DagBuilderIsReady = true;
+        }
+        catch (Exception ex)
+        {
+            entry.DagBuilderLastError = ex.Message;
+            _logger.LogError(ex, "[ResearchRuntime] DagBuilder init failed: {Message}", ex.Message);
+            entry.DagBuilderIsReady = false;
+        }
+        finally
+        {
+            entry.Lock.Release();
+        }
+    }
+
     private void EnsureProviderName(SessionEntry entry, string? providerName)
     {
         if (!string.IsNullOrWhiteSpace(entry.ProviderName))
             return;
 
         var provider = string.IsNullOrWhiteSpace(providerName)
-            ? (string.IsNullOrWhiteSpace(_llm.Value.Default) ? "default" : _llm.Value.Default)
+            ? (string.IsNullOrWhiteSpace(_llm.CurrentValue.Default) ? "default" : _llm.CurrentValue.Default)
             : providerName.Trim();
 
         entry.ProviderName = provider;
+    }
+
+    private LLMProviderConfig BuildProviderConfigOrThrow(string providerName)
+    {
+        var name = (providerName ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(name))
+            throw new InvalidOperationException("ProviderName is empty.");
+
+        var root = _llm.CurrentValue;
+        if (!root.Providers.TryGetValue(name, out var src) || src == null)
+        {
+            throw new InvalidOperationException(
+                $"LLM provider '{name}' is not configured. Check LLMProviders:Providers:{name} in configuration.");
+        }
+
+        var copy = CloneProviderConfig(src);
+        if (string.IsNullOrWhiteSpace(copy.Name))
+            copy.Name = name;
+
+        // Embeddings fallback:
+        // - If provider doesn't define embeddings -> inherit global embeddings.
+        // - If provider defines embeddings -> partial-merge missing fields from global embeddings.
+        if (root.Embeddings != null)
+        {
+            if (copy.Embeddings == null)
+            {
+                copy.Embeddings = CloneEmbeddingConfig(root.Embeddings);
+            }
+            else
+            {
+                copy.Embeddings = MergeEmbeddingConfig(root.Embeddings, copy.Embeddings);
+            }
+        }
+
+        return copy;
+    }
+
+    private static LLMProviderConfig CloneProviderConfig(LLMProviderConfig src)
+    {
+        return new LLMProviderConfig
+        {
+            Name = src.Name,
+            ProviderType = src.ProviderType,
+            ApiKey = src.ApiKey,
+            Model = src.Model,
+            Endpoint = src.Endpoint,
+            DeploymentName = src.DeploymentName,
+            Temperature = src.Temperature,
+            MaxTokens = src.MaxTokens,
+            TimeoutMilliseconds = src.TimeoutMilliseconds,
+            EnableStreaming = src.EnableStreaming,
+            ProviderSpecificSettings = src.ProviderSpecificSettings != null
+                ? new Dictionary<string, object>(src.ProviderSpecificSettings)
+                : new Dictionary<string, object>(),
+            Embeddings = src.Embeddings != null ? CloneEmbeddingConfig(src.Embeddings) : null
+        };
+    }
+
+    private static LLMEmbeddingConfig CloneEmbeddingConfig(LLMEmbeddingConfig src)
+    {
+        return new LLMEmbeddingConfig
+        {
+            ProviderType = src.ProviderType,
+            Model = src.Model,
+            DeploymentName = src.DeploymentName,
+            Endpoint = src.Endpoint,
+            ApiKey = src.ApiKey,
+            Dimensions = src.Dimensions,
+            ProviderSpecificSettings = src.ProviderSpecificSettings != null
+                ? new Dictionary<string, object>(src.ProviderSpecificSettings)
+                : new Dictionary<string, object>()
+        };
+    }
+
+    private static LLMEmbeddingConfig MergeEmbeddingConfig(LLMEmbeddingConfig global, LLMEmbeddingConfig provider)
+    {
+        // Provider overrides explicitly set fields; missing fields fall back to global.
+        var merged = CloneEmbeddingConfig(provider);
+
+        if (string.IsNullOrWhiteSpace(merged.ProviderType))
+            merged.ProviderType = global.ProviderType;
+        if (string.IsNullOrWhiteSpace(merged.Model))
+            merged.Model = global.Model;
+        if (string.IsNullOrWhiteSpace(merged.DeploymentName))
+            merged.DeploymentName = global.DeploymentName;
+        if (string.IsNullOrWhiteSpace(merged.Endpoint))
+            merged.Endpoint = global.Endpoint;
+        if (string.IsNullOrWhiteSpace(merged.ApiKey))
+            merged.ApiKey = global.ApiKey;
+        if (!merged.Dimensions.HasValue)
+            merged.Dimensions = global.Dimensions;
+
+        // ProviderSpecificSettings: merge global -> provider (provider wins on key conflicts).
+        var mergedSettings = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+        if (global.ProviderSpecificSettings != null)
+        {
+            foreach (var kv in global.ProviderSpecificSettings)
+                mergedSettings[kv.Key] = kv.Value;
+        }
+        if (provider.ProviderSpecificSettings != null)
+        {
+            foreach (var kv in provider.ProviderSpecificSettings)
+                mergedSettings[kv.Key] = kv.Value;
+        }
+        merged.ProviderSpecificSettings = mergedSettings;
+
+        return merged;
     }
 
     private sealed class SessionEntry
@@ -429,6 +751,10 @@ public sealed class ResearchRuntime
         public required string AgentId { get; init; }
         public string PlannerAgentId => $"{AgentId}-planner";
         public string ReasonerAgentId => $"{AgentId}-reasoner";
+        public string ResearchAssistantAgentId => $"{AgentId}-research_assistant";
+        public string LibrarianAgentId => $"{AgentId}-librarian";
+        public string VerifierAgentId => $"{AgentId}-verifier";
+        public string DagBuilderAgentId => $"{AgentId}-dag_builder";
 
         public readonly SemaphoreSlim Lock = new(1, 1);
         public IGAgentActor? MainActor { get; set; }
@@ -447,6 +773,26 @@ public sealed class ResearchRuntime
         public VibeReasonerAgent? ReasonerAgent { get; set; }
         public bool ReasonerIsReady { get; set; }
         public string? ReasonerLastError { get; set; }
+
+        public IGAgentActor? ResearchAssistantActor { get; set; }
+        public VibeResearchAssistantAgent? ResearchAssistantAgent { get; set; }
+        public bool ResearchAssistantIsReady { get; set; }
+        public string? ResearchAssistantLastError { get; set; }
+
+        public IGAgentActor? LibrarianActor { get; set; }
+        public VibeLibrarianAgent? LibrarianAgent { get; set; }
+        public bool LibrarianIsReady { get; set; }
+        public string? LibrarianLastError { get; set; }
+
+        public IGAgentActor? VerifierActor { get; set; }
+        public VibeVerifierAgent? VerifierAgent { get; set; }
+        public bool VerifierIsReady { get; set; }
+        public string? VerifierLastError { get; set; }
+
+        public IGAgentActor? DagBuilderActor { get; set; }
+        public VibeDagBuilderAgent? DagBuilderAgent { get; set; }
+        public bool DagBuilderIsReady { get; set; }
+        public string? DagBuilderLastError { get; set; }
 
         public IReadOnlyList<object>? ToolsSnapshot { get; set; }
         public HashSet<string> McpToolNames { get; set; } = new(StringComparer.OrdinalIgnoreCase);

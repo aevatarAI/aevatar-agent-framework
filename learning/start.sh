@@ -133,6 +133,26 @@ wait_for_http_ok() {
   done
 }
 
+ensure_frontend_deps() {
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "ERROR: npm not found. Please install Node.js (npm) first." >&2
+    echo "Hint (macOS): https://nodejs.org/ or use your preferred package manager." >&2
+    return 1
+  fi
+
+  # Common failure mode: start.sh runs before `npm install`, causing Vite to fail loading config:
+  #   Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'vite' imported from .../vite.config.ts...
+  #
+  # Preflight: ensure node_modules exists AND vite package is installed.
+  if [[ ! -d "${FRONTEND_DIR}/node_modules" ]] || [[ ! -f "${FRONTEND_DIR}/node_modules/vite/package.json" ]]; then
+    echo "Installing frontend dependencies (first run)..."
+    (
+      cd "${FRONTEND_DIR}"
+      npm install
+    )
+  fi
+}
+
 cleanup_ran=0
 API_PID=""
 FRONTEND_PID=""
@@ -180,6 +200,7 @@ wait_for_http_ok "http://localhost:${LEARNING_API_PORT}/health" 25
 echo "Starting frontend (${FRONTEND_MODE})"
 (
   cd "$FRONTEND_DIR"
+  ensure_frontend_deps
   export VITE_LEARNING_API_URL="http://localhost:${LEARNING_API_PORT}"
   if [[ "${FRONTEND_MODE}" == "web" ]]; then
     npm run dev:web

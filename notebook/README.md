@@ -50,7 +50,7 @@ notebook/
 - `Aevatar:Persistence:MemoryVectorIndex`: `file | mongodb | supabase`
 - `Aevatar:Persistence:MemoryGraph`: `file | neo4j`
 
-数据库连接信息建议放到 `notebook/src/Aevatar.Notebook.Api/appsettings.secrets.json`（已被 `.gitignore` 忽略）。
+数据库连接信息建议放到用户级 secrets（加密，推荐：`~/.aevatar/secrets.json`；用 `src/Aevatar.Agents.SecretsCli` 写入）或 `notebook/src/Aevatar.Notebook.Api/appsettings.secrets.json`（已被 `.gitignore` 忽略）。
 可直接复制示例：
 
 - `notebook/src/Aevatar.Notebook.Api/appsettings.secrets.json.example`
@@ -67,11 +67,11 @@ notebook/
 
 ### LLM 配置与超时排障（DeepSeek / OpenAI‑compatible）
 
-`Aevatar.Notebook` 读取 `LLMProviders` 配置（建议把 API Key 放到 `notebook/src/Aevatar.Notebook.Api/appsettings.secrets.json`），并用 `LLMProviders:Default` 作为默认 provider。
+`Aevatar.Notebook` 读取 `LLMProviders` 配置（建议把 API Key 放到用户级 secrets：默认 `~/.aevatar/secrets.json`；用 `src/Aevatar.Agents.SecretsCli` 写入），并用 `LLMProviders:Default` 作为默认 provider。
 
 #### 配置示例
 
-把下面内容放到 `notebook/src/Aevatar.Notebook.Api/appsettings.secrets.json`（或环境变量注入同名配置）：
+把下面内容放到用户级 secrets（推荐）或 `notebook/src/Aevatar.Notebook.Api/appsettings.secrets.json`（或环境变量注入同名配置）：
 
 ```json
 {

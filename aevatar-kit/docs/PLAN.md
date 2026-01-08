@@ -13,7 +13,7 @@
 ### 1.2 AevatarKit 的定位
 
 - **AevatarKit = 平台层（Product） + 执行层（Aevatar）**
-- AevatarKit 不重新发明“并行/编排/投票/护栏/可观测”，优先复用 Aevatar 现有的 `Aevatar.Agents.Cognitive` 执行内核与 `Aevatar.Agents.AI.WithTool.MCP` 的 MCP 集成。
+- AevatarKit 不重新发明“并行/编排/投票/护栏/可观测”，优先复用 Aevatar 现有的 `Aevatar.Agents.Cognitive` 执行内核与 `Aevatar.Agents.AI.Tool.MCP` 的 MCP 集成。
 
 ---
 
@@ -145,7 +145,7 @@ AI Agent **可以共享 memory**，但共享必须有边界与治理。AevatarKi
 
 ### 5.1 MVP：MCP Client
 
-- 复用 `Aevatar.Agents.AI.WithTool.MCP`（官方 C# MCP SDK）。
+- 复用 `Aevatar.Agents.AI.Tool.MCP`（官方 C# MCP SDK）。
 - 平台侧提供：
   - MCP Server Registry（npx/uvx/stdio，后续扩展 http transport）
   - Tool Catalog（列出工具 schema）

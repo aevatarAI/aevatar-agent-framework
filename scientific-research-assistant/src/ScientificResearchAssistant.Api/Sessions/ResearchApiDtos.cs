@@ -20,6 +20,20 @@ internal sealed class SessionInputInDto
     /// - "vibe": multi-agent axioms+references reasoning
     /// </summary>
     public string? Mode { get; init; }
+
+    /// <summary>
+    /// Optional routing hint for vibe researching:
+    /// - null/empty: let research_assistant decide
+    /// - ["*"]: broadcast to all background agents
+    /// - ["reasoner","librarian"]: target subset
+    /// </summary>
+    public List<string>? ToAgents { get; init; }
+
+    /// <summary>
+    /// Optional attachment references (relative paths under session workspace),
+    /// typically returned by POST /api/sessions/{id}/uploads.
+    /// </summary>
+    public List<string>? AttachmentPaths { get; init; }
 }
 
 internal sealed class SaveFactInDto

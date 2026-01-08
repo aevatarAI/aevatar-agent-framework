@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging;
 namespace Demo.Agents;
 
 /// <summary>
-/// 团队领导Agent - 父节点
+/// Team leader agent - parent node
 /// </summary>
 public class TeamLeaderAgent : GAgentBase<TeamLeaderState>
 {
@@ -18,7 +18,7 @@ public class TeamLeaderAgent : GAgentBase<TeamLeaderState>
         State.Name = "Team Leader";
     }
     
-    // 公开State访问方法
+    // Public state access method
     public new TeamLeaderState GetState() => State;
     
     public override Task<string> GetDescriptionAsync()
@@ -26,7 +26,7 @@ public class TeamLeaderAgent : GAgentBase<TeamLeaderState>
         return Task.FromResult($"Team Leader: {State.Name}, Managing {State.AssignedTasks.Count} tasks");
     }
     
-    // 分配任务
+    // Assign task
     public async Task AssignTask(string taskId, string assignTo, string description)
     {
         var evt = new TaskAssignedEvent

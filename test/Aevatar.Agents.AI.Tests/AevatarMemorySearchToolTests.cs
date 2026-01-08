@@ -1,8 +1,8 @@
 using System.Text.Json;
 using Aevatar.Agents.Abstractions.CQRS;
 using Aevatar.Agents.AI;
-using Aevatar.Agents.AI.WithTool.Abstractions;
-using Aevatar.Agents.AI.WithTool.Tools.BuiltIn;
+using Aevatar.Agents.AI.Tool.Abstractions;
+using Aevatar.Agents.AI.Tool.Tools.BuiltIn;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging.Abstractions;

@@ -8,10 +8,14 @@ Learning 系统通过 `LLMProviders` 选择默认 provider，并允许请求级�
 
 ### 1) 配置文件（推荐）
 
-把示例复制为真实配置（不要提交真实密钥）：
+两种方式（二选一，优先推荐全局 secrets）：
 
-- `learning/src/Aevatar.Learning.Api/appsettings.secrets.json.example`
-- → `learning/src/Aevatar.Learning.Api/appsettings.secrets.json`
+- **推荐（一次配置，全仓复用）**：写入用户级 secrets（加密）
+  - 默认：`~/.aevatar/secrets.json`（用 `src/Aevatar.Agents.SecretsCli` 写入）
+  - 覆盖：`AEVATAR_SECRETS_PATH` / `AEVATAR_SECRETS_DIR`
+- **可选（项目级覆盖）**：复制示例为真实配置（不要提交真实密钥）
+  - `learning/src/Aevatar.Learning.Api/appsettings.secrets.json.example`
+  - → `learning/src/Aevatar.Learning.Api/appsettings.secrets.json`
 
 示例结构（与仓库 Notebook 系统一致）：
 
@@ -104,5 +108,6 @@ Learning 系统遵循 Aevatar “业务逻辑与运行时解耦”的原则。
 
 - `learning/src/Aevatar.Learning.Api/appsettings.secrets.json` 必须保持在 `.gitignore` 中（不入库）
 - 推荐把真正的 key 放在环境变量（例如 `${DEEPSEEK_API_KEY}`），配置文件只引用它
+ - 或者把 key 放在用户级 secrets（加密）里（推荐：跨项目复用）
 
 

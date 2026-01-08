@@ -130,9 +130,12 @@ trade/
 - **.NET SDK**：建议 .NET 10（本仓库以 net10.0 构建）
 - **Node.js**：建议 18+（前端 Vite）
 
-### 推荐配置方式：`appsettings.secrets.json`
+### 推荐配置方式：User Secrets（全局加密） + `appsettings.secrets.json`（项目级覆盖）
 
-在 `trade/Aevatar.Trade.Api/` 下创建 `appsettings.secrets.json`（该文件 gitignored），参考示例：
+- **推荐（一次配置，全仓复用）**：用户级 secrets（加密）
+  - 默认：`~/.aevatar/secrets.json`（用 `src/Aevatar.Agents.SecretsCli` 写入）
+  - 覆盖：`AEVATAR_SECRETS_PATH/AEVATAR_SECRETS_DIR`
+- **可选（项目级覆盖）**：在 `trade/Aevatar.Trade.Api/` 下创建 `appsettings.secrets.json`（该文件 gitignored），参考示例：
 
 - `trade/Aevatar.Trade.Api/appsettings.secrets.json.example`
 

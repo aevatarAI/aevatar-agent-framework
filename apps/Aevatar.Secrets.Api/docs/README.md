@@ -9,6 +9,11 @@ apps/Aevatar.Secrets.Api/
 ├── Program.cs                 # Minimal API + 静态资源托管 (wwwroot)
 ├── Aevatar.Secrets.Api.csproj # Web project (net10.0) + 引用 Aevatar.Agents.Core
 ├── README.md                  # 使用说明
+├── LlmContracts.cs            # LLM/Secrets 的 DTO + 内部模型
+├── LlmProviderProfiles.cs     # Provider types 与 instanceName 推断
+├── LlmProviderResolver.cs     # instance -> resolved endpoint/model/apiKey(不回显)
+├── LlmProbe.cs                # best-effort Test / Fetch models
+├── ProviderCatalog.cs         # Providers + Instances 列表构建
 ├── wwwroot/                   # UI 静态资源（可被其他项目复用/托管）
 │   ├── index.html             # UI 入口页（纯静态）
 │   ├── aevatar-secrets-ui.js  # UI 逻辑（vanilla JS，暴露 window.AevatarSecretsUi.init）

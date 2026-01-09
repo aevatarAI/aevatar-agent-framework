@@ -35,6 +35,7 @@ export default function DagPanel(props: {
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<string>("");
   const [explain, setExplain] = useState<any>(null);
+  const [chainMd, setChainMd] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -43,6 +44,11 @@ export default function DagPanel(props: {
 
   const graphNodes = useMemo(() => nodes.slice(0, 200), [nodes]);
   const graphEdges = useMemo(() => edges.slice(0, 400), [edges]);
+
+  const selectedNode = useMemo(() => {
+    if (!selected) return null;
+    return nodes.find((n) => n?.id === selected) ?? null;
+  }, [nodes, selected]);
 
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
@@ -78,9 +84,18 @@ export default function DagPanel(props: {
 
       const json: any = await getJson(`/api/sessions/${encodeURIComponent(sessionId)}/dag/${encodeURIComponent(nodeId)}/explain`);
       setExplain(json?.explain ?? null);
+
+      // Best-effort: also load Knowledge Graph chain markdown (uses KnowledgeGraph backend).
+      try {
+        const chainJson: any = await getJson(`/api/sessions/${encodeURIComponent(sessionId)}/graph/${encodeURIComponent(nodeId)}/chain`);
+        setChainMd(String(chainJson?.markdown ?? ""));
+      } catch {
+        setChainMd("");
+      }
     } catch (e: any) {
       setError(e?.message ?? String(e));
       setExplain(null);
+      setChainMd("");
     } finally {
       setBusy(false);
     }
@@ -145,11 +160,67 @@ export default function DagPanel(props: {
         </div>
 
         <div className="border border-slate-200 rounded-lg bg-slate-50 p-2">
-          <div className="text-xs text-slate-500 mb-2">Explain</div>
-          {explain ? (
-            <pre className="text-xs text-slate-900 whitespace-pre-wrap break-words max-h-72 overflow-auto">{JSON.stringify(explain, null, 2)}</pre>
+          <div className="text-xs text-slate-500 mb-2">Details</div>
+          {!selectedNode ? (
+            <div className="text-xs text-slate-500">Select a node to inspect.</div>
           ) : (
-            <div className="text-xs text-slate-500">Select a node to explain dependencies.</div>
+            <div className="space-y-2">
+              <div className="text-xs font-mono break-all text-slate-900">{selectedNode.id}</div>
+              <div className="flex items-center gap-2 text-[11px] text-slate-600">
+                <span className="px-1.5 py-0.5 rounded bg-white border border-slate-200">{selectedNode.type || "unknown"}</span>
+                {explain ? (
+                  <span
+                    className={`px-1.5 py-0.5 rounded border ${
+                      explain?.provable ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-amber-50 border-amber-200 text-amber-700"
+                    }`}
+                    title={explain?.hasCycle ? "Cycle detected" : explain?.provable ? "Provable" : "Missing dependencies"}
+                  >
+                    {explain?.hasCycle ? "cycle" : explain?.provable ? "provable" : "incomplete"}
+                  </span>
+                ) : null}
+              </div>
+
+              {selectedNode.label ? <div className="text-xs text-slate-800">{selectedNode.label}</div> : null}
+
+              {selectedNode.proof ? (
+                <details className="bg-white border border-slate-200 rounded-md p-2">
+                  <summary className="cursor-pointer select-none text-[11px] text-slate-600">Proof</summary>
+                  <pre className="mt-2 text-xs text-slate-900 whitespace-pre-wrap break-words max-h-40 overflow-auto">{selectedNode.proof}</pre>
+                </details>
+              ) : null}
+
+              {explain ? (
+                <details className="bg-white border border-slate-200 rounded-md p-2">
+                  <summary className="cursor-pointer select-none text-[11px] text-slate-600">Explain</summary>
+                  <div className="mt-2 text-xs text-slate-800 space-y-1">
+                    <div>
+                      <span className="text-slate-500">directDeps:</span>{" "}
+                      {Array.isArray(explain?.directDeps) ? explain.directDeps.length : 0}
+                    </div>
+                    <div>
+                      <span className="text-slate-500">missing:</span>{" "}
+                      {Array.isArray(explain?.missing) ? explain.missing.length : 0}
+                    </div>
+                    {Array.isArray(explain?.missing) && explain.missing.length > 0 ? (
+                      <div className="mt-2 space-y-1">
+                        {explain.missing.slice(0, 12).map((m: any, idx: number) => (
+                          <div key={`${m?.id ?? ""}:${idx}`} className="text-[11px] text-rose-700 break-all">
+                            - {String(m?.id ?? "")} {m?.type ? `(${String(m.type)})` : ""}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                </details>
+              ) : null}
+
+              {chainMd ? (
+                <details className="bg-white border border-slate-200 rounded-md p-2">
+                  <summary className="cursor-pointer select-none text-[11px] text-slate-600">Knowledge chain (Markdown)</summary>
+                  <pre className="mt-2 text-xs text-slate-900 whitespace-pre-wrap break-words max-h-40 overflow-auto">{chainMd}</pre>
+                </details>
+              ) : null}
+            </div>
           )}
         </div>
       </div>

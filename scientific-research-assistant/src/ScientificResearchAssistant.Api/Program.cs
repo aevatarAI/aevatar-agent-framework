@@ -7,6 +7,8 @@ using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Runtime.Local;
 using Aevatar.Agents.AI.Tool.MCP.Configuration;
 using Aevatar.Agents.Core.Secrets;
+using Aevatar.Agents.Knowledge.Graph;
+using Aevatar.Agents.Persistence.InMemory.Graph;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.Options;
 using ScientificResearchAssistant.Api.Infrastructure;
@@ -114,7 +116,17 @@ builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.Trace.TraceSt
 // Vibe: research brief (1-page) snapshot (file-backed)
 builder.Services.AddSingleton<BriefStore>();
 
-// Vibe: DAG knowledge library (file-backed)
+// ==========================================
+// Knowledge Graph (session-scoped)
+//
+// 中文说明：
+// - 这里默认用 InMemory 图后端（开发/测试最快，无外部依赖）
+// - DagStore 会把图快照同步落盘到 artifacts/dag/snapshot.json，保证可审阅/可恢复
+// ==========================================
+builder.Services.AddAevatarGraphInMemory();
+builder.Services.AddKnowledgeGraph();
+
+// Vibe: DAG/Graph store (SSoT: KnowledgeGraph + file snapshot mirror)
 builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.Dag.DagStore>();
 
 // Vibe: DAG consensus gate (default: verifier-quorum; optional: maker-v2 via CognitiveStrategy)

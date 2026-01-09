@@ -26,6 +26,11 @@
             <div class="list" id="listConfigured"></div>
           </div>
 
+          <div class="section hidden" id="secTrash">
+            <div class="section-title">Trash (API keys)</div>
+            <div class="list" id="listTrash"></div>
+          </div>
+
           <div class="section">
             <div class="section-title">Popular</div>
             <div class="list" id="listPopular"></div>
@@ -79,7 +84,7 @@
 
           <label>Model</label>
           <select id="modelSelect">
-            <option value="">--</option>
+            <option value="">-- click Fetch models --</option>
           </select>
           <div class="hint" id="modelMeta" style="margin-top: 6px;"></div>
 
@@ -101,7 +106,7 @@
             <button class="btn primary" id="submitBtn">Save</button>
             <button class="btn" id="testBtn" type="button">Test</button>
             <button class="btn" id="modelsBtn" type="button">Fetch models</button>
-            <button class="btn danger" id="disconnectBtn">Disconnect</button>
+            <button class="btn danger" id="disconnectBtn">Delete</button>
           </div>
 
           <div id="connectMsg" class="msg"></div>

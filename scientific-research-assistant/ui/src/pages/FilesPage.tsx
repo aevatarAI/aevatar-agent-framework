@@ -242,7 +242,7 @@ export default function FilesPage(props: {
       { dir: `${root}runs/{runId}/`, desc: "每次 run 的工作痕迹（例如 ui_events.jsonl）" },
       { dir: `${root}mailbox/`, desc: "durable mailbox：agent/user 消息队列（含 _dead/ 死信）" },
       { dir: `${root}artifacts/ui/`, desc: "前端展示快照（刷新可恢复）：ui_snapshot.json" },
-      { dir: `${root}artifacts/dag/`, desc: "DAG 知识库：snapshot.json + staged/ + consensus/" },
+      { dir: `${root}artifacts/dag/`, desc: "Graph 知识库：snapshot.json（镜像） + staged/ + consensus/" },
       { dir: `${root}artifacts/trace/`, desc: "每轮推导 trace：trace.jsonl / summary.md" },
       { dir: `${root}artifacts/uploads/`, desc: "用户上传附件（安全落盘）" },
       { dir: `${root}tmp/`, desc: "原子写临时目录（安全写入用）" },

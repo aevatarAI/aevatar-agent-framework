@@ -1,12 +1,18 @@
-# Vibe DAG Module（后端：DAG snapshot + explain + consensus）
+# Vibe Graph Module（后端：KnowledgeGraph + DAG 兼容 API + explain + consensus）
 
-本目录实现 vibe researching 的 **DAG 知识库（File-SSoT）** 与 **增量写入门控（共识）**。
+本目录实现 vibe researching 的 **知识图谱（KnowledgeGraph, Session-scoped）** 与 **增量写入门控（共识）**。
+
+中文说明（关键点）：
+- **SSoT**：`Aevatar.Agents.Knowledge.Graph`（图后端可 InMemory/Neo4j）
+- **镜像/审阅**：仍然把可读快照同步写入 `artifacts/dag/snapshot.json`（Protobuf-JSON，便于 diff/debug/恢复）
+- **兼容前端**：保留 `/dag` API 与 `DagExplain` 语义（依赖 -> 被依赖：`from -> to`）
+- **增强能力**：新增 `/graph` API 提供知识链（chain）与论文（paper）生成
 
 ## 目录结构
 
 ```
 Dag/
-  DagStore.cs                       # artifacts/dag/snapshot.json + staged + consensus artifacts
+  DagStore.cs                       # KnowledgeGraph SSoT + artifacts/dag/snapshot.json mirror + staged + consensus artifacts
   DagExplain.cs                     # explain(node): topo order / dependencies / cycle check（UI 调试用）
 
   DagConsensusRunner.cs             # 共识入口 + maker-v2 路径（可选）
@@ -25,8 +31,19 @@ Dag/
 
 ## 文件落点（File-SSoT）
 
-- `artifacts/dag/snapshot.json`: 当前 DAG 快照（Protobuf-JSON）
+- `artifacts/dag/snapshot.json`: 图快照镜像（Protobuf-JSON，审阅/恢复用）
 - `artifacts/dag/staged/`: 未通过共识的候选（保留以便回溯/再跑）
 - `artifacts/dag/consensus/`: 共识 artifacts（用于审计与 debug）
+
+## API 速览
+
+- **兼容 DAG（前端继续用）**
+  - `GET /api/sessions/{sessionId}/dag`
+  - `GET /api/sessions/{sessionId}/dag/{nodeId}/explain`
+  - `GET /api/sessions/{sessionId}/dag/staged`
+- **KnowledgeGraph（新能力）**
+  - `GET /api/sessions/{sessionId}/graph`（完整图快照）
+  - `GET /api/sessions/{sessionId}/graph/{nodeId}/chain`（知识链 + Markdown）
+  - `GET /api/sessions/{sessionId}/graph/paper`（全量 Markdown 论文）
 
 

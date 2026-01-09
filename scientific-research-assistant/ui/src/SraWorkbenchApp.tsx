@@ -33,7 +33,7 @@ export interface ApiKeyModalProps {
 //
 //  中文说明：
 //  - 复用 Web UI 的布局/交互，底层通过 transport 驱动 controller
-//  - 保持 Web 端现有 query 习惯：?view=files|dag&session=...
+//  - Query 约定：?view=files|dag&session=...（兼容 view=graph）
 // ============================================================
 
 export function SraWorkbenchApp(props: SraWorkbenchAppProps) {
@@ -52,7 +52,7 @@ export function SraWorkbenchApp(props: SraWorkbenchAppProps) {
     try {
       const q = new URLSearchParams(window.location.search);
       const viewRaw = String(q.get("view") ?? "");
-      const view: RouteView = viewRaw === "files" || viewRaw === "dag" ? viewRaw : "";
+      const view: RouteView = viewRaw === "files" ? "files" : viewRaw === "dag" || viewRaw === "graph" ? "dag" : "";
       return {
         view,
         session: String(q.get("session") ?? "").trim(),
@@ -273,6 +273,8 @@ export function SraWorkbenchApp(props: SraWorkbenchAppProps) {
               >
                 <FileText size={16} className="text-slate-500" /> Files
               </button>
+
+              {/* DAG has a dedicated page via the card "Open" button; keep sidebar minimal. */}
             </div>
           </div>
 

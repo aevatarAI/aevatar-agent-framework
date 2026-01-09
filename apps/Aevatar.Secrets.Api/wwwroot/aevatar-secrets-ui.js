@@ -16,6 +16,7 @@
   const state = {
     providers: [],
     instances: [],
+    trash: [],
     selectedId: "",
     selectedProviderType: "",
     nameEdited: false,
@@ -86,24 +87,42 @@
     return hay.includes(q);
   }
 
+  function matchesTrash(it, q) {
+    const hay = (
+      safeText(it.providerName) +
+      " " +
+      safeText(it.providerType) +
+      " " +
+      safeText(it.model) +
+      " " +
+      safeText(it.endpoint)
+    ).toLowerCase();
+    return hay.includes(q);
+  }
+
   async function refreshProviders() {
     try {
-      const [pRes, iRes] = await Promise.all([
+      const [pRes, iRes, tRes] = await Promise.all([
         fetch("/api/llm/providers"),
         fetch("/api/llm/instances"),
+        fetch("/api/trash/api-keys"),
       ]);
       if (!pRes.ok) throw new Error("HTTP " + pRes.status);
       if (!iRes.ok) throw new Error("HTTP " + iRes.status);
+      if (!tRes.ok) throw new Error("HTTP " + tRes.status);
 
       const pJson = await pRes.json().catch(() => null);
       const iJson = await iRes.json().catch(() => null);
+      const tJson = await tRes.json().catch(() => null);
 
       state.providers = Array.isArray(pJson && pJson.providers) ? pJson.providers : [];
       state.instances = Array.isArray(iJson && iJson.instances) ? iJson.instances : [];
+      state.trash = Array.isArray(tJson && tJson.items) ? tJson.items : [];
     } catch (e) {
       console.error(e);
       state.providers = [];
       state.instances = [];
+      state.trash = [];
     }
     renderList();
   }
@@ -203,10 +222,96 @@
     }
   }
 
+  function renderTrashSection(containerId, items) {
+    const root = $(containerId);
+    root.innerHTML = "";
+
+    for (const it of items) {
+      const name = safeText(it.providerName || "").trim();
+      if (!name) continue;
+
+      const row = document.createElement("div");
+      row.className = "item";
+      row.style.cursor = "default";
+
+      const logo = document.createElement("div");
+      logo.className = "logo";
+      logo.textContent = "🗑";
+
+      const main = document.createElement("div");
+      main.className = "item-main";
+
+      const title = document.createElement("div");
+      title.className = "item-name";
+      title.textContent = name;
+
+      const badge = document.createElement("span");
+      badge.className = "badge";
+      badge.textContent = "Trashed";
+      title.appendChild(badge);
+
+      const desc = document.createElement("div");
+      desc.className = "item-desc";
+      const pt = safeText(it.providerType || "");
+      const model = safeText(it.model || "");
+      const when = typeof it.trashedAtUnixMs === "number" ? new Date(it.trashedAtUnixMs).toLocaleString() : "";
+      const left = [pt, model].filter(Boolean).join(" · ");
+      desc.textContent = left + (when ? ` · ${when}` : "");
+
+      main.appendChild(title);
+      main.appendChild(desc);
+
+      const actions = document.createElement("div");
+      actions.className = "trash-actions";
+
+      const restoreBtn = document.createElement("button");
+      restoreBtn.className = "mini-btn";
+      restoreBtn.textContent = "Restore";
+      restoreBtn.onclick = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+          const res = await fetch("/api/trash/api-key/" + encodeURIComponent(name) + "/restore", { method: "POST" });
+          const json = await res.json().catch(() => null);
+          if (!res.ok || !json || json.ok !== true) throw new Error((json && json.error) ? json.error : ("HTTP " + res.status));
+          await refreshProviders();
+        } catch (err) {
+          setConnectMsg(err && err.message ? err.message : String(err), "err");
+        }
+      };
+
+      const delBtn = document.createElement("button");
+      delBtn.className = "mini-btn danger";
+      delBtn.textContent = "Delete";
+      delBtn.onclick = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!window.confirm(`Delete API key from Trash permanently?\n\n${name}`)) return;
+        try {
+          const res = await fetch("/api/trash/api-key/" + encodeURIComponent(name), { method: "DELETE" });
+          const json = await res.json().catch(() => null);
+          if (!res.ok || !json || json.ok !== true) throw new Error((json && json.error) ? json.error : ("HTTP " + res.status));
+          await refreshProviders();
+        } catch (err) {
+          setConnectMsg(err && err.message ? err.message : String(err), "err");
+        }
+      };
+
+      actions.appendChild(restoreBtn);
+      actions.appendChild(delBtn);
+
+      row.appendChild(logo);
+      row.appendChild(main);
+      row.appendChild(actions);
+      root.appendChild(row);
+    }
+  }
+
   function renderList() {
     const q = safeText(state.search).trim().toLowerCase();
     const providers = q ? state.providers.filter((p) => matches(p, q)) : state.providers.slice();
     const instances = q ? state.instances.filter((it) => matchesInstance(it, q)) : state.instances.slice();
+    const trash = q ? state.trash.filter((it) => matchesTrash(it, q)) : state.trash.slice();
 
     providers.sort((a, b) => {
       const ra = categoryOrder[String(a.category || "")] ?? 9;
@@ -227,8 +332,10 @@
     const other = providers.filter((p) => p.category === "other");
 
     $("secConfigured").classList.toggle("hidden", instances.length === 0);
+    $("secTrash").classList.toggle("hidden", trash.length === 0);
 
     renderInstanceSection("listConfigured", instances);
+    renderTrashSection("listTrash", trash);
     renderProviderSection("listPopular", popular);
     renderProviderSection("listOther", other);
   }
@@ -268,9 +375,17 @@
 
     $("submitBtn").disabled = isEmpty(pn) || isEmpty(model) || isEmpty(state.selectedProviderType) || !keyOk;
 
-    // Fetch models needs a configured key source (either current instance or reuseFrom).
-    const canFetchModels = isConfiguredInstance || !isEmpty(reuseFrom);
-    $("modelsBtn").disabled = !canFetchModels;
+    // Test / Fetch models should be available as soon as we have a key source:
+    // - configured key on this instance, OR
+    // - selected reuseFrom instance, OR
+    // - user is typing a new key draft (no persistence; probe endpoints are used)
+    const canUseDraftKey = state.isNewKeyDraft && !isEmpty(key);
+    const canUseStoredKey = state.hasExistingKey || isConfiguredInstance;
+    const canUseReuseKey = !isEmpty(reuseFrom);
+    const canProbe = canUseDraftKey || canUseStoredKey || canUseReuseKey;
+
+    $("testBtn").disabled = !canProbe;
+    $("modelsBtn").disabled = !canProbe;
   }
 
   function renderModelMeta(modelSource, model) {
@@ -293,7 +408,7 @@
       return;
     }
 
-    el.textContent = `Model (${src}): --`;
+    el.textContent = `Model (${src}): click Fetch models to load`;
   }
 
   function populateReuseKeySelect(providerType, currentProviderName) {
@@ -380,7 +495,8 @@
       try { sel.innerHTML = ""; } catch {}
       const placeholder = document.createElement("option");
       placeholder.value = "";
-      placeholder.textContent = "--";
+      // When no model is configured, guide the user to fetch model list first.
+      placeholder.textContent = "-- click Fetch models --";
       sel.appendChild(placeholder);
 
       if (modelSource === "secret" && !isEmpty(model)) {
@@ -467,7 +583,7 @@
     $("providerNameInput").value = providerName;
     $("endpointInput").value = "";
     $("endpointMeta").textContent = "";
-    $("modelSelect").innerHTML = "<option value=\"\">--</option>";
+    $("modelSelect").innerHTML = "<option value=\"\">-- click Fetch models --</option>";
     $("modelMeta").textContent = "";
     state.modelOriginal = "";
     state.modelSource = "";
@@ -569,7 +685,10 @@
     setConnectMsg("");
 
     try {
-      const copyApiKeyFrom = !state.isNewKeyDraft && isEmpty(apiKey) && !isEmpty(reuseFrom) ? reuseFrom : "";
+      // Key source rules:
+      // - If user is typing a new key draft -> send ApiKey.
+      // - Else, if reuseFrom is selected -> send CopyApiKeyFrom (even if apiKey input shows a masked existing key).
+      const copyApiKeyFrom = !state.isNewKeyDraft && !isEmpty(reuseFrom) ? reuseFrom : "";
       const payload = {
         providerName,
         providerType,
@@ -620,7 +739,27 @@
     setConnectMsg("");
 
     try {
-      const res = await fetch("/api/llm/test/" + encodeURIComponent(providerName));
+      const reuseFrom = safeText($("reuseKeySelect") ? $("reuseKeySelect").value : "").trim();
+      const apiKey = safeText($("apiKeyInput").value).trim();
+      const providerType = safeText(state.selectedProviderType || "").trim();
+      const endpoint = safeText($("endpointInput").value).trim();
+
+      const useReuse = !isEmpty(reuseFrom);
+      const useDraft = state.isNewKeyDraft && !isEmpty(apiKey) && !useReuse;
+
+      let res;
+      if (useDraft) {
+        if (isEmpty(providerType)) throw new Error("Provider type is missing. Please reopen the provider from the list.");
+        res = await fetch("/api/llm/probe/test", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ providerType, endpoint, apiKey }),
+        });
+      } else {
+        const sourceName = useReuse ? reuseFrom : providerName;
+        res = await fetch("/api/llm/test/" + encodeURIComponent(sourceName));
+      }
+
       const json = await res.json().catch(() => null);
       if (!json) throw new Error("bad response");
 
@@ -634,7 +773,6 @@
     } catch (e) {
       setConnectMsg(e && e.message ? e.message : String(e), "err");
     } finally {
-      $("modelsBtn").disabled = false;
       updateSubmitEnabled();
     }
   }
@@ -644,13 +782,30 @@
     if (isEmpty(providerName)) return;
 
     const reuseFrom = safeText($("reuseKeySelect") ? $("reuseKeySelect").value : "").trim();
-    const sourceName = !isEmpty(reuseFrom) ? reuseFrom : providerName;
+    const apiKey = safeText($("apiKeyInput").value).trim();
+    const providerType = safeText(state.selectedProviderType || "").trim();
+    const endpoint = safeText($("endpointInput").value).trim();
+
+    const useReuse = !isEmpty(reuseFrom);
+    const useDraft = state.isNewKeyDraft && !isEmpty(apiKey) && !useReuse;
+    const sourceName = useReuse ? reuseFrom : providerName;
 
     $("modelsBtn").disabled = true;
     setConnectMsg("");
 
     try {
-      const res = await fetch("/api/llm/models/" + encodeURIComponent(sourceName) + "?limit=200");
+      let res;
+      if (useDraft) {
+        if (isEmpty(providerType)) throw new Error("Provider type is missing. Please reopen the provider from the list.");
+        res = await fetch("/api/llm/probe/models?limit=200", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ providerType, endpoint, apiKey }),
+        });
+      } else {
+        res = await fetch("/api/llm/models/" + encodeURIComponent(sourceName) + "?limit=200");
+      }
+
       const json = await res.json().catch(() => null);
       if (!json) throw new Error("bad response");
 
@@ -710,11 +865,14 @@
     setConnectMsg("");
 
     try {
-      const res = await fetch("/api/llm/api-key/" + encodeURIComponent(providerName), { method: "DELETE" });
-      const text = await res.text();
-      if (!res.ok) throw new Error("HTTP " + res.status + (text ? (": " + text) : ""));
+      const res = await fetch("/api/trash/api-key/" + encodeURIComponent(providerName), { method: "POST" });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json || json.ok !== true) {
+        const err = json && json.error ? safeText(json.error) : ("HTTP " + res.status);
+        throw new Error(err);
+      }
 
-      setConnectMsg("Disconnected.", "ok");
+      setConnectMsg("Moved to Trash. Delete permanently from the Trash section on the home page.", "ok");
       await refreshProviders();
       await loadProviderDetails(providerName);
     } catch (e) {
@@ -909,7 +1067,7 @@
           try { sel.innerHTML = ""; } catch {}
           const placeholder = document.createElement("option");
           placeholder.value = "";
-          placeholder.textContent = "--";
+        placeholder.textContent = "-- click Fetch models --";
           sel.appendChild(placeholder);
           if (!isEmpty(current)) {
             const curOpt = document.createElement("option");

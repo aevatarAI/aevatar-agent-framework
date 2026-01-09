@@ -3,6 +3,8 @@ export default {
     content: [
         "./index.html",
         "./src/**/*.{js,ts,jsx,tsx}",
+        // Shared UI (web host imports from ../ui/src)
+        "../ui/src/**/*.{js,ts,jsx,tsx}",
     ],
     theme: {
         extend: {

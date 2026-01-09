@@ -105,6 +105,172 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
         return node;
     }
 
+    public async Task<KnowledgeNode> UpsertNodeAsync(
+        string nodeId,
+        KnowledgeNodeType nodeType,
+        string? coreDescription = null,
+        string? detailedDescription = null,
+        string? proof = null,
+        string? resourceFolderPath = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+
+        var coreIn = (coreDescription ?? string.Empty).Trim();
+        var detailIn = (detailedDescription ?? string.Empty).Trim();
+        var proofIn = string.IsNullOrWhiteSpace(proof) ? null : proof.Trim();
+
+        var now = DateTimeOffset.UtcNow;
+        var existing = await _store.GetNodeAsync(SessionId, nodeId, cancellationToken);
+
+        // Keep DependsOn in sync with edge-truth (best-effort).
+        var deps = await _store.GetDependenciesAsync(SessionId, nodeId, cancellationToken);
+        var depsList = deps
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(x => x, StringComparer.Ordinal)
+            .ToList();
+
+        if (existing == null)
+        {
+            // Create: fall back to nodeId when core/detailed not provided.
+            var core = coreIn.Length == 0 ? nodeId : coreIn;
+            var detail = detailIn.Length == 0 ? core : detailIn;
+
+            string? resourceUri = null;
+            if (!string.IsNullOrWhiteSpace(resourceFolderPath) && Directory.Exists(resourceFolderPath))
+            {
+                resourceUri = await _fileStorage.UploadFolderAsync(SessionId, resourceFolderPath, null, cancellationToken);
+            }
+
+            var created = new KnowledgeNode
+            {
+                Id = nodeId,
+                SessionId = SessionId,
+                NodeType = nodeType,
+                CoreDescription = core,
+                DetailedDescription = detail,
+                Proof = proofIn,
+                ResourceFolderPath = resourceFolderPath,
+                ResourceUri = resourceUri,
+                Timestamp = now,
+                DependsOn = depsList
+            };
+
+            await _store.AddNodeAsync(created, cancellationToken);
+            return created;
+        }
+
+        // Update: empty inputs keep existing values.
+        // NodeType: treat Generic as "unspecified" (do not downgrade).
+        var mergedType = nodeType != KnowledgeNodeType.Generic ? nodeType : existing.NodeType;
+        var mergedCore = coreIn.Length == 0 ? existing.CoreDescription : coreIn;
+        var mergedDetail = detailIn.Length == 0 ? existing.DetailedDescription : detailIn;
+        var mergedProof = proofIn ?? existing.Proof;
+
+        // Upload folder to S3 if provided (folder will be zipped)
+        // Note: We do not store the local folder path in the graph backend; only HTTPS URL is persisted.
+        var mergedResourceUri = existing.ResourceUri;
+        if (!string.IsNullOrWhiteSpace(resourceFolderPath) && Directory.Exists(resourceFolderPath))
+        {
+            mergedResourceUri = await _fileStorage.UploadFolderAsync(SessionId, resourceFolderPath, null, cancellationToken);
+        }
+
+        var updated = new KnowledgeNode
+        {
+            Id = existing.Id,
+            SessionId = existing.SessionId,
+            NodeType = mergedType,
+            CoreDescription = mergedCore,
+            DetailedDescription = mergedDetail,
+            Proof = mergedProof,
+            ResourceFolderPath = resourceFolderPath,
+            ResourceUri = mergedResourceUri,
+            Timestamp = now,
+            DependsOn = depsList
+        };
+
+        await _store.AddNodeAsync(updated, cancellationToken);
+        return updated;
+    }
+
+    public async Task AddDependenciesAsync(
+        string nodeId,
+        IEnumerable<string>? dependsOn = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+
+        var deps = (dependsOn ?? Array.Empty<string>())
+            .Select(x => (x ?? string.Empty).Trim())
+            .Where(x => x.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        if (deps.Count == 0)
+        {
+            return;
+        }
+
+        var node = await _store.GetNodeAsync(SessionId, nodeId, cancellationToken);
+        if (node == null)
+        {
+            throw new NodeNotFoundException(nodeId);
+        }
+
+        var existingDeps = await _store.GetDependenciesAsync(SessionId, nodeId, cancellationToken);
+        var existingSet = new HashSet<string>(
+            existingDeps.Select(x => (x ?? string.Empty).Trim()).Where(x => x.Length > 0),
+            StringComparer.Ordinal);
+
+        // Validate deps exist + no-cycle, then add missing edges.
+        foreach (var depId in deps)
+        {
+            if (existingSet.Contains(depId))
+            {
+                continue;
+            }
+
+            if (!await _dagValidator.NodeExistsAsync(SessionId, depId, cancellationToken))
+            {
+                throw new NodeNotFoundException(depId);
+            }
+
+            var ok = await _dagValidator.ValidateNoCycleAsync(SessionId, nodeId, [depId], cancellationToken);
+            if (!ok)
+            {
+                throw new CycleDetectedException(nodeId, depId);
+            }
+
+            await _store.AddEdgeAsync(new KnowledgeEdge
+            {
+                FromId = nodeId,
+                ToId = depId,
+                CreatedAt = DateTimeOffset.UtcNow
+            }, SessionId, cancellationToken);
+
+            existingSet.Add(depId);
+        }
+
+        // Update node.dependsOn property for snapshot friendliness (edge-truth is authoritative).
+        var mergedDeps = existingSet.OrderBy(x => x, StringComparer.Ordinal).ToList();
+        var updated = new KnowledgeNode
+        {
+            Id = node.Id,
+            SessionId = node.SessionId,
+            NodeType = node.NodeType,
+            CoreDescription = node.CoreDescription,
+            DetailedDescription = node.DetailedDescription,
+            Proof = node.Proof,
+            ResourceFolderPath = node.ResourceFolderPath,
+            ResourceUri = node.ResourceUri,
+            Timestamp = DateTimeOffset.UtcNow,
+            DependsOn = mergedDeps
+        };
+        await _store.AddNodeAsync(updated, cancellationToken);
+    }
+
     public async Task<KnowledgeSnapshot> GetKnowledgeSnapshotAsync(CancellationToken cancellationToken = default)
     {
         var nodes = await _store.GetAllNodesAsync(SessionId, cancellationToken);

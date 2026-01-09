@@ -1,6 +1,8 @@
 using System.Text;
 using System.Text.Json;
 using Aevatar.Agents.AGUI;
+using Aevatar.Agents.Knowledge.Graph;
+using Aevatar.Agents.Knowledge.Graph.Exceptions;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Options;
 using ScientificResearchAssistant.Api.Facts;
@@ -497,6 +499,87 @@ internal static class ResearchSessionsApi
 
             var list = await dag.ListStagedAsync(session.Id, ct);
             return Results.Json(new { ok = true, sessionId = session.Id, staged = list });
+        });
+
+        // ============================================================
+        //  Knowledge Graph API (session-scoped, KnowledgeGraph-backed)
+        //
+        //  中文说明：
+        //  - /dag 保持兼容（前端 DAG/Explain 逻辑不动）
+        //  - /graph 提供更强的知识链与论文生成能力
+        // ============================================================
+
+        app.MapGet("/api/sessions/{sessionId}/graph", async (
+            string sessionId,
+            ResearchSessionManager sessions,
+            DagStore dag,
+            IKnowledgeGraphClientFactory graph,
+            CancellationToken ct) =>
+        {
+            if (!sessions.TryGet(sessionId, out var session))
+                return Results.NotFound(new { error = "session not found" });
+
+            // Ensure hydration for in-memory backend (best-effort).
+            _ = await dag.LoadSnapshotAsync(session.Id, ct);
+
+            var client = graph.CreateClient(session.Id);
+            var snapshot = await client.GetKnowledgeSnapshotAsync(ct);
+            return Results.Json(new { ok = true, sessionId = session.Id, graph = snapshot });
+        });
+
+        app.MapGet("/api/sessions/{sessionId}/graph/{nodeId}/chain", async (
+            string sessionId,
+            string nodeId,
+            ResearchSessionManager sessions,
+            DagStore dag,
+            IKnowledgeGraphClientFactory graph,
+            CancellationToken ct) =>
+        {
+            if (!sessions.TryGet(sessionId, out var session))
+                return Results.NotFound(new { error = "session not found" });
+
+            nodeId = (nodeId ?? string.Empty).Trim();
+            if (nodeId.Length == 0)
+                return Results.BadRequest(new { error = "nodeId is required" });
+
+            // Ensure hydration for in-memory backend (best-effort).
+            _ = await dag.LoadSnapshotAsync(session.Id, ct);
+
+            var client = graph.CreateClient(session.Id);
+            try
+            {
+                var details = await client.GetKnowledgeChainDetailsAsync(nodeId, ct);
+                return Results.Json(new
+                {
+                    ok = true,
+                    sessionId = session.Id,
+                    nodeId,
+                    chain = details.Chain,
+                    markdown = details.Description
+                });
+            }
+            catch (NodeNotFoundException ex)
+            {
+                return Results.NotFound(new { error = "node not found", nodeId = ex.NodeId });
+            }
+        });
+
+        app.MapGet("/api/sessions/{sessionId}/graph/paper", async (
+            string sessionId,
+            ResearchSessionManager sessions,
+            DagStore dag,
+            IKnowledgeGraphClientFactory graph,
+            CancellationToken ct) =>
+        {
+            if (!sessions.TryGet(sessionId, out var session))
+                return Results.NotFound(new { error = "session not found" });
+
+            // Ensure hydration for in-memory backend (best-effort).
+            _ = await dag.LoadSnapshotAsync(session.Id, ct);
+
+            var client = graph.CreateClient(session.Id);
+            var markdown = await client.GenerateFullPaperAsync(ct);
+            return Results.Json(new { ok = true, sessionId = session.Id, markdown });
         });
     }
 

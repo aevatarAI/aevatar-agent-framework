@@ -41,6 +41,38 @@ public interface IKnowledgeGraphClient
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Upserts (create or update) a knowledge node.
+    /// <para>
+    /// - If the node does not exist, it will be created (empty core/detailed will fall back to nodeId).
+    /// </para>
+    /// <para>
+    /// - If the node exists, non-empty inputs overwrite existing values; empty inputs keep existing values.
+    /// </para>
+    /// <para>
+    /// This API is designed for iterative agent workflows where nodes are refined over time.
+    /// </para>
+    /// </summary>
+    Task<KnowledgeNode> UpsertNodeAsync(
+        string nodeId,
+        KnowledgeNodeType nodeType,
+        string? coreDescription = null,
+        string? detailedDescription = null,
+        string? proof = null,
+        string? resourceFolderPath = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds dependency edges for a node (node -[DEPENDS_ON]-> dependency).
+    /// <para>This is idempotent: existing dependencies will be ignored.</para>
+    /// </summary>
+    /// <exception cref="Exceptions.NodeNotFoundException">Thrown if the node or any dependency node does not exist.</exception>
+    /// <exception cref="Exceptions.CycleDetectedException">Thrown if adding any dependency would create a cycle.</exception>
+    Task AddDependenciesAsync(
+        string nodeId,
+        IEnumerable<string>? dependsOn = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Gets a complete snapshot of the graph (all nodes with full information and edges within current session).
     /// </summary>
     Task<KnowledgeSnapshot> GetKnowledgeSnapshotAsync(CancellationToken cancellationToken = default);

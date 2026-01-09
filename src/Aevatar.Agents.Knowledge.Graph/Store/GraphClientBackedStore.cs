@@ -81,8 +81,12 @@ internal sealed class GraphClientBackedStore : IKnowledgeGraphStore
 
     public async Task<IReadOnlyList<KnowledgeNode>> GetAllNodesAsync(string sessionId, CancellationToken cancellationToken)
     {
-        // Query all node types and filter by session
-        var allNodes = new List<KnowledgeNode>();
+        // Query all node types and filter by session.
+        //
+        // Notes:
+        // - Neo4j writes use MERGE + SET n:`label`, which may accumulate multiple labels on a node over time.
+        // - We dedupe by business node id to avoid returning duplicates across labels.
+        var byId = new Dictionary<string, KnowledgeNode>(StringComparer.Ordinal);
 
         foreach (var nodeType in Enum.GetValues<KnowledgeNodeType>())
         {
@@ -94,12 +98,13 @@ internal sealed class GraphClientBackedStore : IKnowledgeGraphStore
                 if (node.Properties.TryGetValue(PropSessionId, out var sessionVal) &&
                     sessionVal is StringValue sv && sv.Data == sessionId)
                 {
-                    allNodes.Add(ToKnowledgeNode(node));
+                    var kn = ToKnowledgeNode(node);
+                    byId[kn.Id] = kn;
                 }
             }
         }
 
-        return allNodes;
+        return byId.Values.ToList();
     }
 
     public async Task<bool> RemoveNodeAsync(string sessionId, string nodeId, CancellationToken cancellationToken)
@@ -127,8 +132,14 @@ internal sealed class GraphClientBackedStore : IKnowledgeGraphStore
         var fromCompositeId = CompositeId(sessionId, edge.FromId);
         var toCompositeId = CompositeId(sessionId, edge.ToId);
 
+        // Deterministic relationship id:
+        // - Avoid duplicates when the same dependency edge is added multiple times.
+        // - Works with both InMemory (UpsertEdge) and Neo4j (MERGE ... { id: $id }).
+        var edgeId = $"{sessionId}:{edge.FromId}->{edge.ToId}:{EdgeType}";
+
         var properties = new Dictionary<string, Value>
         {
+            ["id"] = new StringValue(edgeId),
             [PropSessionId] = new StringValue(sessionId),
             [PropCreatedAt] = new StringValue(edge.CreatedAt.ToString("O")),
             // Store business node IDs directly in edge properties for reliable retrieval
@@ -147,7 +158,7 @@ internal sealed class GraphClientBackedStore : IKnowledgeGraphStore
     {
         var edges = await _graphClient.QueryAsync(new EdgeQuery { Type = EdgeType });
 
-        return edges
+        var list = edges
             .Where(e => e.Properties.TryGetValue(PropSessionId, out var sv) &&
                         sv is StringValue sessionVal && sessionVal.Data == sessionId)
             .Select(e =>
@@ -190,6 +201,19 @@ internal sealed class GraphClientBackedStore : IKnowledgeGraphStore
                 };
             })
             .ToList();
+
+        // Dedupe by (fromId, toId) pair - callers treat these as semantic unique edges.
+        var byPair = new Dictionary<string, KnowledgeEdge>(StringComparer.Ordinal);
+        foreach (var e in list)
+        {
+            var key = $"{e.FromId}->{e.ToId}";
+            if (!byPair.TryGetValue(key, out var existing) || e.CreatedAt < existing.CreatedAt)
+            {
+                byPair[key] = e;
+            }
+        }
+
+        return byPair.Values.ToList();
     }
 
     public async Task<IReadOnlyList<string>> GetDependenciesAsync(string sessionId, string nodeId, CancellationToken cancellationToken)

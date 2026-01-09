@@ -390,8 +390,8 @@ steps:
 
           1) Rotation (Θ scan / access order):
              - scan.target_phase01 is a deterministic exploration target (golden irrational rotation).
-             - Prefer a hypothesis that is NOT a near-duplicate of seen_hypotheses.
-             - Prefer a small generator move: change 0–1 dependency vs the last candidate (if any), instead of random jumps.
+             
+             
 
           2) Factorization (generators):
              - You MUST output:
@@ -410,7 +410,6 @@ steps:
           Selection requirements:
           - Return ONLY JSON (no markdown).
           - You MUST select ONE hypothesis from state.existing_hypothesis (parse it if it's a multi-line string or JSON array).
-          - The selected hypothesis MUST be NEW (not identical to any seen hypothesis).
           - If the selected hypothesis lacks depends_on or factor_sequence, infer them from the statement and available axioms/theorems.
           - If existing_hypothesis is empty or all hypotheses are already seen, return an error message in the statement field.
 
@@ -615,7 +614,7 @@ steps:
               CRITICAL: You MUST select 3-5 alternative hypotheses (B candidates) from state.existing_hypothesis. Do NOT generate new hypotheses.
 
               Selection rules:
-              - Select hypotheses from state.existing_hypothesis that are NOT in seen_hypotheses.
+              - Select hypotheses from state.existing_hypothesis.
               - Each selected B should address the refutation issue (if possible):
                 (a) add exactly ONE missing dependency ID, OR
                 (b) weaken/restrict the statement to remove the contradiction.
@@ -1157,7 +1156,7 @@ steps:
                       CRITICAL: You MUST select 3-5 alternative hypotheses (B candidates) from state.existing_hypothesis. Do NOT generate new hypotheses.
 
                       Selection rules:
-                      - Select hypotheses from state.existing_hypothesis that are NOT in seen_hypotheses.
+                      - Select hypotheses from state.existing_hypothesis。
                       - Each selected B should directly address the minimal gap δ described in the judgement (if possible).
                       - Each B MUST include depends_on + factor_sequence (ordered generators).
                       - If a selected hypothesis lacks depends_on or factor_sequence, infer them from the statement and available axioms/theorems.
@@ -1328,7 +1327,7 @@ steps:
                   CRITICAL: You MUST select 3-5 alternative hypotheses (B candidates) from state.existing_hypothesis. Do NOT generate new hypotheses.
 
                   Selection rules:
-                  - Select hypotheses from state.existing_hypothesis that are NOT in seen_hypotheses.
+                  - Select hypotheses from state.existing_hypothesis.
                   - Each selected B should reduce the observed gap δ / refutation cause shown below (if possible).
                   - Each B MUST include depends_on + factor_sequence (ordered generators).
                   - If a selected hypothesis lacks depends_on or factor_sequence, infer them from the statement and available axioms/theorems.

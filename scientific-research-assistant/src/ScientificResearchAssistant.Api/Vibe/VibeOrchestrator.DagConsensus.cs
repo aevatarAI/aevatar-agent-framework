@@ -88,6 +88,11 @@ internal sealed partial class VibeOrchestrator
                 {
                     sessionId = session.Id,
                     runId,
+                    roundIndex = await PredictNextRoundIndexAsync(session.Id, ct),
+                    updatedAt = DateTime.UtcNow.ToString("O"),
+                    workflow = cr.Workflow,
+                    agents = outputs.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase).ToList(),
+                    dagChangesCount = candidate.UpsertNodes.Count,
                     stagedPath,
                     redFlags = cr.RedFlags,
                     artifactPath = cr.ArtifactPath ?? ""
@@ -122,6 +127,19 @@ internal sealed partial class VibeOrchestrator
         emit($"**Accepted** ({cr.Workflow}, mutationId: `{cr.Mutation.MutationId}`)\n\n");
 
         return new DagRoundResult(true, false, candidate, cr.Mutation, null, [], cr.ArtifactPath);
+    }
+
+    private async Task<int> PredictNextRoundIndexAsync(string sessionId, CancellationToken ct)
+    {
+        try
+        {
+            var prev = await _trace.LoadLatestAsync(sessionId, max: 1, ct);
+            return prev.Count == 0 ? 0 : prev[^1].RoundIndex + 1;
+        }
+        catch
+        {
+            return 0;
+        }
     }
 
 }

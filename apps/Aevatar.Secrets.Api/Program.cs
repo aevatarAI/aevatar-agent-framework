@@ -295,6 +295,7 @@ sealed record ProviderProfile(
     string Description,
     LlmProviderKind Kind,
     string DefaultEndpoint,
+    string DefaultModel,
     bool Recommended = false);
 
 sealed record ResolvedProviderPublic(
@@ -303,7 +304,9 @@ sealed record ResolvedProviderPublic(
     string Kind,
     bool ApiKeyConfigured,
     string Endpoint,
-    string EndpointSource);
+    string EndpointSource,
+    string Model,
+    string ModelSource);
 
 sealed record ResolvedProvider(
     string ProviderName,
@@ -311,6 +314,8 @@ sealed record ResolvedProvider(
     LlmProviderKind Kind,
     string Endpoint,
     string EndpointSource,
+    string Model,
+    string ModelSource,
     bool ApiKeyConfigured,
     string ApiKey,
     ResolvedProviderPublic Public);
@@ -327,6 +332,7 @@ static class LlmProviderResolver
 
         var apiKeyPath = $"LLMProviders:Providers:{name}:ApiKey";
         var endpointPath = $"LLMProviders:Providers:{name}:Endpoint";
+        var modelPath = $"LLMProviders:Providers:{name}:Model";
 
         var apiKeyConfigured = secrets.TryGet(apiKeyPath, out var apiKey) && !string.IsNullOrWhiteSpace(apiKey);
         apiKey = apiKeyConfigured ? apiKey : string.Empty;
@@ -344,13 +350,28 @@ static class LlmProviderResolver
             endpoint = profile.DefaultEndpoint.Trim();
         }
 
+        var modelSource = "missing";
+        var model = string.Empty;
+        if (secrets.TryGet(modelPath, out var modelFromSecrets) && !string.IsNullOrWhiteSpace(modelFromSecrets))
+        {
+            modelSource = "secret";
+            model = modelFromSecrets.Trim();
+        }
+        else if (!string.IsNullOrWhiteSpace(profile.DefaultModel))
+        {
+            modelSource = "default";
+            model = profile.DefaultModel.Trim();
+        }
+
         var pub = new ResolvedProviderPublic(
             ProviderName: name,
             DisplayName: profile.DisplayName,
             Kind: profile.Kind.ToString(),
             ApiKeyConfigured: apiKeyConfigured,
             Endpoint: endpoint,
-            EndpointSource: endpointSource);
+            EndpointSource: endpointSource,
+            Model: model,
+            ModelSource: modelSource);
 
         return new ResolvedProvider(
             ProviderName: name,
@@ -358,6 +379,8 @@ static class LlmProviderResolver
             Kind: profile.Kind,
             Endpoint: endpoint,
             EndpointSource: endpointSource,
+            Model: model,
+            ModelSource: modelSource,
             ApiKeyConfigured: apiKeyConfigured,
             ApiKey: apiKey,
             Public: pub);
@@ -369,20 +392,20 @@ static class ProviderProfiles
     private static readonly IReadOnlyList<ProviderProfile> Profiles = new[]
     {
         // Popular
-        new ProviderProfile("openai", "OpenAI", "popular", "Connect with API key", LlmProviderKind.OpenAiCompatible, "https://api.openai.com", Recommended: true),
-        new ProviderProfile("anthropic", "Anthropic", "popular", "Connect with Claude API key", LlmProviderKind.Anthropic, "https://api.anthropic.com"),
-        new ProviderProfile("google", "Google", "popular", "Connect with Gemini API key", LlmProviderKind.Google, "https://generativelanguage.googleapis.com"),
-        new ProviderProfile("openrouter", "OpenRouter", "popular", "Bring your own key (OpenAI compatible)", LlmProviderKind.OpenAiCompatible, "https://openrouter.ai/api/v1"),
+        new ProviderProfile("openai", "OpenAI", "popular", "Connect with API key", LlmProviderKind.OpenAiCompatible, "https://api.openai.com", "gpt-4o-mini", Recommended: true),
+        new ProviderProfile("anthropic", "Anthropic", "popular", "Connect with Claude API key", LlmProviderKind.Anthropic, "https://api.anthropic.com", "claude-3-5-sonnet-latest"),
+        new ProviderProfile("google", "Google", "popular", "Connect with Gemini API key", LlmProviderKind.Google, "https://generativelanguage.googleapis.com", "models/gemini-1.5-flash"),
+        new ProviderProfile("openrouter", "OpenRouter", "popular", "Bring your own key (OpenAI compatible)", LlmProviderKind.OpenAiCompatible, "https://openrouter.ai/api/v1", "openai/gpt-4o-mini"),
 
         // Other (common in Aevatar demos)
-        new ProviderProfile("deepseek", "DeepSeek", "other", "OpenAI-compatible API key", LlmProviderKind.OpenAiCompatible, "https://api.deepseek.com"),
-        new ProviderProfile("dashscope", "DashScope", "other", "Alibaba Qwen API key", LlmProviderKind.OpenAiCompatible, "https://dashscope.aliyuncs.com/compatible-mode"),
-        new ProviderProfile("groq", "Groq", "other", "OpenAI-compatible API key", LlmProviderKind.OpenAiCompatible, "https://api.groq.com/openai"),
-        new ProviderProfile("mistral", "Mistral", "other", "API key", LlmProviderKind.OpenAiCompatible, "https://api.mistral.ai"),
-        new ProviderProfile("together", "Together", "other", "API key", LlmProviderKind.OpenAiCompatible, "https://api.together.xyz"),
+        new ProviderProfile("deepseek", "DeepSeek", "other", "OpenAI-compatible API key", LlmProviderKind.OpenAiCompatible, "https://api.deepseek.com", "deepseek-chat"),
+        new ProviderProfile("dashscope", "DashScope", "other", "Alibaba Qwen API key", LlmProviderKind.OpenAiCompatible, "https://dashscope.aliyuncs.com/compatible-mode", "qwen-plus"),
+        new ProviderProfile("groq", "Groq", "other", "OpenAI-compatible API key", LlmProviderKind.OpenAiCompatible, "https://api.groq.com/openai", "llama-3.1-8b-instant"),
+        new ProviderProfile("mistral", "Mistral", "other", "API key", LlmProviderKind.OpenAiCompatible, "https://api.mistral.ai", "mistral-small-latest"),
+        new ProviderProfile("together", "Together", "other", "API key", LlmProviderKind.OpenAiCompatible, "https://api.together.xyz", "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"),
 
         // Azure OpenAI is supported by Aevatar runtime but probing it is not stable without api-version/deployment info.
-        new ProviderProfile("azureopenai", "Azure OpenAI", "other", "Azure key (requires endpoint in appsettings)", LlmProviderKind.OpenAiCompatible, "", Recommended: false),
+        new ProviderProfile("azureopenai", "Azure OpenAI", "other", "Azure key (requires endpoint in appsettings)", LlmProviderKind.OpenAiCompatible, "", "", Recommended: false),
     };
 
     public static ProviderProfile Get(string providerName)
@@ -396,7 +419,7 @@ static class ProviderProfiles
         }
 
         // Unknown provider name: treat as OpenAI-compatible with no default endpoint.
-        return new ProviderProfile(name, name, "configured", "Configured via user secrets", LlmProviderKind.OpenAiCompatible, "");
+        return new ProviderProfile(name, name, "configured", "Configured via user secrets", LlmProviderKind.OpenAiCompatible, "", "");
     }
 }
 
@@ -1066,6 +1089,11 @@ static class HtmlAssets
           <input id="endpointInput" type="text" placeholder="e.g. https://api.openai.com" />
           <div class="hint" id="endpointMeta" style="margin-top: 6px;"></div>
 
+          <label>Model</label>
+          <input id="modelInput" type="text" placeholder="e.g. gpt-4o-mini" list="modelsDatalist" />
+          <datalist id="modelsDatalist"></datalist>
+          <div class="hint" id="modelMeta" style="margin-top: 6px;"></div>
+
           <label>API key</label>
           <div class="row">
             <div class="grow">
@@ -1144,6 +1172,8 @@ static class HtmlAssets
       advShown: false,
       endpointOriginal: "",
       endpointSource: "",
+      modelOriginal: "",
+      modelSource: "",
     };
     const categoryOrder = { configured: 0, popular: 1, other: 2 };
     const safeText = (s) => String(s || "");
@@ -1273,6 +1303,11 @@ static class HtmlAssets
       $("providerNameInput").value = safeText(p.id || id);
       $("endpointInput").value = "";
       $("endpointMeta").textContent = "";
+      $("modelInput").value = "";
+      $("modelMeta").textContent = "";
+      $("modelsDatalist").innerHTML = "";
+      state.modelOriginal = "";
+      state.modelSource = "";
       $("apiKeyInput").value = "";
       $("apiKeyInput").type = "password";
       $("toggleKeyBtn").textContent = "Show";
@@ -1318,10 +1353,13 @@ static class HtmlAssets
     function updateSubmitEnabled() {
       const pn = safeText($("providerNameInput").value).trim();
       const key = safeText($("apiKeyInput").value).trim();
+      const model = safeText($("modelInput").value).trim();
+
       // Safety:
-      // - Never allow saving when the input is just a masked/stored display.
-      // - Only enable Save when user is actively drafting a new key.
-      $("submitBtn").disabled = isEmpty(pn) || isEmpty(key) || state.isNewKeyDraft !== true;
+      // - Never write API key unless user is actively drafting a new key (state.isNewKeyDraft).
+      // - But allow saving Endpoint/Model settings even without changing API key.
+      const keyOk = state.isNewKeyDraft ? !isEmpty(key) : true;
+      $("submitBtn").disabled = isEmpty(pn) || isEmpty(model) || !keyOk;
     }
 
     function setModelsBox(text) {
@@ -1354,6 +1392,15 @@ static class HtmlAssets
 
         state.endpointOriginal = ep;
         state.endpointSource = safeText(p.endpointSource || "");
+
+        const model = safeText(p.model || "");
+        $("modelInput").value = model;
+        $("modelMeta").textContent = model
+          ? `Model (${safeText(p.modelSource || "unknown")}): ${model}`
+          : `Model (${safeText(p.modelSource || "unknown")}): (empty)`;
+
+        state.modelOriginal = model;
+        state.modelSource = safeText(p.modelSource || "");
 
         const configured = Boolean(p.apiKeyConfigured);
         $("disconnectBtn").disabled = !configured;
@@ -1410,10 +1457,6 @@ static class HtmlAssets
       const endpoint = safeText($("endpointInput").value).trim();
       const key = `LLMProviders:Providers:${name}:Endpoint`;
 
-      // If unchanged and was not a secret override, avoid writing noisy defaults into secrets.
-      const unchanged = endpoint === state.endpointOriginal;
-      if (unchanged && state.endpointSource !== "secret") return;
-
       if (isEmpty(endpoint)) {
         await fetch("/api/secrets/remove", {
           method: "POST",
@@ -1430,6 +1473,29 @@ static class HtmlAssets
       });
     }
 
+    async function saveModelOverride(providerName) {
+      const name = safeText(providerName).trim();
+      if (isEmpty(name)) return;
+
+      const model = safeText($("modelInput").value).trim();
+      const key = `LLMProviders:Providers:${name}:Model`;
+
+      if (isEmpty(model)) {
+        await fetch("/api/secrets/remove", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ key }),
+        });
+        return;
+      }
+
+      await fetch("/api/secrets/set", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ key, value: model }),
+      });
+    }
+
     function updateAdvancedButtons() {
       const k = safeText($("advKeyInput").value).trim();
       const v = safeText($("advValueInput").value).trim();
@@ -1440,23 +1506,40 @@ static class HtmlAssets
     async function submitApiKey() {
       const providerName = safeText($("providerNameInput").value).trim();
       const apiKey = safeText($("apiKeyInput").value).trim();
-      if (isEmpty(providerName) || isEmpty(apiKey) || state.isNewKeyDraft !== true) return;
+      const model = safeText($("modelInput").value).trim();
+      if (isEmpty(providerName)) return;
+
+      if (isEmpty(model)) {
+        setConnectMsg("Model is required. Click Fetch models and pick one (or type it).", "err");
+        updateSubmitEnabled();
+        return;
+      }
 
       $("submitBtn").disabled = true;
       setConnectMsg("");
 
       try {
         await saveEndpointOverride(providerName);
+        await saveModelOverride(providerName);
 
-        const res = await fetch("/api/llm/api-key", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ providerName, apiKey }),
-        });
-        const text = await res.text();
-        if (!res.ok) throw new Error("HTTP " + res.status + (text ? (": " + text) : ""));
-        setConnectMsg("Saved. Provider is now connected. Click Test to verify.", "ok");
-        $("apiKeyInput").value = "";
+        if (state.isNewKeyDraft === true) {
+          if (isEmpty(apiKey)) throw new Error("API key is required when saving a new key.");
+
+          const res = await fetch("/api/llm/api-key", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ providerName, apiKey }),
+          });
+          const text = await res.text();
+          if (!res.ok) throw new Error("HTTP " + res.status + (text ? (": " + text) : ""));
+
+          setConnectMsg("Saved. Provider is now connected. Click Test to verify.", "ok");
+          $("apiKeyInput").value = "";
+          state.isNewKeyDraft = false;
+        } else {
+          setConnectMsg("Saved settings. Click Test to verify.", "ok");
+        }
+
         await refreshProviders();
         await loadProviderDetails(providerName);
       } catch (e) {
@@ -1494,7 +1577,9 @@ static class HtmlAssets
       } catch (e) {
         setConnectMsg(e && e.message ? e.message : String(e), "err");
       } finally {
-        await loadProviderDetails(providerName);
+        // Keep user draft inputs (model/endpoint) intact; do not re-load provider details here.
+        $("modelsBtn").disabled = false;
+        updateSubmitEnabled();
       }
     }
 
@@ -1515,6 +1600,25 @@ static class HtmlAssets
           const arr = Array.isArray(json.models) ? json.models : [];
           setConnectMsg(`Fetched models: ${arr.length}`, "ok");
           setModelsBox(arr.join("\n"));
+
+          // Populate datalist so user can pick a model easily.
+          const dl = $("modelsDatalist");
+          try { dl.innerHTML = ""; } catch {}
+          for (const m of arr) {
+            const v = safeText(m).trim();
+            if (!v) continue;
+            const opt = document.createElement("option");
+            opt.value = v;
+            dl.appendChild(opt);
+          }
+
+          // If model is empty, prefill with the first model (user can override).
+          if (isEmpty(safeText($("modelInput").value).trim()) && arr.length > 0) {
+            $("modelInput").value = safeText(arr[0]).trim();
+            $("modelMeta").textContent = `Model (suggested): ${safeText($("modelInput").value).trim()}`;
+          }
+
+          updateSubmitEnabled();
         } else {
           setConnectMsg(`Fetch models failed: ${safeText(json.error || "unknown error")}`, "err");
         }
@@ -1665,6 +1769,8 @@ static class HtmlAssets
       };
 
       $("providerNameInput").addEventListener("input", debounce(updateSubmitEnabled, 60));
+      $("endpointInput").addEventListener("input", debounce(updateSubmitEnabled, 60));
+      $("modelInput").addEventListener("input", debounce(updateSubmitEnabled, 60));
       $("apiKeyInput").addEventListener("focus", () => {
         // Convenience: when displaying stored key, select all so paste replaces it cleanly.
         if (!state.isNewKeyDraft && state.hasExistingKey) {

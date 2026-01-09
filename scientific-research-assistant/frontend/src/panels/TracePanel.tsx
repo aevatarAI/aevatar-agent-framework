@@ -10,6 +10,9 @@ type TraceItem = {
   dagChangesCount?: number;
   kind?: string;
   redFlags?: string[];
+  stagedPath?: string;
+  artifactPath?: string;
+  workflow?: string;
 };
 
 type TraceSnapshot = {
@@ -20,6 +23,7 @@ type TraceSnapshot = {
 export default function TracePanel(props: { snapshot: TraceSnapshot | null }) {
   const { snapshot } = props;
   const items = useMemo(() => (Array.isArray(snapshot?.items) ? snapshot!.items! : []), [snapshot]);
+  const sessionId = (snapshot?.sessionId ?? "").trim();
 
   const ordered = useMemo(() => {
     // Already appended in order; keep as-is but bound.
@@ -53,8 +57,45 @@ export default function TracePanel(props: { snapshot: TraceSnapshot | null }) {
                 <span className="font-mono">{typeof it.dagChangesCount === "number" ? it.dagChangesCount : "-"}</span>
               </div>
 
+              {it.workflow && (
+                <div className="mt-1 text-[11px] text-slate-600 font-mono break-words">workflow: {it.workflow}</div>
+              )}
+
+              {it.stagedPath && (
+                <div className="mt-1 text-[11px] text-slate-600 font-mono break-all">
+                  staged:{" "}
+                  <a
+                    className="underline hover:text-indigo-700"
+                    href={`/?view=files&session=${encodeURIComponent(sessionId)}&path=${encodeURIComponent(it.stagedPath)}`}
+                    title="Open staged candidate in Files"
+                  >
+                    {it.stagedPath}
+                  </a>
+                </div>
+              )}
+
+              {it.artifactPath && (
+                <div className="mt-1 text-[11px] text-slate-600 font-mono break-all">
+                  artifact:{" "}
+                  <a
+                    className="underline hover:text-indigo-700"
+                    href={`/?view=files&session=${encodeURIComponent(sessionId)}&path=${encodeURIComponent(it.artifactPath)}`}
+                    title="Open consensus artifact in Files"
+                  >
+                    {it.artifactPath}
+                  </a>
+                </div>
+              )}
+
               {it.redFlags && it.redFlags.length > 0 && (
-                <div className="mt-1 text-[11px] text-rose-600 break-words">redFlags: {it.redFlags.join(", ")}</div>
+                <div className="mt-2 text-[11px] text-rose-700">
+                  <div className="font-semibold">redFlags</div>
+                  <ul className="mt-1 list-disc pl-4 space-y-1">
+                    {it.redFlags.map((rf, i) => (
+                      <li key={`${i}:${rf}`} className="break-words">{rf}</li>
+                    ))}
+                  </ul>
+                </div>
               )}
 
               {it.summaryPath && (

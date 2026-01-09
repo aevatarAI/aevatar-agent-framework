@@ -17,6 +17,8 @@ type ProviderPublic = {
   apiKeyConfigured: boolean;
   endpoint: string;
   endpointSource: string; // secret | default | missing
+  model: string;
+  modelSource: string; // secret | default | missing
 };
 
 type View = "list" | "connect" | "advanced";
@@ -42,6 +44,10 @@ export default function ApiKeyModal(props: {
   const [endpointOriginal, setEndpointOriginal] = useState("");
   const [endpointSource, setEndpointSource] = useState("");
 
+  const [model, setModel] = useState("");
+  const [modelOriginal, setModelOriginal] = useState("");
+  const [modelSource, setModelSource] = useState("");
+
   const [apiKey, setApiKey] = useState("");
   const [keyShown, setKeyShown] = useState(false);
   const [isNewKeyDraft, setIsNewKeyDraft] = useState(false);
@@ -50,6 +56,7 @@ export default function ApiKeyModal(props: {
 
   const [msg, setMsg] = useState<{ kind: "ok" | "err" | "info"; text: string } | null>(null);
   const [modelsBox, setModelsBox] = useState<string>("");
+  const [models, setModels] = useState<string[]>([]);
 
   // advanced state
   const [advKey, setAdvKey] = useState("");
@@ -69,6 +76,9 @@ export default function ApiKeyModal(props: {
     setEndpoint("");
     setEndpointOriginal("");
     setEndpointSource("");
+    setModel("");
+    setModelOriginal("");
+    setModelSource("");
     setApiKey("");
     setKeyShown(false);
     setIsNewKeyDraft(false);
@@ -77,6 +87,7 @@ export default function ApiKeyModal(props: {
     setAdvKey("");
     setAdvValue("");
     setAdvShown(false);
+    setModels([]);
     void refreshProviders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -115,8 +126,32 @@ export default function ApiKeyModal(props: {
   }, [providers, search]);
 
   const canSave = useMemo(() => {
-    return !busy && providerName.trim().length > 0 && apiKey.trim().length > 0 && isNewKeyDraft === true;
-  }, [busy, providerName, apiKey, isNewKeyDraft]);
+    if (busy) return false;
+    if (providerName.trim().length === 0) return false;
+    if (model.trim().length === 0) return false;
+
+    // Never write API key unless user is drafting a new key.
+    if (isNewKeyDraft && apiKey.trim().length === 0) return false;
+
+    const endpointChanged = endpoint.trim() !== endpointOriginal.trim();
+    const modelChanged = model.trim() !== modelOriginal.trim();
+    // "default" values are only UI suggestions unless persisted into secrets.
+    const needsPersistEndpoint = endpoint.trim().length > 0 && endpointSource !== "secret";
+    const needsPersistModel = model.trim().length > 0 && modelSource !== "secret";
+    const hasChanges = isNewKeyDraft || endpointChanged || modelChanged || needsPersistEndpoint || needsPersistModel;
+    return hasChanges;
+  }, [
+    busy,
+    providerName,
+    isNewKeyDraft,
+    apiKey,
+    endpoint,
+    endpointOriginal,
+    endpointSource,
+    model,
+    modelOriginal,
+    modelSource,
+  ]);
 
   const canTest = useMemo(() => {
     return !busy && providerName.trim().length > 0 && hasExistingKey === true;
@@ -139,6 +174,7 @@ export default function ApiKeyModal(props: {
     setView("connect");
     setMsg(null);
     setModelsBox("");
+    setModels([]);
 
     const id = String(p?.id ?? "").trim();
     setProviderName(id);
@@ -147,6 +183,9 @@ export default function ApiKeyModal(props: {
     setEndpoint("");
     setEndpointOriginal("");
     setEndpointSource("");
+    setModel("");
+    setModelOriginal("");
+    setModelSource("");
 
     setApiKey("");
     setKeyShown(false);
@@ -171,6 +210,9 @@ export default function ApiKeyModal(props: {
       setEndpoint(String(p.endpoint || ""));
       setEndpointOriginal(String(p.endpoint || ""));
       setEndpointSource(String(p.endpointSource || ""));
+      setModel(String(p.model || ""));
+      setModelOriginal(String(p.model || ""));
+      setModelSource(String(p.modelSource || ""));
 
       setHasExistingKey(Boolean(p.apiKeyConfigured));
       await loadApiKeyMask(name);
@@ -256,9 +298,6 @@ export default function ApiKeyModal(props: {
     const key = `LLMProviders:Providers:${pn}:Endpoint`;
     const ep = endpoint.trim();
 
-    const unchanged = ep === endpointOriginal;
-    if (unchanged && endpointSource !== "secret") return;
-
     if (!ep) {
       await fetch("/api/secrets/remove", {
         method: "POST",
@@ -275,31 +314,68 @@ export default function ApiKeyModal(props: {
     });
   }
 
+  async function saveModelOverride(name: string) {
+    const pn = String(name ?? "").trim();
+    if (!pn) return;
+
+    const key = `LLMProviders:Providers:${pn}:Model`;
+    const m = model.trim();
+
+    if (!m) {
+      await fetch("/api/secrets/remove", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ key }),
+      });
+      return;
+    }
+
+    await fetch("/api/secrets/set", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ key, value: m }),
+    });
+  }
+
   async function submit() {
     const name = providerName.trim();
     const key = apiKey.trim();
-    if (!name || !key || isNewKeyDraft !== true) return;
+    const m = model.trim();
+    if (!name) return;
+
+    if (!m) {
+      setMsg({ kind: "err", text: "Model is required. Click Fetch models and pick one (or type it)." });
+      return;
+    }
 
     setBusy(true);
     setMsg(null);
     setModelsBox("");
     try {
       await saveEndpointOverride(name);
+      await saveModelOverride(name);
 
-      const res = await fetch("/api/llm/api-key", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ providerName: name, apiKey: key }),
-      });
-      const text = await res.text().catch(() => "");
-      if (!res.ok) throw new Error(`HTTP ${res.status}${text ? `: ${text}` : ""}`);
+      if (isNewKeyDraft === true) {
+        if (!key) throw new Error("API key is required when saving a new key.");
+
+        const res = await fetch("/api/llm/api-key", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ providerName: name, apiKey: key }),
+        });
+        const text = await res.text().catch(() => "");
+        if (!res.ok) throw new Error(`HTTP ${res.status}${text ? `: ${text}` : ""}`);
+
+        setMsg({ kind: "ok", text: "Saved. Provider is now connected. Click Test to verify." });
+
+        setApiKey("");
+        setIsNewKeyDraft(false);
+        setKeyShown(false);
+      } else {
+        setMsg({ kind: "ok", text: "Saved settings. Click Test to verify." });
+      }
 
       onSaved?.();
-      setMsg({ kind: "ok", text: "Saved. Provider is now connected. Click Test to verify." });
-
-      setApiKey("");
-      setIsNewKeyDraft(false);
-      setKeyShown(false);
       await refreshProviders();
       await loadProviderDetails(name);
     } catch (e: any) {
@@ -350,8 +426,13 @@ export default function ApiKeyModal(props: {
       if (!json) throw new Error("bad response");
       if (json.ok === true) {
         const arr = Array.isArray(json.models) ? json.models.map((x: any) => String(x)).filter(Boolean) : [];
+        setModels(arr);
         setMsg({ kind: "ok", text: `Fetched models: ${arr.length}` });
         setModelsBox(arr.join("\n"));
+
+        if (model.trim().length === 0 && arr.length > 0) {
+          setModel(arr[0]);
+        }
       } else {
         setMsg({ kind: "err", text: `Fetch models failed: ${String(json.error || "unknown error")}` });
       }
@@ -359,7 +440,6 @@ export default function ApiKeyModal(props: {
       setMsg({ kind: "err", text: e?.message ?? String(e) });
     } finally {
       setBusy(false);
-      await loadProviderDetails(name);
     }
   }
 
@@ -484,7 +564,7 @@ export default function ApiKeyModal(props: {
                 placeholder="Search providers"
                 className="bg-transparent outline-none w-full text-sm text-slate-900 placeholder-slate-400"
               />
-            </div>
+          </div>
 
             {filtered.configured.length > 0 && (
               <div className="mt-5">
@@ -533,7 +613,7 @@ export default function ApiKeyModal(props: {
                         {p.recommended && (
                           <span className="text-[11px] px-2 py-0.5 rounded-full border border-indigo-200 bg-indigo-50 text-indigo-700 font-medium">
                             recommended
-                          </span>
+              </span>
                         )}
                       </div>
                       <div className="text-xs text-slate-500 truncate">{p.description || ""}</div>
@@ -604,9 +684,9 @@ export default function ApiKeyModal(props: {
           <div className="p-5 space-y-4">
             <div className="text-xs text-slate-600 leading-relaxed">
               Enter your API key to connect your account and use it in Aevatar apps.
-            </div>
+          </div>
 
-            <div className="space-y-2">
+          <div className="space-y-2">
               <div className="text-xs font-semibold text-slate-500">Provider name</div>
               <input
                 value={providerName}
@@ -629,22 +709,45 @@ export default function ApiKeyModal(props: {
               <div className="text-[11px] text-slate-500">
                 Endpoint ({endpointSource || "unknown"}): {endpoint || "(empty)"}
               </div>
-            </div>
+          </div>
 
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
+          <div className="space-y-2">
+            <div className="text-xs font-semibold text-slate-500">Model</div>
+            <input
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              list="aevatar-llm-models"
+              className="w-full text-sm bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-900"
+              placeholder="e.g. deepseek-chat"
+              disabled={busy}
+            />
+            <datalist id="aevatar-llm-models">
+              {models.map((m) => (
+                <option key={m} value={m} />
+              ))}
+            </datalist>
+            <div className="text-[11px] text-slate-500">
+              Model ({modelSource || "unknown"}): {model || "(empty)"}
+            </div>
+            <div className="text-[11px] text-slate-500">
+              Writes <span className="font-mono">LLMProviders:Providers:&lt;providerName&gt;:Model</span> into user secrets.
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
                 <div className="text-xs font-semibold text-slate-500">API key</div>
-                <button
+              <button
                   onClick={() => void toggleKey()}
-                  className="text-[11px] px-2 py-1 rounded bg-white hover:bg-slate-50 border border-slate-200 text-slate-700"
-                  type="button"
+                className="text-[11px] px-2 py-1 rounded bg-white hover:bg-slate-50 border border-slate-200 text-slate-700"
+                type="button"
                   disabled={busy}
-                >
+              >
                   {keyShown ? "Hide" : "Show"}
-                </button>
-              </div>
-              <input
-                value={apiKey}
+              </button>
+            </div>
+            <input
+              value={apiKey}
                 onChange={(e) => {
                   const v = e.target.value;
                   // If showing an existing masked key, switching to draft mode should not keep the masked string.
@@ -665,7 +768,7 @@ export default function ApiKeyModal(props: {
               <div className="text-[11px] text-slate-500">
                 Writes <span className="font-mono">LLMProviders:Providers:&lt;providerName&gt;:ApiKey</span> into user secrets.
               </div>
-            </div>
+          </div>
 
             <div className="flex flex-wrap gap-2">
               <button
@@ -675,20 +778,20 @@ export default function ApiKeyModal(props: {
               >
                 {busy ? "Saving…" : "Save"}
               </button>
-              <button
-                onClick={() => void testConnection()}
+            <button
+              onClick={() => void testConnection()}
                 className="text-xs px-3 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 disabled:opacity-50"
-                disabled={!canTest}
-              >
+              disabled={!canTest}
+            >
                 Test
-              </button>
-              <button
-                onClick={() => void fetchModels()}
+            </button>
+            <button
+              onClick={() => void fetchModels()}
                 className="text-xs px-3 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 disabled:opacity-50"
-                disabled={!canTest}
-              >
-                Fetch models
-              </button>
+              disabled={!canTest}
+            >
+              Fetch models
+            </button>
               <button
                 onClick={() => void disconnect()}
                 className="text-xs px-3 py-2 rounded-xl bg-white hover:bg-slate-50 border border-rose-200 text-rose-700 disabled:opacity-50"
@@ -696,7 +799,7 @@ export default function ApiKeyModal(props: {
               >
                 Disconnect
               </button>
-            </div>
+          </div>
 
             {msg && (
               <div className={`text-xs whitespace-pre-wrap break-words ${
@@ -709,8 +812,8 @@ export default function ApiKeyModal(props: {
             {modelsBox && (
               <pre className="text-xs text-slate-900 whitespace-pre max-h-[260px] overflow-auto bg-slate-50 border border-slate-200 rounded-xl p-3 font-mono">
                 {modelsBox}
-              </pre>
-            )}
+            </pre>
+          )}
           </div>
         )}
 
@@ -728,17 +831,17 @@ export default function ApiKeyModal(props: {
                 placeholder="e.g. LLMProviders:Providers:deepseek:ApiKey"
                 disabled={busy}
               />
-            </div>
+        </div>
 
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <div className="text-xs font-semibold text-slate-500">Value</div>
-                <button
+          <button
                   onClick={() => setAdvShown((v) => !v)}
                   className="text-[11px] px-2 py-1 rounded bg-white hover:bg-slate-50 border border-slate-200 text-slate-700"
                   type="button"
-                  disabled={busy}
-                >
+            disabled={busy}
+          >
                   {advShown ? "Hide" : "Show"}
                 </button>
               </div>
@@ -759,14 +862,14 @@ export default function ApiKeyModal(props: {
                 disabled={busy || advKey.trim().length === 0 || advValue.trim().length === 0}
               >
                 Save
-              </button>
-              <button
+          </button>
+          <button
                 onClick={() => void removeRaw()}
                 className="text-xs px-3 py-2 rounded-xl bg-white hover:bg-slate-50 border border-rose-200 text-rose-700 disabled:opacity-50"
                 disabled={busy || advKey.trim().length === 0}
               >
                 Remove
-              </button>
+          </button>
             </div>
 
             {msg && (

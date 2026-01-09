@@ -1,0 +1,321 @@
+# ============================================================
+#  RALPH LOOP (objective loop)
+#
+#  Goal:
+#  - Iterate until a DETERMINISTIC verifier passes, with strict budgets.
+#
+#  Notes:
+#  - This workflow avoids fan_out for deterministic primitives because workers only support `llm_call`.
+#  - Intended for tasks with machine-checkable success criteria (tests/build/lint/file invariants).
+# ============================================================
+
+name: ralph-loop
+version: "1.0"
+description: "Bounded objective loop: propose -> apply -> verify -> repeat until pass"
+
+inputs:
+  - name: goal
+    type: string
+    required: true
+    description: "High-level objective"
+
+  - name: success_criteria
+    type: string
+    required: true
+    description: "Machine-checkable success criteria (must be verifiable)"
+
+  - name: verifier_command
+    type: string
+    required: true
+    description: "Command to run as deterministic verifier (e.g., dotnet)"
+
+  - name: verifier_args
+    type: object
+    required: false
+    description: "Optional args array for verifier (e.g., [\"test\", \"--no-build\"])"
+
+  - name: verifier_working_dir
+    type: string
+    required: false
+    default: "."
+    description: "Working directory (must stay within workspace root)"
+
+  - name: max_iterations
+    type: int
+    default: 10
+    description: "Hard iteration cap (safety valve)"
+
+  - name: context
+    type: object
+    required: false
+    description: "Optional extra context"
+
+  - name: state
+    type: object
+    required: false
+    description: "Optional loop state (for recursion)"
+
+defaults:
+  llm_call:
+    # Guardrails (best-effort, enforced by worker)
+    max_length: 102400
+    strict_parse: true
+    timeout_seconds: 180
+    idle_timeout_seconds: 30
+
+  # Deterministic primitives (enforced by coordinator)
+  workspace_read_file:
+    max_chars: 16000
+  workspace_code_search:
+    max_results: 50
+    context_lines: 2
+  sandbox_command:
+    timeout_ms: 120000
+    max_output_chars: 60000
+
+steps:
+  # --------------------------------------------------------
+  # Step 0: init state (best-effort, only when state is missing)
+  # --------------------------------------------------------
+  - id: ensure_state
+    type: conditional
+    condition: "{{ state != null }}"
+    if_false:
+      - id: init_state
+        type: llm_call
+        prompt: |
+          You are initializing a bounded objective loop state.
+
+          CRITICAL:
+          - Return ONLY JSON (no markdown, no commentary).
+          - Keep all text fields bounded. Do NOT include full file contents.
+          - iteration MUST start at 0.
+          - status MUST be "running".
+          - done MUST be false.
+
+          Inputs:
+          goal={{goal}}
+          success_criteria={{success_criteria}}
+          max_iterations={{max_iterations}}
+          {% if context %}
+          context={{context | json}}
+          {% endif %}
+
+          Output JSON schema:
+          {
+            "goal": string,
+            "success_criteria": string,
+            "iteration": int,
+            "max_iterations": int,
+            "status": "running" | "completed" | "failed" | "limit",
+            "done": bool,
+            "last_verifier": null | object,
+            "last_patch_summary": string,
+            "diagnostics": [string]
+          }
+        output: json
+        store: state
+
+  # --------------------------------------------------------
+  # Step 1: extract signals (search pattern + one file to read)
+  # --------------------------------------------------------
+  - id: extract_signals
+    type: llm_call
+    prompt: |
+      You are planning a single iteration of a bounded repair loop.
+
+      CRITICAL:
+      - Return ONLY JSON.
+      - Propose ONLY ONE search_pattern and ONLY ONE file_to_read (keep it simple).
+      - Do NOT request running commands here; verifier is deterministic.
+
+      Goal:
+      {{goal}}
+
+      Success criteria:
+      {{success_criteria}}
+
+      Last verifier (best-effort):
+      {{ state.last_verifier | json }}
+
+      Output JSON schema:
+      {
+        "search_pattern": string,
+        "file_to_read": string,
+        "notes": string
+      }
+    output: json
+    store: signals
+
+  # --------------------------------------------------------
+  # Step 2: deterministic context gathering
+  # --------------------------------------------------------
+  - id: code_search
+    type: workspace_code_search
+    pattern: "{{signals.search_pattern}}"
+    store: search_results
+
+  - id: read_file
+    type: workspace_read_file
+    path: "{{signals.file_to_read}}"
+    store: file_content
+
+  # --------------------------------------------------------
+  # Step 3: propose patches (strict JSON)
+  # --------------------------------------------------------
+  - id: propose_patches
+    type: llm_call
+    prompt: |
+      You are proposing a minimal set of bounded patches to progress toward the success criteria.
+
+      CRITICAL:
+      - Return ONLY JSON.
+      - Do NOT include full file contents in the patch payload.
+      - Keep patch count <= 3.
+      - Prefer replace_span over rewriting entire files.
+
+      Goal:
+      {{goal}}
+
+      Success criteria:
+      {{success_criteria}}
+
+      Signals:
+      {{signals | json}}
+
+      Code search results (bounded):
+      {{search_results | json}}
+
+      File content (bounded excerpt):
+      {{file_content | json}}
+
+      Output JSON schema:
+      {
+        "summary": string,
+        "patches": [
+          {
+            "op": "create_or_replace" | "replace_span",
+            "path": string,
+            "text": string,                       // for create_or_replace (bounded)
+            "start_line": int,                    // for replace_span (1-based)
+            "end_line_exclusive": int,            // for replace_span
+            "replace_text": string                // for replace_span (bounded)
+          }
+        ]
+      }
+    output: json
+    store: patch_plan
+
+  # --------------------------------------------------------
+  # Step 4: apply patches (deterministic)
+  # --------------------------------------------------------
+  - id: apply_patch
+    type: workspace_apply_patch
+    patches: "{{patch_plan.patches}}"
+    store: patch_result
+
+  # --------------------------------------------------------
+  # Step 5: verify (deterministic)
+  # --------------------------------------------------------
+  - id: verify
+    type: sandbox_command
+    command: "{{verifier_command}}"
+    args: "{{verifier_args}}"
+    working_dir: "{{verifier_working_dir}}"
+    store: verify_result
+
+  # --------------------------------------------------------
+  # Step 6: update state (token-free)
+  # --------------------------------------------------------
+  - id: update_state
+    type: transform
+    ops:
+      - op: set_path
+        target: state
+        path: "last_verifier"
+        value: "{{verify_result}}"
+
+      - op: set_path
+        target: state
+        path: "last_patch_summary"
+        value: "{{patch_plan.summary}}"
+
+      - op: inc_path
+        target: state
+        path: "iteration"
+        by: 1
+
+      - op: set_path_if
+        if: "{{ verify_result.ok == true }}"
+        target: state
+        path: "done"
+        value: true
+
+      - op: set_path_if
+        if: "{{ verify_result.ok == true }}"
+        target: state
+        path: "status"
+        value: "completed"
+
+      - op: set_path_if
+        if: "{{ verify_result.ok != true && state.iteration >= max_iterations }}"
+        target: state
+        path: "done"
+        value: true
+
+      - op: set_path_if
+        if: "{{ verify_result.ok != true && state.iteration >= max_iterations }}"
+        target: state
+        path: "status"
+        value: "limit"
+
+      - op: set_path_if
+        if: "{{ verify_result.ok != true && state.iteration < max_iterations }}"
+        target: state
+        path: "done"
+        value: false
+
+      - op: set_path_if
+        if: "{{ verify_result.ok != true && state.iteration < max_iterations }}"
+        target: state
+        path: "status"
+        value: "running"
+
+  # --------------------------------------------------------
+  # Step 7: recurse if not done
+  # --------------------------------------------------------
+  - id: stop_or_continue
+    type: conditional
+    condition: "{{ state.done == true || state.iteration >= max_iterations }}"
+    if_false:
+      - id: recurse
+        type: workflow_call
+        workflow: ralph-loop
+        params:
+          goal: "{{goal}}"
+          success_criteria: "{{success_criteria}}"
+          verifier_command: "{{verifier_command}}"
+          verifier_args: "{{verifier_args}}"
+          verifier_working_dir: "{{verifier_working_dir}}"
+          max_iterations: "{{max_iterations}}"
+
+          # Hard recursion depth cap (defense-in-depth)
+          max_depth: "{{max_iterations}}"
+
+          context: "{{context}}"
+          state: "{{state}}"
+        store: recursive_output
+
+      - id: unwrap_state
+        type: assign
+        from: "recursive_output.state"
+        store: state
+
+output:
+  status: "{{state.status}}"
+  iteration: "{{state.iteration}}"
+  state: "{{state}}"
+  last_verifier: "{{state.last_verifier}}"
+  last_patch_summary: "{{state.last_patch_summary}}"
+
+

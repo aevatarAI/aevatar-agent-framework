@@ -46,6 +46,20 @@ public class ToolExecutionContext
     public Dictionary<string, object> Metadata { get; set; } = new();
 
     // ============================================================
+    //  UI / progress (best-effort)
+    //
+    //  WHY:
+    //  - Some tools are long-running (e.g., embeddings index build).
+    //  - Without intermediate signals, the UI looks "stuck" even though work continues.
+    //  - This callback allows the caller (host app) to project progress to UI (AG-UI).
+    //
+    //  NOTE:
+    //  - Tools MUST treat this as optional and best-effort.
+    //  - Tools should keep payload small and low-frequency (caller may throttle).
+    // ============================================================
+    public Func<string, CancellationToken, Task>? ReportProgressAsync { get; set; }
+
+    // ============================================================
     //  Safety policy (best-effort, caller-controlled)
     // ============================================================
 

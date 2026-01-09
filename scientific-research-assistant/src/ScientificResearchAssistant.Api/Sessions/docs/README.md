@@ -14,6 +14,11 @@ Sessions/
 
   SessionUiSnapshotStore.cs            # artifacts/ui/ui_snapshot.json + runs/{runId}/ui_events.jsonl
   SessionUiTraceRecorder.cs            # 订阅 session.Events，把 STEP/TOOL/META/MESSAGE_END 落盘
+
+  # Session file manager (local-only)
+  - /api/sessions/{id}/files/tree      # 目录树（bounded）
+  - /api/sessions/{id}/files?path=...  # 读取文件（text-like, size-limited）
+  - PUT /api/sessions/{id}/files       # 保存文件（atomic write, text-like, size-limited）
 ```
 
 ## 关键约束

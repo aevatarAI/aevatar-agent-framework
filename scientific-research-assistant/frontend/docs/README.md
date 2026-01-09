@@ -29,6 +29,9 @@ frontend/src/
     ComputePanel.tsx               # compute 决策卡（MVP）
     Composer.tsx                   # 输入框（支持 toAgents + uploads）
     ApiKeyModal.tsx                # LLM provider API key 配置与测试
+
+  pages/
+    FilesPage.tsx                  # Session 文件管理页（tree + editor + directory guide）
 ```
 
 ## 关键点

@@ -433,7 +433,8 @@ public sealed class SkillPacksSyncService
                 options,
                 indexDir,
                 _logger,
-                ct);
+                progress: null,
+                cancellationToken: ct);
 
             return (true, indexFile, null);
         }

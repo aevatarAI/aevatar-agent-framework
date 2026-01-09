@@ -234,7 +234,13 @@ public abstract partial class AIGAgentBase
         var skills = DiscoverAgentSkills(roots, cancellationToken);
 
         // Prefer semantic (embeddings) ranking when available; fall back to lexical.
-        var ranked = await TryRankSkillsByEmbeddingsAsync(query, roots, skills, maxResults, cancellationToken);
+        if (executionContext?.ReportProgressAsync != null)
+        {
+            try { await executionContext.ReportProgressAsync("skills.search: ranking candidates…", cancellationToken); }
+            catch { /* best-effort */ }
+        }
+
+        var ranked = await TryRankSkillsByEmbeddingsAsync(query, roots, skills, maxResults, executionContext, cancellationToken);
         var mode = ranked.Mode;
 
         // If embeddings are unavailable/failed, fall back to lexical scoring.

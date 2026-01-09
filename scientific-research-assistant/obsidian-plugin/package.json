@@ -1,0 +1,18 @@
+{
+  "name": "aevatar-sra-obsidian-plugin",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Obsidian Desktop plugin for driving Scientific Research Assistant (SRA) via HTTP/SSE.",
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "dev": "node esbuild.mjs --watch",
+    "test": "npm run build && node --test"
+  },
+  "devDependencies": {
+    "esbuild": "0.20.2",
+    "typescript": "5.6.3",
+    "@types/node": "22.10.2"
+  }
+}
+
+

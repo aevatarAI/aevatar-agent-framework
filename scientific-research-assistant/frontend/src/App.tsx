@@ -9,6 +9,7 @@ import ComputePanel from "./panels/ComputePanel";
 import ApiKeyModal from "./panels/ApiKeyModal";
 import { useAppController } from "./app/useAppController";
 import ChatMessageRow from "./components/ChatMessageRow";
+import FilesPage from "./pages/FilesPage";
 
 export default function App() {
   const ctrl = useAppController();
@@ -81,7 +82,9 @@ export default function App() {
   } = ctrl;
 
   return (
-    pageView === "dag" ? (
+    pageView === "files" ? (
+      <FilesPage sessionId={sessionId} sessionFromQuery={sessionFromQuery} />
+    ) : pageView === "dag" ? (
       <div className="h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
         <div className="h-14 flex items-center justify-between px-6 bg-white border-b border-slate-200">
           <div className="flex items-center gap-3 min-w-0">
@@ -160,6 +163,15 @@ export default function App() {
             <button className="flex items-center gap-3 w-full p-2 rounded hover:bg-slate-50 text-slate-700 transition text-sm">
               <FileText size={16} className="text-slate-500" /> Saved Reports
             </button>
+            <a
+              href={`/?view=files&session=${encodeURIComponent(sessionId || sessionFromQuery || "")}`}
+              className={`flex items-center gap-3 w-full p-2 rounded hover:bg-slate-50 text-slate-700 transition text-sm ${
+                !(sessionId || sessionFromQuery) ? "pointer-events-none opacity-50" : ""
+              }`}
+              title="Browse and edit session files"
+            >
+              <FileText size={16} className="text-slate-500" /> Files
+            </a>
           </div>
         </div>
 

@@ -209,6 +209,46 @@ public class WorkflowParser
             parameters["top_k"] = yaml.TopK;
         if (!string.IsNullOrEmpty(yaml.Mode))
             parameters["mode"] = yaml.Mode;
+
+        // --------------------------------------------------------
+        // ralph-loop primitives (workspace + verifier)
+        // --------------------------------------------------------
+
+        // workspace_read_file
+        if (!string.IsNullOrEmpty(yaml.Path))
+            parameters["path"] = yaml.Path;
+        if (yaml.MaxChars != null)
+            parameters["max_chars"] = NormalizeYamlValue(yaml.MaxChars);
+
+        // workspace_code_search
+        if (!string.IsNullOrEmpty(yaml.Pattern))
+            parameters["pattern"] = yaml.Pattern;
+        if (!string.IsNullOrEmpty(yaml.Glob))
+            parameters["glob"] = yaml.Glob;
+        if (!string.IsNullOrEmpty(yaml.FileType))
+            parameters["file_type"] = yaml.FileType;
+        if (yaml.MaxResults != null)
+            parameters["max_results"] = NormalizeYamlValue(yaml.MaxResults);
+        if (yaml.ContextLines != null)
+            parameters["context_lines"] = NormalizeYamlValue(yaml.ContextLines);
+
+        // workspace_apply_patch
+        if (yaml.Patch != null)
+            parameters["patch"] = NormalizeYamlValue(yaml.Patch);
+        if (yaml.Patches != null)
+            parameters["patches"] = NormalizeYamlValue(yaml.Patches);
+
+        // sandbox_command
+        if (!string.IsNullOrEmpty(yaml.Command))
+            parameters["command"] = yaml.Command;
+        if (yaml.Args != null)
+            parameters["args"] = NormalizeYamlValue(yaml.Args);
+        if (!string.IsNullOrEmpty(yaml.WorkingDir))
+            parameters["working_dir"] = yaml.WorkingDir;
+        if (yaml.TimeoutMs != null)
+            parameters["timeout_ms"] = NormalizeYamlValue(yaml.TimeoutMs);
+        if (yaml.MaxOutputChars != null)
+            parameters["max_output_chars"] = NormalizeYamlValue(yaml.MaxOutputChars);
         
         return parameters;
     }
@@ -388,5 +428,35 @@ internal class YamlStepDefinition
     public string? IdField { get; set; }     // default: "id"
     public object? TopK { get; set; }        // int or "{{var}}"
     public string? Mode { get; set; }        // "lexical" (default) | "embedding" (future)
+
+    // ------------------------------------------------------------
+    //  ralph-loop primitives (deterministic workspace + verifier)
+    //
+    //  NOTE:
+    //  - We keep numeric/budget fields as object? to allow template variables like "{{max_chars}}".
+    //  - All of these are converted into StepDefinition.Parameters with snake_case keys.
+    // ------------------------------------------------------------
+
+    // workspace_read_file
+    public string? Path { get; set; }        // path
+    public object? MaxChars { get; set; }    // max_chars
+
+    // workspace_code_search
+    public string? Pattern { get; set; }     // pattern
+    public string? Glob { get; set; }        // glob
+    public string? FileType { get; set; }    // file_type
+    public object? MaxResults { get; set; }  // max_results
+    public object? ContextLines { get; set; } // context_lines
+
+    // workspace_apply_patch
+    public object? Patch { get; set; }       // patch (string or structured)
+    public object? Patches { get; set; }     // patches (array or structured)
+
+    // sandbox_command
+    public string? Command { get; set; }     // command
+    public object? Args { get; set; }        // args (array or template)
+    public string? WorkingDir { get; set; }  // working_dir
+    public object? TimeoutMs { get; set; }   // timeout_ms
+    public object? MaxOutputChars { get; set; } // max_output_chars
 }
 

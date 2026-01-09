@@ -1,4 +1,5 @@
 using Aevatar.Agents.AI.Core.AgentSkills;
+using Aevatar.Agents.AI.Tool.Abstractions;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
@@ -13,6 +14,7 @@ public abstract partial class AIGAgentBase
         IReadOnlyList<string> roots,
         IReadOnlyList<AgentSkillDescriptor> skills,
         int maxResults,
+        ToolExecutionContext? executionContext,
         CancellationToken cancellationToken)
     {
         try
@@ -36,6 +38,19 @@ public abstract partial class AIGAgentBase
                 cancellationToken.ThrowIfCancellationRequested();
 
                 var rootFull = Path.GetFullPath(root);
+                var progress = executionContext?.ReportProgressAsync;
+                if (progress != null)
+                {
+                    try
+                    {
+                        await progress($"skills.index: ensure ({Path.GetFileName(rootFull)})", cancellationToken);
+                    }
+                    catch
+                    {
+                        // best-effort
+                    }
+                }
+
                 var index = await AgentSkillsEmbeddingsIndex.EnsureIndexAsync(
                     rootFull,
                     discoverDocumentsAsync: _ => Task.FromResult<IReadOnlyList<AgentSkillsEmbeddingDocument>>(BuildDocsForRoot(rootFull, skills)),
@@ -43,6 +58,9 @@ public abstract partial class AIGAgentBase
                     embeddingOptions: options,
                     indexBaseDirOverride: null,
                     logger: Logger,
+                    progress: progress == null
+                        ? null
+                        : (msg, ct) => progress($"skills.index({Path.GetFileName(rootFull)}): {msg}", ct),
                     cancellationToken: cancellationToken);
 
                 if (index?.Entries == null)

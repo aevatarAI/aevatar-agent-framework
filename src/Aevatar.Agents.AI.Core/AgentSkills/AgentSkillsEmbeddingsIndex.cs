@@ -100,7 +100,8 @@ public static class AgentSkillsEmbeddingsIndex
         EmbeddingGenerationOptions? embeddingOptions,
         string? indexBaseDirOverride,
         ILogger? logger,
-        CancellationToken cancellationToken)
+        Func<string, CancellationToken, Task>? progress = null,
+        CancellationToken cancellationToken = default)
     {
         if (documents == null)
             throw new ArgumentNullException(nameof(documents));
@@ -112,6 +113,11 @@ public static class AgentSkillsEmbeddingsIndex
         // Batch embeddings to keep requests bounded.
         // NOTE: some providers reject batch sizes > 10 (see EmbeddingBatchSizeEnv).
         var batchSize = GetEmbeddingBatchSize(logger);
+        var totalBatches = documents.Count == 0 ? 0 : (int)Math.Ceiling(documents.Count / (double)batchSize);
+
+        await SafeProgressAsync(progress,
+            $"skills.index: build start (docs={documents.Count}, batchSize={batchSize}, batches={totalBatches})",
+            cancellationToken);
 
         var entries = new List<AgentSkillsEmbeddingsIndexEntry>(documents.Count);
 
@@ -121,6 +127,11 @@ public static class AgentSkillsEmbeddingsIndex
 
             var batch = documents.Skip(i).Take(batchSize).ToList();
             var inputs = batch.Select(d => d.TextToEmbed ?? string.Empty).ToList();
+
+            var batchIndex = i / batchSize + 1;
+            await SafeProgressAsync(progress,
+                $"skills.index: embedding batch {batchIndex}/{Math.Max(1, totalBatches)} (items={batch.Count})",
+                cancellationToken);
 
             IReadOnlyList<Embedding<float>> embeds;
             try
@@ -165,6 +176,7 @@ public static class AgentSkillsEmbeddingsIndex
 
         try
         {
+            await SafeProgressAsync(progress, "skills.index: write index file", cancellationToken);
             var json = JsonSerializer.Serialize(data, JsonOptions);
             await File.WriteAllTextAsync(indexPath, json, cancellationToken);
         }
@@ -174,6 +186,7 @@ public static class AgentSkillsEmbeddingsIndex
             // still return data
         }
 
+        await SafeProgressAsync(progress, "skills.index: build done", cancellationToken);
         return data;
     }
 
@@ -209,7 +222,8 @@ public static class AgentSkillsEmbeddingsIndex
         EmbeddingGenerationOptions? embeddingOptions,
         string? indexBaseDirOverride,
         ILogger? logger,
-        CancellationToken cancellationToken)
+        Func<string, CancellationToken, Task>? progress = null,
+        CancellationToken cancellationToken = default)
     {
         var root = Path.GetFullPath(skillsRootDirectory);
         var indexPath = GetIndexFilePathForRoot(root, indexBaseDirOverride);
@@ -217,6 +231,7 @@ public static class AgentSkillsEmbeddingsIndex
         var docs = await discoverDocumentsAsync(cancellationToken);
         if (docs.Count == 0)
         {
+            await SafeProgressAsync(progress, "skills.index: no docs; using cached index if any", cancellationToken);
             return await TryLoadAsync(indexPath, logger, cancellationToken);
         }
 
@@ -225,17 +240,37 @@ public static class AgentSkillsEmbeddingsIndex
             existing.IsFreshFor(root) &&
             existing.IsCompatibleWithDocs(docs))
         {
+            await SafeProgressAsync(progress, "skills.index: cache hit (fresh)", cancellationToken);
             return existing;
         }
 
         try
         {
-            return await BuildAsync(root, docs, embeddingGenerator, embeddingOptions, indexBaseDirOverride, logger, cancellationToken);
+            await SafeProgressAsync(progress, "skills.index: cache miss; rebuilding", cancellationToken);
+            return await BuildAsync(root, docs, embeddingGenerator, embeddingOptions, indexBaseDirOverride, logger, progress, cancellationToken);
         }
         catch (Exception ex)
         {
             logger?.LogWarning(ex, "Failed to build skills embeddings index (best-effort). Root={Root}", root);
             return existing;
+        }
+    }
+
+    private static async Task SafeProgressAsync(
+        Func<string, CancellationToken, Task>? progress,
+        string message,
+        CancellationToken cancellationToken)
+    {
+        if (progress == null)
+            return;
+
+        try
+        {
+            await progress(message, cancellationToken);
+        }
+        catch
+        {
+            // best-effort only
         }
     }
 

@@ -30,6 +30,7 @@ internal sealed class ResearchRunExecutor
     private readonly MaterialsService _materials;
     private readonly WorkspaceService _workspace;
     private readonly VibeOrchestrator _vibe;
+    private readonly VibeGoalLoopRunner _vibeLoop;
     private readonly IOptions<LLMProvidersConfig> _llm;
     private readonly ILogger<ResearchRunExecutor> _logger;
 
@@ -38,6 +39,7 @@ internal sealed class ResearchRunExecutor
         MaterialsService materials,
         WorkspaceService workspace,
         VibeOrchestrator vibe,
+        VibeGoalLoopRunner vibeLoop,
         IOptions<LLMProvidersConfig> llm,
         ILogger<ResearchRunExecutor> logger)
     {
@@ -45,6 +47,7 @@ internal sealed class ResearchRunExecutor
         _materials = materials ?? throw new ArgumentNullException(nameof(materials));
         _workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
         _vibe = vibe ?? throw new ArgumentNullException(nameof(vibe));
+        _vibeLoop = vibeLoop ?? throw new ArgumentNullException(nameof(vibeLoop));
         _llm = llm ?? throw new ArgumentNullException(nameof(llm));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -59,6 +62,11 @@ internal sealed class ResearchRunExecutor
         ArgumentNullException.ThrowIfNull(input);
 
         var mode = (input.Mode ?? "chat").Trim().ToLowerInvariant();
+        if (mode is "vibe_loop" or "vibe_goal_loop")
+        {
+            await ExecuteVibeGoalLoopRunAsync(session, runId, input, ct);
+            return;
+        }
         if (mode is "vibe" or "vibe_researching" or "axiom")
         {
             await ExecuteVibeResearchingRunAsync(session, runId, input, ct);
@@ -66,6 +74,153 @@ internal sealed class ResearchRunExecutor
         }
 
         await ExecuteChatRunAsync(session, runId, input, ct);
+    }
+
+    private async Task ExecuteVibeGoalLoopRunAsync(
+        ResearchSession session,
+        string runId,
+        SessionInputInDto input,
+        CancellationToken ct)
+    {
+        string? error = null;
+        var assistant = new StringBuilder(capacity: 2048);
+
+        await session.RunLock.WaitAsync(ct);
+        try
+        {
+            var providerOverride = session.ProviderName;
+            var question = (input.Message ?? string.Empty).Trim();
+
+            session.Events.Publish(new RunStartedEvent
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                ThreadId = session.Id,
+                RunId = runId
+            });
+
+            // Emit user message
+            var userMessageId = $"msg:{session.Id}:user:{runId}";
+            EmitUserMessage(session, userMessageId, question);
+
+            // One assistant message stream; multi-agent outputs are merged with clear section headers.
+            var assistantMessageId = $"msg:{session.Id}:assistant:{runId}";
+            session.Events.Publish(new TextMessageStartEvent
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                MessageId = assistantMessageId,
+                Role = "assistant"
+            });
+
+            // Bind tool progress events to this run (works for planner/reasoner tools as well).
+            var prevSink = ResearchStreamEventContext.Current;
+            ResearchStreamEventContext.Current = new AgUiResearchStreamEventSink(
+                _runtime,
+                sessionId: session.Id,
+                hub: session.Events,
+                threadId: session.Id,
+                runId: runId);
+
+            try
+            {
+                // ------------------------------------------------------------
+                // Step 1) Materials (once per loop run)
+                // ------------------------------------------------------------
+                session.Events.Publish(new StepStartedEvent
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    StepName = "vibe.materials"
+                });
+
+                var snapshot = await _materials.LoadAsync(session.Id, query: question, ct);
+                HydrateWorkspace(session, runId, question, snapshot);
+                ApplyKnowledgeToWorkspace(session, _workspace.ScanWorkspace(session.Id));
+
+                session.Events.Publish(new StateSnapshotEvent
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    Snapshot = session.Workspace
+                });
+
+                session.Events.Publish(new StepFinishedEvent
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    StepName = "vibe.materials"
+                });
+
+                // ------------------------------------------------------------
+                // Step 2+) Outer loop (multiple rounds)
+                // ------------------------------------------------------------
+                void Emit(string delta)
+                {
+                    if (string.IsNullOrEmpty(delta)) return;
+                    assistant.Append(delta);
+                    EmitAssistantDelta(session, assistantMessageId, delta);
+                }
+
+                var loopResult = await _vibeLoop.ExecuteUntilGoalAsync(
+                    session,
+                    runId,
+                    input,
+                    question,
+                    snapshot,
+                    providerOverride,
+                    Emit,
+                    ct);
+
+                // ------------------------------------------------------------
+                // Done
+                // ------------------------------------------------------------
+                session.Events.Publish(new TextMessageEndEvent
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    MessageId = assistantMessageId
+                });
+
+                session.Events.Publish(new RunFinishedEvent
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    ThreadId = session.Id,
+                    RunId = runId,
+                    Result = new
+                    {
+                        ok = true,
+                        assistantMessageId,
+                        assistant = assistant.ToString(),
+                        mode = "vibe_loop",
+                        loop = loopResult
+                    }
+                });
+            }
+            finally
+            {
+                ResearchStreamEventContext.Current = prevSink;
+            }
+        }
+        catch (Exception ex)
+        {
+            error = ex is OperationCanceledException ? "run canceled" : ex.Message;
+
+            session.Events.Publish(new RunErrorEvent
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Message = error,
+                Code = "SRA_VIBE_LOOP_RUN_ERROR"
+            });
+
+            session.Events.Publish(new RunFinishedEvent
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                ThreadId = session.Id,
+                RunId = runId,
+                Result = new { ok = false, error, mode = "vibe_loop" }
+            });
+
+            _logger.LogError(ex, "[Scientific] Vibe loop run failed: {Message}", ex.Message);
+        }
+        finally
+        {
+            session.RunLock.Release();
+        }
     }
 
     private async Task ExecuteChatRunAsync(
@@ -519,6 +674,26 @@ internal sealed class ResearchRunExecutor
                 Name = "aevatar.scientific.tool_start",
                 Value = new { threadId = _threadId, runId = _runId, toolCallId, toolName, isMcp }
             });
+        }
+
+        public Task EmitToolProgressAsync(string toolCallId, string toolName, string message, CancellationToken ct)
+        {
+            // NOTE:
+            // - Use standard TOOL_CALL_RESULT as a "progress update" channel (best-effort).
+            // - Frontend treats it as a preview update and keeps status=running until TOOL_CALL_END.
+            var messageId = $"msg:{_threadId}:assistant:{_runId}";
+            var payload = (message ?? string.Empty).Replace("\r", "").Trim();
+            if (payload.Length > 2000) payload = payload[..2000];
+
+            _hub.Publish(new ToolCallResultEvent
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                MessageId = messageId,
+                ToolCallId = toolCallId,
+                Result = payload
+            });
+
+            return Task.CompletedTask;
         }
 
         public async Task EmitToolEndAsync(

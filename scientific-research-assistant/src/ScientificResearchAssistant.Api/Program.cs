@@ -98,6 +98,7 @@ builder.Services.AddSingleton<ResearchRunExecutor>();
 // File-SSoT collaboration primitives (paper + facts_proposed + mailbox)
 builder.Services.AddSingleton<WorkspaceService>();
 builder.Services.AddSingleton<FileMailboxService>();
+builder.Services.AddSingleton<SessionFilesService>();
 builder.Services.AddSingleton<PaperService>();
 builder.Services.AddSingleton<FactLifecycleService>();
 
@@ -128,6 +129,9 @@ builder.Services.AddSingleton<ComputeDecisionStore>();
 
 // Vibe: single-round orchestrator (multi-agent + DAG + trace)
 builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.VibeOrchestrator>();
+
+// Vibe: outer loop runner (repeat rounds until goal verifier passes / budgets exhausted)
+builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.VibeGoalLoopRunner>();
 
 var app = builder.Build();
 

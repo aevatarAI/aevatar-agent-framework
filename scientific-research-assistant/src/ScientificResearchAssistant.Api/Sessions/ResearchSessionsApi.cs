@@ -50,7 +50,101 @@ internal static class ResearchSessionsApi
         MapMcpReconnect(app);
         MapFacts(app);
         MapWorkspace(app);
+        MapFiles(app);
         MapAgUiEvents(app);
+    }
+
+    private static void MapFiles(WebApplication app)
+    {
+        // File manager API (local-only; safe within workspace/sessions/{id})
+        app.MapGet("/api/sessions/{sessionId}/files/tree", (
+            string sessionId,
+            string? dir,
+            int? depth,
+            ResearchSessionManager sessions,
+            SessionFilesService files,
+            HttpContext http) =>
+        {
+            if (!IsLocal(http))
+                return Results.Forbid();
+
+            if (!sessions.TryGet(sessionId, out var session))
+                return Results.NotFound(new { error = "session not found" });
+
+            try
+            {
+                var tree = files.ListTree(session.Id, dir, maxDepth: depth ?? 6);
+                return Results.Json(new { ok = true, sessionId = session.Id, tree });
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new { ok = false, error = ex.Message });
+            }
+        });
+
+        app.MapGet("/api/sessions/{sessionId}/files", async (
+            string sessionId,
+            string path,
+            ResearchSessionManager sessions,
+            SessionFilesService files,
+            HttpContext http,
+            CancellationToken ct) =>
+        {
+            if (!IsLocal(http))
+                return Results.Forbid();
+
+            if (!sessions.TryGet(sessionId, out var session))
+                return Results.NotFound(new { error = "session not found" });
+
+            try
+            {
+                var res = await files.ReadTextAsync(session.Id, path, ct);
+                return Results.Json(new { ok = true, sessionId = session.Id, file = res });
+            }
+            catch (FileNotFoundException)
+            {
+                return Results.NotFound(new { ok = false, error = "file not found" });
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new { ok = false, error = ex.Message });
+            }
+        });
+
+        app.MapPut("/api/sessions/{sessionId}/files", async (
+            string sessionId,
+            SaveFileInDto input,
+            ResearchSessionManager sessions,
+            SessionFilesService files,
+            HttpContext http,
+            CancellationToken ct) =>
+        {
+            if (!IsLocal(http))
+                return Results.Forbid();
+
+            if (!sessions.TryGet(sessionId, out var session))
+                return Results.NotFound(new { error = "session not found" });
+
+            var path = (input.Path ?? string.Empty).Trim();
+            if (path.Length == 0)
+                return Results.BadRequest(new { ok = false, error = "path is required" });
+
+            try
+            {
+                var wr = await files.WriteTextAsync(session.Id, path, input.Content ?? string.Empty, ct);
+                return Results.Json(new { ok = true, sessionId = session.Id, file = wr });
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new { ok = false, error = ex.Message });
+            }
+        });
+    }
+
+    private static bool IsLocal(HttpContext ctx)
+    {
+        var ip = ctx.Connection.RemoteIpAddress;
+        return ip == null || System.Net.IPAddress.IsLoopback(ip);
     }
 
     private static void MapDeliverables(WebApplication app)

@@ -41,21 +41,31 @@ if (string.IsNullOrWhiteSpace(builder.Configuration["urls"]))
 
 var app = builder.Build();
 
+// UI: serve from wwwroot/ instead of embedding huge HTML/JS in Program.cs
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 app.MapGet("/health", () => Results.Text("ok"));
 
-app.MapGet("/", () => Results.Text(HtmlAssets.IndexHtml, "text/html"));
-
 // ------------------------------------------------------------
-// Providers catalog (UI)
-// - Returns provider list with "connected" status (never returns secret values).
+// Providers (base types) + instances (configured) for UI
 // ------------------------------------------------------------
 app.MapGet("/api/llm/providers", (IAevatarUserSecretsStore secrets, HttpContext http) =>
 {
     if (!IsLocal(http))
         return Results.Forbid();
 
-    var providers = ProviderCatalog.Build(secrets);
+    var providers = ProviderCatalog.BuildProviderTypes(secrets);
     return Results.Json(new { ok = true, providers });
+});
+
+app.MapGet("/api/llm/instances", (IAevatarUserSecretsStore secrets, HttpContext http) =>
+{
+    if (!IsLocal(http))
+        return Results.Forbid();
+
+    var instances = ProviderCatalog.BuildInstances(secrets);
+    return Results.Json(new { ok = true, instances });
 });
 
 // Provider details (never returns secret values)
@@ -175,6 +185,74 @@ app.MapPost("/api/llm/api-key", (
     return Results.Json(new { ok = true, providerName, keyPath });
 });
 
+// Upsert a provider instance (multi-model friendly).
+// - Writes ProviderType/Model/Endpoint and ApiKey (direct or copied) into user secrets.
+// - All values are stored under: LLMProviders:Providers:{name}:*
+app.MapPost("/api/llm/instance", (
+    UpsertLlmInstanceRequest req,
+    IAevatarUserSecretsStore secrets,
+    HttpContext http) =>
+{
+    if (!IsLocal(http))
+        return Results.Forbid();
+
+    var name = (req.ProviderName ?? string.Empty).Trim();
+    if (string.IsNullOrWhiteSpace(name))
+        return Results.BadRequest(new { ok = false, error = "providerName is required" });
+
+    var providerType = (req.ProviderType ?? string.Empty).Trim();
+    if (string.IsNullOrWhiteSpace(providerType))
+        return Results.BadRequest(new { ok = false, error = "providerType is required" });
+
+    var model = (req.Model ?? string.Empty).Trim();
+    if (string.IsNullOrWhiteSpace(model))
+        return Results.BadRequest(new { ok = false, error = "model is required" });
+
+    // ProviderType/Model are always explicit for instances.
+    var providerTypePath = $"LLMProviders:Providers:{name}:ProviderType";
+    var modelPath = $"LLMProviders:Providers:{name}:Model";
+    secrets.Set(providerTypePath, providerType);
+    secrets.Set(modelPath, model);
+
+    // Endpoint is optional: if empty -> remove override (fall back to profile default).
+    var endpointPath = $"LLMProviders:Providers:{name}:Endpoint";
+    var endpoint = (req.Endpoint ?? string.Empty).Trim();
+    if (string.IsNullOrWhiteSpace(endpoint))
+    {
+        secrets.Remove(endpointPath);
+    }
+    else
+    {
+        secrets.Set(endpointPath, endpoint);
+    }
+
+    // ApiKey: allow direct set or server-side copy (never echo).
+    var apiKeyPath = $"LLMProviders:Providers:{name}:ApiKey";
+    var apiKey = (req.ApiKey ?? string.Empty).Trim();
+    var copyFrom = (req.CopyApiKeyFrom ?? string.Empty).Trim();
+    if (!string.IsNullOrWhiteSpace(apiKey))
+    {
+        secrets.Set(apiKeyPath, apiKey);
+    }
+    else if (!string.IsNullOrWhiteSpace(copyFrom))
+    {
+        var fromPath = $"LLMProviders:Providers:{copyFrom}:ApiKey";
+        if (!secrets.TryGet(fromPath, out var fromKey) || string.IsNullOrWhiteSpace(fromKey))
+            return Results.BadRequest(new { ok = false, error = "copyApiKeyFrom has no configured apiKey" });
+        secrets.Set(apiKeyPath, fromKey.Trim());
+    }
+
+    var resolved = LlmProviderResolver.Resolve(secrets, name);
+    return Results.Json(new
+    {
+        ok = true,
+        providerName = name,
+        providerType,
+        keyPaths = new[] { providerTypePath, modelPath, endpointPath, apiKeyPath },
+        provider = resolved.Public
+    });
+});
+
 app.MapDelete("/api/llm/api-key/{providerName}", (
     string providerName,
     IAevatarUserSecretsStore secrets,
@@ -229,6 +307,9 @@ app.MapPost("/api/secrets/remove", (
     return Results.Json(new { ok = true, key, removed });
 });
 
+// Fallback for non-file routes (optional, keeps UX consistent if linked with extra path).
+app.MapFallbackToFile("index.html");
+
 app.Run();
 
 static bool IsLocal(HttpContext ctx)
@@ -238,6 +319,14 @@ static bool IsLocal(HttpContext ctx)
 }
 
 sealed record SetLlmApiKeyRequest(string? ProviderName, string? ApiKey);
+
+sealed record UpsertLlmInstanceRequest(
+    string? ProviderName,
+    string? ProviderType,
+    string? Model,
+    string? Endpoint,
+    string? ApiKey,
+    string? CopyApiKeyFrom);
 
 sealed record SetSecretRequest(string? Key, string? Value);
 
@@ -257,6 +346,21 @@ sealed record ProviderItem(
     string Description,
     bool Recommended,
     bool Connected);
+
+sealed record ProviderTypeItem(
+    string Id,
+    string DisplayName,
+    string Category,
+    string Description,
+    bool Recommended,
+    int ConfiguredInstancesCount);
+
+sealed record ProviderInstanceItem(
+    string Name,
+    string ProviderType,
+    string ProviderDisplayName,
+    string Model,
+    string Endpoint);
 
 static class SecretMask
 {
@@ -300,6 +404,8 @@ sealed record ProviderProfile(
 
 sealed record ResolvedProviderPublic(
     string ProviderName,
+    string ProviderType,
+    string ProviderTypeSource,
     string DisplayName,
     string Kind,
     bool ApiKeyConfigured,
@@ -310,6 +416,8 @@ sealed record ResolvedProviderPublic(
 
 sealed record ResolvedProvider(
     string ProviderName,
+    string ProviderType,
+    string ProviderTypeSource,
     string DisplayName,
     LlmProviderKind Kind,
     string Endpoint,
@@ -328,7 +436,29 @@ static class LlmProviderResolver
         if (string.IsNullOrWhiteSpace(name))
             name = "default";
 
-        var profile = ProviderProfiles.Get(name);
+        // ProviderType resolution:
+        // - Prefer explicit ProviderType in secrets (supports multi-instance names like openai-gpt-4o-mini).
+        // - Fallback: infer from "<provider>-<model>" naming convention.
+        // - Final fallback: treat providerName as providerType.
+        var providerTypeSource = "missing";
+        var providerType = string.Empty;
+        var providerTypePath = $"LLMProviders:Providers:{name}:ProviderType";
+        if (secrets.TryGet(providerTypePath, out var ptFromSecrets) && !string.IsNullOrWhiteSpace(ptFromSecrets))
+        {
+            providerTypeSource = "secret";
+            providerType = ptFromSecrets.Trim();
+        }
+        else if (ProviderProfiles.TryInferProviderTypeFromInstanceName(name, out var inferred))
+        {
+            providerTypeSource = "inferred";
+            providerType = inferred;
+        }
+        else
+        {
+            providerType = name;
+        }
+
+        var profile = ProviderProfiles.Get(providerType);
 
         var apiKeyPath = $"LLMProviders:Providers:{name}:ApiKey";
         var endpointPath = $"LLMProviders:Providers:{name}:Endpoint";
@@ -365,6 +495,8 @@ static class LlmProviderResolver
 
         var pub = new ResolvedProviderPublic(
             ProviderName: name,
+            ProviderType: providerType,
+            ProviderTypeSource: providerTypeSource,
             DisplayName: profile.DisplayName,
             Kind: profile.Kind.ToString(),
             ApiKeyConfigured: apiKeyConfigured,
@@ -375,6 +507,8 @@ static class LlmProviderResolver
 
         return new ResolvedProvider(
             ProviderName: name,
+            ProviderType: providerType,
+            ProviderTypeSource: providerTypeSource,
             DisplayName: profile.DisplayName,
             Kind: profile.Kind,
             Endpoint: endpoint,
@@ -420,6 +554,40 @@ static class ProviderProfiles
 
         // Unknown provider name: treat as OpenAI-compatible with no default endpoint.
         return new ProviderProfile(name, name, "configured", "Configured via user secrets", LlmProviderKind.OpenAiCompatible, "", "");
+    }
+
+    public static IReadOnlyList<ProviderProfile> All => Profiles;
+
+    public static bool TryInferProviderTypeFromInstanceName(string instanceName, out string providerType)
+    {
+        providerType = string.Empty;
+        var name = (instanceName ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(name))
+            return false;
+
+        // If instanceName matches a known provider id, treat it as that provider type.
+        if (Profiles.Any(p => string.Equals(p.Id, name, StringComparison.OrdinalIgnoreCase)))
+        {
+            providerType = name;
+            return true;
+        }
+
+        // Convention: "<provider>-<model>"
+        var idx = name.IndexOf('-', StringComparison.Ordinal);
+        if (idx <= 0)
+            return false;
+
+        var head = name.Substring(0, idx).Trim();
+        if (string.IsNullOrWhiteSpace(head))
+            return false;
+
+        if (Profiles.Any(p => string.Equals(p.Id, head, StringComparison.OrdinalIgnoreCase)))
+        {
+            providerType = head;
+            return true;
+        }
+
+        return false;
     }
 }
 
@@ -758,68 +926,47 @@ static class LlmProbe
 
 static class ProviderCatalog
 {
-    public static IReadOnlyList<ProviderItem> Build(IAevatarUserSecretsStore secrets)
+    public static IReadOnlyList<ProviderTypeItem> BuildProviderTypes(IAevatarUserSecretsStore secrets)
     {
-        // NOTE: "Id" here is also the default providerName we write into:
-        //   LLMProviders:Providers:{providerName}:ApiKey
-        // Apps can still use any custom provider name; those will show up under "Configured" once written.
-        var presets = new[]
-        {
-            // Popular
-            new ProviderPreset("openai", "OpenAI", "popular", "Connect with API key"),
-            new ProviderPreset("anthropic", "Anthropic", "popular", "Connect with Claude API key"),
-            new ProviderPreset("google", "Google", "popular", "Connect with Gemini API key"),
-            new ProviderPreset("openrouter", "OpenRouter", "popular", "Bring your own key (OpenAI compatible)"),
+        var counts = BuildInstances(secrets)
+            .GroupBy(x => x.ProviderType, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
 
-            // Other (common in Aevatar demos)
-            new ProviderPreset("deepseek", "DeepSeek", "other", "OpenAI-compatible API key"),
-            new ProviderPreset("dashscope", "DashScope", "other", "Alibaba Qwen API key"),
-            new ProviderPreset("azureopenai", "Azure OpenAI", "other", "Azure key (requires endpoint in appsettings)"),
-            new ProviderPreset("groq", "Groq", "other", "OpenAI-compatible API key"),
-            new ProviderPreset("mistral", "Mistral", "other", "API key"),
-            new ProviderPreset("together", "Together", "other", "API key"),
-        };
-
-        var dict = new Dictionary<string, ProviderItem>(StringComparer.OrdinalIgnoreCase);
-        foreach (var p in presets)
-        {
-            var keyPath = $"LLMProviders:Providers:{p.Id}:ApiKey";
-            var connected = secrets.TryGet(keyPath, out var v) && !string.IsNullOrWhiteSpace(v);
-            dict[p.Id] = new ProviderItem(
+        return ProviderProfiles.All
+            .OrderBy(x => string.Equals(x.Category, "popular", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .ThenBy(x => x.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .Select(p => new ProviderTypeItem(
                 Id: p.Id,
                 DisplayName: p.DisplayName,
-                Category: connected ? "configured" : p.Category,
+                Category: p.Category,
                 Description: p.Description,
                 Recommended: p.Recommended,
-                Connected: connected);
-        }
-
-        foreach (var name in ExtractConfiguredProviderNames(secrets))
-        {
-            if (dict.ContainsKey(name))
-                continue;
-
-            dict[name] = new ProviderItem(
-                Id: name,
-                DisplayName: name,
-                Category: "configured",
-                Description: "Configured via user secrets",
-                Recommended: false,
-                Connected: true);
-        }
-
-        static int Rank(string c) =>
-            string.Equals(c, "configured", StringComparison.OrdinalIgnoreCase) ? 0
-            : string.Equals(c, "popular", StringComparison.OrdinalIgnoreCase) ? 1
-            : 2;
-
-        return dict.Values
-            .OrderBy(x => Rank(x.Category))
-            .ThenBy(x => x.DisplayName, StringComparer.OrdinalIgnoreCase)
+                ConfiguredInstancesCount: counts.TryGetValue(p.Id, out var c) ? c : 0))
             .ToList();
     }
 
-    private static HashSet<string> ExtractConfiguredProviderNames(IAevatarUserSecretsStore secrets)
+    public static IReadOnlyList<ProviderInstanceItem> BuildInstances(IAevatarUserSecretsStore secrets)
+    {
+        var names = ExtractConfiguredInstanceNames(secrets);
+        var list = new List<ProviderInstanceItem>(names.Count);
+        foreach (var name in names)
+        {
+            var resolved = LlmProviderResolver.Resolve(secrets, name);
+            list.Add(new ProviderInstanceItem(
+                Name: name,
+                ProviderType: resolved.ProviderType,
+                ProviderDisplayName: resolved.DisplayName,
+                Model: resolved.Model,
+                Endpoint: resolved.Endpoint));
+        }
+
+        return list
+            .OrderBy(x => x.ProviderDisplayName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static HashSet<string> ExtractConfiguredInstanceNames(IAevatarUserSecretsStore secrets)
     {
         var all = secrets.GetAll();
         const string prefix = "LLMProviders:Providers:";
@@ -841,985 +988,3 @@ static class ProviderCatalog
         return set;
     }
 }
-
-static class HtmlAssets
-{
-    public const string IndexHtml = """
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Aevatar Secrets</title>
-  <style>
-    :root {
-      --bg: #f6f7fb;
-      --panel: #ffffff;
-      --border: #e5e7eb;
-      --muted: #6b7280;
-      --text: #0f172a;
-      --brand: #4f46e5;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-      background: var(--bg);
-      color: var(--text);
-    }
-    .overlay {
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 28px;
-    }
-    .modal {
-      width: 720px;
-      max-width: calc(100vw - 56px);
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      box-shadow: 0 24px 80px rgba(15, 23, 42, 0.15);
-      overflow: hidden;
-    }
-    .hdr {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 16px 18px;
-      border-bottom: 1px solid var(--border);
-    }
-    .hdr .title,
-    .topbar .title {
-      font-size: 20px;
-      font-weight: 700;
-      letter-spacing: -0.01em;
-    }
-    .icon-btn {
-      width: 34px;
-      height: 34px;
-      border: none;
-      background: transparent;
-      border-radius: 10px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--muted);
-      font-size: 18px;
-      line-height: 1;
-    }
-    .icon-btn:hover { background: #f3f4f6; color: var(--text); }
-    .content { padding: 16px 18px 18px; }
-    .search {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 10px 12px;
-      border: 1px solid var(--border);
-      background: #f9fafb;
-      border-radius: 12px;
-    }
-    .search .ic { color: var(--muted); }
-    .search input { border: none; outline: none; background: transparent; width: 100%; font-size: 14px; }
-    .section { margin-top: 16px; }
-    .section-title { font-size: 12px; font-weight: 700; color: var(--muted); margin: 12px 0 8px; }
-    .list { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
-    .item {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 12px 12px;
-      cursor: pointer;
-      background: #fff;
-    }
-    .item:hover { background: #f9fafb; }
-    .item + .item { border-top: 1px solid var(--border); }
-    .logo {
-      width: 30px;
-      height: 30px;
-      border-radius: 10px;
-      border: 1px solid var(--border);
-      background: #fff;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 800;
-      color: var(--text);
-      user-select: none;
-      flex-shrink: 0;
-    }
-    .item-main { flex: 1; min-width: 0; }
-    .item-name { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 650; }
-    .item-desc { font-size: 12px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); background: #f9fafb; color: var(--muted); font-weight: 650; }
-    .badge.rec { color: var(--brand); border-color: rgba(79,70,229,0.25); background: rgba(79,70,229,0.08); }
-    .badge.ok { color: #059669; border-color: rgba(16,185,129,0.25); background: rgba(16,185,129,0.08); }
-    .chev { color: var(--muted); font-size: 18px; }
-    .hint { margin-top: 14px; font-size: 12px; color: var(--muted); line-height: 1.5; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas; }
-
-    /* Forms */
-    .topbar {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 16px 18px;
-      border-bottom: 1px solid var(--border);
-    }
-    .spacer { flex: 1; }
-    .form { padding: 18px; }
-    .subtitle { margin: 6px 0 14px; font-size: 13px; color: var(--muted); line-height: 1.5; }
-    label { display: block; font-size: 12px; font-weight: 700; color: var(--muted); margin: 12px 0 6px; }
-    input[type="text"], input[type="password"] {
-      width: 100%;
-      padding: 11px 12px;
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      background: #fff;
-      font-size: 14px;
-    }
-    input:focus { outline: none; border-color: rgba(79,70,229,0.55); box-shadow: 0 0 0 3px rgba(79,70,229,0.12); }
-    .row { display: flex; gap: 10px; align-items: center; }
-    .grow { flex: 1; }
-    .btn {
-      padding: 11px 12px;
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      background: #fff;
-      font-size: 13px;
-      font-weight: 700;
-      cursor: pointer;
-      color: var(--text);
-    }
-    .btn:hover { background: #f9fafb; }
-    .btn.primary { background: var(--brand); border-color: rgba(79,70,229,0.85); color: #fff; }
-    .btn.primary:hover { background: #4338ca; }
-    .btn.danger { border-color: rgba(239,68,68,0.35); color: #e11d48; }
-    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
-    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
-    .msg { margin-top: 10px; font-size: 12px; color: var(--muted); white-space: pre-wrap; }
-    .msg.ok { color: #059669; }
-    .msg.err { color: #e11d48; }
-    .box {
-      margin-top: 10px;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      background: #f9fafb;
-      padding: 10px 12px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas;
-      font-size: 12px;
-      color: var(--text);
-      max-height: 260px;
-      overflow: auto;
-      white-space: pre;
-    }
-    .hidden { display: none; }
-  </style>
-</head>
-<body>
-  <div class="overlay">
-    <div class="modal">
-      <!-- LIST VIEW -->
-      <div id="viewList">
-        <div class="hdr">
-          <div class="title">Connect provider</div>
-          <button class="icon-btn" id="closeBtn" title="Close">✕</button>
-        </div>
-        <div class="content">
-          <div class="search">
-            <span class="ic">⌕</span>
-            <input id="searchInput" placeholder="Search providers" />
-          </div>
-
-          <div class="section hidden" id="secConfigured">
-            <div class="section-title">Configured</div>
-            <div class="list" id="listConfigured"></div>
-          </div>
-
-          <div class="section">
-            <div class="section-title">Popular</div>
-            <div class="list" id="listPopular"></div>
-          </div>
-
-          <div class="section">
-            <div class="section-title">Other</div>
-            <div class="list" id="listOther"></div>
-          </div>
-
-          <div class="section">
-            <div class="section-title">Advanced</div>
-            <div class="list">
-              <div class="item" id="advancedItem">
-                <div class="logo">⚙</div>
-                <div class="item-main">
-                  <div class="item-name">Custom key/value <span class="badge">Advanced</span></div>
-                  <div class="item-desc">Set any IConfiguration key (values are never echoed)</div>
-                </div>
-                <div class="chev">›</div>
-              </div>
-            </div>
-          </div>
-
-          <div class="hint">
-            Saves into <span class="mono">~/.aevatar/secrets.json</span> (encrypted). Overrides:
-            <span class="mono">AEVATAR_SECRETS_PATH</span> / <span class="mono">AEVATAR_SECRETS_DIR</span>.
-            <br />
-            All write APIs are <b>localhost-only</b>.
-          </div>
-        </div>
-      </div>
-
-      <!-- CONNECT VIEW -->
-      <div id="viewConnect" class="hidden">
-        <div class="topbar">
-          <button class="icon-btn" id="backBtn" title="Back">←</button>
-          <div class="title" id="connectTitle">Connect</div>
-          <div class="spacer"></div>
-          <button class="icon-btn" id="connectCloseBtn" title="Close">✕</button>
-        </div>
-        <div class="form">
-          <div class="subtitle" id="connectSubtitle"></div>
-
-          <label>Provider name</label>
-          <input id="providerNameInput" type="text" placeholder="e.g. openai" />
-
-          <label>Endpoint</label>
-          <input id="endpointInput" type="text" placeholder="e.g. https://api.openai.com" />
-          <div class="hint" id="endpointMeta" style="margin-top: 6px;"></div>
-
-          <label>Model</label>
-          <input id="modelInput" type="text" placeholder="e.g. gpt-4o-mini" list="modelsDatalist" />
-          <datalist id="modelsDatalist"></datalist>
-          <div class="hint" id="modelMeta" style="margin-top: 6px;"></div>
-
-          <label>API key</label>
-          <div class="row">
-            <div class="grow">
-              <input id="apiKeyInput" type="password" placeholder="API key" />
-            </div>
-            <button class="btn" id="toggleKeyBtn" type="button">Show</button>
-          </div>
-
-          <div class="actions">
-            <button class="btn primary" id="submitBtn">Save</button>
-            <button class="btn" id="testBtn" type="button">Test</button>
-            <button class="btn" id="modelsBtn" type="button">Fetch models</button>
-            <button class="btn danger" id="disconnectBtn">Disconnect</button>
-          </div>
-
-          <div id="connectMsg" class="msg"></div>
-          <div id="modelsBox" class="box hidden"></div>
-
-          <div class="hint" style="margin-top: 16px;">
-            Writes <span class="mono">LLMProviders:Providers:&lt;providerName&gt;:ApiKey</span> into user secrets.
-            <br />
-            Tip: after changing keys, start a new session/run in your app to re-initialize providers.
-          </div>
-        </div>
-      </div>
-
-      <!-- ADVANCED VIEW -->
-      <div id="viewAdvanced" class="hidden">
-        <div class="topbar">
-          <button class="icon-btn" id="advBackBtn" title="Back">←</button>
-          <div class="title">Custom key/value</div>
-          <div class="spacer"></div>
-          <button class="icon-btn" id="advCloseBtn" title="Close">✕</button>
-        </div>
-        <div class="form">
-          <div class="subtitle">Set any IConfiguration key/value. Values are never echoed back.</div>
-
-          <label>Key</label>
-          <input id="advKeyInput" type="text" placeholder="e.g. ConnectionStrings:MongoDB" />
-
-          <label>Value</label>
-          <div class="row">
-            <div class="grow">
-              <input id="advValueInput" type="password" placeholder="value" />
-            </div>
-            <button class="btn" id="advToggleBtn" type="button">Show</button>
-          </div>
-
-          <div class="actions">
-            <button class="btn primary" id="advSaveBtn">Save</button>
-            <button class="btn danger" id="advRemoveBtn">Remove</button>
-          </div>
-
-          <div id="advMsg" class="msg"></div>
-
-          <div class="hint" style="margin-top: 16px;">
-            Recommended key example: <span class="mono">LLMProviders:Providers:deepseek:ApiKey</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <script>
-    const $ = (id) => document.getElementById(id);
-    const state = {
-      providers: [],
-      selectedId: "",
-      search: "",
-      keyShown: false,
-      // If user starts typing a new key, we should not overwrite the input while refreshing details.
-      isNewKeyDraft: false,
-      hasExistingKey: false,
-      existingKeyMasked: "",
-      existingKeyFull: "",
-      advShown: false,
-      endpointOriginal: "",
-      endpointSource: "",
-      modelOriginal: "",
-      modelSource: "",
-    };
-    const categoryOrder = { configured: 0, popular: 1, other: 2 };
-    const safeText = (s) => String(s || "");
-    const upper1 = (s) => safeText(s).trim().slice(0, 1).toUpperCase();
-    const isEmpty = (s) => !safeText(s).trim();
-    const debounce = (fn, ms) => {
-      let t = null;
-      return (...args) => {
-        if (t) window.clearTimeout(t);
-        t = window.setTimeout(() => fn(...args), ms);
-      };
-    };
-
-    function setView(view) {
-      $("viewList").classList.toggle("hidden", view !== "list");
-      $("viewConnect").classList.toggle("hidden", view !== "connect");
-      $("viewAdvanced").classList.toggle("hidden", view !== "advanced");
-    }
-
-    function findProvider(id) {
-      const key = String(id || "").toLowerCase();
-      return state.providers.find((p) => String(p.id || "").toLowerCase() === key) || null;
-    }
-
-    function matches(p, q) {
-      const hay = (safeText(p.displayName) + " " + safeText(p.id) + " " + safeText(p.description)).toLowerCase();
-      return hay.includes(q);
-    }
-
-    async function refreshProviders() {
-      try {
-        const res = await fetch("/api/llm/providers");
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        const json = await res.json();
-        state.providers = Array.isArray(json.providers) ? json.providers : [];
-      } catch (e) {
-        console.error(e);
-        state.providers = [];
-      }
-      renderList();
-    }
-
-    function renderSection(containerId, items) {
-      const root = $(containerId);
-      root.innerHTML = "";
-      for (const p of items) {
-        const row = document.createElement("div");
-        row.className = "item";
-        row.onclick = () => openConnect(p.id);
-
-        const logo = document.createElement("div");
-        logo.className = "logo";
-        logo.textContent = upper1(p.displayName || p.id);
-
-        const main = document.createElement("div");
-        main.className = "item-main";
-
-        const name = document.createElement("div");
-        name.className = "item-name";
-        name.appendChild(document.createTextNode(safeText(p.displayName || p.id)));
-
-        if (p.recommended) {
-          const b = document.createElement("span");
-          b.className = "badge rec";
-          b.textContent = "Recommended";
-          name.appendChild(b);
-        }
-        if (p.connected) {
-          const b = document.createElement("span");
-          b.className = "badge ok";
-          b.textContent = "Connected";
-          name.appendChild(b);
-        }
-
-        const desc = document.createElement("div");
-        desc.className = "item-desc";
-        desc.textContent = safeText(p.description || "");
-
-        main.appendChild(name);
-        main.appendChild(desc);
-
-        const chev = document.createElement("div");
-        chev.className = "chev";
-        chev.textContent = "›";
-
-        row.appendChild(logo);
-        row.appendChild(main);
-        row.appendChild(chev);
-        root.appendChild(row);
-      }
-    }
-
-    function renderList() {
-      const q = safeText(state.search).trim().toLowerCase();
-      const all = q ? state.providers.filter((p) => matches(p, q)) : state.providers.slice();
-      all.sort((a, b) => {
-        const ra = categoryOrder[a.category] ?? 9;
-        const rb = categoryOrder[b.category] ?? 9;
-        if (ra !== rb) return ra - rb;
-        return safeText(a.displayName).localeCompare(safeText(b.displayName), undefined, { sensitivity: "base" });
-      });
-
-      const configured = all.filter((p) => safeText(p.category) === "configured");
-      const popular = all.filter((p) => safeText(p.category) === "popular");
-      const other = all.filter((p) => safeText(p.category) === "other");
-
-      $("secConfigured").classList.toggle("hidden", configured.length === 0);
-      if (configured.length > 0) renderSection("listConfigured", configured);
-      renderSection("listPopular", popular);
-      renderSection("listOther", other);
-    }
-
-    function openConnect(id) {
-      state.selectedId = id;
-      state.keyShown = false;
-      state.isNewKeyDraft = false;
-      state.hasExistingKey = false;
-      state.existingKeyMasked = "";
-      state.existingKeyFull = "";
-
-      const p = findProvider(id) || { id, displayName: id, description: "", connected: false };
-
-      $("connectTitle").textContent = "Connect " + safeText(p.displayName || p.id);
-      $("connectSubtitle").textContent =
-        "Enter your " + safeText(p.displayName || p.id) + " API key to connect your account and use it in Aevatar apps.";
-
-      $("providerNameInput").value = safeText(p.id || id);
-      $("endpointInput").value = "";
-      $("endpointMeta").textContent = "";
-      $("modelInput").value = "";
-      $("modelMeta").textContent = "";
-      $("modelsDatalist").innerHTML = "";
-      state.modelOriginal = "";
-      state.modelSource = "";
-      $("apiKeyInput").value = "";
-      $("apiKeyInput").type = "password";
-      $("toggleKeyBtn").textContent = "Show";
-      $("disconnectBtn").disabled = true;
-      $("testBtn").disabled = true;
-      $("modelsBtn").disabled = true;
-      setModelsBox("");
-
-      setConnectMsg("");
-      updateSubmitEnabled();
-      setView("connect");
-
-      void loadProviderDetails(safeText(p.id || id));
-    }
-
-    function openAdvanced() {
-      state.advShown = false;
-      $("advKeyInput").value = "";
-      $("advValueInput").value = "";
-      $("advValueInput").type = "password";
-      $("advToggleBtn").textContent = "Show";
-      setAdvMsg("");
-      setView("advanced");
-      updateAdvancedButtons();
-    }
-
-    function setConnectMsg(text, kind) {
-      const el = $("connectMsg");
-      el.textContent = safeText(text);
-      el.className = "msg";
-      if (kind === "ok") el.classList.add("ok");
-      if (kind === "err") el.classList.add("err");
-    }
-
-    function setAdvMsg(text, kind) {
-      const el = $("advMsg");
-      el.textContent = safeText(text);
-      el.className = "msg";
-      if (kind === "ok") el.classList.add("ok");
-      if (kind === "err") el.classList.add("err");
-    }
-
-    function updateSubmitEnabled() {
-      const pn = safeText($("providerNameInput").value).trim();
-      const key = safeText($("apiKeyInput").value).trim();
-      const model = safeText($("modelInput").value).trim();
-
-      // Safety:
-      // - Never write API key unless user is actively drafting a new key (state.isNewKeyDraft).
-      // - But allow saving Endpoint/Model settings even without changing API key.
-      const keyOk = state.isNewKeyDraft ? !isEmpty(key) : true;
-      $("submitBtn").disabled = isEmpty(pn) || isEmpty(model) || !keyOk;
-    }
-
-    function setModelsBox(text) {
-      const box = $("modelsBox");
-      const s = safeText(text);
-      if (!s) {
-        box.textContent = "";
-        box.classList.add("hidden");
-        return;
-      }
-      box.textContent = s;
-      box.classList.remove("hidden");
-    }
-
-    async function loadProviderDetails(providerName) {
-      const name = safeText(providerName).trim();
-      if (isEmpty(name)) return;
-
-      try {
-        const res = await fetch("/api/llm/provider/" + encodeURIComponent(name));
-        const json = await res.json().catch(() => null);
-        const p = json && json.provider ? json.provider : null;
-        if (!p) return;
-
-        const ep = safeText(p.endpoint || "");
-        $("endpointInput").value = ep;
-        $("endpointMeta").textContent = ep
-          ? `Endpoint (${safeText(p.endpointSource || "unknown")}): ${ep}`
-          : `Endpoint (${safeText(p.endpointSource || "unknown")}): (empty)`;
-
-        state.endpointOriginal = ep;
-        state.endpointSource = safeText(p.endpointSource || "");
-
-        const model = safeText(p.model || "");
-        $("modelInput").value = model;
-        $("modelMeta").textContent = model
-          ? `Model (${safeText(p.modelSource || "unknown")}): ${model}`
-          : `Model (${safeText(p.modelSource || "unknown")}): (empty)`;
-
-        state.modelOriginal = model;
-        state.modelSource = safeText(p.modelSource || "");
-
-        const configured = Boolean(p.apiKeyConfigured);
-        $("disconnectBtn").disabled = !configured;
-        $("testBtn").disabled = !configured;
-        $("modelsBtn").disabled = !configured;
-
-        // Sync API key display (masked by default). Do NOT override when user is typing a new key.
-        await loadApiKeyMask(name);
-      } catch {
-        // best-effort
-      }
-    }
-
-    async function loadApiKeyMask(providerName) {
-      if (state.isNewKeyDraft) return;
-
-      const name = safeText(providerName).trim();
-      if (isEmpty(name)) return;
-
-      try {
-        const res = await fetch("/api/llm/api-key/" + encodeURIComponent(name));
-        const json = await res.json().catch(() => null);
-        if (!json || json.ok !== true) return;
-
-        state.hasExistingKey = Boolean(json.configured);
-        state.existingKeyMasked = safeText(json.masked || "");
-        state.existingKeyFull = "";
-        state.keyShown = false;
-
-        // Default: show masked for configured key; keep input ready for draft otherwise.
-        if (state.hasExistingKey && state.existingKeyMasked) {
-          $("apiKeyInput").type = "text";
-          $("apiKeyInput").value = state.existingKeyMasked;
-          $("toggleKeyBtn").textContent = "Show";
-        } else {
-          // No stored key: keep as password input for new entry.
-          if (!state.isNewKeyDraft) {
-            $("apiKeyInput").type = "password";
-            $("apiKeyInput").value = "";
-            $("toggleKeyBtn").textContent = state.keyShown ? "Hide" : "Show";
-          }
-        }
-
-        updateSubmitEnabled();
-      } catch {
-        // best-effort
-      }
-    }
-
-    async function saveEndpointOverride(providerName) {
-      const name = safeText(providerName).trim();
-      if (isEmpty(name)) return;
-
-      const endpoint = safeText($("endpointInput").value).trim();
-      const key = `LLMProviders:Providers:${name}:Endpoint`;
-
-      if (isEmpty(endpoint)) {
-        await fetch("/api/secrets/remove", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ key }),
-        });
-        return;
-      }
-
-      await fetch("/api/secrets/set", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ key, value: endpoint }),
-      });
-    }
-
-    async function saveModelOverride(providerName) {
-      const name = safeText(providerName).trim();
-      if (isEmpty(name)) return;
-
-      const model = safeText($("modelInput").value).trim();
-      const key = `LLMProviders:Providers:${name}:Model`;
-
-      if (isEmpty(model)) {
-        await fetch("/api/secrets/remove", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ key }),
-        });
-        return;
-      }
-
-      await fetch("/api/secrets/set", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ key, value: model }),
-      });
-    }
-
-    function updateAdvancedButtons() {
-      const k = safeText($("advKeyInput").value).trim();
-      const v = safeText($("advValueInput").value).trim();
-      $("advSaveBtn").disabled = isEmpty(k) || isEmpty(v);
-      $("advRemoveBtn").disabled = isEmpty(k);
-    }
-
-    async function submitApiKey() {
-      const providerName = safeText($("providerNameInput").value).trim();
-      const apiKey = safeText($("apiKeyInput").value).trim();
-      const model = safeText($("modelInput").value).trim();
-      if (isEmpty(providerName)) return;
-
-      if (isEmpty(model)) {
-        setConnectMsg("Model is required. Click Fetch models and pick one (or type it).", "err");
-        updateSubmitEnabled();
-        return;
-      }
-
-      $("submitBtn").disabled = true;
-      setConnectMsg("");
-
-      try {
-        await saveEndpointOverride(providerName);
-        await saveModelOverride(providerName);
-
-        if (state.isNewKeyDraft === true) {
-          if (isEmpty(apiKey)) throw new Error("API key is required when saving a new key.");
-
-          const res = await fetch("/api/llm/api-key", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ providerName, apiKey }),
-          });
-          const text = await res.text();
-          if (!res.ok) throw new Error("HTTP " + res.status + (text ? (": " + text) : ""));
-
-          setConnectMsg("Saved. Provider is now connected. Click Test to verify.", "ok");
-          $("apiKeyInput").value = "";
-          state.isNewKeyDraft = false;
-        } else {
-          setConnectMsg("Saved settings. Click Test to verify.", "ok");
-        }
-
-        await refreshProviders();
-        await loadProviderDetails(providerName);
-      } catch (e) {
-        setConnectMsg(e && e.message ? e.message : String(e), "err");
-      } finally {
-        updateSubmitEnabled();
-      }
-    }
-
-    async function testConnection() {
-      const providerName = safeText($("providerNameInput").value).trim();
-      if (isEmpty(providerName)) return;
-
-      $("testBtn").disabled = true;
-      setConnectMsg("");
-      setModelsBox("");
-
-      try {
-        const res = await fetch("/api/llm/test/" + encodeURIComponent(providerName));
-        const json = await res.json().catch(() => null);
-        if (!json) throw new Error("bad response");
-
-        if (json.ok === true) {
-          const ms = typeof json.latencyMs === "number" ? json.latencyMs : null;
-          const cnt = typeof json.modelsCount === "number" ? json.modelsCount : null;
-          setConnectMsg(`OK${ms != null ? ` · ${ms}ms` : ""}${cnt != null ? ` · models=${cnt}` : ""}`, "ok");
-
-          const sample = Array.isArray(json.sampleModels) ? json.sampleModels : [];
-          if (sample.length > 0) {
-            setModelsBox(sample.join("\n"));
-          }
-        } else {
-          setConnectMsg(`Test failed: ${safeText(json.error || "unknown error")}`, "err");
-        }
-      } catch (e) {
-        setConnectMsg(e && e.message ? e.message : String(e), "err");
-      } finally {
-        // Keep user draft inputs (model/endpoint) intact; do not re-load provider details here.
-        $("modelsBtn").disabled = false;
-        updateSubmitEnabled();
-      }
-    }
-
-    async function fetchModels() {
-      const providerName = safeText($("providerNameInput").value).trim();
-      if (isEmpty(providerName)) return;
-
-      $("modelsBtn").disabled = true;
-      setConnectMsg("");
-      setModelsBox("");
-
-      try {
-        const res = await fetch("/api/llm/models/" + encodeURIComponent(providerName) + "?limit=200");
-        const json = await res.json().catch(() => null);
-        if (!json) throw new Error("bad response");
-
-        if (json.ok === true) {
-          const arr = Array.isArray(json.models) ? json.models : [];
-          setConnectMsg(`Fetched models: ${arr.length}`, "ok");
-          setModelsBox(arr.join("\n"));
-
-          // Populate datalist so user can pick a model easily.
-          const dl = $("modelsDatalist");
-          try { dl.innerHTML = ""; } catch {}
-          for (const m of arr) {
-            const v = safeText(m).trim();
-            if (!v) continue;
-            const opt = document.createElement("option");
-            opt.value = v;
-            dl.appendChild(opt);
-          }
-
-          // If model is empty, prefill with the first model (user can override).
-          if (isEmpty(safeText($("modelInput").value).trim()) && arr.length > 0) {
-            $("modelInput").value = safeText(arr[0]).trim();
-            $("modelMeta").textContent = `Model (suggested): ${safeText($("modelInput").value).trim()}`;
-          }
-
-          updateSubmitEnabled();
-        } else {
-          setConnectMsg(`Fetch models failed: ${safeText(json.error || "unknown error")}`, "err");
-        }
-      } catch (e) {
-        setConnectMsg(e && e.message ? e.message : String(e), "err");
-      } finally {
-        await loadProviderDetails(providerName);
-      }
-    }
-
-    async function disconnectApiKey() {
-      const providerName = safeText($("providerNameInput").value).trim();
-      if (isEmpty(providerName)) return;
-
-      $("disconnectBtn").disabled = true;
-      setConnectMsg("");
-
-      try {
-        const res = await fetch("/api/llm/api-key/" + encodeURIComponent(providerName), { method: "DELETE" });
-        const text = await res.text();
-        if (!res.ok) throw new Error("HTTP " + res.status + (text ? (": " + text) : ""));
-        setConnectMsg("Disconnected.", "ok");
-        await refreshProviders();
-      } catch (e) {
-        setConnectMsg(e && e.message ? e.message : String(e), "err");
-      } finally {
-        const p = findProvider(providerName);
-        $("disconnectBtn").disabled = !(p && p.connected);
-      }
-    }
-
-    async function saveRaw() {
-      const key = safeText($("advKeyInput").value).trim();
-      const value = safeText($("advValueInput").value).trim();
-      if (isEmpty(key) || isEmpty(value)) return;
-
-      $("advSaveBtn").disabled = true;
-      setAdvMsg("");
-
-      try {
-        const res = await fetch("/api/secrets/set", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ key, value }),
-        });
-        const text = await res.text();
-        if (!res.ok) throw new Error("HTTP " + res.status + (text ? (": " + text) : ""));
-        setAdvMsg("Saved.", "ok");
-        $("advValueInput").value = "";
-        await refreshProviders();
-      } catch (e) {
-        setAdvMsg(e && e.message ? e.message : String(e), "err");
-      } finally {
-        updateAdvancedButtons();
-      }
-    }
-
-    async function removeRaw() {
-      const key = safeText($("advKeyInput").value).trim();
-      if (isEmpty(key)) return;
-
-      $("advRemoveBtn").disabled = true;
-      setAdvMsg("");
-
-      try {
-        const res = await fetch("/api/secrets/remove", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ key }),
-        });
-        const text = await res.text();
-        if (!res.ok) throw new Error("HTTP " + res.status + (text ? (": " + text) : ""));
-        setAdvMsg("Removed (if existed).", "ok");
-        await refreshProviders();
-      } catch (e) {
-        setAdvMsg(e && e.message ? e.message : String(e), "err");
-      } finally {
-        updateAdvancedButtons();
-      }
-    }
-
-    function wire() {
-      $("searchInput").addEventListener("input", debounce((e) => {
-        state.search = e.target.value || "";
-        renderList();
-      }, 80));
-
-      $("closeBtn").onclick = () => {
-        state.search = "";
-        $("searchInput").value = "";
-        renderList();
-      };
-
-      $("advancedItem").onclick = () => openAdvanced();
-
-      $("backBtn").onclick = () => { setView("list"); setConnectMsg(""); refreshProviders(); };
-      $("connectCloseBtn").onclick = () => { setView("list"); setConnectMsg(""); refreshProviders(); };
-      $("advBackBtn").onclick = () => { setView("list"); setAdvMsg(""); refreshProviders(); };
-      $("advCloseBtn").onclick = () => { setView("list"); setAdvMsg(""); refreshProviders(); };
-
-      $("toggleKeyBtn").onclick = () => {
-        const providerName = safeText($("providerNameInput").value).trim();
-
-        // Draft mode: classic password toggle.
-        if (state.isNewKeyDraft || !state.hasExistingKey) {
-          state.keyShown = !state.keyShown;
-          $("apiKeyInput").type = state.keyShown ? "text" : "password";
-          $("toggleKeyBtn").textContent = state.keyShown ? "Hide" : "Show";
-          return;
-        }
-
-        // Existing-key mode: hide shows masked string; show reveals full key (local-only).
-        if (!state.keyShown) {
-          // Show -> fetch full key (best-effort)
-          (async () => {
-            try {
-              const res = await fetch(
-                "/api/llm/api-key/" + encodeURIComponent(providerName) + "?reveal=true"
-              );
-              const json = await res.json().catch(() => null);
-              if (!json || json.ok !== true || !json.value) {
-                setConnectMsg("Failed to reveal key (not configured).", "err");
-                return;
-              }
-
-              state.existingKeyFull = safeText(json.value || "");
-              state.existingKeyMasked = safeText(json.masked || state.existingKeyMasked || "");
-              state.keyShown = true;
-
-              $("apiKeyInput").type = "text";
-              $("apiKeyInput").value = state.existingKeyFull;
-              $("toggleKeyBtn").textContent = "Hide";
-              updateSubmitEnabled();
-            } catch (e) {
-              setConnectMsg(e && e.message ? e.message : String(e), "err");
-            }
-          })();
-        } else {
-          // Hide -> show masked; drop full value from memory best-effort.
-          state.keyShown = false;
-          state.existingKeyFull = "";
-
-          $("apiKeyInput").type = "text";
-          $("apiKeyInput").value = state.existingKeyMasked || "";
-          $("toggleKeyBtn").textContent = "Show";
-          updateSubmitEnabled();
-        }
-      };
-
-      $("providerNameInput").addEventListener("input", debounce(updateSubmitEnabled, 60));
-      $("endpointInput").addEventListener("input", debounce(updateSubmitEnabled, 60));
-      $("modelInput").addEventListener("input", debounce(updateSubmitEnabled, 60));
-      $("apiKeyInput").addEventListener("focus", () => {
-        // Convenience: when displaying stored key, select all so paste replaces it cleanly.
-        if (!state.isNewKeyDraft && state.hasExistingKey) {
-          try { $("apiKeyInput").select(); } catch {}
-        }
-      });
-      $("apiKeyInput").addEventListener("input", debounce(() => {
-        const cur = safeText($("apiKeyInput").value).trim();
-
-        if (!state.isNewKeyDraft) {
-          const equalsMasked = state.hasExistingKey && cur === safeText(state.existingKeyMasked).trim();
-          const equalsFull = state.hasExistingKey && state.existingKeyFull && cur === safeText(state.existingKeyFull).trim();
-          if (!equalsMasked && !equalsFull && !isEmpty(cur)) {
-            // User started typing a new key: switch to draft mode (password by default).
-            state.isNewKeyDraft = true;
-            state.keyShown = false;
-            $("apiKeyInput").type = "password";
-            $("toggleKeyBtn").textContent = "Show";
-            setModelsBox("");
-          }
-        }
-
-        updateSubmitEnabled();
-      }, 60));
-      $("submitBtn").onclick = () => submitApiKey();
-      $("testBtn").onclick = () => testConnection();
-      $("modelsBtn").onclick = () => fetchModels();
-      $("disconnectBtn").onclick = () => disconnectApiKey();
-
-      $("advToggleBtn").onclick = () => {
-        state.advShown = !state.advShown;
-        $("advValueInput").type = state.advShown ? "text" : "password";
-        $("advToggleBtn").textContent = state.advShown ? "Hide" : "Show";
-      };
-      $("advKeyInput").addEventListener("input", debounce(updateAdvancedButtons, 60));
-      $("advValueInput").addEventListener("input", debounce(updateAdvancedButtons, 60));
-      $("advSaveBtn").onclick = () => saveRaw();
-      $("advRemoveBtn").onclick = () => removeRaw();
-    }
-
-    (async function main() {
-      wire();
-      setView("list");
-      await refreshProviders();
-    })();
-  </script>
-</body>
-</html>
-""";
-}
-
-

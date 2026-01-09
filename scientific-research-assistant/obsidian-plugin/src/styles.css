@@ -1,0 +1,12 @@
+/* ============================================================
+ *  Tailwind entry (Obsidian plugin)
+ *
+ *  中文说明：
+ *  - Obsidian 有自己的全局样式与主题系统，不能用 Tailwind preflight 去“重置世界”
+ *  - 我们只生成 utilities/components，并通过 tailwind.config 的 `important` 选项把样式限定在 view 根容器内
+ * ============================================================ */
+
+@tailwind components;
+@tailwind utilities;
+
+

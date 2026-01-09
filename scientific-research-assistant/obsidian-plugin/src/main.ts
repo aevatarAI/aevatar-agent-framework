@@ -1,6 +1,7 @@
 import { Notice, Plugin } from "obsidian";
 import { DEFAULT_SRA_SETTINGS, SraSettingsTab, type SraPluginSettings } from "./settings";
 import { SraView, VIEW_TYPE_SRA } from "./ui/SraView";
+import { WorkbenchView, VIEW_TYPE_SRA_WORKBENCH } from "./ui/WorkbenchView";
 
 // ============================================================
 //  Aevatar SRA (Obsidian Desktop Plugin)
@@ -23,11 +24,18 @@ export default class AevatarSraPlugin extends Plugin {
     this.addSettingTab(new SraSettingsTab(this.app, this));
 
     this.registerView(VIEW_TYPE_SRA, (leaf) => new SraView(leaf, this as any));
+    this.registerView(VIEW_TYPE_SRA_WORKBENCH, (leaf) => new WorkbenchView(leaf, this as any));
 
     this.addCommand({
       id: "aevatar-sra-open-panel",
       name: "SRA: Open Panel",
       callback: () => void this.activateView(),
+    });
+
+    this.addCommand({
+      id: "aevatar-sra-open-workbench",
+      name: "SRA: Open Workbench",
+      callback: () => void this.activateWorkbenchView(),
     });
 
     this.addCommand({
@@ -75,6 +83,16 @@ export default class AevatarSraPlugin extends Plugin {
 
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
+  }
+
+  private async activateWorkbenchView(): Promise<WorkbenchView> {
+    const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_SRA_WORKBENCH);
+    const leaf = existing[0] ?? this.app.workspace.getRightLeaf(false);
+    if (!leaf) throw new Error("No workspace leaf available");
+
+    await leaf.setViewState({ type: VIEW_TYPE_SRA_WORKBENCH, active: true });
+    this.app.workspace.revealLeaf(leaf);
+    return leaf.view as WorkbenchView;
   }
 
   private async activateView(): Promise<SraView> {

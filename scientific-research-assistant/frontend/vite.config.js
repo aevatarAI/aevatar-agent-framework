@@ -8,9 +8,15 @@ export default defineConfig({
         alias: {
             // Local shim for @agui/sdk (keeps dev offline-friendly; can be replaced with real package later)
             '@agui/sdk': path.resolve(__dirname, 'src/lib/agui-sdk.ts'),
+            // Shared UI core (used by both Web and Obsidian hosts)
+            '@sra/ui': path.resolve(__dirname, '../ui/src'),
         },
     },
     server: {
+        // Allow importing shared sources outside the frontend root (monorepo).
+        fs: {
+            allow: [path.resolve(__dirname, '..')],
+        },
         host: true,
         port: 5173,
         proxy: {

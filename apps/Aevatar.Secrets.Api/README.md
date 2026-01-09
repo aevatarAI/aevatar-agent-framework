@@ -26,9 +26,11 @@ dotnet run --project apps/Aevatar.Secrets.Api/Aevatar.Secrets.Api.csproj
 常用接口（均为 localhost-only）：
 
 - `GET /api/llm/providers`
+- `GET /api/llm/instances`
 - `GET /api/llm/provider/{providerName}`
 - `GET /api/llm/test/{providerName}`
 - `GET /api/llm/models/{providerName}?limit=200`
+- `POST /api/llm/instance`
 
 ### 覆盖 secrets 路径
 

@@ -1,12 +1,20 @@
 {
   "filePath": ".spec-workflow/specs/obsidian-sra-ui-parity/requirements.md",
-  "currentVersion": 1,
+  "currentVersion": 2,
   "snapshots": [
     {
       "version": 1,
       "filename": "snapshot-001.json",
       "timestamp": "2026-01-09T03:06:34.881Z",
       "trigger": "initial",
+      "approvalId": "approval_1767927994701_dh0vkirhh",
+      "approvalTitle": "Approve requirements for obsidian-sra-ui-parity (Port SRA Web UI into Obsidian with full panel parity)"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-09T03:10:29.809Z",
+      "trigger": "approved",
       "approvalId": "approval_1767927994701_dh0vkirhh",
       "approvalTitle": "Approve requirements for obsidian-sra-ui-parity (Port SRA Web UI into Obsidian with full panel parity)"
     }

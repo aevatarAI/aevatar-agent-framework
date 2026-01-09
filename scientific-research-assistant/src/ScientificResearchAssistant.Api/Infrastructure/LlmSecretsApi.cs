@@ -33,8 +33,20 @@ public static class LlmSecretsApi
             if (!IsLocal(http))
                 return Results.Forbid();
 
-            var providers = ProviderCatalog.Build(secrets);
+            var providers = ProviderCatalog.BuildProviderTypes(secrets);
             return Results.Json(new { ok = true, providers });
+        });
+
+        // Configured provider instances (multi-model friendly)
+        app.MapGet("/api/llm/instances", (
+            IAevatarUserSecretsStore secrets,
+            HttpContext http) =>
+        {
+            if (!IsLocal(http))
+                return Results.Forbid();
+
+            var instances = ProviderCatalog.BuildInstances(secrets);
+            return Results.Json(new { ok = true, instances });
         });
 
         // Provider details (never returns secret values)
@@ -153,6 +165,74 @@ public static class LlmSecretsApi
             return Results.Json(new { ok = true, providerName, keyPath });
         });
 
+        // Upsert a provider instance (multi-model friendly).
+        // - Writes ProviderType/Model/Endpoint and ApiKey (direct or copied) into user secrets.
+        // - All values are stored under: LLMProviders:Providers:{name}:*
+        app.MapPost("/api/llm/instance", (
+            UpsertLlmInstanceRequest req,
+            IAevatarUserSecretsStore secrets,
+            HttpContext http) =>
+        {
+            if (!IsLocal(http))
+                return Results.Forbid();
+
+            var name = (req.ProviderName ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(name))
+                return Results.BadRequest(new { ok = false, error = "providerName is required" });
+
+            var providerType = (req.ProviderType ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(providerType))
+                return Results.BadRequest(new { ok = false, error = "providerType is required" });
+
+            var model = (req.Model ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(model))
+                return Results.BadRequest(new { ok = false, error = "model is required" });
+
+            // ProviderType/Model are always explicit for instances.
+            var providerTypePath = $"LLMProviders:Providers:{name}:ProviderType";
+            var modelPath = $"LLMProviders:Providers:{name}:Model";
+            secrets.Set(providerTypePath, providerType);
+            secrets.Set(modelPath, model);
+
+            // Endpoint is optional: if empty -> remove override (fall back to profile default).
+            var endpointPath = $"LLMProviders:Providers:{name}:Endpoint";
+            var endpoint = (req.Endpoint ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(endpoint))
+            {
+                secrets.Remove(endpointPath);
+            }
+            else
+            {
+                secrets.Set(endpointPath, endpoint);
+            }
+
+            // ApiKey: allow direct set or server-side copy (never echo).
+            var apiKeyPath = $"LLMProviders:Providers:{name}:ApiKey";
+            var apiKey = (req.ApiKey ?? string.Empty).Trim();
+            var copyFrom = (req.CopyApiKeyFrom ?? string.Empty).Trim();
+            if (!string.IsNullOrWhiteSpace(apiKey))
+            {
+                secrets.Set(apiKeyPath, apiKey);
+            }
+            else if (!string.IsNullOrWhiteSpace(copyFrom))
+            {
+                var fromPath = $"LLMProviders:Providers:{copyFrom}:ApiKey";
+                if (!secrets.TryGet(fromPath, out var fromKey) || string.IsNullOrWhiteSpace(fromKey))
+                    return Results.BadRequest(new { ok = false, error = "copyApiKeyFrom has no configured apiKey" });
+                secrets.Set(apiKeyPath, fromKey.Trim());
+            }
+
+            var resolved = LlmProviderResolver.Resolve(secrets, name);
+            return Results.Json(new
+            {
+                ok = true,
+                providerName = name,
+                providerType,
+                keyPaths = new[] { providerTypePath, modelPath, endpointPath, apiKeyPath },
+                provider = resolved.Public
+            });
+        });
+
         app.MapDelete("/api/llm/api-key/{providerName}", (
             string providerName,
             IAevatarUserSecretsStore secrets,
@@ -219,6 +299,13 @@ public static class LlmSecretsApi
     // Contracts (simple JSON records)
     // ------------------------------------------------------------
     private sealed record SetLlmApiKeyRequest(string? ProviderName, string? ApiKey);
+    private sealed record UpsertLlmInstanceRequest(
+        string? ProviderName,
+        string? ProviderType,
+        string? Model,
+        string? Endpoint,
+        string? ApiKey,
+        string? CopyApiKeyFrom);
     private sealed record SetSecretRequest(string? Key, string? Value);
     private sealed record RemoveSecretRequest(string? Key);
 
@@ -239,6 +326,21 @@ public static class LlmSecretsApi
         string Description,
         bool Recommended,
         bool Connected);
+
+    private sealed record ProviderTypeItem(
+        string Id,
+        string DisplayName,
+        string Category,
+        string Description,
+        bool Recommended,
+        int ConfiguredInstancesCount);
+
+    private sealed record ProviderInstanceItem(
+        string Name,
+        string ProviderType,
+        string ProviderDisplayName,
+        string Model,
+        string Endpoint);
 
     private sealed record ProviderPreset(string Id, string DisplayName, string Category, string Description, bool Recommended = false);
 
@@ -286,10 +388,44 @@ public static class LlmSecretsApi
             // Unknown provider name: treat as OpenAI-compatible with no default endpoint.
             return new ProviderProfile(name, name, "configured", "Configured via user secrets", LlmProviderKind.OpenAiCompatible, "", "");
         }
+
+        public static IReadOnlyList<ProviderProfile> All => Profiles;
+
+        public static bool TryInferProviderTypeFromInstanceName(string instanceName, out string providerType)
+        {
+            providerType = string.Empty;
+            var name = (instanceName ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(name))
+                return false;
+
+            if (Profiles.Any(p => string.Equals(p.Id, name, StringComparison.OrdinalIgnoreCase)))
+            {
+                providerType = name;
+                return true;
+            }
+
+            var idx = name.IndexOf('-', StringComparison.Ordinal);
+            if (idx <= 0)
+                return false;
+
+            var head = name.Substring(0, idx).Trim();
+            if (string.IsNullOrWhiteSpace(head))
+                return false;
+
+            if (Profiles.Any(p => string.Equals(p.Id, head, StringComparison.OrdinalIgnoreCase)))
+            {
+                providerType = head;
+                return true;
+            }
+
+            return false;
+        }
     }
 
     private sealed record ResolvedProviderPublic(
         string ProviderName,
+        string ProviderType,
+        string ProviderTypeSource,
         string DisplayName,
         string Kind,
         bool ApiKeyConfigured,
@@ -300,6 +436,8 @@ public static class LlmSecretsApi
 
     private sealed record ResolvedProvider(
         string ProviderName,
+        string ProviderType,
+        string ProviderTypeSource,
         string DisplayName,
         LlmProviderKind Kind,
         string Endpoint,
@@ -318,7 +456,29 @@ public static class LlmSecretsApi
             if (string.IsNullOrWhiteSpace(name))
                 name = "default";
 
-            var profile = ProviderProfiles.Get(name);
+            // ProviderType resolution:
+            // - Prefer explicit ProviderType in secrets (supports multi-instance names like openai-gpt-4o-mini).
+            // - Fallback: infer from "<provider>-<model>" naming convention.
+            // - Final fallback: treat providerName as providerType.
+            var providerTypeSource = "missing";
+            var providerType = string.Empty;
+            var providerTypePath = $"LLMProviders:Providers:{name}:ProviderType";
+            if (secrets.TryGet(providerTypePath, out var ptFromSecrets) && !string.IsNullOrWhiteSpace(ptFromSecrets))
+            {
+                providerTypeSource = "secret";
+                providerType = ptFromSecrets.Trim();
+            }
+            else if (ProviderProfiles.TryInferProviderTypeFromInstanceName(name, out var inferred))
+            {
+                providerTypeSource = "inferred";
+                providerType = inferred;
+            }
+            else
+            {
+                providerType = name;
+            }
+
+            var profile = ProviderProfiles.Get(providerType);
 
             var apiKeyPath = $"LLMProviders:Providers:{name}:ApiKey";
             var endpointPath = $"LLMProviders:Providers:{name}:Endpoint";
@@ -355,6 +515,8 @@ public static class LlmSecretsApi
 
             var pub = new ResolvedProviderPublic(
                 ProviderName: name,
+                ProviderType: providerType,
+                ProviderTypeSource: providerTypeSource,
                 DisplayName: profile.DisplayName,
                 Kind: profile.Kind.ToString(),
                 ApiKeyConfigured: apiKeyConfigured,
@@ -365,6 +527,8 @@ public static class LlmSecretsApi
 
             return new ResolvedProvider(
                 ProviderName: name,
+                ProviderType: providerType,
+                ProviderTypeSource: providerTypeSource,
                 DisplayName: profile.DisplayName,
                 Kind: profile.Kind,
                 Endpoint: endpoint,
@@ -379,68 +543,47 @@ public static class LlmSecretsApi
 
     private static class ProviderCatalog
     {
-        public static IReadOnlyList<ProviderItem> Build(IAevatarUserSecretsStore secrets)
+        public static IReadOnlyList<ProviderTypeItem> BuildProviderTypes(IAevatarUserSecretsStore secrets)
         {
-            // NOTE: "Id" here is also the default providerName we write into:
-            //   LLMProviders:Providers:{providerName}:ApiKey
-            // Apps can still use any custom provider name; those will show up under "Configured" once written.
-            var presets = new[]
-            {
-                // Popular
-                new ProviderPreset("openai", "OpenAI", "popular", "Connect with API key"),
-                new ProviderPreset("anthropic", "Anthropic", "popular", "Connect with Claude API key"),
-                new ProviderPreset("google", "Google", "popular", "Connect with Gemini API key"),
-                new ProviderPreset("openrouter", "OpenRouter", "popular", "Bring your own key (OpenAI compatible)"),
+            var counts = BuildInstances(secrets)
+                .GroupBy(x => x.ProviderType, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
 
-                // Other (common in Aevatar demos)
-                new ProviderPreset("deepseek", "DeepSeek", "other", "OpenAI-compatible API key"),
-                new ProviderPreset("dashscope", "DashScope", "other", "Alibaba Qwen API key"),
-                new ProviderPreset("azureopenai", "Azure OpenAI", "other", "Azure key (requires endpoint in appsettings)"),
-                new ProviderPreset("groq", "Groq", "other", "OpenAI-compatible API key"),
-                new ProviderPreset("mistral", "Mistral", "other", "API key"),
-                new ProviderPreset("together", "Together", "other", "API key"),
-            };
-
-            var dict = new Dictionary<string, ProviderItem>(StringComparer.OrdinalIgnoreCase);
-            foreach (var p in presets)
-            {
-                var keyPath = $"LLMProviders:Providers:{p.Id}:ApiKey";
-                var connected = secrets.TryGet(keyPath, out var v) && !string.IsNullOrWhiteSpace(v);
-                dict[p.Id] = new ProviderItem(
+            return ProviderProfiles.All
+                .OrderBy(x => string.Equals(x.Category, "popular", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                .ThenBy(x => x.DisplayName, StringComparer.OrdinalIgnoreCase)
+                .Select(p => new ProviderTypeItem(
                     Id: p.Id,
                     DisplayName: p.DisplayName,
-                    Category: connected ? "configured" : p.Category,
+                    Category: p.Category,
                     Description: p.Description,
                     Recommended: p.Recommended,
-                    Connected: connected);
-            }
-
-            foreach (var name in ExtractConfiguredProviderNames(secrets))
-            {
-                if (dict.ContainsKey(name))
-                    continue;
-
-                dict[name] = new ProviderItem(
-                    Id: name,
-                    DisplayName: name,
-                    Category: "configured",
-                    Description: "Configured via user secrets",
-                    Recommended: false,
-                    Connected: true);
-            }
-
-            static int Rank(string c) =>
-                string.Equals(c, "configured", StringComparison.OrdinalIgnoreCase) ? 0
-                : string.Equals(c, "popular", StringComparison.OrdinalIgnoreCase) ? 1
-                : 2;
-
-            return dict.Values
-                .OrderBy(x => Rank(x.Category))
-                .ThenBy(x => x.DisplayName, StringComparer.OrdinalIgnoreCase)
+                    ConfiguredInstancesCount: counts.TryGetValue(p.Id, out var c) ? c : 0))
                 .ToList();
         }
 
-        private static HashSet<string> ExtractConfiguredProviderNames(IAevatarUserSecretsStore secrets)
+        public static IReadOnlyList<ProviderInstanceItem> BuildInstances(IAevatarUserSecretsStore secrets)
+        {
+            var names = ExtractConfiguredInstanceNames(secrets);
+            var list = new List<ProviderInstanceItem>(names.Count);
+            foreach (var name in names)
+            {
+                var resolved = LlmProviderResolver.Resolve(secrets, name);
+                list.Add(new ProviderInstanceItem(
+                    Name: name,
+                    ProviderType: resolved.ProviderType,
+                    ProviderDisplayName: resolved.DisplayName,
+                    Model: resolved.Model,
+                    Endpoint: resolved.Endpoint));
+            }
+
+            return list
+                .OrderBy(x => x.ProviderDisplayName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private static HashSet<string> ExtractConfiguredInstanceNames(IAevatarUserSecretsStore secrets)
         {
             var all = secrets.GetAll();
             const string prefix = "LLMProviders:Providers:";

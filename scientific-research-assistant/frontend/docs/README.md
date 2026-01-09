@@ -28,7 +28,7 @@ frontend/src/
     DeliveryCenterPanel.tsx        # delivery center 卡片
     ComputePanel.tsx               # compute 决策卡（MVP）
     Composer.tsx                   # 输入框（支持 toAgents + uploads）
-    ApiKeyModal.tsx                # LLM provider API key 配置与测试
+    ApiKeyModal.tsx                # (Web host) iframe 集成 @aevatar/secrets-ui（示范复用）
 
   pages/
     FilesPage.tsx                  # Session 文件管理页（tree + editor + directory guide）
@@ -38,5 +38,10 @@ frontend/src/
 
 - **性能**：`MessageStore` + `ChatMessageRow` 用 `useSyncExternalStore` 做“按消息订阅”，streaming 只刷新对应行。
 - **约束**：`panels/` 保持 ≤ 8 文件；通用/可复用组件放 `components/`；状态与副作用集中在 `app/`。
+
+## Secrets UI 复用（示范）
+
+- Web host 的 `ApiKeyModal.tsx` 通过 iframe 打开 `public/secrets-ui/index.html`
+- `public/secrets-ui/*` 来自 `packages/aevatar-secrets-ui/dist`（静态可复用 UI）
 
 

@@ -2,7 +2,16 @@
 
 ### 模块边界
 
-- **`frontend/`**：React + Vite + Tailwind，使用 **AG-UI SDK** 订阅后端 SSE，渲染消息流、run/step、tool 调用面板。
+- **`ui/`（共享 UI Core）**：React + TypeScript 的 **单一 UI 来源**（host-agnostic），包含：
+  - `SraWorkbenchApp`：完整 Workbench UI（chat + panels + files/dag 视图）
+  - `useWorkbenchController`：共享 controller（transport 驱动，Web/Obsidian 行为一致）
+  - `SraTransport`：通信抽象（HTTP + SSE + uploads + capability gating）
+- **`frontend/`（Web host）**：React + Vite + Tailwind 的宿主壳。
+  - 通过 `WebTransport` 注入 `SraTransport`，渲染共享 `ui/` 的 `SraWorkbenchApp`
+  - 旧的 `frontend/src/app/*` / `frontend/src/panels/*` 多数已变为 re-export（避免重复与漂移）
+- **`obsidian-plugin/`（Obsidian host）**：Obsidian Desktop 插件宿主壳（React view + Tailwind scoped CSS）。
+  - 通过 `ObsidianTransport` 注入 `SraTransport`，渲染共享 `ui/` 的 `SraWorkbenchApp`
+  - 通过 capability gating（loopback-only）安全降级本地敏感能力（files/secrets/key reveal 等）
 - **`src/ScientificResearchAssistant.Api/`**：ASP.NET Core API（**AG-UI**），提供 session API + `/agui/events` SSE（快照优先）。
 - **`src/ScientificResearchAssistant/`**：`ResearchAgent`（基于 `AIGAgentBase`），支持：
   - 连接 Claude Scientific Skills 的 MCP 工具（可选）
@@ -42,6 +51,26 @@
   - 额外发送 `CUSTOM`：
     - `aevatar.scientific.session`：会话元信息
     - `aevatar.scientific.tools_snapshot`：工具列表（含 MCP 标记）
+
+### 双宿主（Web / Obsidian）与 Transport 抽象
+
+核心原则：**UI 与宿主解耦**，所有跨边界 IO 通过 `SraTransport` 完成。
+
+- **WebTransport（浏览器）**：
+  - HTTP：`fetch`
+  - SSE：`EventSource`
+  - baseUrl：通常通过 Vite proxy 指向本地 sidecar（默认 `localhost:5678`）
+- **ObsidianTransport（桌面插件）**：
+  - HTTP：Obsidian `requestUrl`（规避 CORS）
+  - SSE：Node-style SSE client（支持断线重连）
+  - 能力：通过 loopback 检测启用/禁用本地敏感 API（files/secrets/key reveal）
+
+### Capability gating（本地/远程安全降级）
+
+共享 UI 根据 `transport.capabilities` 进行功能开关，避免在 remote baseUrl 场景误导用户触发 localhost-only API：
+
+- `filesApi`：控制 Files 相关 UI
+- `secretsEnabled` / `revealApiKey`：控制 secrets/LLM provider 配置与 key reveal
 
 ### Vibe Researching（facts + sources → 多智能体推论）
 

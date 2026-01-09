@@ -243,6 +243,18 @@ app.MapGet("/api/sessions/{sessionId}/artifacts/state", (string sessionId, Axiom
     return Results.File(bytes, "application/json; charset=utf-8", fileDownloadName: fileName);
 });
 
+app.MapPost("/api/sessions/{sessionId}/artifacts/state/update-existing-hypothesis", async (string sessionId, HttpContext ctx, AxiomReasoningService svc) =>
+{
+    using var reader = new StreamReader(ctx.Request.Body);
+    var json = await reader.ReadToEndAsync();
+    var req = System.Text.Json.JsonSerializer.Deserialize<System.Collections.Generic.Dictionary<string, string>>(json);
+    if (req == null || !req.TryGetValue("existingHypothesis", out var existingHypothesis))
+        return Results.BadRequest(new { success = false, error = "existingHypothesis is required" });
+
+    var result = svc.UpdateExistingHypothesis(sessionId, existingHypothesis);
+    return Results.Json(result);
+});
+
 app.MapGet("/api/sessions/{sessionId}/artifacts/theorems", (string sessionId, AxiomReasoningService svc) =>
 {
     if (!svc.TryGetFileContent(sessionId, "artifacts", "theorems.json", out var content))

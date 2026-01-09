@@ -4,6 +4,8 @@ using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using Aevatar.AxiomReasoning.Graph;
 using Aevatar.AxiomReasoning.EventStreaming.Events;
+using System.Collections.Generic;
+using System.IO;
 
 namespace Aevatar.AxiomReasoning.Services;
 
@@ -90,6 +92,23 @@ public sealed class AxiomReasoningEventBridge
             var isFailed = stepStatus.Contains("Failed", StringComparison.OrdinalIgnoreCase);
             var includeBody = isCompleted || isFailed || string.Equals(p.StepType, "vote", StringComparison.OrdinalIgnoreCase);
             var errorText = isFailed ? (p.Message ?? "Step failed") : null;
+            
+            // CRITICAL: Sync session.ExistingHypothesis to state.existing_hypothesis after ANY llm_call that outputs state
+            // This ensures that if ExistingHypothesis is updated during execution, it gets propagated to state
+            // We check for llm_call steps that might output state (init_state, update_state, or any step that modifies state)
+            if (isCompleted && string.Equals(p.StepType, "llm_call", StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(p.AssistantResponse) && !string.IsNullOrWhiteSpace(session.ExistingHypothesis))
+            {
+                try
+                {
+                    // Try to sync existing_hypothesis to state.json if the response contains state
+                    SyncExistingHypothesisToStateIfNeeded(session, p.AssistantResponse);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[AXIOM] Failed to sync existing_hypothesis after {StepId} (non-critical)", p.StepId);
+                }
+            }
 
             // Streaming optimization:
             // - During streaming, send prompts only once (first token) to avoid huge SSE payload per token.
@@ -185,6 +204,7 @@ public sealed class AxiomReasoningEventBridge
                 session.EventHub.Publish(graph with { SessionId = session.Id });
             }
 
+
             _logger.LogDebug("[AXIOM] {Session} {Phase} {Step} {Status}",
                 session.Id, p.Phase, p.StepId, p.StepStatus);
         }
@@ -205,6 +225,196 @@ public sealed class AxiomReasoningEventBridge
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "[AXIOM] GraphStore upsert failed (session={SessionId})", sessionId);
+        }
+    }
+
+    // ============================================================
+    //  同步 session.ExistingHypothesis 到 state.existing_hypothesis (从 state.json 文件)
+    // ============================================================
+    private void SyncExistingHypothesisToStateIfNeeded(AxiomSession session, string assistantResponse)
+    {
+        try
+        {
+            // First, try to update state.json directly if it exists
+            var outputDir = Path.Combine(Directory.GetCurrentDirectory(), "output", session.Id);
+            var stateJsonPath = Path.Combine(outputDir, "artifacts", "state.json");
+            
+            if (File.Exists(stateJsonPath))
+            {
+                try
+                {
+                    var stateJson = File.ReadAllText(stateJsonPath);
+                    using var doc = JsonDocument.Parse(stateJson);
+                    var root = doc.RootElement.Clone();
+                    var stateObj = JsonSerializer.Deserialize<Dictionary<string, object>>(root.GetRawText());
+                    
+                    if (stateObj != null)
+                    {
+                        var currentExistingHyp = stateObj.ContainsKey("existing_hypothesis") 
+                            ? stateObj["existing_hypothesis"]?.ToString() ?? "" 
+                            : "";
+                        var sessionExistingHyp = session.ExistingHypothesis?.Trim() ?? "";
+                        
+                        // If session has a value and state doesn't, or if they differ, update state
+                        if (!string.IsNullOrWhiteSpace(sessionExistingHyp) && 
+                            (string.IsNullOrWhiteSpace(currentExistingHyp) || 
+                             !currentExistingHyp.Equals(sessionExistingHyp, StringComparison.Ordinal)))
+                        {
+                            stateObj["existing_hypothesis"] = sessionExistingHyp;
+                            
+                            var syncJsonOptions = new JsonSerializerOptions
+                            {
+                                WriteIndented = true,
+                                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+                            };
+                            var updatedJson = JsonSerializer.Serialize(stateObj, syncJsonOptions);
+                            
+                            File.WriteAllText(stateJsonPath, updatedJson);
+                            _logger.LogInformation("[AXIOM] ✅ Synced session.ExistingHypothesis ({Length} chars) to state.existing_hypothesis in state.json", 
+                                session.Id, sessionExistingHyp.Length);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[AXIOM] Failed to sync existing_hypothesis from state.json (non-critical)", session.Id);
+                }
+            }
+            
+            // Also try to parse from assistantResponse if it contains state
+            SyncExistingHypothesisFromResponse(session, assistantResponse);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[AXIOM] Failed to sync existing_hypothesis (non-critical)", session.Id);
+        }
+    }
+
+    // ============================================================
+    //  从 LLM 响应中同步 session.ExistingHypothesis 到 state.existing_hypothesis
+    // ============================================================
+    private void SyncExistingHypothesisFromResponse(AxiomSession session, string assistantResponse)
+    {
+        try
+        {
+            // Try to parse the assistant response as JSON (init_state output)
+            JsonElement root;
+            var trimmed = assistantResponse.Trim();
+            if (trimmed.Length == 0)
+                return;
+
+            // Try parsing directly
+            try
+            {
+                using var doc = JsonDocument.Parse(trimmed);
+                root = doc.RootElement.Clone();
+            }
+            catch
+            {
+                // Try stripping markdown code fences
+                if (trimmed.StartsWith("```", StringComparison.Ordinal))
+                {
+                    var firstNl = trimmed.IndexOf('\n');
+                    if (firstNl >= 0 && firstNl + 1 < trimmed.Length)
+                    {
+                        var inner = trimmed[(firstNl + 1)..];
+                        var endFence = inner.LastIndexOf("```", StringComparison.Ordinal);
+                        if (endFence >= 0)
+                        {
+                            var body = inner[..endFence].Trim();
+                            try
+                            {
+                                using var doc = JsonDocument.Parse(body);
+                                root = doc.RootElement.Clone();
+                            }
+                            catch
+                            {
+                                return; // Failed to parse
+                            }
+                        }
+                        else
+                        {
+                            return; // Failed to parse
+                        }
+                    }
+                    else
+                    {
+                        return; // Failed to parse
+                    }
+                }
+                else
+                {
+                    // Try first {...} block
+                    var firstBrace = trimmed.IndexOf('{');
+                    var lastBrace = trimmed.LastIndexOf('}');
+                    if (firstBrace >= 0 && lastBrace > firstBrace)
+                    {
+                        var obj = trimmed[firstBrace..(lastBrace + 1)].Trim();
+                        try
+                        {
+                            using var doc = JsonDocument.Parse(obj);
+                            root = doc.RootElement.Clone();
+                        }
+                        catch
+                        {
+                            return; // Failed to parse
+                        }
+                    }
+                    else
+                    {
+                        return; // Failed to parse
+                    }
+                }
+            }
+
+            // Some workflows may wrap output as { "state": { ... } }.
+            if (root.TryGetProperty("state", out var wrappedState) && wrappedState.ValueKind == JsonValueKind.Object)
+            {
+                root = wrappedState;
+            }
+
+            // Check if existing_hypothesis exists and differs from session.ExistingHypothesis
+            var stateExistingHyp = "";
+            if (root.TryGetProperty("existing_hypothesis", out var existingHypProp) && 
+                existingHypProp.ValueKind == JsonValueKind.String)
+            {
+                stateExistingHyp = existingHypProp.GetString() ?? "";
+            }
+
+            var sessionExistingHyp = session.ExistingHypothesis?.Trim() ?? "";
+            
+            // If session has a value and state doesn't, or if they differ, update state
+            if (!string.IsNullOrWhiteSpace(sessionExistingHyp) && 
+                (string.IsNullOrWhiteSpace(stateExistingHyp) || 
+                 !stateExistingHyp.Equals(sessionExistingHyp, StringComparison.Ordinal)))
+            {
+                // Update the JSON object
+                var stateObj = JsonSerializer.Deserialize<Dictionary<string, object>>(root.GetRawText());
+                if (stateObj != null)
+                {
+                    stateObj["existing_hypothesis"] = sessionExistingHyp;
+                    
+                    var syncJsonOptions = new JsonSerializerOptions
+                    {
+                        WriteIndented = true,
+                        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+                    };
+                    var updatedJson = JsonSerializer.Serialize(stateObj, syncJsonOptions);
+                    
+                    // Save back to artifacts/state.json
+                    var outputDir = Path.Combine(Directory.GetCurrentDirectory(), "output", session.Id);
+                    var stateJsonPath = Path.Combine(outputDir, "artifacts", "state.json");
+                    if (File.Exists(stateJsonPath))
+                    {
+                        File.WriteAllText(stateJsonPath, updatedJson);
+                        _logger.LogInformation("[AXIOM] Synced session.ExistingHypothesis to state.existing_hypothesis after init_state", session.Id);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[AXIOM] Failed to sync existing_hypothesis (non-critical)", session.Id);
         }
     }
 

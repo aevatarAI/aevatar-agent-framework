@@ -199,19 +199,15 @@ steps:
           - Projection (readout): if a derivation would require ANY extra assumption/lemma not listed in depends_on,
             you must NOT smuggle it in. Keep the hypothesis narrow and mention the missing piece in motivation.
 
-          CRITICAL - EXTRACTION ORDER (follow this sequence):
-          1. FIRST: Extract axioms from raw_task. Each axiom is a line that begins with an ID prefix like "O1:" or "A1:".
-          2. SECOND: Extract optional user guidance from raw_task (if present):
+          CRITICAL:
+          - Extract axioms from raw_task. Each axiom is a line that begins with an ID prefix like "O1:" or "A1:".
+          - Do NOT invent axioms.
+          - Extract optional user guidance from raw_task (if present):
             - Focus / explore direction: the text under the header "Focus (optional):" (can be multi-line).
               This corresponds to the UI "Goal" field and should guide what hypotheses to propose next.
             - Seed hypothesis (optional): the text under the header "SeedHypothesis (optional):" (can be multi-line).
               If absent, also accept legacy inline formats inside Focus like "SeedHypothesis:" / "InitialHypothesis:".
-            - Existing hypothesis (optional): the text under the header "ExistingHypothesis (optional):" (can be multi-line).
-              This is a hypothesis pool that already exists and MUST be stored in state.existing_hypothesis for reference.
-              CRITICAL: Extract ALL text after "ExistingHypothesis (optional):" until the next header (or end of raw_task).
-              Preserve the exact format (multi-line, JSON array, or single line) as provided by the user.
-            - Store these into state.focus, state.seed_hypothesis, and state.existing_hypothesis for later rounds.
-              IMPORTANT: state.existing_hypothesis MUST contain the exact text extracted from "ExistingHypothesis (optional):" header.
+            - Store these into state.focus and state.seed_hypothesis for later rounds.
             - If a user seed hypothesis includes extra premises not represented by allowed IDs, do NOT smuggle them in:
               either weaken the statement to be unconditional, or move the extra premise into motivation as a gap δ.
           - Propose EXACTLY ONE additional assumption (S1) as a "quantum-structure setup".
@@ -224,14 +220,15 @@ steps:
             - Axiom IDs: the prefix before ":" (e.g. "O1", "A2")
             - Assumption IDs: from state.assumptions (exactly ["S1"])
             - Theorem IDs (only if present in the initial theorems list, e.g. "T3")
-          - Seed current_hypothesis from state.existing_hypothesis (CRITICAL: MUST select from existing_hypothesis, do NOT generate new).
-            - If state.existing_hypothesis is non-empty, select ONE hypothesis from it as the seed hypothesis (parse it if it's a multi-line string or JSON array).
-            - If state.seed_hypothesis is also non-empty, prefer selecting a hypothesis from existing_hypothesis that aligns with seed_hypothesis.
-            - If state.existing_hypothesis is empty, fall back to state.seed_hypothesis (if provided) or leave current_hypothesis as null.
-            - The selected hypothesis MUST include depends_on and factor_sequence. If missing, infer them from the statement and available axioms/theorems.
+          - Seed current_hypothesis with a small, checkable statement likely derivable from axioms + assumptions.
+            - If state.seed_hypothesis is non-empty, use it as the seed hypothesis statement (still fill depends_on/factor_sequence).
+              If the provided seed is too strong, minimally weaken it while staying aligned.
+            - Otherwise, pick a seed that aligns with state.focus (if non-empty).
           - The seed hypothesis MUST NOT rely on any extra premise/lemma.
             - Avoid conditional premises like "if G is finite / if boundary area is finite / assume ...".
             - If you notice a missing lemma in motivation, that means the hypothesis is NOT suitable as the seed.
+          - If you are unsure, prefer a structurally safe statement that follows from definitions already implied by the axioms
+            (e.g., from an isometry Φ: ℋ_bulk → ℋ_{∂G}, you may state injectivity or dim(ℋ_bulk) ≤ dim(ℋ_{∂G})).
           - Return ONLY JSON (no markdown).
 
           raw_task:
@@ -241,42 +238,10 @@ steps:
           {{ context | json }}
           {% endif %}
 
-          EXTRACTION INSTRUCTIONS FOR existing_hypothesis (CRITICAL - MUST FOLLOW):
-          1. Search for the exact line "ExistingHypothesis (optional):" in raw_task (case-sensitive, may have leading/trailing spaces).
-          2. If found, extract ALL text that follows this line until you encounter:
-             - The next header line that starts with a capital letter followed by a colon (e.g., "ContinueOnFailure:", "AXIOMS:", "Focus:", "SeedHypothesis:", etc.), OR
-             - The end of raw_task
-          3. Remove any leading/trailing whitespace from the extracted text, but preserve all internal line breaks, spaces, and formatting.
-          4. Store the EXACT extracted text in state.existing_hypothesis field in your JSON output.
-          5. Do NOT modify, reformat, or interpret the content. Preserve it exactly as provided.
-          6. If "ExistingHypothesis (optional):" is NOT found in raw_task, set state.existing_hypothesis to "" (empty string).
-
-          VERIFICATION CHECKLIST (before outputting JSON):
-          - [ ] Did I search for "ExistingHypothesis (optional):" in raw_task?
-          - [ ] Did I extract ALL text after that line until the next header or end?
-          - [ ] Did I include state.existing_hypothesis in my JSON output?
-          - [ ] Is state.existing_hypothesis a string (not null, not missing)?
-
-          Example:
-          If raw_task contains:
-          ```
-          ExistingHypothesis (optional):
-          Hypothesis 1: The native structure corresponds to the global minimum.
-          Hypothesis 2: TM-score is length-independent.
-          ContinueOnFailure:
-          true
-          ```
-
-          Then state.existing_hypothesis should be:
-          "Hypothesis 1: The native structure corresponds to the global minimum.\nHypothesis 2: TM-score is length-independent."
-
-          (Note: The text "ContinueOnFailure:" is NOT included because it's the next header)
-
           Output JSON schema:
           {
             "focus": string,
             "seed_hypothesis": string,
-            "existing_hypothesis": string,
             "axioms": [string],
             "assumptions": [
               { "id": string, "statement": string, "motivation": string }
@@ -309,19 +274,13 @@ steps:
             "status": "running" | "completed" | "failed" | "limit"
           }
 
-          Constraints (MANDATORY - all must be satisfied):
+          Constraints:
           - iteration MUST start at 0.
           - max_iterations MUST be set to max_depth={{max_depth}}.
           - seen_hypotheses MUST start empty.
           - assumptions MUST contain exactly 1 item with id="S1".
           - focus MUST be a string (use "" if not provided).
           - seed_hypothesis MUST be a string (use "" if not provided).
-          - existing_hypothesis MUST be a string field in your JSON output.
-            * If "ExistingHypothesis (optional):" exists in raw_task: extract the text after it and store in existing_hypothesis.
-            * If "ExistingHypothesis (optional):" does NOT exist: set existing_hypothesis to "" (empty string).
-            * DO NOT omit the existing_hypothesis field from your JSON output.
-            * DO NOT modify, reformat, or interpret the content. Preserve it exactly as provided, including line breaks and formatting.
-            * The field name MUST be exactly "existing_hypothesis" (lowercase with underscore).
 
           Language: {{language}}
         output: json
@@ -382,9 +341,7 @@ steps:
         type: llm_call
         prompt: |
           You are the coordinator in an HPA-augmented theorem discovery loop.
-          Select ONE hypothesis (Hypothesis A) from the existing_hypothesis pool to explore next.
-
-          CRITICAL: You MUST select a hypothesis from state.existing_hypothesis. Do NOT generate new hypotheses.
+          Propose ONE new hypothesis (Hypothesis A) to explore next.
 
           Operate under the HPA triad (Rotation → Factorization → Projection):
 
@@ -407,13 +364,30 @@ steps:
              - Do NOT introduce new axioms/lemmas/assumptions beyond what is provided in state (axioms/theorems/assumptions).
              - If you suspect an extra lemma is needed, weaken/narrow the statement instead of smuggling assumptions.
 
-          Selection requirements:
+          Output requirements:
           - Return ONLY JSON (no markdown).
-          - You MUST select ONE hypothesis from state.existing_hypothesis (parse it if it's a multi-line string or JSON array).
-          - The selected hypothesis MUST be NEW (not identical to any seen hypothesis).
-          - If the selected hypothesis lacks depends_on or factor_sequence, infer them from the statement and available axioms/theorems.
-          - If existing_hypothesis is empty or all hypotheses are already seen, return an error message in the statement field.
+          - The hypothesis MUST be identical to an existing hypothesis.
+          - The statement MUST be novel, non-trivial, research-grade, checkable, and likely provable/refutable within <= 10 steps.
+          - Do NOT add extra premises that are not present as IDs:
+            - Avoid "if/assuming/suppose" style statements that smuggle new conditions (e.g., "if G is finite", "if boundary area is finite").
+            - If a condition is not an existing axiom/theorem ID, you cannot use it as a premise; instead, weaken the claim to an unconditional one.
+          - If you are stuck cycling on O2-style boundedness gaps, deliberately pivot to O4 (isometry) or O3 (locality) consequences that are unconditional.
 
+          existing hypothesis:
+          [
+            {"name": "T5",
+            "statement": "For a fixed protein, the TM-score between its native structure (global minimum per O1) and itself is always 1."},
+            {"name": "T14",
+            "statement": "For two proteins with identical native structures (global minima per O1), their TM-scores to all possible reference structures are identical."},
+            {"name": "T16",
+            "statement": "For two proteins with identical native structures, their TM-scores to each other's native structure is 1."},
+            {"name": "T6",
+            "statement": "For any two proteins with identical native structures (global minima per O1), their TM-scores (per O4) to any third reference structure are equal."},
+            {"name": "T12",
+            "statement": "For any two proteins with identical native structures (global minima per O1), the TM-score between their native structures is 1."}
+          ]
+
+          Holographic Polar Embedding:
           Axioms:
           {{ state.axioms | json }}
 
@@ -425,12 +399,6 @@ steps:
 
           User-provided seed hypothesis (optional, for context only):
           {{ state.seed_hypothesis | default: "" }}
-
-          Existing hypotheses pool (MUST select from here):
-          {{ state.existing_hypothesis | default: "" }}
-
-          IMPORTANT: If the above "Existing hypotheses pool" appears empty or is just "", this means state.existing_hypothesis was not properly extracted during init_state.
-          You should report this as an error in your response, as you cannot select from an empty pool.
 
           Recent proved theorems (id + statement only):
           {{ recent_theorems | json }}
@@ -612,19 +580,16 @@ steps:
               Scouts reported a strong refutation.
               In HPA terms: the projection/readout failed with a non-zero gap δ (counterexample or fatal inconsistency).
 
-              CRITICAL: You MUST select 3-5 alternative hypotheses (B candidates) from state.existing_hypothesis. Do NOT generate new hypotheses.
+              Propose 3-5 alternative hypotheses (B candidates) as minimal repairs.
 
-              Selection rules:
-              - Select hypotheses from state.existing_hypothesis that are NOT in seen_hypotheses.
-              - Each selected B should address the refutation issue (if possible):
+              HPA repair rules:
+              - Each B should fix exactly ONE issue:
                 (a) add exactly ONE missing dependency ID, OR
                 (b) weaken/restrict the statement to remove the contradiction.
               - Each B MUST include depends_on + factor_sequence (ordered generators).
-              - If a selected hypothesis lacks depends_on or factor_sequence, infer them from the statement and available axioms/theorems.
               - Do NOT invent IDs. Use only axiom IDs, assumption IDs, and theorem IDs present in RelevantFacts.
               - Prefer B candidates that are novel, non-trivial, research-grade, checkable, and likely provable/refutable in <= 10 steps.
               - Use ScanTarget to avoid near-duplicates and explore a new generator region.
-              - If existing_hypothesis is empty or all hypotheses are already seen, return an empty array.
 
               Axioms:
               {{ state.axioms | json }}
@@ -638,9 +603,6 @@ steps:
               User-provided seed hypothesis (optional, for context only):
               {{ state.seed_hypothesis | default: "" }}
 
-              Existing hypotheses pool (MUST select from here):
-              {{ state.existing_hypothesis | default: "" }}
-
               RelevantFacts:
               {{ relevant_facts | json }}
 
@@ -652,9 +614,6 @@ steps:
 
               Scout verdicts:
               {{ scout_verdicts | json }}
-
-              Seen hypotheses (normalized strings):
-              {{ state.seen_hypotheses | json }}
 
               Output JSON schema (array):
               [
@@ -1154,18 +1113,15 @@ steps:
                       Verification failed.
                       In HPA terms: the proof did not project to a closed lattice point; there is a gap δ.
 
-                      CRITICAL: You MUST select 3-5 alternative hypotheses (B candidates) from state.existing_hypothesis. Do NOT generate new hypotheses.
+                      Propose 3-5 alternative hypotheses (B candidates) as minimal repairs.
 
-                      Selection rules:
-                      - Select hypotheses from state.existing_hypothesis that are NOT in seen_hypotheses.
-                      - Each selected B should directly address the minimal gap δ described in the judgement (if possible).
+                      HPA repair rules:
+                      - Each B should directly address the minimal gap δ described in the judgement.
                       - Each B MUST include depends_on + factor_sequence (ordered generators).
-                      - If a selected hypothesis lacks depends_on or factor_sequence, infer them from the statement and available axioms/theorems.
                       - Do NOT invent IDs. Use only axiom IDs, assumption IDs, and theorem IDs present in RelevantFacts.
                       - Prefer minimal changes vs Hypothesis A (add one missing dependency OR weaken the statement).
                       - Prefer low ordering fragility (simple factor_sequence).
                       - Use ScanTarget to avoid near-duplicates and explore a new generator region.
-                      - If existing_hypothesis is empty or all hypotheses are already seen, return an empty array.
 
                       Axioms:
                       {{ state.axioms | json }}
@@ -1178,9 +1134,6 @@ steps:
 
                       User-provided seed hypothesis (optional, for context only):
                       {{ state.seed_hypothesis | default: "" }}
-
-                      Existing hypotheses pool (MUST select from here):
-                      {{ state.existing_hypothesis | default: "" }}
 
                       RelevantFacts:
                       {{ relevant_facts | json }}
@@ -1195,9 +1148,6 @@ steps:
 
                       Verification judgement:
                       {{ judgement | json }}
-
-                      Seen hypotheses (normalized strings):
-                      {{ state.seen_hypotheses | json }}
 
                       Output JSON schema (array):
                       [
@@ -1325,18 +1275,15 @@ steps:
                   In HPA terms: the evidence synthesis/projection did not meet the gate (coherence/gap/associator),
                   so we should propose repaired hypotheses B.
 
-                  CRITICAL: You MUST select 3-5 alternative hypotheses (B candidates) from state.existing_hypothesis. Do NOT generate new hypotheses.
+                  Propose 3-5 alternative hypotheses (B candidates) as minimal repairs.
 
-                  Selection rules:
-                  - Select hypotheses from state.existing_hypothesis that are NOT in seen_hypotheses.
-                  - Each selected B should reduce the observed gap δ / refutation cause shown below (if possible).
+                  HPA repair rules:
+                  - Each B should reduce the observed gap δ / refutation cause shown below.
                   - Each B MUST include depends_on + factor_sequence (ordered generators).
-                  - If a selected hypothesis lacks depends_on or factor_sequence, infer them from the statement and available axioms/theorems.
                   - Do NOT invent IDs. Use only axiom IDs, assumption IDs, and theorem IDs present in RelevantFacts.
                   - Prefer minimal changes vs Hypothesis A (add one missing dependency OR weaken the statement).
                   - Prefer low ordering fragility (simple factor_sequence).
                   - Use ScanTarget to avoid near-duplicates and explore a new generator region.
-                  - If existing_hypothesis is empty or all hypotheses are already seen, return an empty array.
 
                   Axioms:
                   {{ state.axioms | json }}
@@ -1349,9 +1296,6 @@ steps:
 
                   User-provided seed hypothesis (optional, for context only):
                   {{ state.seed_hypothesis | default: "" }}
-
-                  Existing hypotheses pool (MUST select from here):
-                  {{ state.existing_hypothesis | default: "" }}
 
                   RelevantFacts:
                   {{ relevant_facts | json }}
@@ -1366,9 +1310,6 @@ steps:
 
                   Worker verdicts:
                   {{ worker_verdicts | json }}
-
-                  Seen hypotheses (normalized strings):
-                  {{ state.seen_hypotheses | json }}
 
                   Output JSON schema (array):
                   [

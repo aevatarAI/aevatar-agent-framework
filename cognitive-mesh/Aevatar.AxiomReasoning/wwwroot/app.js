@@ -18,6 +18,12 @@ const API = {
   result: (id) => fetchJson(`/api/sessions/${id}/result`),
   steps: (id) => fetch(`/api/sessions/${id}/artifacts/theorems`).then((r) => r.text()),
   state: (id) => fetch(`/api/sessions/${id}/artifacts/state`).then((r) => r.text()),
+  updateExistingHypothesis: (id, existingHypothesis) =>
+    fetch(`/api/sessions/${id}/artifacts/state/update-existing-hypothesis`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ existingHypothesis }),
+    }).then((r) => r.json()),
 };
 
 const PIPELINE = ["LOADING", "INITIALIZING", "EXECUTING", "COMPLETE"];
@@ -1699,6 +1705,24 @@ function applyEvent(sessionId, evt) {
         // ignore
       }
     })();
+
+    // Best-effort: fetch state.json to display existing_hypothesis
+    void (async () => {
+      try {
+        const stateText = await API.state(sessionId);
+        const stateJson = JSON.parse(stateText);
+        if (stateJson && stateJson.existing_hypothesis) {
+          const existingHypSection = $("existing-hypothesis-section");
+          const existingHypTextarea = $("display-existing-hypothesis");
+          if (existingHypSection && existingHypTextarea) {
+            existingHypTextarea.value = stateJson.existing_hypothesis || "";
+            existingHypSection.style.display = "block";
+          }
+        }
+      } catch {
+        // ignore
+      }
+    })();
   }
 
   if (evt.type === "ErrorEvent") {
@@ -2165,6 +2189,7 @@ async function createSession() {
     axioms: $("input-axioms").value.trim(),
     goal: $("input-goal").value.trim(),
     seedHypothesis: $("input-seed-hypothesis") ? $("input-seed-hypothesis").value.trim() : "",
+    existingHypothesis: $("input-existing-hypothesis") ? $("input-existing-hypothesis").value.trim() : "",
     workflow: $("input-workflow") ? $("input-workflow").value : "hypothesis_promotion_loop",
     language: $("input-language") ? $("input-language").value : "English",
     k: parseInt($("input-k").value, 10) || 3,
@@ -2340,6 +2365,38 @@ window.addEventListener("load", async () => {
   // Graph: interactive canvas (drag nodes + pan/zoom)
   bindGraphCanvas("graph-svg", "main");
   bindGraphCanvas("graph-svg-modal", "modal");
+
+  // Existing hypothesis save button
+  const btnSaveExistingHyp = $("btn-save-existing-hypothesis");
+  if (btnSaveExistingHyp) {
+    btnSaveExistingHyp.addEventListener("click", async () => {
+      if (!state.current) return;
+      const textarea = $("display-existing-hypothesis");
+      const statusSpan = $("save-status");
+      if (!textarea || !statusSpan) return;
+
+      const existingHyp = textarea.value.trim();
+      statusSpan.textContent = "Saving...";
+      statusSpan.style.color = "var(--text-secondary)";
+
+      try {
+        const result = await API.updateExistingHypothesis(state.current, existingHyp);
+        if (result.success) {
+          statusSpan.textContent = "Saved! (Note: Restart workflow to use updated value)";
+          statusSpan.style.color = "var(--success-color, #28a745)";
+          setTimeout(() => {
+            statusSpan.textContent = "";
+          }, 5000); // Show longer to read the note
+        } else {
+          statusSpan.textContent = `Error: ${result.error || "Failed to save"}`;
+          statusSpan.style.color = "var(--error-color, #dc3545)";
+        }
+      } catch (ex) {
+        statusSpan.textContent = `Error: ${ex.message}`;
+        statusSpan.style.color = "var(--error-color, #dc3545)";
+      }
+    });
+  }
 
   await refreshSessions(true);
 });

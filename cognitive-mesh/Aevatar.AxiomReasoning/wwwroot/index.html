@@ -60,6 +60,10 @@
                     <span>Seed Hypothesis (optional)</span>
                     <textarea id="input-seed-hypothesis" rows="4" placeholder="Optional starting hypothesis statement to prove/refine (leave empty to let the agent propose)."></textarea>
                   </label>
+                  <label class="field">
+                    <span>Existing Hypothesis (optional)</span>
+                    <textarea id="input-existing-hypothesis" rows="4" placeholder="Optional existing hypothesis to reference (stored in state.existing_hypothesis)."></textarea>
+                  </label>
                 </div>
 
                 <div class="new-run-right">
@@ -205,6 +209,22 @@
             </div>
           </div>
           <div id="result-body" class="result-body empty-state">Result will appear here</div>
+          <div id="existing-hypothesis-section" class="existing-hypothesis-section" style="display: none; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-color);">
+            <div class="panel-header" style="margin-bottom: 8px;">
+              <div>
+                <div class="panel-title" style="font-size: 14px;">Existing Hypothesis</div>
+                <div class="panel-subtitle" style="font-size: 12px;">From state.existing_hypothesis (editable)</div>
+              </div>
+            </div>
+            <textarea id="display-existing-hypothesis" rows="4" style="width: 100%; padding: 8px; font-family: monospace; font-size: 12px; border: 1px solid var(--border-color); border-radius: 4px; resize: vertical;" placeholder="No existing hypothesis yet"></textarea>
+            <div style="margin-top: 8px;">
+              <button id="btn-save-existing-hypothesis" class="btn" style="font-size: 12px; padding: 4px 12px;">Save to Session</button>
+              <span id="save-status" style="margin-left: 8px; font-size: 12px; color: var(--text-secondary);"></span>
+              <div style="margin-top: 4px; font-size: 11px; color: var(--text-secondary);">
+                ⚠️ Note: After saving, restart the workflow to use the updated existing_hypothesis.
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 

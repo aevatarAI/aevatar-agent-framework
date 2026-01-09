@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.CompilerServices;
@@ -92,6 +93,7 @@ public sealed class AxiomReasoningService
         public string? Axioms { get; init; }
         public string? Goal { get; init; }
         public string? SeedHypothesis { get; init; }
+        public string? ExistingHypothesis { get; init; }
         public string? Workflow { get; init; }
         public string? Language { get; init; }
         public int? K { get; init; }
@@ -134,6 +136,7 @@ public sealed class AxiomReasoningService
             var axiomsText = (req.Axioms ?? "").Trim();
             var goal = (req.Goal ?? "").Trim();
             var seedHypothesis = (req.SeedHypothesis ?? "").Trim();
+            var existingHypothesis = (req.ExistingHypothesis ?? "").Trim();
 
             if (string.IsNullOrWhiteSpace(axiomsText))
                 return new { success = false, error = "axioms is required" };
@@ -144,6 +147,7 @@ public sealed class AxiomReasoningService
                 AxiomsText = axiomsText,
                 Goal = goal,
                 SeedHypothesis = seedHypothesis,
+                ExistingHypothesis = existingHypothesis,
                 Workflow = ResolveWorkflow(req.Workflow),
                 Language = NormalizeLanguage(req.Language),
                 K = req.K is > 0 ? req.K.Value : 3,
@@ -356,6 +360,45 @@ public sealed class AxiomReasoningService
                 // axiom_theorem_loop.yaml outputs `state` (object) + `theorems` (list)
                 stateJson = ExtractField(result.Content, "state") ?? "{}";
                 theoremsJson = ExtractField(result.Content, "theorems") ?? "[]";
+                
+                // CRITICAL: Sync session.ExistingHypothesis to state.existing_hypothesis if state exists
+                if (!string.IsNullOrWhiteSpace(stateJson) && !string.IsNullOrWhiteSpace(session.ExistingHypothesis))
+                {
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(stateJson);
+                        var root = doc.RootElement.Clone();
+                        var stateObj = JsonSerializer.Deserialize<Dictionary<string, object>>(root.GetRawText());
+                        if (stateObj != null)
+                        {
+                            // Update existing_hypothesis from session property (ensures it's always in sync)
+                            var currentExistingHyp = stateObj.ContainsKey("existing_hypothesis") 
+                                ? stateObj["existing_hypothesis"]?.ToString() ?? "" 
+                                : "";
+                            
+                            // Only update if session has a value and state doesn't, or if they differ
+                            if (!string.IsNullOrWhiteSpace(session.ExistingHypothesis) && 
+                                (string.IsNullOrWhiteSpace(currentExistingHyp) || 
+                                 !currentExistingHyp.Equals(session.ExistingHypothesis.Trim(), StringComparison.Ordinal)))
+                            {
+                                stateObj["existing_hypothesis"] = session.ExistingHypothesis.Trim();
+                                
+                                var syncOptions = new JsonSerializerOptions
+                                {
+                                    WriteIndented = true,
+                                    Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+                                };
+                                stateJson = JsonSerializer.Serialize(stateObj, syncOptions);
+                                _logger.LogInformation("[{Id}] Synced session.ExistingHypothesis to state.existing_hypothesis", session.Id);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[{Id}] Failed to sync existing_hypothesis to state (non-critical)", session.Id);
+                    }
+                }
+                
                 SaveFile(session, "artifacts", "state.json", stateJson);
                 SaveFile(session, "artifacts", "theorems.json", theoremsJson);
             }
@@ -465,6 +508,23 @@ public sealed class AxiomReasoningService
         // - theorem-loop workflow 会从 raw_task 中提取 axioms + optional focus。
         var focus = string.IsNullOrWhiteSpace(session.Goal) ? "" : session.Goal.Trim();
         var seed = string.IsNullOrWhiteSpace(session.SeedHypothesis) ? "" : session.SeedHypothesis.Trim();
+        var existing = string.IsNullOrWhiteSpace(session.ExistingHypothesis) ? "" : session.ExistingHypothesis.Trim();
+        
+        // Log for debugging
+        if (!string.IsNullOrWhiteSpace(existing))
+        {
+            var preview = existing.Length > 100 ? existing.Substring(0, 100) + "..." : existing;
+            System.Diagnostics.Debug.WriteLine($"[BuildTask] ExistingHypothesis length: {existing.Length}, preview: {preview}");
+        }
+        else
+        {
+            System.Diagnostics.Debug.WriteLine("[BuildTask] ExistingHypothesis is empty");
+        }
+
+        // Ensure proper formatting for ExistingHypothesis extraction
+        var existingFormatted = string.IsNullOrWhiteSpace(existing) 
+            ? "" 
+            : existing.TrimEnd(); // Remove trailing newlines but keep internal formatting
 
         return $"""
                HYPOTHESIS PROMOTION LOOP (HPL)
@@ -477,6 +537,9 @@ public sealed class AxiomReasoningService
 
                SeedHypothesis (optional):
                {seed}
+
+               ExistingHypothesis (optional):
+               {existingFormatted}
 
                ContinueOnFailure:
                {session.ContinueOnFailure}
@@ -680,6 +743,7 @@ public sealed class AxiomReasoningService
 
     // ============================================================
     //  保存 Session ID 和 CreatedAt 到 session-ids.md
+    //  同时更新汇总的 theorems.json
     // ============================================================
     private void SaveSessionId(AxiomSession session)
     {
@@ -687,15 +751,13 @@ public sealed class AxiomReasoningService
         {
             // 查找项目根目录（包含 prompt-experiments 目录的位置）
             var currentDir = Directory.GetCurrentDirectory();
-            var sessionIdsPath = Path.Combine(currentDir, "prompt-experiments", "sessions", "session-ids.md");
+            var sessionsDir = Path.Combine(currentDir, "prompt-experiments", "sessions");
+            Directory.CreateDirectory(sessionsDir);
+            
+            var sessionIdsPath = Path.Combine(sessionsDir, "session-ids.md");
+            var aggregatedTheoremsPath = Path.Combine(sessionsDir, "theorems.json");
 
-            var dir = Path.GetDirectoryName(sessionIdsPath);
-            if (!string.IsNullOrEmpty(dir))
-            {
-                Directory.CreateDirectory(dir);
-            }
-
-            // 检查文件是否存在以及是否已有表格格式
+            // 更新 session-ids.md
             var needsHeader = !File.Exists(sessionIdsPath);
             if (!needsHeader)
             {
@@ -719,6 +781,9 @@ public sealed class AxiomReasoningService
             // 追加 session 信息（表格格式）
             var entry = $"| `{session.Id}` | {session.CreatedAt:yyyy-MM-dd HH:mm:ss} UTC | {session.Status} | {session.Workflow} |\n";
             File.AppendAllText(sessionIdsPath, entry);
+
+            // 更新汇总的 theorems.json
+            UpdateAggregatedTheorems(session, aggregatedTheoremsPath);
         }
         catch (Exception ex)
         {
@@ -727,9 +792,224 @@ public sealed class AxiomReasoningService
     }
 
     // ============================================================
+    //  更新汇总的 theorems.json（包含所有 session 的 theorems）
+    // ============================================================
+    private void UpdateAggregatedTheorems(AxiomSession session, string aggregatedTheoremsPath)
+    {
+        try
+        {
+            // 读取当前 session 的 theorems.json（优先从文件系统读取，fallback 到内存）
+            var currentTheorems = new List<JsonElement>();
+            string? theoremsJson = null;
+            
+            // 首先尝试从文件系统读取
+            if (!string.IsNullOrEmpty(session.OutputDir))
+            {
+                var theoremsFilePath = Path.Combine(session.OutputDir, "artifacts", "theorems.json");
+                if (File.Exists(theoremsFilePath))
+                {
+                    try
+                    {
+                        theoremsJson = File.ReadAllText(theoremsFilePath);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[{Id}] Failed to read theorems.json from file system", session.Id);
+                    }
+                }
+            }
+            
+            // Fallback: 从内存字典读取
+            if (string.IsNullOrWhiteSpace(theoremsJson))
+            {
+                TryGetFileContent(session.Id, "artifacts", "theorems.json", out theoremsJson);
+            }
+            
+            // 解析 theorems.json
+            if (!string.IsNullOrWhiteSpace(theoremsJson))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(theoremsJson);
+                    if (doc.RootElement.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var item in doc.RootElement.EnumerateArray())
+                        {
+                            currentTheorems.Add(item);
+                        }
+                    }
+                    _logger.LogDebug("[{Id}] Loaded {Count} theorems from theorems.json", session.Id, currentTheorems.Count);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[{Id}] Failed to parse theorems.json: {Content}", session.Id, theoremsJson?.Substring(0, Math.Min(100, theoremsJson?.Length ?? 0)) ?? "");
+                }
+            }
+            else
+            {
+                _logger.LogDebug("[{Id}] No theorems.json found or empty", session.Id);
+            }
+
+            // 读取现有的汇总 theorems.json
+            var allTheorems = new Dictionary<string, JsonElement>();
+            if (File.Exists(aggregatedTheoremsPath))
+            {
+                try
+                {
+                    var existingContent = File.ReadAllText(aggregatedTheoremsPath);
+                    if (!string.IsNullOrWhiteSpace(existingContent))
+                    {
+                        using var doc = JsonDocument.Parse(existingContent);
+                        if (doc.RootElement.ValueKind == JsonValueKind.Array)
+                        {
+                            foreach (var item in doc.RootElement.EnumerateArray())
+                            {
+                                // 使用 statement 作为唯一标识（去重）
+                                if (item.ValueKind == JsonValueKind.Object &&
+                                    item.TryGetProperty("statement", out var stmt) &&
+                                    stmt.ValueKind == JsonValueKind.String)
+                                {
+                                    var key = stmt.GetString() ?? "";
+                                    if (!string.IsNullOrWhiteSpace(key))
+                                    {
+                                        allTheorems[key] = item;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+                    // 忽略解析错误，重新开始
+                    allTheorems.Clear();
+                }
+            }
+
+            // 合并当前 session 的 theorems（去重）
+            foreach (var theorem in currentTheorems)
+            {
+                if (theorem.ValueKind == JsonValueKind.Object &&
+                    theorem.TryGetProperty("statement", out var stmt) &&
+                    stmt.ValueKind == JsonValueKind.String)
+                {
+                    var key = stmt.GetString() ?? "";
+                    if (!string.IsNullOrWhiteSpace(key))
+                    {
+                        // 如果已存在，保留最新的（当前 session 的）
+                        allTheorems[key] = theorem;
+                    }
+                }
+            }
+
+            // 保存汇总的 theorems.json
+            // 将 JsonElement 转换为 JSON 字符串数组，然后合并为单个 JSON 数组
+            var theoremStrings = new List<string>();
+            foreach (var theorem in allTheorems.Values)
+            {
+                theoremStrings.Add(theorem.GetRawText());
+            }
+            
+            // 格式化 JSON
+            var jsonOptions = new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            };
+            
+            // 将 JsonElement 转换为对象列表以便序列化
+            var objects = new List<object>();
+            foreach (var theorem in allTheorems.Values)
+            {
+                try
+                {
+                    var obj = JsonSerializer.Deserialize<object>(theorem.GetRawText());
+                    if (obj != null)
+                    {
+                        objects.Add(obj);
+                    }
+                }
+                catch
+                {
+                    // 忽略单个 theorem 的解析错误
+                }
+            }
+            
+            var jsonContent = JsonSerializer.Serialize(objects, jsonOptions);
+            File.WriteAllText(aggregatedTheoremsPath, jsonContent);
+            
+            _logger.LogInformation("[{Id}] Updated aggregated theorems.json with {Count} unique theorems (from {CurrentCount} current, {ExistingCount} existing)", 
+                session.Id, allTheorems.Count, currentTheorems.Count, allTheorems.Count - currentTheorems.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[{Id}] Failed to update aggregated theorems.json", session.Id);
+        }
+    }
+
+    // ============================================================
+    //  更新 state.json 中的 existing_hypothesis
+    // ============================================================
+    public object UpdateExistingHypothesis(string sessionId, string existingHypothesis)
+    {
+        try
+        {
+            if (!_sessions.TryGetValue(sessionId, out var session))
+                return new { success = false, error = "Session not found" };
+
+            // Update session property first
+            session.ExistingHypothesis = existingHypothesis ?? "";
+            _logger.LogInformation("[{Id}] Updated session.ExistingHypothesis: {Length} chars", sessionId, existingHypothesis?.Length ?? 0);
+
+            // Try to update state.json if it exists
+            if (TryGetFileContent(sessionId, "artifacts", "state.json", out var stateJson))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(stateJson);
+                    var root = doc.RootElement.Clone();
+                    var stateObj = JsonSerializer.Deserialize<Dictionary<string, object>>(root.GetRawText());
+                    if (stateObj != null)
+                    {
+                        // Update existing_hypothesis
+                        stateObj["existing_hypothesis"] = existingHypothesis ?? "";
+
+                        // Serialize back
+                        var options = new JsonSerializerOptions
+                        {
+                            WriteIndented = true,
+                            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+                        };
+                        var updatedJson = JsonSerializer.Serialize(stateObj, options);
+
+                        // Save back to file
+                        SaveFile(session, "artifacts", "state.json", updatedJson);
+                        _logger.LogInformation("[{Id}] Updated state.json with existing_hypothesis", sessionId);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[{Id}] Failed to update state.json (non-critical, session property updated)", sessionId);
+                }
+            }
+            else
+            {
+                _logger.LogInformation("[{Id}] state.json not found yet (workflow may not have started), but session property updated", sessionId);
+            }
+
+            return new { success = true };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[{Id}] Failed to update existing_hypothesis", sessionId);
+            return new { success = false, error = ex.Message };
+        }
+    }
+
+    // ============================================================
     //  解析 output 字段（best-effort）
     //
-    //  CognitiveStrategy 会把 workflow 输出序列化为“字符串”，其格式可能是：
+    //  CognitiveStrategy 会把 workflow 输出序列化为"字符串"，其格式可能是：
     //  - JSON string（如果 output 是字典，可能被 SerializeOutput 转为 JSON）
     //  - plain text
     //

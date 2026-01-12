@@ -63,6 +63,10 @@ public interface IKnowledgeGraphClient
         string? owner = null,
         string? proof = null,
         string? resourceFolderPath = null,
+        PivotNodeStatus? pivotStatus = null,
+        DateTimeOffset? cancelledAt = null,
+        string? cancelledByPivotId = null,
+        string? directionContext = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

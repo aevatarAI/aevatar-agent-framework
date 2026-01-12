@@ -118,6 +118,10 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
         string? owner = null,
         string? proof = null,
         string? resourceFolderPath = null,
+        PivotNodeStatus? pivotStatus = null,
+        DateTimeOffset? cancelledAt = null,
+        string? cancelledByPivotId = null,
+        string? directionContext = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
@@ -126,6 +130,8 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
         var detailIn = (detailedDescription ?? string.Empty).Trim();
         var proofIn = string.IsNullOrWhiteSpace(proof) ? null : proof.Trim();
         var ownerIn = (owner ?? string.Empty).Trim();
+        var directionIn = string.IsNullOrWhiteSpace(directionContext) ? null : directionContext.Trim();
+        var cancelledByIn = string.IsNullOrWhiteSpace(cancelledByPivotId) ? null : cancelledByPivotId.Trim();
 
         var now = DateTimeOffset.UtcNow;
         var existing = await _store.GetNodeAsync(SessionId, nodeId, cancellationToken);
@@ -164,7 +170,11 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
                 ResourceFolderPath = resourceFolderPath,
                 ResourceUri = resourceUri,
                 Timestamp = now,
-                DependsOn = depsList
+                DependsOn = depsList,
+                PivotStatus = pivotStatus ?? PivotNodeStatus.Active,
+                CancelledAt = cancelledAt,
+                CancelledByPivotId = cancelledByIn,
+                DirectionContext = directionIn
             };
 
             await _store.AddNodeAsync(created, cancellationToken);
@@ -179,6 +189,12 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
         var mergedCore = coreIn.Length == 0 ? existing.CoreDescription : coreIn;
         var mergedDetail = detailIn.Length == 0 ? existing.DetailedDescription : detailIn;
         var mergedProof = proofIn ?? existing.Proof;
+
+        // Pivot fields: explicit values override existing, null keeps existing
+        var mergedPivotStatus = pivotStatus ?? existing.PivotStatus;
+        var mergedCancelledAt = cancelledAt ?? existing.CancelledAt;
+        var mergedCancelledByPivotId = cancelledByIn ?? existing.CancelledByPivotId;
+        var mergedDirectionContext = directionIn ?? existing.DirectionContext;
 
         // Upload folder to S3 if provided (folder will be zipped)
         // Note: We do not store the local folder path in the graph backend; only HTTPS URL is persisted.
@@ -201,7 +217,12 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
             ResourceFolderPath = resourceFolderPath,
             ResourceUri = mergedResourceUri,
             Timestamp = now,
-            DependsOn = depsList
+            DependsOn = depsList,
+            Attestations = existing.Attestations,
+            PivotStatus = mergedPivotStatus,
+            CancelledAt = mergedCancelledAt,
+            CancelledByPivotId = mergedCancelledByPivotId,
+            DirectionContext = mergedDirectionContext
         };
 
         await _store.AddNodeAsync(updated, cancellationToken);
@@ -279,9 +300,14 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
             ResourceFolderPath = node.ResourceFolderPath,
             ResourceUri = node.ResourceUri,
             Timestamp = DateTimeOffset.UtcNow,
-                Kind = node.Kind,
-                Owner = node.Owner,
-            DependsOn = mergedDeps
+            Kind = node.Kind,
+            Owner = node.Owner,
+            DependsOn = mergedDeps,
+            Attestations = node.Attestations,
+            PivotStatus = node.PivotStatus,
+            CancelledAt = node.CancelledAt,
+            CancelledByPivotId = node.CancelledByPivotId,
+            DirectionContext = node.DirectionContext
         };
         await _store.AddNodeAsync(updated, cancellationToken);
     }

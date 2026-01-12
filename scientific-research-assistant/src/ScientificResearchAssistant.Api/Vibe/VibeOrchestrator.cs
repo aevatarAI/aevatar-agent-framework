@@ -5,6 +5,7 @@ using Aevatar.Agents.AI;
 using Aevatar.Agents.Core.Secrets;
 using Google.Protobuf.Collections;
 using Google.Protobuf.WellKnownTypes;
+using Microsoft.Extensions.Options;
 using ScientificResearchAssistant.Api.Materials;
 using ScientificResearchAssistant.Api.Paper;
 using ScientificResearchAssistant.Api.Sessions;
@@ -15,6 +16,7 @@ using ScientificResearchAssistant.Api.Vibe.Goals;
 using ScientificResearchAssistant.Api.Vibe.Trace;
 using ScientificResearchAssistant.Api.Workspace;
 using ScientificResearchAssistant.Contracts.Collab;
+using ScientificResearchAssistant.Vibe.Pivot;
 
 namespace ScientificResearchAssistant.Api.Vibe;
 
@@ -46,6 +48,11 @@ internal sealed partial class VibeOrchestrator
     private readonly PaperService _paper;
     private readonly AgentProvidersStore _agentProviders;
     private readonly IAevatarUserSecretsStore _secrets;
+    private readonly IDirectionChangeDetector _directionDetector;
+    private readonly IPivotOrchestrator _pivotOrchestrator;
+    private readonly IPivotQueue _pivotQueue;
+    private readonly IAgentPivotCoordinator _agentCoordinator;
+    private readonly PivotOptions _pivotOptions;
     private readonly ILogger<VibeOrchestrator> _logger;
 
     public VibeOrchestrator(
@@ -61,6 +68,11 @@ internal sealed partial class VibeOrchestrator
         PaperService paper,
         AgentProvidersStore agentProviders,
         IAevatarUserSecretsStore secrets,
+        IDirectionChangeDetector directionDetector,
+        IPivotOrchestrator pivotOrchestrator,
+        IPivotQueue pivotQueue,
+        IAgentPivotCoordinator agentCoordinator,
+        IOptions<PivotOptions> pivotOptions,
         ILogger<VibeOrchestrator> logger)
     {
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
@@ -75,6 +87,11 @@ internal sealed partial class VibeOrchestrator
         _paper = paper ?? throw new ArgumentNullException(nameof(paper));
         _agentProviders = agentProviders ?? throw new ArgumentNullException(nameof(agentProviders));
         _secrets = secrets ?? throw new ArgumentNullException(nameof(secrets));
+        _directionDetector = directionDetector ?? throw new ArgumentNullException(nameof(directionDetector));
+        _pivotOrchestrator = pivotOrchestrator ?? throw new ArgumentNullException(nameof(pivotOrchestrator));
+        _pivotQueue = pivotQueue ?? throw new ArgumentNullException(nameof(pivotQueue));
+        _agentCoordinator = agentCoordinator ?? throw new ArgumentNullException(nameof(agentCoordinator));
+        _pivotOptions = pivotOptions?.Value ?? new PivotOptions();
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -101,6 +118,112 @@ internal sealed partial class VibeOrchestrator
         // Load File-SSoT context (best-effort).
         var dagSnap = await _dag.LoadSnapshotAsync(dagId, ct);
         var recentTrace = await _trace.LoadLatestAsync(session.Id, max: 5, ct);
+
+        // ------------------------------------------------------------
+        // Direction change detection (US-1 pivot intent detection)
+        //
+        // 中文说明：
+        // - 在每轮开始时检测用户是否想要改变研究方向
+        // - 检测是非阻塞的，不会延迟响应
+        // - 如果检测到高置信度的方向变更，会在后续阶段触发 pivot 工作流
+        // ------------------------------------------------------------
+        session.Events.Publish(new StepStartedEvent { Timestamp = NowMs(), StepName = "vibe.pivot_detection" });
+        try
+        {
+            var currentDirection = await GetCurrentDirectionAsync(session.Id, ct);
+            var pivotIntent = await DetectDirectionChangeAsync(
+                session,
+                runId,
+                question,
+                currentDirection,
+                emitAssistantDelta,
+                ct);
+
+            // Execute pivot if high-confidence direction change detected
+            if (pivotIntent is { IsDirectionChange: true } &&
+                pivotIntent.Confidence >= _pivotOptions.ConfidenceThreshold)
+            {
+                try
+                {
+                    _logger.LogInformation(
+                        "Enqueueing pivot for session {SessionId}: {OldDirection} -> {NewDirection}",
+                        session.Id, currentDirection ?? "(none)", pivotIntent.NewTopic ?? "(new)");
+
+                    // Use queue for serialization (FR-012) and coordinator for DAG + agent notification
+                    var capturedDirection = currentDirection;
+                    var queueResult = await _pivotQueue.EnqueueAsync(
+                        pivotIntent,
+                        async cancellationToken =>
+                        {
+                            var coordResult = await _agentCoordinator.CoordinatePivotAsync(
+                                pivotIntent,
+                                capturedDirection,
+                                cancellationToken);
+                            return coordResult.DagOperation!;
+                        },
+                        ct);
+
+                    if (queueResult.QueueFull)
+                    {
+                        _logger.LogWarning(
+                            "Pivot queue full for session {SessionId}, request rejected",
+                            session.Id);
+                        emitAssistantDelta("\n⏳ 研究方向更新队列已满，请稍后重试...\n\n");
+                    }
+                    else if (queueResult.ErrorMessage != null)
+                    {
+                        _logger.LogError(
+                            "Pivot failed for session {SessionId}: {Error}",
+                            session.Id, queueResult.ErrorMessage);
+                        emitAssistantDelta("\n⚠ 研究方向更新失败，将继续使用当前方向\n\n");
+                    }
+                    else if (queueResult.Operation != null)
+                    {
+                        var pivotOp = queueResult.Operation;
+
+                        _logger.LogInformation(
+                            "Pivot completed for session {SessionId}: cancelled={Cancelled}, preserved={Preserved}, queued={Queued}",
+                            session.Id, pivotOp.CancelledNodeIds.Count, pivotOp.PreservedNodeIds.Count, queueResult.Queued);
+
+                        // Emit completion event
+                        session.Events.Publish(new CustomEvent
+                        {
+                            Timestamp = NowMs(),
+                            Name = "aevatar.vibe.pivot_completed",
+                            Value = new
+                            {
+                                sessionId = session.Id,
+                                pivotId = pivotOp.PivotId,
+                                status = pivotOp.Status.ToString(),
+                                cancelledCount = pivotOp.CancelledNodeIds.Count,
+                                preservedCount = pivotOp.PreservedNodeIds.Count,
+                                durationMs = pivotOp.DurationMs,
+                                wasQueued = queueResult.Queued
+                            }
+                        });
+
+                        // Notify user of completion
+                        var queuedNote = queueResult.Queued ? " (队列等待后执行)" : "";
+                        emitAssistantDelta($"\n✓ 研究方向已更新完成{queuedNote} (取消了 {pivotOp.CancelledNodeIds.Count} 个待执行计划，保留了 {pivotOp.PreservedNodeIds.Count} 个已完成成果)\n\n");
+                    }
+                }
+                catch (Exception pivotEx)
+                {
+                    _logger.LogError(pivotEx, "Pivot execution failed for session {SessionId}", session.Id);
+                    emitAssistantDelta("\n⚠ 研究方向更新失败，将继续使用当前方向\n\n");
+                    // Don't block the round - pivot failure is non-fatal
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // Best-effort: detection failure should not block the round
+            _logger.LogWarning(ex, "Direction change detection failed for session {SessionId}", session.Id);
+        }
+        finally
+        {
+            session.Events.Publish(new StepFinishedEvent { Timestamp = NowMs(), StepName = "vibe.pivot_detection" });
+        }
 
         // ------------------------------------------------------------
         // Per-agent LLM provider mapping (File-SSoT)

@@ -1,3 +1,5 @@
+using ScientificResearchAssistant.Contracts.Collab;
+
 namespace ScientificResearchAssistant.Vibe;
 
 // ============================================================
@@ -17,6 +19,24 @@ namespace ScientificResearchAssistant.Vibe;
 
 public sealed class VibeResearchAssistantAgent : VibeAgentBase
 {
+    // ------------------------------------------------------------
+    //  DAG knowledge filter (MVP)
+    //
+    //  中文说明：
+    //  - 未来 DAG node 会区分两类：knowledge 与 plan
+    //  - vibe researching 启动时，会把“知识节点”摘要作为 grounded context 提供给 RA
+    //  - 这里先留一个筛选空方法：目前一律返回 true（TODO: 后续补充真实筛选规则）
+    //
+    //  TODO:
+    //  - 通过 node.Tags["kind"] == "plan" / "knowledge" 来区分
+    //  - 或引入更严格的命名/标签规范，并把 plan 节点排除在 grounded 知识之外
+    // ------------------------------------------------------------
+    public static bool IsDagKnowledgeNodeForGrounding(SraDagNode node)
+    {
+        _ = node;
+        return true;
+    }
+
     public VibeResearchAssistantAgent()
     {
         SystemPrompt =

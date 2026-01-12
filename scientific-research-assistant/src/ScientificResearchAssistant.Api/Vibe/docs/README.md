@@ -1,6 +1,6 @@
 # Vibe Module（后端：vibe researching 运行时）
 
-本目录承载 `mode=vibe` 的核心后端能力：**File-SSoT 存储** + **单轮编排** + **共识门控**。
+本目录承载 `mode=vibe` 的核心后端能力：**File-SSoT 存储** + **单轮编排** + **DAG 增量写入**（当前不做写入门控验证）。
 
 ## 目录结构（核心骨架）
 
@@ -8,7 +8,7 @@
 Vibe/
   VibeOrchestrator.cs                       # 入口：ExecuteOneRoundAsync（骨架/时序）
   VibeOrchestrator.Workers.cs               # planner/reasoner/librarian/verifier/dag_builder/paper_editor 的流式调用
-  VibeOrchestrator.DagConsensus.cs          # DAG 共识门控（调用 DagConsensusRunner）
+  VibeOrchestrator.DagConsensus.cs          # DAG 写入（MVP：不做共识门控；未来可做“写后验证/标注”）
   VibeOrchestrator.Trace.cs                 # trace 追加写入 + round_summary SSE
   VibeOrchestrator.ResearchAssistant.cs     # research_assistant 的 brief/plan/summary 调用与解析
   VibeOrchestrator.Parsing.cs               # JSON 提取/解析 + librarian actions 解析

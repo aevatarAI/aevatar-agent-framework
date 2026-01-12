@@ -1,6 +1,6 @@
-# Vibe Graph Module（后端：KnowledgeGraph + DAG 兼容 API + explain + consensus）
+# Vibe Graph Module（后端：KnowledgeGraph + DAG 兼容 API + explain）
 
-本目录实现 vibe researching 的 **知识图谱（KnowledgeGraph, Session-scoped）** 与 **增量写入门控（共识）**。
+本目录实现 vibe researching 的 **知识图谱（KnowledgeGraph, Session-scoped）** 与 **DAG 快照/解释能力**。
 
 中文说明（关键点）：
 - **SSoT**：`Aevatar.Agents.Knowledge.Graph`（图后端可 InMemory/Neo4j）
@@ -16,19 +16,19 @@ Dag/
   DagStore.cs                       # KnowledgeGraph SSoT + artifacts/dag/snapshot.json mirror + staged + consensus artifacts
   DagExplain.cs                     # explain(node): topo order / dependencies / cycle check（UI 调试用）
 
-  DagConsensusRunner.cs             # 共识入口 + maker-v2 路径（可选）
-  DagConsensusRunner.Quorum.cs      # 默认：verifier-quorum（N verifiers 投票 + red-flag）
+  DagConsensusRunner.cs             # 预留：共识/验证（未来可作为“标注/审核”而非写入门控）
+  DagConsensusRunner.Quorum.cs      # 预留：verifier-quorum（N verifiers 投票 + red-flag）
 ```
 
-## 共识策略（默认与可选）
+## 验证/共识（当前策略：不阻断写入）
 
-- **默认：`verifier-quorum`**
-  - 多个 `VibeVerifierAgent` 实例投票
-  - 通过条件：`approve >= quorum` 且无硬 red-flag
-  - 产物：`artifacts/dag/consensus/*.json`
-- **可选：`maker-v2`**
-  - 调用 `CognitiveStrategy.ExecuteAsync` 执行 `maker-v2` 工作流
-  - 用于更重的“审查/规范化”（MVP 仍保留）
+当前（MVP）实现为 **“先写入，再验证（可选）”**：
+- `dag_builder` 产出的 mutation 会直接 `ApplyMutationAsync` 写入 KnowledgeGraph，并同步快照到 `artifacts/dag/snapshot.json`
+- 不再把 verifier 结果作为写入门控（不再 staged / 不再 block）
+- 未来可以把 `DagConsensusRunner` 用作：
+  - 为节点打标签（verified/unverified）
+  - 输出审计 artifact
+  - 但不影响写入链路的可用性（避免研究流程被卡死）
 
 ## 文件落点（File-SSoT）
 
@@ -39,8 +39,8 @@ Dag/
 
 其中：
 - `artifacts/dag/snapshot.json`: 图快照镜像（Protobuf-JSON，审阅/恢复用）
-- `artifacts/dag/staged/`: 未通过共识的候选（保留以便回溯/再跑）
-- `artifacts/dag/consensus/`: 共识 artifacts（用于审计与 debug）
+- `artifacts/dag/staged/`: 预留（未来可用于人工 review 队列；当前不再作为门控）
+- `artifacts/dag/consensus/`: 预留（未来可用于验证 artifacts；当前不再作为门控）
 
 ## API 速览
 

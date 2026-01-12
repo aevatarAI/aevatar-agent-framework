@@ -27,14 +27,13 @@ internal sealed partial class VibeOrchestrator
     private static readonly Regex SourceRefRegex =
         new(@"(?:(?:\bsource:)|(?:\bsources/))(?<rel>[a-zA-Z0-9_\-./]+?\.(?:md|txt))", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    private async Task<DagRoundResult> RunDagConsensusAsync(
+    private async Task<DagRoundResult> RunDagApplyAsync(
         ResearchSession session,
         string runId,
         string question,
         MaterialsSnapshot materials,
         SraDagSnapshot currentDag,
         IReadOnlyDictionary<string, string> outputs,
-        string? providerOverride,
         Action<string> emit,
         CancellationToken ct)
     {
@@ -44,83 +43,32 @@ internal sealed partial class VibeOrchestrator
 
         if (candidate == null)
         {
-            EmitSection(emit, "### DAG Consensus\n");
+            EmitSection(emit, "### DAG Apply (no verification)\n");
             emit("_No DAG candidate produced._\n\n");
             return new DagRoundResult(false, false, null, null, null, [], null);
         }
 
-        // Before consensus: auto-create placeholder sources for any referenced-but-missing files.
-        // This prevents verifier red-flags like "referenced source files ... not found in available sources".
+        // Before apply: auto-create placeholder sources for any referenced-but-missing files.
+        // Even without verifiers, this keeps the workspace consistent and avoids broken references.
         materials = await TryEnsureSourcePlaceholdersAsync(session.Id, question, materials, candidate, emit, ct);
 
         // EMPTY mutation means "no change" (do not stage / do not block).
         if (candidate.UpsertNodes.Count == 0 && candidate.UpsertEdges.Count == 0)
         {
-            EmitSection(emit, "### DAG Consensus\n");
+            EmitSection(emit, "### DAG Apply (no verification)\n");
             emit("_No DAG changes proposed._\n\n");
             return new DagRoundResult(false, false, candidate, null, null, [], null);
         }
 
-        DagConsensusRunner.ConsensusResult cr;
+        // ------------------------------------------------------------
+        // No verification / no consensus:
+        // - Apply candidate directly.
+        // - Future: we can attach a verifier pass that annotates nodes, but not block writes.
+        // ------------------------------------------------------------
         try
         {
-            cr = await _consensus.RunAsync(new DagConsensusRunner.ConsensusInput(
-                SessionId: session.Id,
-                RunId: runId,
-                Current: currentDag,
-                Candidate: candidate,
-                MaterialsContext: materials.RenderedContext,
-                ProviderName: providerOverride,
-                ConsensusK: null,
-                MaxRounds: null,
-                WorkerCount: null,
-                MaxDepth: null), ct);
-        }
-        catch (Exception ex)
-        {
-            EmitSection(emit, "### DAG Consensus\n");
-            emit($"[consensus error] {ex.Message}\n\n");
-            return new DagRoundResult(false, true, candidate, null, null, ["consensus_exception"], null);
-        }
-
-        EmitSection(emit, $"### DAG Consensus ({cr.Workflow})\n");
-
-        if (!cr.Ok || cr.Mutation == null)
-        {
             var dagId = string.IsNullOrWhiteSpace(session.DagId) ? session.Id : session.DagId.Trim();
-            var stagedPath = await _dag.WriteStagedAsync(dagId, candidate, ct);
-
-            session.Events.Publish(new CustomEvent
-            {
-                Timestamp = NowMs(),
-                Name = "aevatar.vibe.consensus_blocked",
-                Value = new
-                {
-                    sessionId = session.Id,
-                    dagId,
-                    runId,
-                    roundIndex = await PredictNextRoundIndexAsync(session.Id, ct),
-                    updatedAt = DateTime.UtcNow.ToString("O"),
-                    workflow = cr.Workflow,
-                    agents = outputs.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase).ToList(),
-                    dagChangesCount = candidate.UpsertNodes.Count,
-                    stagedPath,
-                    redFlags = cr.RedFlags,
-                    artifactPath = cr.ArtifactPath ?? ""
-                }
-            });
-
-            emit($"**Blocked** ({cr.Workflow}, staged: `{stagedPath}`)\n\n");
-            if (cr.RedFlags.Count > 0)
-                emit($"RedFlags: {string.Join(", ", cr.RedFlags)}\n\n");
-
-            return new DagRoundResult(false, true, candidate, null, stagedPath, cr.RedFlags, cr.ArtifactPath);
-        }
-
-        // Apply accepted mutation to snapshot.
-        {
-            var dagId = string.IsNullOrWhiteSpace(session.DagId) ? session.Id : session.DagId.Trim();
-            var applied = await _dag.ApplyMutationAsync(dagId, cr.Mutation, ct);
+            var applied = await _dag.ApplyMutationAsync(dagId, candidate, ct);
 
             session.Events.Publish(new CustomEvent
             {
@@ -131,16 +79,23 @@ internal sealed partial class VibeOrchestrator
                     sessionId = session.Id,
                     dagId,
                     runId,
-                    mutationId = cr.Mutation.MutationId,
-                    nodes = cr.Mutation.UpsertNodes.Count,
-                    edges = cr.Mutation.UpsertEdges.Count,
+                    mutationId = candidate.MutationId,
+                    nodes = candidate.UpsertNodes.Count,
+                    edges = candidate.UpsertEdges.Count,
                     updatedAt = applied.UpdatedAt?.ToDateTime().ToUniversalTime().ToString("O") ?? ""
                 }
             });
 
-            emit($"**Accepted** ({cr.Workflow}, mutationId: `{cr.Mutation.MutationId}`)\n\n");
+            EmitSection(emit, "### DAG Apply (no verification)\n");
+            emit($"**Applied** (mutationId: `{candidate.MutationId}`)\n\n");
 
-            return new DagRoundResult(true, false, candidate, cr.Mutation, null, [], cr.ArtifactPath);
+            return new DagRoundResult(true, false, candidate, candidate, null, [], null);
+        }
+        catch (Exception ex)
+        {
+            EmitSection(emit, "### DAG Apply (no verification)\n");
+            emit($"[dag apply error] {ex.Message}\n\n");
+            return new DagRoundResult(false, true, candidate, null, null, ["apply_exception"], null);
         }
     }
 

@@ -70,7 +70,7 @@ internal sealed partial class VibeOrchestrator
                 StageHint = "session:vibe:brief"
             };
             req.Context["agent_id"] = raId;
-            req.Context["materials_context"] = materials.RenderedContext;
+            req.Context["materials_context"] = MergeGroundedContext(materials.RenderedContext, BuildDagKnowledgeGrounding(dag));
 
             var resp = await ra.ChatAsync(req, ct);
             var raw = (resp.Content ?? string.Empty).Trim();
@@ -157,7 +157,7 @@ internal sealed partial class VibeOrchestrator
         }
     }
 
-    private sealed record PlanResult(string? RawJson, List<PlanWorker>? Workers, List<GoalCandidate>? GoalsInit);
+    private sealed record PlanResult(string? RawJson, string? RoundTitle, List<PlanWorker>? Workers, List<GoalCandidate>? GoalsInit);
     private sealed record PlanWorker
     {
         public string? Agent { get; init; }
@@ -204,12 +204,12 @@ internal sealed partial class VibeOrchestrator
                 StageHint = "session:vibe:ra_plan"
             };
             req.Context["agent_id"] = raId;
-            req.Context["materials_context"] = materials.RenderedContext;
+            req.Context["materials_context"] = MergeGroundedContext(materials.RenderedContext, BuildDagKnowledgeGrounding(dag));
 
             var resp = await ra.ChatAsync(req, ct);
             var raw = (resp.Content ?? string.Empty).Trim();
             if (!TryExtractJson(raw, out var json))
-                return new PlanResult(null, null, null);
+                return new PlanResult(null, null, null, null);
 
             var parsed = JsonSerializer.Deserialize<PlanJson>(json!, Json);
             var workers = parsed?.Workers?
@@ -228,12 +228,12 @@ internal sealed partial class VibeOrchestrator
                 })
                 .ToList();
 
-            return new PlanResult(json, workers, goalsInit);
+            return new PlanResult(json, parsed?.RoundTitle, workers, goalsInit);
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "[VibeOrchestrator] research_assistant plan failed (best-effort).");
-            return new PlanResult(null, null, null);
+            return new PlanResult(null, null, null, null);
         }
     }
 
@@ -273,4 +273,52 @@ internal sealed partial class VibeOrchestrator
         }
     }
 
+    // ============================================================
+    //  Grounded context helpers (MVP)
+    // ============================================================
+
+    private static string MergeGroundedContext(string? materialsContext, string? dagKnowledgeContext)
+    {
+        var a = (materialsContext ?? string.Empty).Trim();
+        var b = (dagKnowledgeContext ?? string.Empty).Trim();
+
+        if (a.Length == 0) return b;
+        if (b.Length == 0) return a;
+        return a + "\n\n" + b;
+    }
+
+    private static string BuildDagKnowledgeGrounding(SraDagSnapshot dag)
+    {
+        dag ??= new SraDagSnapshot();
+
+        // Keep bounded; this is appended into system prompt.
+        const int maxNodes = 80;
+        const int maxChars = 6000;
+
+        var nodes = dag.Nodes
+            .Where(n => n != null && ScientificResearchAssistant.Vibe.VibeResearchAssistantAgent.IsDagKnowledgeNodeForGrounding(n))
+            .OrderBy(n => n!.Type)
+            .ThenBy(n => n!.Id, StringComparer.Ordinal)
+            .Take(maxNodes)
+            .ToList();
+
+        if (nodes.Count == 0)
+            return string.Empty;
+
+        var sb = new StringBuilder(capacity: 1024);
+        sb.AppendLine("DAG grounded knowledge (snapshot excerpt):");
+        sb.AppendLine($"- nodesTotal={dag.Nodes.Count}, edgesTotal={dag.Edges.Count}");
+
+        foreach (var n in nodes)
+        {
+            var id = (n.Id ?? string.Empty).Trim();
+            if (id.Length == 0) continue;
+            var label = Bound((n.Label ?? string.Empty).Replace("\r", "").Trim(), 200);
+            var t = n.Type.ToString();
+            sb.Append("- ").Append(id).Append(" [").Append(t).Append("]: ").Append(label).AppendLine();
+            if (sb.Length >= maxChars) break;
+        }
+
+        return Bound(sb.ToString().Trim(), maxChars);
+    }
 }

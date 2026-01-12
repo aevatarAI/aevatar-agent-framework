@@ -40,7 +40,6 @@ internal sealed partial class VibeOrchestrator
     private readonly BriefStore _brief;
     private readonly DeliveryCenterStore _delivery;
     private readonly DagStore _dag;
-    private readonly DagConsensusRunner _consensus;
     private readonly TraceStore _trace;
     private readonly FileMailboxService _mailbox;
     private readonly PaperService _paper;
@@ -55,7 +54,6 @@ internal sealed partial class VibeOrchestrator
         BriefStore brief,
         DeliveryCenterStore delivery,
         DagStore dag,
-        DagConsensusRunner consensus,
         TraceStore trace,
         FileMailboxService mailbox,
         PaperService paper,
@@ -69,7 +67,6 @@ internal sealed partial class VibeOrchestrator
         _brief = brief ?? throw new ArgumentNullException(nameof(brief));
         _delivery = delivery ?? throw new ArgumentNullException(nameof(delivery));
         _dag = dag ?? throw new ArgumentNullException(nameof(dag));
-        _consensus = consensus ?? throw new ArgumentNullException(nameof(consensus));
         _trace = trace ?? throw new ArgumentNullException(nameof(trace));
         _mailbox = mailbox ?? throw new ArgumentNullException(nameof(mailbox));
         _paper = paper ?? throw new ArgumentNullException(nameof(paper));
@@ -217,6 +214,33 @@ internal sealed partial class VibeOrchestrator
             emitAssistantDelta("```\n\n");
         }
 
+        // ------------------------------------------------------------
+        // Step: Persist plan into DAG (as "plan" nodes)
+        //
+        // 中文说明：
+        // - vibe researching 的目标是“往 DAG 上增量写知识”
+        // - 但在开始研究前，我们先把本轮 plan 落到 DAG（便于审阅/回放/可视化）
+        // - plan 节点不走 verifier-quorum 共识（MVP）；仍保持知识写入走共识门控
+        // ------------------------------------------------------------
+        try
+        {
+            var m = BuildPlanDagMutation(session.Id, runId, question, plan);
+            if (m != null)
+            {
+                dagSnap = await _dag.ApplyMutationAsync(dagId, m, ct);
+                session.Events.Publish(new CustomEvent
+                {
+                    Timestamp = NowMs(),
+                    Name = "aevatar.vibe.plan_dag_written",
+                    Value = new { sessionId = session.Id, dagId, runId, mutationId = m.MutationId }
+                });
+            }
+        }
+        catch
+        {
+            // best-effort only
+        }
+
         // Auto-init goals if empty (research_assistant may provide goalsInit in plan JSON).
         if (goals.Goals.Count == 0 && plan.GoalsInit is { Count: > 0 })
         {
@@ -355,7 +379,7 @@ internal sealed partial class VibeOrchestrator
         }
 
         // ------------------------------------------------------------
-        // Step: DAG consensus gate for DAG mutation
+        // Step: DAG apply (no consensus)
         // ------------------------------------------------------------
         session.Events.Publish(new StepStartedEvent
         {
@@ -363,9 +387,9 @@ internal sealed partial class VibeOrchestrator
             StepName = "vibe.dag_consensus"
         });
 
-        // Refresh again before consensus to gate against the latest shared DAG.
+        // Refresh again before apply (shared DAG).
         dagSnap = await _dag.LoadSnapshotAsync(dagId, ct);
-        var dagResult = await RunDagConsensusAsync(session, runId, question, materials, dagSnap, outputs, verifierProvider, emitAssistantDelta, ct);
+        var dagResult = await RunDagApplyAsync(session, runId, question, materials, dagSnap, outputs, emitAssistantDelta, ct);
 
         session.Events.Publish(new StepFinishedEvent
         {
@@ -453,5 +477,92 @@ internal sealed partial class VibeOrchestrator
             Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             StepName = "vibe.summary"
         });
+    }
+
+    private static SraDagMutation? BuildPlanDagMutation(
+        string sessionId,
+        string runId,
+        string? question,
+        PlanResult plan)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId) || string.IsNullOrWhiteSpace(runId))
+            return null;
+
+        var now = Timestamp.FromDateTime(DateTime.UtcNow);
+
+        var nodeId = SanitizeId($"plan_{runId}");
+        if (nodeId.Length == 0)
+            nodeId = $"plan_{Guid.NewGuid():N}";
+
+        var label = string.IsNullOrWhiteSpace(plan.RoundTitle)
+            ? $"Plan ({Bound(question ?? string.Empty, 120)})"
+            : $"Plan: {Bound(plan.RoundTitle!, 180)}";
+
+        var proof = BuildPlanProof(question, plan.Workers);
+
+        var node = new SraDagNode
+        {
+            Id = nodeId,
+            Type = SraDagNodeType.Assumption,
+            Label = Bound(label, 200),
+            Proof = Bound(proof, 1200),
+            UpdatedAt = now
+        };
+        node.Tags["kind"] = "plan";
+        node.Tags["runId"] = runId;
+        node.Tags["sessionId"] = sessionId;
+        node.Tags["author"] = "research_assistant";
+
+        var m = new SraDagMutation
+        {
+            SessionId = sessionId,
+            MutationId = $"plan_{runId}",
+            AuthorAgent = "research_assistant",
+            CreatedAt = now
+        };
+        m.Labels["kind"] = "plan";
+
+        m.UpsertNodes.Add(node);
+        // No edges by default: plan nodes are metadata, not derivations.
+
+        return m;
+    }
+
+    private static string BuildPlanProof(string? question, List<PlanWorker>? workers)
+    {
+        var sb = new StringBuilder(512);
+        var q = (question ?? string.Empty).Replace("\r", "").Trim();
+        if (q.Length > 0)
+            sb.AppendLine($"Question: {Bound(q, 600)}");
+
+        if (workers is { Count: > 0 })
+        {
+            sb.AppendLine();
+            sb.AppendLine("Workers:");
+            foreach (var w in workers.Take(12))
+            {
+                if (w == null) continue;
+                var agent = (w.Agent ?? string.Empty).Trim();
+                var task = (w.Task ?? string.Empty).Replace("\r", "").Trim();
+                if (agent.Length == 0 && task.Length == 0) continue;
+                sb.Append("- ").Append(agent.Length == 0 ? "worker" : agent);
+                if (task.Length > 0) sb.Append(": ").Append(Bound(task, 260));
+                sb.AppendLine();
+            }
+        }
+
+        return sb.ToString().Trim();
+    }
+
+    private static string SanitizeId(string s)
+    {
+        var t = (s ?? string.Empty).Trim();
+        if (t.Length == 0) return string.Empty;
+        var sb = new StringBuilder(t.Length);
+        foreach (var ch in t)
+            sb.Append(char.IsLetterOrDigit(ch) ? char.ToLowerInvariant(ch) : '_');
+        // keep it bounded to avoid huge ids
+        var outId = sb.ToString().Trim('_');
+        return outId.Length <= 64 ? outId : outId[..64];
     }
 }

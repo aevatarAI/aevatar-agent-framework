@@ -9,8 +9,13 @@ public static partial class LlmSecretsApi
         public static ResolvedProvider Resolve(IAevatarUserSecretsStore secrets, string providerName)
         {
             var name = (providerName ?? string.Empty).Trim();
-            if (string.IsNullOrWhiteSpace(name))
-                name = "default";
+            if (string.IsNullOrWhiteSpace(name) || string.Equals(name, "default", StringComparison.OrdinalIgnoreCase))
+            {
+                if (secrets.TryGet(LlmDefaultProviderKey, out var def) && !string.IsNullOrWhiteSpace(def))
+                    name = def.Trim();
+                else
+                    name = "default";
+            }
 
             // ProviderType resolution:
             // - Prefer explicit ProviderType in secrets (supports multi-instance names like openai-gpt-4o-mini).

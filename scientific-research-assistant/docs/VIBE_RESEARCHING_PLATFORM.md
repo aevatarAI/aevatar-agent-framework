@@ -54,6 +54,7 @@ artifacts/
   uploads/                           # 用户上传附件（返回相对路径）
   ui/
     ui_snapshot.json                 # UI 快照（messages/meta/tools/run-steps），用于刷新/重连恢复（best-effort）
+    agent_providers.json             # per-agent LLM provider mapping（agent -> providerName）
   compute/
     decisions/                       # 用户 compute 决策记录（json, MVP）
   dag/
@@ -87,6 +88,7 @@ SSE endpoint：`GET /api/sessions/{sessionId}/agui/events`
 - `aevatar.vibe.delivery_snapshot`
 - `aevatar.vibe.trace_snapshot`
 - `aevatar.vibe.agents_snapshot`（best-effort，仅确定性 roster/ids）
+- `aevatar.vibe.agent_providers_snapshot`（agent → providerName；用于 Agents 面板配置）
 - `aevatar.ui.tools_snapshot`（tool cards：messageId → toolCalls；用于刷新恢复）
 - `aevatar.ui.run_steps_snapshot`（Run Steps 卡片恢复）
 
@@ -103,6 +105,9 @@ SSE endpoint：`GET /api/sessions/{sessionId}/agui/events`
 
 ### 5) 主要 API（MVP）
 
+- **Agent Providers (per-agent LLM)**
+  - `GET /api/sessions/{id}/agent-providers`
+  - `PUT /api/sessions/{id}/agent-providers`（body: `{ agent, providerName }`；`providerName=""` 清除映射）
 - **Goals**
   - `GET /api/sessions/{id}/goals`
   - `PUT /api/sessions/{id}/goals`

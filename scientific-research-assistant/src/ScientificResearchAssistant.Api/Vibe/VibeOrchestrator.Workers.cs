@@ -23,7 +23,7 @@ internal sealed partial class VibeOrchestrator
     //  AG-UI per-agent message projection (like AxiomReasoning)
     // ============================================================
 
-    private static void StartAgentMessage(ResearchSession session, string messageId, string agent, string stepName)
+    private static void StartAgentMessage(ResearchSession session, string messageId, string agent, string stepName, string? providerName)
     {
         // Ensure message exists for snapshot-first reconnect.
         session.SetMessage(messageId, role: "assistant", content: string.Empty);
@@ -40,7 +40,7 @@ internal sealed partial class VibeOrchestrator
         {
             Timestamp = NowMs(),
             Name = "aevatar.vibe.message_meta",
-            Value = new { messageId, agent, stepName }
+            Value = new { messageId, agent, stepName, providerName = (providerName ?? string.Empty).Trim() }
         });
     }
 
@@ -80,16 +80,16 @@ internal sealed partial class VibeOrchestrator
         MaterialsSnapshot materials,
         SraGoalsSnapshot goals,
         SraDagSnapshot dag,
-        string? providerOverride,
+        string? providerName,
         CancellationToken ct)
     {
         session.Events.Publish(new StepStartedEvent { Timestamp = NowMs(), StepName = "vibe.planner" });
         var messageId = $"msg:{session.Id}:planner:{runId}";
-        StartAgentMessage(session, messageId, agent: "planner", stepName: "vibe.planner");
+        StartAgentMessage(session, messageId, agent: "planner", stepName: "vibe.planner", providerName: providerName);
 
         try
         {
-            var (planner, plannerId) = await _runtime.GetPlannerAgentAsync(session.Id, providerOverride, ct);
+            var (planner, plannerId) = await _runtime.GetPlannerAgentAsync(session.Id, providerName, ct);
             var req = new ChatRequest
             {
                 Message = BuildWorkerMessage("planner", question, goals, dag, attachments: input.AttachmentPaths),
@@ -133,19 +133,19 @@ internal sealed partial class VibeOrchestrator
         SraGoalsSnapshot goals,
         SraDagSnapshot dag,
         string? plannerOutput,
-        string? providerOverride,
+        string? providerName,
         CancellationToken ct)
     {
         session.Events.Publish(new StepStartedEvent { Timestamp = NowMs(), StepName = "vibe.reasoner" });
         var messageId = $"msg:{session.Id}:reasoner:{runId}";
-        StartAgentMessage(session, messageId, agent: "reasoner", stepName: "vibe.reasoner");
+        StartAgentMessage(session, messageId, agent: "reasoner", stepName: "vibe.reasoner", providerName: providerName);
 
         try
         {
-            var (reasoner, reasonerId) = await _runtime.GetReasonerAgentAsync(session.Id, providerOverride, ct);
+            var (reasoner, reasonerId) = await _runtime.GetReasonerAgentAsync(session.Id, providerName, ct);
 
             // Best-effort: include python tool if enabled.
-            _ = await _runtime.RefreshToolsSnapshotAsync(session.Id, providerOverride, ct);
+            _ = await _runtime.RefreshToolsSnapshotAsync(session.Id, providerName, ct);
 
             var req = new ChatRequest
             {
@@ -201,16 +201,16 @@ internal sealed partial class VibeOrchestrator
         MaterialsSnapshot materials,
         SraGoalsSnapshot goals,
         SraDagSnapshot dag,
-        string? providerOverride,
+        string? providerName,
         CancellationToken ct)
     {
         session.Events.Publish(new StepStartedEvent { Timestamp = NowMs(), StepName = "vibe.librarian" });
         var messageId = $"msg:{session.Id}:librarian:{runId}";
-        StartAgentMessage(session, messageId, agent: "librarian", stepName: "vibe.librarian");
+        StartAgentMessage(session, messageId, agent: "librarian", stepName: "vibe.librarian", providerName: providerName);
 
         try
         {
-            var (lib, libId) = await _runtime.GetLibrarianAgentAsync(session.Id, providerOverride, ct);
+            var (lib, libId) = await _runtime.GetLibrarianAgentAsync(session.Id, providerName, ct);
             var req = new ChatRequest
             {
                 Message = BuildWorkerMessage("librarian", question, goals, dag, attachments: input.AttachmentPaths),
@@ -265,16 +265,16 @@ internal sealed partial class VibeOrchestrator
         SraGoalsSnapshot goals,
         SraDagSnapshot dag,
         string? reasonerOutput,
-        string? providerOverride,
+        string? providerName,
         CancellationToken ct)
     {
         session.Events.Publish(new StepStartedEvent { Timestamp = NowMs(), StepName = "vibe.verifier" });
         var messageId = $"msg:{session.Id}:verifier:{runId}";
-        StartAgentMessage(session, messageId, agent: "verifier", stepName: "vibe.verifier");
+        StartAgentMessage(session, messageId, agent: "verifier", stepName: "vibe.verifier", providerName: providerName);
 
         try
         {
-            var (ver, verId) = await _runtime.GetVerifierAgentAsync(session.Id, providerOverride, ct);
+            var (ver, verId) = await _runtime.GetVerifierAgentAsync(session.Id, providerName, ct);
             var req = new ChatRequest
             {
                 Message = BuildWorkerMessage("verifier", question, goals, dag, attachments: input.AttachmentPaths,
@@ -331,16 +331,16 @@ internal sealed partial class VibeOrchestrator
         SraDagSnapshot dag,
         IReadOnlyDictionary<string, string> outputs,
         IReadOnlyList<LibrarianAxiomCandidate> librarianAxioms,
-        string? providerOverride,
+        string? providerName,
         CancellationToken ct)
     {
         session.Events.Publish(new StepStartedEvent { Timestamp = NowMs(), StepName = "vibe.dag_builder" });
         var messageId = $"msg:{session.Id}:dag_builder:{runId}";
-        StartAgentMessage(session, messageId, agent: "dag_builder", stepName: "vibe.dag_builder");
+        StartAgentMessage(session, messageId, agent: "dag_builder", stepName: "vibe.dag_builder", providerName: providerName);
 
         try
         {
-            var (db, dbId) = await _runtime.GetDagBuilderAgentAsync(session.Id, providerOverride, ct);
+            var (db, dbId) = await _runtime.GetDagBuilderAgentAsync(session.Id, providerName, ct);
             var req = new ChatRequest
             {
                 Message = BuildDagBuilderMessage(question, goals, dag, outputs, librarianAxioms, input.AttachmentPaths),
@@ -410,12 +410,12 @@ internal sealed partial class VibeOrchestrator
         SraGoalsSnapshot goals,
         DagRoundResult dagResult,
         IReadOnlyDictionary<string, string> outputs,
-        string? providerOverride,
+        string? providerName,
         CancellationToken ct)
     {
         session.Events.Publish(new StepStartedEvent { Timestamp = NowMs(), StepName = "vibe.paper_editor" });
         var messageId = $"msg:{session.Id}:paper_editor:{runId}";
-        StartAgentMessage(session, messageId, agent: "paper_editor", stepName: "vibe.paper_editor");
+        StartAgentMessage(session, messageId, agent: "paper_editor", stepName: "vibe.paper_editor", providerName: providerName);
 
         try
         {
@@ -424,7 +424,7 @@ internal sealed partial class VibeOrchestrator
             var outline = await SafeReadTextAsync(ws.PaperOutlinePath, maxChars: 8000, ct);
             var draft = await SafeReadTextAsync(ws.PaperDraftPath, maxChars: 12_000, ct);
 
-            var (pe, peId) = await _runtime.GetPaperEditorAgentAsync(session.Id, providerOverride, ct);
+            var (pe, peId) = await _runtime.GetPaperEditorAgentAsync(session.Id, providerName, ct);
             var req = new ChatRequest
             {
                 Message = BuildPaperEditorMessage(question, goals, dagResult, outputs, outline, draft, input.AttachmentPaths),

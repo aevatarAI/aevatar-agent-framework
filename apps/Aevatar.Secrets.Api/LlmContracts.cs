@@ -8,6 +8,8 @@
 
 sealed record SetLlmApiKeyRequest(string? ProviderName, string? ApiKey);
 
+sealed record SetLlmDefaultRequest(string? ProviderName);
+
 sealed record UpsertLlmInstanceRequest(
     string? ProviderName,
     string? ProviderType,
@@ -21,6 +23,17 @@ sealed record ProbeLlmRequest(
     string? Endpoint,
     string? ApiKey);
 
+sealed record UpsertEmbeddingsRequest(
+    bool? Enabled,
+    string? ProviderType,
+    string? Model,
+    string? Endpoint,
+    string? ApiKey);
+
+sealed record UpsertSkillsMpRequest(
+    string? ApiKey,
+    string? BaseUrl);
+
 sealed record TrashedApiKeyEntry(
     string ProviderName,
     string ProviderType,
@@ -28,7 +41,8 @@ sealed record TrashedApiKeyEntry(
     string Endpoint,
     string OriginalKeyPath,
     long TrashedAtUnixMs,
-    string ApiKey);
+    string ApiKey,
+    Dictionary<string, string>? ProviderKeys = null);
 
 sealed record TrashedApiKeyListItem(
     string ProviderName,

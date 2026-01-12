@@ -44,6 +44,7 @@ internal sealed partial class VibeOrchestrator
     private readonly TraceStore _trace;
     private readonly FileMailboxService _mailbox;
     private readonly PaperService _paper;
+    private readonly AgentProvidersStore _agentProviders;
     private readonly ILogger<VibeOrchestrator> _logger;
 
     public VibeOrchestrator(
@@ -58,6 +59,7 @@ internal sealed partial class VibeOrchestrator
         TraceStore trace,
         FileMailboxService mailbox,
         PaperService paper,
+        AgentProvidersStore agentProviders,
         ILogger<VibeOrchestrator> logger)
     {
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
@@ -71,6 +73,7 @@ internal sealed partial class VibeOrchestrator
         _trace = trace ?? throw new ArgumentNullException(nameof(trace));
         _mailbox = mailbox ?? throw new ArgumentNullException(nameof(mailbox));
         _paper = paper ?? throw new ArgumentNullException(nameof(paper));
+        _agentProviders = agentProviders ?? throw new ArgumentNullException(nameof(agentProviders));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -89,10 +92,67 @@ internal sealed partial class VibeOrchestrator
         ArgumentNullException.ThrowIfNull(materials);
         emitAssistantDelta ??= _ => { };
 
+        // ------------------------------------------------------------
+        // Shared DAG binding (cross-session)
+        // ------------------------------------------------------------
+        var dagId = string.IsNullOrWhiteSpace(session.DagId) ? session.Id : session.DagId.Trim();
+
         // Load File-SSoT context (best-effort).
         var goals = await _goals.LoadAsync(session.Id, ct);
-        var dagSnap = await _dag.LoadSnapshotAsync(session.Id, ct);
+        var dagSnap = await _dag.LoadSnapshotAsync(dagId, ct);
         var recentTrace = await _trace.LoadLatestAsync(session.Id, max: 5, ct);
+
+        // ------------------------------------------------------------
+        // Per-agent LLM provider mapping (File-SSoT)
+        //
+        // Rules:
+        // - providerOverride (request-level) wins for all agents
+        // - else use agent_providers.json mapping
+        // - else fallback to session.ProviderName
+        // - runtime resolves a final default if still empty/invalid
+        // ------------------------------------------------------------
+        AgentProvidersStore.AgentProvidersSnapshot? agentProvidersSnap = null;
+        try { agentProvidersSnap = await _agentProviders.LoadAsync(session.Id, ct); } catch { /* best-effort */ }
+        var agentProviderMap = agentProvidersSnap?.Map ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        string? ResolveProvider(string agent)
+        {
+            if (!string.IsNullOrWhiteSpace(providerOverride))
+                return providerOverride;
+            if (agentProviderMap.TryGetValue(agent, out var p) && !string.IsNullOrWhiteSpace(p))
+                return p;
+            return session.ProviderName;
+        }
+
+        var raProvider = ResolveProvider("research_assistant");
+        var plannerProvider = ResolveProvider("planner");
+        var reasonerProvider = ResolveProvider("reasoner");
+        var librarianProvider = ResolveProvider("librarian");
+        var verifierProvider = ResolveProvider("verifier");
+        var dagBuilderProvider = ResolveProvider("dag_builder");
+        var paperEditorProvider = ResolveProvider("paper_editor");
+
+        // Attach metadata to the main assistant message so UI can show provider per agent card.
+        // (Message id scheme matches ResearchRunExecutor: msg:{sessionId}:assistant:{runId})
+        try
+        {
+            session.Events.Publish(new CustomEvent
+            {
+                Timestamp = NowMs(),
+                Name = "aevatar.vibe.message_meta",
+                Value = new
+                {
+                    messageId = $"msg:{session.Id}:assistant:{runId}",
+                    agent = "research_assistant",
+                    stepName = "vibe",
+                    providerName = (raProvider ?? string.Empty).Trim()
+                }
+            });
+        }
+        catch
+        {
+            // best-effort only
+        }
 
         // Librarian side-effects (facts/goals/axioms) collected during this round.
         var librarianAxioms = new List<LibrarianAxiomCandidate>();
@@ -108,7 +168,7 @@ internal sealed partial class VibeOrchestrator
             var existing = await _brief.LoadAsync(session.Id, ct);
             if (existing.Version <= 0)
             {
-                var brief = await TryGetBriefAsync(session.Id, input, question, materials, goals, dagSnap, recentTrace, providerOverride, ct);
+                var brief = await TryGetBriefAsync(session.Id, input, question, materials, goals, dagSnap, recentTrace, raProvider, ct);
                 if (brief != null)
                 {
                     // First brief for a session: start at version=1.
@@ -148,7 +208,7 @@ internal sealed partial class VibeOrchestrator
             StepName = "vibe.ra_plan"
         });
 
-        var plan = await TryGetPlanAsync(session.Id, input, question, materials, goals, dagSnap, recentTrace, providerOverride, ct);
+        var plan = await TryGetPlanAsync(session.Id, input, question, materials, goals, dagSnap, recentTrace, raProvider, ct);
         if (!string.IsNullOrWhiteSpace(plan.RawJson))
         {
             EmitSection(emitAssistantDelta, "### Plan (research_assistant)\n");
@@ -212,19 +272,21 @@ internal sealed partial class VibeOrchestrator
             switch (agent)
             {
                 case "planner":
-                    outputs[agent] = await RunPlannerAsync(session, runId, input, question, materials, goals, dagSnap, providerOverride, ct);
+                    outputs[agent] = await RunPlannerAsync(session, runId, input, question, materials, goals, dagSnap, plannerProvider, ct);
                     break;
                 case "reasoner":
-                    outputs[agent] = await RunReasonerAsync(session, runId, input, question, materials, goals, dagSnap, outputs.TryGetValue("planner", out var p) ? p : null, providerOverride, ct);
+                    outputs[agent] = await RunReasonerAsync(session, runId, input, question, materials, goals, dagSnap, outputs.TryGetValue("planner", out var p) ? p : null, reasonerProvider, ct);
                     break;
                 case "librarian":
-                    outputs[agent] = await RunLibrarianAsync(session, runId, input, question, materials, goals, dagSnap, providerOverride, ct);
+                    outputs[agent] = await RunLibrarianAsync(session, runId, input, question, materials, goals, dagSnap, librarianProvider, ct);
                     break;
                 case "verifier":
-                    outputs[agent] = await RunVerifierAsync(session, runId, input, question, materials, goals, dagSnap, outputs.TryGetValue("reasoner", out var r) ? r : null, providerOverride, ct);
+                    outputs[agent] = await RunVerifierAsync(session, runId, input, question, materials, goals, dagSnap, outputs.TryGetValue("reasoner", out var r) ? r : null, verifierProvider, ct);
                     break;
                 case "dag_builder":
-                    outputs[agent] = await RunDagBuilderAsync(session, runId, input, question, materials, goals, dagSnap, outputs, librarianAxioms, providerOverride, ct);
+                    // Refresh DAG snapshot right before builder (other sessions may have mutated the shared DAG).
+                    dagSnap = await _dag.LoadSnapshotAsync(dagId, ct);
+                    outputs[agent] = await RunDagBuilderAsync(session, runId, input, question, materials, goals, dagSnap, outputs, librarianAxioms, dagBuilderProvider, ct);
                     break;
                 default:
                     // Unknown agent name in plan: ignore (MVP).
@@ -301,7 +363,9 @@ internal sealed partial class VibeOrchestrator
             StepName = "vibe.dag_consensus"
         });
 
-        var dagResult = await RunDagConsensusAsync(session, runId, materials, dagSnap, outputs, providerOverride, emitAssistantDelta, ct);
+        // Refresh again before consensus to gate against the latest shared DAG.
+        dagSnap = await _dag.LoadSnapshotAsync(dagId, ct);
+        var dagResult = await RunDagConsensusAsync(session, runId, question, materials, dagSnap, outputs, verifierProvider, emitAssistantDelta, ct);
 
         session.Events.Publish(new StepFinishedEvent
         {
@@ -330,7 +394,7 @@ internal sealed partial class VibeOrchestrator
                     goals,
                     dagResult,
                     outputs,
-                    providerOverride,
+                    paperEditorProvider,
                     ct);
 
                 outputs["paper_editor"] = paperEditorOut;
@@ -374,7 +438,7 @@ internal sealed partial class VibeOrchestrator
             outputs,
             goalSuggestions,
             factsWritten,
-            providerOverride,
+            raProvider,
             ct);
         if (!string.IsNullOrWhiteSpace(summaryMd))
         {

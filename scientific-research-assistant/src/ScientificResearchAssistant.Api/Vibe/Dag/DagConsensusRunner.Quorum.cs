@@ -224,6 +224,8 @@ public sealed partial class DagConsensusRunner
                  - If you see a HARD blocker, set approve=false and add it to redFlags.
                  - If you only have minor concerns, keep redFlags empty and explain in notes.
                  - Be conservative: do not approve incoherent, cyclic, or malformed mutations.
+                 - IMPORTANT: missing source files / missing evidence are NOT hard blockers by themselves.
+                   If grounding is missing, keep redFlags empty and list what's missing in notes.
 
                  What to check (quickly):
                  - Structural soundness: ids, missing references, cycles, self-edges, direction (dependency -> dependent).
@@ -274,6 +276,26 @@ public sealed partial class DagConsensusRunner
 
         var approve = parsed?.Approve ?? false;
         var notes = Bound((parsed?.Notes ?? string.Empty).Trim(), 1200);
+
+        // "Missing sources" is a common, non-fatal condition in early research rounds.
+        // Treat it as a soft warning (notes) rather than a hard red-flag, otherwise the whole run gets blocked too easily.
+        static bool IsSoftMissingSourcesFlag(string s)
+        {
+            var t = (s ?? string.Empty).Trim().ToLowerInvariant();
+            if (t.Length == 0) return false;
+            return (t.Contains("missing source") || t.Contains("missing sources"))
+                   && (t.Contains("not found") || t.Contains("available sources") || t.Contains("cannot confirm") || t.Contains("grounding"));
+        }
+
+        var soft = redFlags.Where(IsSoftMissingSourcesFlag).ToList();
+        if (soft.Count > 0)
+        {
+            redFlags = redFlags.Where(x => !IsSoftMissingSourcesFlag(x)).ToList();
+
+            // Append soft warnings into notes (bounded).
+            var softMsg = "soft_missing_sources: " + string.Join(" | ", soft.Take(3));
+            notes = Bound((notes.Length == 0 ? softMsg : (notes + "\n" + softMsg)).Trim(), 1200);
+        }
 
         // If approve=true but redFlags exist, treat as blocked.
         if (redFlags.Count > 0)

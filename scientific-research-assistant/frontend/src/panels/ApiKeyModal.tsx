@@ -34,6 +34,7 @@ export default function ApiKeyModal(props: ApiKeyModalProps) {
       if (!data || typeof data !== "object") return;
       if (data.type === "aevatar-secrets-ui:close") onClose();
       if (data.type === "aevatar-secrets-ui:saved") onSaved?.();
+      if (data.type === "aevatar-secrets-ui:changed") onSaved?.();
     }
 
     window.addEventListener("keydown", onKeyDown);

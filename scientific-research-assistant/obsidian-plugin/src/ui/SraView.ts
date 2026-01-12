@@ -161,74 +161,81 @@ export class SraView extends ItemView {
   private render(): void {
     const { containerEl } = this;
     containerEl.empty();
+    containerEl.addClass("aevatar-sra");
     containerEl.addClass("aevatar-sra-view");
 
-    containerEl.createEl("h2", { text: "Aevatar SRA" });
+    // ------------------------------------------------------------
+    //  Layout: a compact, platform-like panel (no Tailwind runtime)
+    // ------------------------------------------------------------
 
-    this.elStatus = containerEl.createEl("div", { text: "SSE: Disconnected" });
-    this.elRun = containerEl.createEl("div", { text: "run: (none)" });
+    const root = containerEl.createDiv({ cls: "aevatar-sra-panel" });
 
-    const row = containerEl.createEl("div");
-    row.style.display = "flex";
-    row.style.gap = "8px";
-    row.style.alignItems = "center";
+    // Header
+    const header = root.createDiv({ cls: "aevatar-sra-panel__header" });
+    const title = header.createDiv({ cls: "aevatar-sra-panel__title" });
+    title.createEl("div", { text: "Aevatar SRA", cls: "aevatar-sra-panel__titleText" });
+    title.createEl("div", { text: "Obsidian research workbench (SSE + Vault)", cls: "aevatar-sra-panel__subtitle" });
 
-    this.elSession = row.createEl("input");
+    const badges = header.createDiv({ cls: "aevatar-sra-panel__badges" });
+    this.elStatus = badges.createEl("span", { text: "SSE: Disconnected", cls: "aevatar-sra-badge" });
+    this.elRun = badges.createEl("span", { text: "run: (none)", cls: "aevatar-sra-badge aevatar-sra-badge--mono" });
+
+    // Session row
+    const sessionRow = root.createDiv({ cls: "aevatar-sra-panel__row" });
+    const sessionBox = sessionRow.createDiv({ cls: "aevatar-sra-field" });
+    sessionBox.createEl("div", { text: "Session", cls: "aevatar-sra-field__label" });
+    this.elSession = sessionBox.createEl("input", { cls: "aevatar-sra-input" });
     this.elSession.type = "text";
     this.elSession.placeholder = "sessionId";
-    this.elSession.style.flex = "1";
 
-    const btnConnect = row.createEl("button", { text: "Connect" });
+    const sessionActions = sessionRow.createDiv({ cls: "aevatar-sra-actions" });
+    const btnConnect = sessionActions.createEl("button", { text: "Connect", cls: "aevatar-sra-btn" });
     btnConnect.onclick = () => this.connectToSession(this.elSession.value);
-
-    const btnNew = row.createEl("button", { text: "New Session" });
+    const btnNew = sessionActions.createEl("button", { text: "New Session", cls: "aevatar-sra-btn aevatar-sra-btn--primary" });
     btnNew.onclick = () => void this.createNewSession();
 
-    const controls = containerEl.createEl("div");
-    controls.style.display = "flex";
-    controls.style.gap = "8px";
-    controls.style.marginTop = "8px";
-
-    this.elMode = controls.createEl("select");
+    // Composer row
+    const composeRow = root.createDiv({ cls: "aevatar-sra-panel__row" });
+    const modeBox = composeRow.createDiv({ cls: "aevatar-sra-field" });
+    modeBox.createEl("div", { text: "Mode", cls: "aevatar-sra-field__label" });
+    this.elMode = modeBox.createEl("select", { cls: "aevatar-sra-select" });
     for (const m of ["chat", "vibe", "vibe_loop"]) {
       const opt = this.elMode.createEl("option");
       opt.value = m;
       opt.text = m;
     }
 
-    const btnSend = controls.createEl("button", { text: "Send" });
-    btnSend.onclick = () => void this.sendCurrentMessage();
+    const msgBox = composeRow.createDiv({ cls: "aevatar-sra-field aevatar-sra-field--grow" });
+    msgBox.createEl("div", { text: "Message", cls: "aevatar-sra-field__label" });
+    this.elMessage = msgBox.createEl("textarea", { cls: "aevatar-sra-textarea" });
+    this.elMessage.placeholder = "Ask a research question…";
+    this.elMessage.rows = 4;
 
-    const btnPull = controls.createEl("button", { text: "Pull Deliverables" });
+    const composeActions = composeRow.createDiv({ cls: "aevatar-sra-actions aevatar-sra-actions--stack" });
+    const btnSend = composeActions.createEl("button", { text: "Send", cls: "aevatar-sra-btn aevatar-sra-btn--primary" });
+    btnSend.onclick = () => void this.sendCurrentMessage();
+    const btnPull = composeActions.createEl("button", { text: "Sync Deliverables", cls: "aevatar-sra-btn" });
     btnPull.onclick = () => void this.pullDeliverablesAsync();
 
-    const attachRow = containerEl.createEl("div");
-    attachRow.style.display = "flex";
-    attachRow.style.gap = "8px";
-    attachRow.style.marginTop = "8px";
-    attachRow.style.alignItems = "center";
+    // Attachments row
+    const attachRow = root.createDiv({ cls: "aevatar-sra-panel__row" });
+    const attachInfo = attachRow.createDiv({ cls: "aevatar-sra-field aevatar-sra-field--grow" });
+    attachInfo.createEl("div", { text: "Attachments", cls: "aevatar-sra-field__label" });
+    this.elAttachments = attachInfo.createDiv({ cls: "aevatar-sra-muted" });
+    this.elAttachments.setText("Attachments: (none)");
 
-    const btnAttach = attachRow.createEl("button", { text: "Attach current note" });
+    const attachActions = attachRow.createDiv({ cls: "aevatar-sra-actions" });
+    const btnAttach = attachActions.createEl("button", { text: "Attach current note", cls: "aevatar-sra-btn" });
     btnAttach.onclick = () => void this.attachCurrentNoteAsync();
-
-    const btnClear = attachRow.createEl("button", { text: "Clear attachments" });
+    const btnClear = attachActions.createEl("button", { text: "Clear", cls: "aevatar-sra-btn" });
     btnClear.onclick = () => {
       this.attachments = [];
       this.renderAttachments();
     };
 
-    this.elAttachments = attachRow.createEl("div", { text: "" });
-    this.elAttachments.style.opacity = "0.8";
-
-    this.elMessage = containerEl.createEl("textarea");
-    this.elMessage.placeholder = "Ask a research question…";
-    this.elMessage.rows = 4;
-    this.elMessage.style.width = "100%";
-    this.elMessage.style.marginTop = "8px";
-
-    this.elError = containerEl.createEl("div", { text: "" });
-    this.elError.style.marginTop = "8px";
-    this.elError.style.color = "var(--text-error)";
+    // Error / status note
+    this.elError = root.createDiv({ cls: "aevatar-sra-error" });
+    this.elError.setText("");
 
     this.renderAttachments();
   }

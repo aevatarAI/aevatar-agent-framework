@@ -17,6 +17,7 @@
   </Folder>
   <Folder Name="/apps/">
     <Project Path="apps/Aevatar.AppHost/Aevatar.AppHost.csproj" />
+    <Project Path="apps/Aevatar.Secrets.Api/Aevatar.Secrets.Api.csproj" />
     <Project Path="apps/AxiomReasoning.AppHost/AxiomReasoning.AppHost.csproj" />
     <Project Path="apps/CognitiveMesh.AppHost/CognitiveMesh.AppHost.csproj" />
     <Project Path="apps/MakerSystem.AppHost/MakerSystem.AppHost.csproj" />

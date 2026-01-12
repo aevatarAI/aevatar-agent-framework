@@ -62,6 +62,61 @@ public sealed class MaterialsService
     //  Write-back (optional): persist verified notes as new sources
     // ============================================================
 
+    public async Task<MaterialFile> SaveSourceAsync(
+        string title,
+        string content,
+        string? relativePath,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        if (!_options.Value.AllowWrite)
+            throw new InvalidOperationException("Sources write is disabled (Materials:AllowWrite=false).");
+
+        title = (title ?? string.Empty).Trim();
+        content = (content ?? string.Empty).Replace("\r", "").Trim();
+        if (content.Length == 0)
+            throw new ArgumentException("content is required", nameof(content));
+
+        var maxWrite = Math.Clamp(_options.Value.MaxWriteChars, 1, 500_000);
+        if (content.Length > maxWrite)
+            content = content[..maxWrite];
+
+        var sourcesRoot = ResolveSystemPath(_options.Value.SourcesDir ?? "sources");
+        Directory.CreateDirectory(sourcesRoot);
+
+        var rel = NormalizeRelativePath(relativePath);
+        if (rel.Length == 0)
+        {
+            // Default: {yyyyMMdd_HHmmss}_{slug}.md
+            var slug = Slugify(title.Length == 0 ? "source" : title, maxChars: 48);
+            var stamp = DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss");
+            rel = $"{stamp}_{slug}.md";
+        }
+
+        if (!HasAllowedExtension(rel))
+            rel += ".md";
+
+        var full = Path.GetFullPath(Path.Combine(sourcesRoot, rel));
+        EnsureWithinRoot(sourcesRoot, full);
+
+        var md = BuildMarkdownDoc(title, content);
+        await File.WriteAllTextAsync(full, md, Encoding.UTF8, ct);
+
+        var finalRel = NormalizeRelativePath(Path.GetRelativePath(sourcesRoot, full));
+        var finalTitle = title.Length == 0 ? InferTitle(finalRel, md) : title;
+
+        return new MaterialFile
+        {
+            Kind = "source",
+            Id = $"source:{finalRel}",
+            Title = finalTitle,
+            RelativePath = finalRel,
+            FullPath = full,
+            Content = md
+        };
+    }
+
     public async Task<MaterialFile> SaveFactAsync(
         string title,
         string content,
@@ -100,7 +155,7 @@ public sealed class MaterialsService
         var full = Path.GetFullPath(Path.Combine(factsRoot, rel));
         EnsureWithinRoot(factsRoot, full);
 
-        var md = BuildMarkdownFact(title, content);
+        var md = BuildMarkdownDoc(title, content);
         await File.WriteAllTextAsync(full, md, Encoding.UTF8, ct);
 
         var finalRel = NormalizeRelativePath(Path.GetRelativePath(factsRoot, full));
@@ -116,7 +171,8 @@ public sealed class MaterialsService
             Content = md
         };
     }
-    private static string BuildMarkdownFact(string title, string content)
+
+    private static string BuildMarkdownDoc(string title, string content)
     {
         var t = (title ?? string.Empty).Trim();
         var body = (content ?? string.Empty).Replace("\r", "").Trim();
@@ -354,6 +410,35 @@ public sealed class MaterialsService
         {
             if (sb.Length > 0) sb.Append('\n');
             sb.AppendLine(header);
+        }
+
+        // Quick index first (paths only) so verifiers can confirm existence even if excerpts are truncated.
+        AppendSection("MATERIAL INDEX (paths only; cite by id or path):");
+        if (facts.Count == 0 && sources.Count == 0)
+        {
+            sb.AppendLine("(none)");
+        }
+        else
+        {
+            var budgetLines = 260; // keep small; this needs to survive the verifier 6k truncation
+            foreach (var f in facts.Take(80))
+            {
+                if (sb.Length >= maxTotal) break;
+                if (budgetLines-- <= 0) break;
+                sb.Append("- [").Append(f.Id).Append("] facts/").Append(f.RelativePath).AppendLine();
+            }
+
+            foreach (var s in sources.Take(160))
+            {
+                if (sb.Length >= maxTotal) break;
+                if (budgetLines-- <= 0) break;
+                sb.Append("- [").Append(s.Id).Append("] sources/").Append(s.RelativePath).AppendLine();
+            }
+
+            if (sources.Count > 160 || facts.Count > 80)
+            {
+                sb.AppendLine("- ... (truncated)");
+            }
         }
 
         // Facts first: higher-confidence, usually smaller.

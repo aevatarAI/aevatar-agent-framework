@@ -45,7 +45,7 @@ public sealed class SkillPackSyncEntry
 /// </summary>
 public sealed class SkillPacksSyncService
 {
-    private readonly IOptions<SkillPacksOptions> _packs;
+    private readonly IOptionsMonitor<SkillPacksOptions> _packs;
     private readonly IOptions<LLMProvidersConfig> _llm;
     private readonly IAIAgentEmbeddingFactory? _embeddingFactory;
     private readonly IHostEnvironment _env;
@@ -65,7 +65,7 @@ public sealed class SkillPacksSyncService
     private DateTimeOffset _lastAttemptUtc = DateTimeOffset.MinValue;
 
     public SkillPacksSyncService(
-        IOptions<SkillPacksOptions> packs,
+        IOptionsMonitor<SkillPacksOptions> packs,
         IOptions<LLMProvidersConfig> llm,
         IAIAgentEmbeddingFactory? embeddingFactory,
         IHostEnvironment env,
@@ -81,7 +81,7 @@ public sealed class SkillPacksSyncService
     }
 
     public bool HasEnabledPacks =>
-        _packs.Value?.Packs?.Any(p => p.Enabled && !string.IsNullOrWhiteSpace(p.RepoUrl)) == true;
+        _packs.CurrentValue?.Packs?.Any(p => p.Enabled && !string.IsNullOrWhiteSpace(p.RepoUrl)) == true;
 
     public bool LastSyncOk => _lastResult?.Ok == true;
 
@@ -161,7 +161,7 @@ public sealed class SkillPacksSyncService
     {
         var list = new List<SkillPackSpec>();
 
-        var configured = _packs.Value?.Packs ?? new List<SkillPackSpec>();
+        var configured = _packs.CurrentValue?.Packs ?? new List<SkillPackSpec>();
         if (configured.Count == 0)
         {
             return list;

@@ -21,9 +21,57 @@
             <input id="searchInput" placeholder="Search providers" />
           </div>
 
+          <div class="section hidden" id="secDefault">
+            <div class="section-title">Default provider</div>
+            <div class="row">
+              <div class="grow">
+                <select id="defaultSelect">
+                  <option value="">-- select default --</option>
+                </select>
+              </div>
+              <button class="btn" id="defaultSetBtn" type="button">Set</button>
+            </div>
+            <div class="hint" id="defaultHint" style="margin-top: 8px;"></div>
+          </div>
+
+          <div class="section" id="secEmbeddings">
+            <div class="section-title">Embeddings</div>
+            <div class="list">
+              <div class="item" id="embeddingsItem">
+                <div class="logo">E</div>
+                <div class="item-main">
+                  <div class="item-name">Aliyun DashScope <span class="badge">Embeddings</span></div>
+                  <div class="item-desc">Configure global embeddings API key (OpenAI-compatible endpoint)</div>
+                </div>
+                <div class="chev">›</div>
+              </div>
+            </div>
+            <div class="hint" id="embeddingsHint" style="margin-top: 8px;"></div>
+          </div>
+
+          <div class="section" id="secSkillsMp">
+            <div class="section-title">Integrations</div>
+            <div class="list">
+              <div class="item" id="skillsMpItem">
+                <div class="logo">S</div>
+                <div class="item-main">
+                  <div class="item-name">SkillsMP <span class="badge">API</span></div>
+                  <div class="item-desc">Configure SkillsMP marketplace API key</div>
+                </div>
+                <div class="chev">›</div>
+              </div>
+            </div>
+            <div class="hint" id="skillsMpHint" style="margin-top: 8px;"></div>
+          </div>
+
           <div class="section hidden" id="secConfigured">
             <div class="section-title">Configured</div>
             <div class="list" id="listConfigured"></div>
+          </div>
+
+          <div class="section hidden" id="secTrash">
+            <div class="section-title">Trash (API keys)</div>
+            <div class="list" id="listTrash"></div>
           </div>
 
           <div class="section">
@@ -79,7 +127,7 @@
 
           <label>Model</label>
           <select id="modelSelect">
-            <option value="">--</option>
+            <option value="">-- click Fetch models --</option>
           </select>
           <div class="hint" id="modelMeta" style="margin-top: 6px;"></div>
 
@@ -101,7 +149,7 @@
             <button class="btn primary" id="submitBtn">Save</button>
             <button class="btn" id="testBtn" type="button">Test</button>
             <button class="btn" id="modelsBtn" type="button">Fetch models</button>
-            <button class="btn danger" id="disconnectBtn">Disconnect</button>
+            <button class="btn danger" id="disconnectBtn">Delete</button>
           </div>
 
           <div id="connectMsg" class="msg"></div>
@@ -145,6 +193,92 @@
 
           <div class="hint" style="margin-top: 16px;">
             Recommended key example: <span class="mono">LLMProviders:Providers:deepseek:ApiKey</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- EMBEDDINGS VIEW -->
+      <div id="viewEmbeddings" class="hidden">
+        <div class="topbar">
+          <button class="icon-btn" id="embBackBtn" title="Back">←</button>
+          <div class="title">Embeddings (Aliyun)</div>
+          <div class="spacer"></div>
+          <button class="icon-btn" id="embCloseBtn" title="Close">✕</button>
+        </div>
+        <div class="form">
+          <div class="subtitle">
+            Global embeddings config (fallback for all LLM providers). Stored at
+            <span class="mono">LLMProviders:Embeddings:*</span>.
+          </div>
+
+          <label class="row" style="align-items:center; gap:8px;">
+            <input id="embEnabledInput" type="checkbox" />
+            <span>Enabled</span>
+          </label>
+
+          <label>Provider type</label>
+          <input id="embProviderTypeInput" type="text" placeholder="e.g. deepseek (OpenAI-compatible)" />
+
+          <label>Endpoint</label>
+          <input id="embEndpointInput" type="text" placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1" />
+
+          <label>Model</label>
+          <input id="embModelInput" type="text" placeholder="text-embedding-v3" />
+
+          <label>API key</label>
+          <div class="row">
+            <div class="grow">
+              <input id="embApiKeyInput" type="password" placeholder="DashScope API key" />
+            </div>
+            <button class="btn" id="embToggleKeyBtn" type="button">Show</button>
+          </div>
+
+          <div class="actions">
+            <button class="btn primary" id="embSaveBtn" type="button">Save</button>
+            <button class="btn danger" id="embDeleteBtn" type="button">Delete</button>
+          </div>
+
+          <div id="embMsg" class="msg"></div>
+
+          <div class="hint" style="margin-top: 16px;">
+            Tip: this key is used by embeddings generators (skills search / vector indexing).
+          </div>
+        </div>
+      </div>
+
+      <!-- SKILLSMP VIEW -->
+      <div id="viewSkillsMp" class="hidden">
+        <div class="topbar">
+          <button class="icon-btn" id="skillsMpBackBtn" title="Back">←</button>
+          <div class="title">SkillsMP</div>
+          <div class="spacer"></div>
+          <button class="icon-btn" id="skillsMpCloseBtn" title="Close">✕</button>
+        </div>
+        <div class="form">
+          <div class="subtitle">
+            SkillsMP marketplace API key. Stored at <span class="mono">SkillsMP:ApiKey</span>.
+          </div>
+
+          <label>Base URL (optional)</label>
+          <input id="skillsMpBaseUrlInput" type="text" placeholder="https://skillsmp.com" />
+
+          <label>API key</label>
+          <div class="row">
+            <div class="grow">
+              <input id="skillsMpApiKeyInput" type="password" placeholder="SkillsMP API key" />
+            </div>
+            <button class="btn" id="skillsMpToggleKeyBtn" type="button">Show</button>
+          </div>
+
+          <div class="actions">
+            <button class="btn primary" id="skillsMpSaveBtn" type="button">Save</button>
+            <button class="btn danger" id="skillsMpDeleteBtn" type="button">Delete</button>
+          </div>
+
+          <div id="skillsMpMsg" class="msg"></div>
+
+          <div class="hint" style="margin-top: 16px;">
+            Docs: <span class="mono">https://skillsmp.com/zh/docs/api</span>
           </div>
         </div>
       </div>

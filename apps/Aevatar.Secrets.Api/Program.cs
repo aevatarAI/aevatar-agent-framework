@@ -66,6 +66,276 @@ app.MapGet("/api/llm/instances", (IAevatarUserSecretsStore secrets, HttpContext 
     return Results.Json(new { ok = true, instances });
 });
 
+// ------------------------------------------------------------
+// SkillsMP (Agent Skills marketplace)
+// Stored at: SkillsMP:ApiKey  (+ optional SkillsMP:BaseUrl)
+// ------------------------------------------------------------
+app.MapGet("/api/skillsmp/status", (IAevatarUserSecretsStore secrets, HttpContext http) =>
+{
+    if (!IsLocal(http))
+        return Results.Forbid();
+
+    var keyPath = "SkillsMP:ApiKey";
+    var baseUrlKey = "SkillsMP:BaseUrl";
+
+    var configured = secrets.TryGet(keyPath, out var raw) && !string.IsNullOrWhiteSpace(raw);
+    var masked = configured ? SecretMask.MaskMiddle((raw ?? string.Empty).Trim()) : string.Empty;
+    var baseUrl = secrets.TryGet(baseUrlKey, out var bu) ? (bu ?? string.Empty).Trim() : string.Empty;
+
+    return Results.Json(new
+    {
+        ok = true,
+        configured,
+        masked,
+        keyPath,
+        baseUrl
+    });
+});
+
+app.MapGet("/api/skillsmp/api-key", (
+    bool? reveal,
+    IAevatarUserSecretsStore secrets,
+    HttpContext http) =>
+{
+    if (!IsLocal(http))
+        return Results.Forbid();
+
+    const string keyPath = "SkillsMP:ApiKey";
+
+    if (!secrets.TryGet(keyPath, out var value) || string.IsNullOrWhiteSpace(value))
+    {
+        return Results.Json(new
+        {
+            ok = true,
+            configured = false,
+            masked = ""
+        });
+    }
+
+    var trimmed = value.Trim();
+    var masked = SecretMask.MaskMiddle(trimmed);
+
+    if (reveal == true)
+    {
+        return Results.Json(new
+        {
+            ok = true,
+            configured = true,
+            masked,
+            value = trimmed
+        });
+    }
+
+    return Results.Json(new
+    {
+        ok = true,
+        configured = true,
+        masked
+    });
+});
+
+app.MapPost("/api/skillsmp", (
+    UpsertSkillsMpRequest req,
+    IAevatarUserSecretsStore secrets,
+    HttpContext http) =>
+{
+    if (!IsLocal(http))
+        return Results.Forbid();
+
+    void SetOrRemove(string key, string? raw)
+    {
+        if (raw == null) return; // not provided
+        var v = raw.Trim();
+        if (string.IsNullOrWhiteSpace(v)) secrets.Remove(key);
+        else secrets.Set(key, v);
+    }
+
+    // ApiKey: only write when provided (UI should prevent saving masked values).
+    SetOrRemove("SkillsMP:ApiKey", req.ApiKey);
+    // BaseUrl: optional (non-secret)
+    SetOrRemove("SkillsMP:BaseUrl", req.BaseUrl);
+
+    return Results.Json(new { ok = true });
+});
+
+app.MapDelete("/api/skillsmp", (
+    IAevatarUserSecretsStore secrets,
+    HttpContext http) =>
+{
+    if (!IsLocal(http))
+        return Results.Forbid();
+
+    var removed = new Dictionary<string, bool>
+    {
+        ["SkillsMP:ApiKey"] = secrets.Remove("SkillsMP:ApiKey"),
+        ["SkillsMP:BaseUrl"] = secrets.Remove("SkillsMP:BaseUrl")
+    };
+
+    return Results.Json(new { ok = true, removed });
+});
+
+// ------------------------------------------------------------
+// Embeddings (global fallback) - Aliyun/DashScope (OpenAI-compatible)
+// Stored at: LLMProviders:Embeddings:*
+// ------------------------------------------------------------
+app.MapGet("/api/embeddings", (IAevatarUserSecretsStore secrets, HttpContext http) =>
+{
+    if (!IsLocal(http))
+        return Results.Forbid();
+
+    secrets.TryGet("LLMProviders:Embeddings:ProviderType", out var providerType);
+    secrets.TryGet("LLMProviders:Embeddings:Model", out var model);
+    secrets.TryGet("LLMProviders:Embeddings:Endpoint", out var endpoint);
+    var hasKey = secrets.TryGet("LLMProviders:Embeddings:ApiKey", out var apiKey) && !string.IsNullOrWhiteSpace(apiKey);
+
+    bool? enabled = null;
+    if (secrets.TryGet("LLMProviders:Embeddings:Enabled", out var enabledRaw) && !string.IsNullOrWhiteSpace(enabledRaw))
+    {
+        if (bool.TryParse(enabledRaw.Trim(), out var b))
+            enabled = b;
+    }
+
+    return Results.Json(new
+    {
+        ok = true,
+        embeddings = new
+        {
+            enabled,
+            providerType = (providerType ?? string.Empty).Trim(),
+            model = (model ?? string.Empty).Trim(),
+            endpoint = (endpoint ?? string.Empty).Trim(),
+            configured = hasKey,
+            masked = hasKey ? SecretMask.MaskMiddle((apiKey ?? string.Empty).Trim()) : string.Empty
+        }
+    });
+});
+
+app.MapGet("/api/embeddings/api-key", (
+    bool? reveal,
+    IAevatarUserSecretsStore secrets,
+    HttpContext http) =>
+{
+    if (!IsLocal(http))
+        return Results.Forbid();
+
+    if (!secrets.TryGet("LLMProviders:Embeddings:ApiKey", out var value) || string.IsNullOrWhiteSpace(value))
+    {
+        return Results.Json(new
+        {
+            ok = true,
+            configured = false,
+            masked = ""
+        });
+    }
+
+    var trimmed = value.Trim();
+    var masked = SecretMask.MaskMiddle(trimmed);
+
+    if (reveal == true)
+    {
+        return Results.Json(new
+        {
+            ok = true,
+            configured = true,
+            masked,
+            value = trimmed
+        });
+    }
+
+    return Results.Json(new
+    {
+        ok = true,
+        configured = true,
+        masked
+    });
+});
+
+app.MapPost("/api/embeddings", (
+    UpsertEmbeddingsRequest req,
+    IAevatarUserSecretsStore secrets,
+    HttpContext http) =>
+{
+    if (!IsLocal(http))
+        return Results.Forbid();
+
+    // Enabled: optional UI toggle (not required by core binding, but useful for humans).
+    if (req.Enabled.HasValue)
+    {
+        secrets.Set("LLMProviders:Embeddings:Enabled", req.Enabled.Value ? "true" : "false");
+    }
+
+    void SetOrRemove(string key, string? raw)
+    {
+        if (raw == null) return; // not provided
+        var v = raw.Trim();
+        if (string.IsNullOrWhiteSpace(v)) secrets.Remove(key);
+        else secrets.Set(key, v);
+    }
+
+    SetOrRemove("LLMProviders:Embeddings:ProviderType", req.ProviderType);
+    SetOrRemove("LLMProviders:Embeddings:Model", req.Model);
+    SetOrRemove("LLMProviders:Embeddings:Endpoint", req.Endpoint);
+
+    // ApiKey: only write when provided (UI should prevent saving masked values).
+    SetOrRemove("LLMProviders:Embeddings:ApiKey", req.ApiKey);
+
+    return Results.Json(new { ok = true });
+});
+
+app.MapDelete("/api/embeddings", (
+    IAevatarUserSecretsStore secrets,
+    HttpContext http) =>
+{
+    if (!IsLocal(http))
+        return Results.Forbid();
+
+    var removed = new Dictionary<string, bool>
+    {
+        ["LLMProviders:Embeddings:Enabled"] = secrets.Remove("LLMProviders:Embeddings:Enabled"),
+        ["LLMProviders:Embeddings:ProviderType"] = secrets.Remove("LLMProviders:Embeddings:ProviderType"),
+        ["LLMProviders:Embeddings:Model"] = secrets.Remove("LLMProviders:Embeddings:Model"),
+        ["LLMProviders:Embeddings:Endpoint"] = secrets.Remove("LLMProviders:Embeddings:Endpoint"),
+        ["LLMProviders:Embeddings:ApiKey"] = secrets.Remove("LLMProviders:Embeddings:ApiKey")
+    };
+
+    return Results.Json(new { ok = true, removed });
+});
+
+// Default provider (stored at LLMProviders:Default)
+app.MapGet("/api/llm/default", (IAevatarUserSecretsStore secrets, HttpContext http) =>
+{
+    if (!IsLocal(http))
+        return Results.Forbid();
+
+    EnsureDefaultProviderKeyBestEffort(secrets, preferredProvider: null);
+    var effective = ResolveEffectiveDefaultProviderName(secrets);
+
+    return Results.Json(new
+    {
+        ok = true,
+        providerName = effective
+    });
+});
+
+app.MapPost("/api/llm/default", (
+    SetLlmDefaultRequest req,
+    IAevatarUserSecretsStore secrets,
+    HttpContext http) =>
+{
+    if (!IsLocal(http))
+        return Results.Forbid();
+
+    var name = (req.ProviderName ?? string.Empty).Trim();
+    if (string.IsNullOrWhiteSpace(name))
+        return Results.BadRequest(new { ok = false, error = "providerName is required" });
+
+    if (!IsProviderRunnable(secrets, name))
+        return Results.BadRequest(new { ok = false, error = "providerName has no configured apiKey" });
+
+    secrets.Set("LLMProviders:Default", name);
+    return Results.Json(new { ok = true, providerName = name });
+});
+
 // Provider details (never returns secret values)
 app.MapGet("/api/llm/provider/{providerName}", (
     string providerName,
@@ -278,6 +548,7 @@ app.MapPost("/api/llm/api-key", (
 
     var keyPath = $"LLMProviders:Providers:{providerName}:ApiKey";
     secrets.Set(keyPath, apiKey);
+    EnsureDefaultProviderKeyBestEffort(secrets, providerName);
 
     return Results.Json(new { ok = true, providerName, keyPath });
 });
@@ -339,6 +610,8 @@ app.MapPost("/api/llm/instance", (
         secrets.Set(apiKeyPath, fromKey.Trim());
     }
 
+    EnsureDefaultProviderKeyBestEffort(secrets, name);
+
     var resolved = LlmProviderResolver.Resolve(secrets, name);
     return Results.Json(new
     {
@@ -389,14 +662,29 @@ app.MapPost("/api/trash/api-key/{providerName}", (
     if (string.IsNullOrWhiteSpace(name))
         return Results.BadRequest(new { ok = false, error = "providerName is required" });
 
-    var keyPath = $"LLMProviders:Providers:{name}:ApiKey";
-    if (!secrets.TryGet(keyPath, out var apiKey) || string.IsNullOrWhiteSpace(apiKey))
+    var providerPrefix = $"LLMProviders:Providers:{name}:";
+    var keyPath = $"{providerPrefix}ApiKey";
+
+    // Snapshot all provider keys (so restore can bring them back).
+    var all = secrets.GetAll();
+    var providerKeys = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    foreach (var kv in all)
     {
-        return Results.BadRequest(new { ok = false, error = "apiKey is not configured for this providerName" });
+        if (!kv.Key.StartsWith(providerPrefix, StringComparison.OrdinalIgnoreCase))
+            continue;
+        providerKeys[kv.Key] = kv.Value ?? string.Empty;
     }
 
+    if (providerKeys.Count == 0)
+    {
+        return Results.BadRequest(new { ok = false, error = "provider has no secrets/config to delete" });
+    }
+
+    // Capture human-readable info before removal.
     var resolved = LlmProviderResolver.Resolve(secrets, name);
     var trashedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+    providerKeys.TryGetValue(keyPath, out var apiKey);
 
     var entry = new TrashedApiKeyEntry(
         ProviderName: name,
@@ -405,13 +693,18 @@ app.MapPost("/api/trash/api-key/{providerName}", (
         Endpoint: resolved.Endpoint,
         OriginalKeyPath: keyPath,
         TrashedAtUnixMs: trashedAt,
-        ApiKey: apiKey.Trim());
+        ApiKey: (apiKey ?? string.Empty).Trim(),
+        ProviderKeys: providerKeys);
 
     var trashKey = $"{TrashApiKeyPrefix}{name}";
     secrets.Set(trashKey, JsonSerializer.Serialize(entry));
 
-    // Disconnect: remove live API key (instances remain, but won't be usable until key is restored/set again).
-    secrets.Remove(keyPath);
+    // Delete the entire provider subtree so it truly disappears from all config sources.
+    foreach (var k in providerKeys.Keys)
+    {
+        secrets.Remove(k);
+    }
+    EnsureDefaultProviderKeyBestEffort(secrets, preferredProvider: null);
 
     return Results.Json(new
     {
@@ -451,13 +744,20 @@ app.MapGet("/api/trash/api-keys", (IAevatarUserSecretsStore secrets, HttpContext
         if (entry == null || string.IsNullOrWhiteSpace(entry.ProviderName))
             continue;
 
+        // If older entries didn't populate ApiKey, fall back to ProviderKeys.
+        var rawKey = entry.ApiKey;
+        if (string.IsNullOrWhiteSpace(rawKey) && entry.ProviderKeys != null)
+        {
+            entry.ProviderKeys.TryGetValue(entry.OriginalKeyPath ?? string.Empty, out rawKey);
+        }
+
         list.Add(new TrashedApiKeyListItem(
             ProviderName: entry.ProviderName,
             ProviderType: entry.ProviderType,
             Model: entry.Model,
             Endpoint: entry.Endpoint,
             TrashedAtUnixMs: entry.TrashedAtUnixMs,
-            Masked: SecretMask.MaskMiddle(entry.ApiKey)));
+            Masked: SecretMask.MaskMiddle(rawKey ?? string.Empty)));
     }
 
     return Results.Json(new
@@ -481,8 +781,17 @@ app.MapDelete("/api/trash/api-key/{providerName}", (
     if (string.IsNullOrWhiteSpace(name))
         return Results.BadRequest(new { ok = false, error = "providerName is required" });
 
+    var providerPrefix = $"LLMProviders:Providers:{name}:";
+    var all = secrets.GetAll();
+    foreach (var k in all.Keys)
+    {
+        if (k.StartsWith(providerPrefix, StringComparison.OrdinalIgnoreCase))
+            secrets.Remove(k);
+    }
+
     var trashKey = $"{TrashApiKeyPrefix}{name}";
     var removed = secrets.Remove(trashKey);
+    EnsureDefaultProviderKeyBestEffort(secrets, preferredProvider: null);
 
     return Results.Json(new { ok = true, providerName = name, removed });
 });
@@ -515,14 +824,29 @@ app.MapPost("/api/trash/api-key/{providerName}/restore", (
     if (entry == null || string.IsNullOrWhiteSpace(entry.ApiKey))
         return Results.BadRequest(new { ok = false, error = "trash entry is malformed" });
 
-    var keyPath = $"LLMProviders:Providers:{name}:ApiKey";
-    if (secrets.TryGet(keyPath, out var existing) && !string.IsNullOrWhiteSpace(existing))
+    var providerPrefix = $"LLMProviders:Providers:{name}:";
+    var all = secrets.GetAll();
+    if (all.Keys.Any(k => k.StartsWith(providerPrefix, StringComparison.OrdinalIgnoreCase)))
     {
-        return Results.BadRequest(new { ok = false, error = "apiKey already exists for this providerName" });
+        return Results.BadRequest(new { ok = false, error = "provider already exists; delete it before restore" });
     }
 
-    secrets.Set(keyPath, entry.ApiKey.Trim());
+    if (entry.ProviderKeys != null && entry.ProviderKeys.Count > 0)
+    {
+        foreach (var kv in entry.ProviderKeys)
+        {
+            secrets.Set(kv.Key, kv.Value ?? string.Empty);
+        }
+    }
+    else
+    {
+        // Back-compat: older trash entries only stored ApiKey.
+        var keyPath = $"{providerPrefix}ApiKey";
+        secrets.Set(keyPath, entry.ApiKey.Trim());
+    }
+
     secrets.Remove(trashKey);
+    EnsureDefaultProviderKeyBestEffort(secrets, preferredProvider: name);
 
     return Results.Json(new { ok = true, providerName = name, restored = true });
 });
@@ -572,4 +896,78 @@ static bool IsLocal(HttpContext ctx)
 {
     var ip = ctx.Connection.RemoteIpAddress;
     return ip == null || System.Net.IPAddress.IsLoopback(ip);
+}
+
+static bool IsProviderRunnable(IAevatarUserSecretsStore secrets, string providerName)
+{
+    var name = (providerName ?? string.Empty).Trim();
+    if (name.Length == 0)
+        return false;
+
+    var keyPath = $"LLMProviders:Providers:{name}:ApiKey";
+    return secrets.TryGet(keyPath, out var v) && !string.IsNullOrWhiteSpace(v);
+}
+
+static string ResolveEffectiveDefaultProviderName(IAevatarUserSecretsStore secrets)
+{
+    if (secrets.TryGet("LLMProviders:Default", out var raw) && !string.IsNullOrWhiteSpace(raw))
+    {
+        var v = raw.Trim();
+        // Only treat literal "default" as a placeholder when there is no runnable "default" instance.
+        if (!string.Equals(v, "default", StringComparison.OrdinalIgnoreCase) || IsProviderRunnable(secrets, "default"))
+            return v;
+    }
+
+    // Fallback: first runnable provider instance.
+    const string prefix = "LLMProviders:Providers:";
+    const string suffix = ":ApiKey";
+    var all = secrets.GetAll();
+    var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    foreach (var kv in all)
+    {
+        var k = kv.Key ?? string.Empty;
+        if (!k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            continue;
+        if (!k.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            continue;
+        if (string.IsNullOrWhiteSpace(kv.Value))
+            continue;
+
+        var mid = k.Substring(prefix.Length, k.Length - prefix.Length - suffix.Length).Trim();
+        if (mid.Length == 0)
+            continue;
+        names.Add(mid);
+    }
+
+    return names.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).FirstOrDefault() ?? "default";
+}
+
+static void EnsureDefaultProviderKeyBestEffort(IAevatarUserSecretsStore secrets, string? preferredProvider)
+{
+    // If explicit default exists AND still runnable, keep it.
+    var current = secrets.TryGet("LLMProviders:Default", out var raw) ? (raw ?? string.Empty).Trim() : string.Empty;
+    var currentIsPlaceholder =
+        string.IsNullOrWhiteSpace(current) ||
+        (string.Equals(current, "default", StringComparison.OrdinalIgnoreCase) && !IsProviderRunnable(secrets, "default"));
+
+    if (!currentIsPlaceholder && IsProviderRunnable(secrets, current))
+        return;
+
+    var preferred = (preferredProvider ?? string.Empty).Trim();
+    if (!string.IsNullOrWhiteSpace(preferred) && IsProviderRunnable(secrets, preferred))
+    {
+        secrets.Set("LLMProviders:Default", preferred);
+        return;
+    }
+
+    var next = ResolveEffectiveDefaultProviderName(secrets);
+    if (!string.IsNullOrWhiteSpace(next) && IsProviderRunnable(secrets, next))
+    {
+        secrets.Set("LLMProviders:Default", next);
+        return;
+    }
+
+    // Nothing runnable: remove stale value if any.
+    if (!string.IsNullOrWhiteSpace(current))
+        secrets.Remove("LLMProviders:Default");
 }

@@ -11,8 +11,9 @@ module.exports = {
     extend: {},
   },
   plugins: [require("@tailwindcss/typography")],
-  // IMPORTANT: scope all utility selectors to the workbench view container
-  important: ".aevatar-sra-workbench",
+  // IMPORTANT: scope all utility selectors to the plugin root container
+  // (so both Panel + Workbench can share the same Tailwind-based design language)
+  important: ".aevatar-sra",
   // Avoid global resets inside Obsidian (preflight is global and cannot be scoped)
   corePlugins: {
     preflight: false,

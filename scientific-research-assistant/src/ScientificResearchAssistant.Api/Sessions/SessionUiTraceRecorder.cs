@@ -215,12 +215,14 @@ public sealed class SessionUiTraceRecorder
                             var messageId = root.TryGetProperty("messageId", out var midEl) ? (midEl.GetString() ?? "") : "";
                             var agent = root.TryGetProperty("agent", out var aEl) ? (aEl.GetString() ?? "") : "";
                             var stepName = root.TryGetProperty("stepName", out var sEl) ? (sEl.GetString() ?? "") : "";
+                            var providerName = root.TryGetProperty("providerName", out var pEl) ? (pEl.GetString() ?? "") : "";
 
                             messageId = messageId.Trim();
                             agent = agent.Trim();
                             stepName = stepName.Trim();
+                            providerName = providerName.Trim();
                             if (messageId.Length == 0) break;
-                            meta[messageId] = new SessionUiSnapshotStore.UiMessageMeta(messageId, agent, stepName);
+                            meta[messageId] = new SessionUiSnapshotStore.UiMessageMeta(messageId, agent, stepName, providerName);
                             await FlushSnapshotAsync();
                         }
                         catch

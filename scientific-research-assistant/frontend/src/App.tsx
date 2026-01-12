@@ -2,6 +2,7 @@ import { useMemo } from "react";
 
 import { createWebTransport } from "./transport/WebTransport";
 import { SraWorkbenchApp } from "../../ui/src";
+import ApiKeyModal from "./panels/ApiKeyModal";
 
 // ============================================================
 //  Web host root
@@ -14,7 +15,8 @@ import { SraWorkbenchApp } from "../../ui/src";
 
 export default function App() {
   const transport = useMemo(() => createWebTransport(), []);
-  return <SraWorkbenchApp transport={transport} />;
+  // Web host override: reuse the unified Secrets UI (same UX as apps/Aevatar.Secrets.Api).
+  return <SraWorkbenchApp transport={transport} ApiKeyModal={ApiKeyModal} />;
 }
 
 

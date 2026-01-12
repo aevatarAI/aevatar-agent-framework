@@ -26,7 +26,12 @@ export function applyUiBootstrapCustomEvent(args: {
     for (const it of items) {
       const messageId = String(it?.messageId ?? "").trim();
       if (!messageId) continue;
-      messageMetaRef.current[messageId] = { messageId, agent: it?.agent ?? "", stepName: it?.stepName ?? "" };
+      messageMetaRef.current[messageId] = {
+        messageId,
+        agent: it?.agent ?? "",
+        stepName: it?.stepName ?? "",
+        providerName: it?.providerName ?? "",
+      };
     }
     return { handled: true as const };
   }

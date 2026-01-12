@@ -139,6 +139,9 @@ public sealed class FileAevatarUserSecretsStore : IAevatarUserSecretsStore
     private const int NonceBytes = 12; // AesGcm recommended
     private const int TagBytes = 16; // default tag size
     private const string Aad = "aevatar-user-secrets-v1";
+    private const string LlmDefaultProviderKey = "LLMProviders:Default";
+    private const string LlmProviderPrefix = "LLMProviders:Providers:";
+    private const string LlmProviderApiKeySuffix = ":ApiKey";
 
     private readonly AevatarUserSecretsOptions _options;
     private readonly object _gate = new();
@@ -152,7 +155,27 @@ public sealed class FileAevatarUserSecretsStore : IAevatarUserSecretsStore
     {
         lock (_gate)
         {
-            return TryLoadUnsafe() ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var dict = TryLoadUnsafe() ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            // Best-effort normalization:
+            // - Avoid treating a literal "default" provider instance name as a magic fallback.
+            // - If users have configured at least one provider API key but forgot to set LLMProviders:Default,
+            //   we pick a stable default and persist it back into the encrypted secrets file.
+            //
+            // This makes downstream apps more predictable without requiring per-app appsettings.secrets.json.
+            if (TryEnsureDefaultLlmProviderUnsafe(dict))
+            {
+                try
+                {
+                    SaveUnsafe(dict);
+                }
+                catch
+                {
+                    // best-effort only (never break reads)
+                }
+            }
+
+            return dict;
         }
     }
 
@@ -202,6 +225,75 @@ public sealed class FileAevatarUserSecretsStore : IAevatarUserSecretsStore
 
             return removed;
         }
+    }
+
+    private static bool TryEnsureDefaultLlmProviderUnsafe(Dictionary<string, string> dict)
+    {
+        // We only set default when:
+        // - LLMProviders:Default is missing/empty, OR
+        // - it points to a provider that no longer has an ApiKey configured.
+        //
+        // Never overwrite an explicit, valid default.
+        if (dict == null)
+            return false;
+
+        dict.TryGetValue(LlmDefaultProviderKey, out var rawDefault);
+        var current = (rawDefault ?? string.Empty).Trim();
+
+        // Treat "default" as a placeholder only when there is no real "default" instance configured.
+        var currentLooksLikePlaceholder =
+            string.IsNullOrWhiteSpace(current) ||
+            (string.Equals(current, "default", StringComparison.OrdinalIgnoreCase) && !HasApiKey(dict, "default"));
+
+        if (!currentLooksLikePlaceholder && HasApiKey(dict, current))
+            return false;
+
+        var configured = new List<string>(capacity: 8);
+        foreach (var kv in dict)
+        {
+            var k = kv.Key ?? string.Empty;
+            if (!k.StartsWith(LlmProviderPrefix, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (!k.EndsWith(LlmProviderApiKeySuffix, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (string.IsNullOrWhiteSpace(kv.Value))
+                continue;
+
+            var mid = k.Substring(
+                LlmProviderPrefix.Length,
+                k.Length - LlmProviderPrefix.Length - LlmProviderApiKeySuffix.Length);
+            mid = mid.Trim();
+            if (mid.Length == 0)
+                continue;
+
+            configured.Add(mid);
+        }
+
+        if (configured.Count == 0)
+        {
+            // No providers configured: remove stale default if present.
+            if (!string.IsNullOrWhiteSpace(current) && dict.Remove(LlmDefaultProviderKey))
+                return true;
+            return false;
+        }
+
+        configured.Sort(StringComparer.OrdinalIgnoreCase);
+        var next = configured[0];
+        if (string.Equals(current, next, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        dict[LlmDefaultProviderKey] = next;
+        return true;
+    }
+
+    private static bool HasApiKey(Dictionary<string, string> dict, string providerName)
+    {
+        providerName = (providerName ?? string.Empty).Trim();
+        if (providerName.Length == 0)
+            return false;
+
+        var keyPath = $"{LlmProviderPrefix}{providerName}{LlmProviderApiKeySuffix}";
+        return dict.TryGetValue(keyPath, out var v) && !string.IsNullOrWhiteSpace(v);
     }
 
     // ============================================================

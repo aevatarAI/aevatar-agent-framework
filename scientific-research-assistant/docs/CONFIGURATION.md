@@ -18,6 +18,7 @@
     - CLI：`src/Aevatar.Agents.SecretsCli`（见 `src/Aevatar.Agents.Core/docs/UserSecrets.md`）
 - **可选（项目级覆盖）**：`src/ScientificResearchAssistant.Api/appsettings.secrets.json`（本地文件、不要提交）
   - 仓库内提供 `appsettings.secrets.json.example` 作为模板
+  - 注意：该文件在配置链中 **优先级更高**（会覆盖 `~/.aevatar/secrets.json` 的同名 key）。如果你感觉“全局删了 key 但仍然生效”，优先检查/移除本地 `appsettings.secrets.json`。
 
 ### 2) MCP（Model Context Protocol / 外部工具）
 
@@ -77,6 +78,40 @@
 cd scientific-research-assistant/src/ScientificResearchAssistant.Api
 dotnet run -- --sync-skills
 ```
+
+### 2.6) SkillsMP（Agent Skills 市场，optional）
+
+本项目支持从 SkillsMP **搜索** Agent Skills，并将可用的 skills repo 追加到本地 `skillpacks.json` 里（再触发 git 同步），让 `find_helpful_skills / skills_load` 立刻可发现。
+
+#### API Key（强烈建议：用户级 secrets）
+
+- **KeyPath**：`SkillsMP:ApiKey`
+- **环境变量（备选）**：`SKILLSMP_API_KEY`
+
+写入方式（CLI，避免明文进参数）：
+
+```bash
+export SKILLSMP_API_KEY="..."
+dotnet run --project src/Aevatar.Agents.SecretsCli -- set "SkillsMP:ApiKey" --from-env SKILLSMP_API_KEY
+unset SKILLSMP_API_KEY
+```
+
+#### UI 入口
+
+左侧栏 **Update Skills** 下方新增 **SkillsMP** 按钮：
+- 先保存 API key（写入加密 user secrets）
+- 然后搜索 skills
+- 选择（或手工粘贴）repoUrl，填写 `SkillsSubDir`（默认 `skills`，K‑Dense 示例为 `scientific-skills`）
+- 一键 Install（可选：立即 Sync）
+
+#### 后端接口（loopback-only）
+
+> 为防止远程滥用，这些接口统一只允许 localhost 访问。
+
+- `GET  /api/skillsmp/status`
+- `GET  /api/skillsmp/search?q=...`
+- `GET  /api/skillsmp/ai-search?q=...`
+- `POST /api/skillsmp/install`
 
 ### 3) Materials（vibe researching grounding）
 

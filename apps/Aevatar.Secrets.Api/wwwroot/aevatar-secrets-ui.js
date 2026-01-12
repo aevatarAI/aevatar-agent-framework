@@ -17,6 +17,9 @@
     providers: [],
     instances: [],
     trash: [],
+    defaultProvider: "",
+    embeddings: { enabled: null, providerType: "", model: "", endpoint: "", configured: false, masked: "" },
+    skillsMp: { configured: false, masked: "", keyPath: "SkillsMP:ApiKey", baseUrl: "" },
     selectedId: "",
     selectedProviderType: "",
     nameEdited: false,
@@ -32,6 +35,20 @@
     endpointSource: "",
     modelOriginal: "",
     modelSource: "",
+
+    // Embeddings view state (separate from LLM instance connect view)
+    embKeyShown: false,
+    embIsNewKeyDraft: false,
+    embHasExistingKey: false,
+    embExistingKeyMasked: "",
+    embExistingKeyFull: "",
+
+    // SkillsMP view state
+    skillsMpKeyShown: false,
+    skillsMpIsNewKeyDraft: false,
+    skillsMpHasExistingKey: false,
+    skillsMpExistingKeyMasked: "",
+    skillsMpExistingKeyFull: "",
   };
   const categoryOrder = { configured: 0, popular: 1, other: 2 };
   const safeText = (s) => String(s || "");
@@ -57,6 +74,8 @@
     $("viewList").classList.toggle("hidden", view !== "list");
     $("viewConnect").classList.toggle("hidden", view !== "connect");
     $("viewAdvanced").classList.toggle("hidden", view !== "advanced");
+    $("viewEmbeddings").classList.toggle("hidden", view !== "embeddings");
+    $("viewSkillsMp").classList.toggle("hidden", view !== "skillsmp");
   }
 
   function findProviderType(id) {
@@ -102,27 +121,42 @@
 
   async function refreshProviders() {
     try {
-      const [pRes, iRes, tRes] = await Promise.all([
+      const [pRes, iRes, tRes, dRes, eRes, sRes] = await Promise.all([
         fetch("/api/llm/providers"),
         fetch("/api/llm/instances"),
         fetch("/api/trash/api-keys"),
+        fetch("/api/llm/default"),
+        fetch("/api/embeddings"),
+        fetch("/api/skillsmp/status"),
       ]);
       if (!pRes.ok) throw new Error("HTTP " + pRes.status);
       if (!iRes.ok) throw new Error("HTTP " + iRes.status);
       if (!tRes.ok) throw new Error("HTTP " + tRes.status);
+      if (!dRes.ok) throw new Error("HTTP " + dRes.status);
+      if (!eRes.ok) throw new Error("HTTP " + eRes.status);
+      if (!sRes.ok) throw new Error("HTTP " + sRes.status);
 
       const pJson = await pRes.json().catch(() => null);
       const iJson = await iRes.json().catch(() => null);
       const tJson = await tRes.json().catch(() => null);
+      const dJson = await dRes.json().catch(() => null);
+      const eJson = await eRes.json().catch(() => null);
+      const sJson = await sRes.json().catch(() => null);
 
       state.providers = Array.isArray(pJson && pJson.providers) ? pJson.providers : [];
       state.instances = Array.isArray(iJson && iJson.instances) ? iJson.instances : [];
       state.trash = Array.isArray(tJson && tJson.items) ? tJson.items : [];
+      state.defaultProvider = safeText(dJson && dJson.providerName).trim();
+      state.embeddings = (eJson && eJson.embeddings) ? eJson.embeddings : state.embeddings;
+      state.skillsMp = (sJson && sJson.ok === true) ? sJson : state.skillsMp;
     } catch (e) {
       console.error(e);
       state.providers = [];
       state.instances = [];
       state.trash = [];
+      state.defaultProvider = "";
+      state.embeddings = { enabled: null, providerType: "", model: "", endpoint: "", configured: false, masked: "" };
+      state.skillsMp = { configured: false, masked: "", keyPath: "SkillsMP:ApiKey", baseUrl: "" };
     }
     renderList();
   }
@@ -202,6 +236,13 @@
       badge.textContent = "Configured";
       name.appendChild(badge);
 
+      if (state.defaultProvider && safeText(state.defaultProvider).trim().toLowerCase() === safeText(it.name).trim().toLowerCase()) {
+        const def = document.createElement("span");
+        def.className = "badge def";
+        def.textContent = "Default";
+        name.appendChild(def);
+      }
+
       const desc = document.createElement("div");
       desc.className = "item-desc";
       const prov = safeText(it.providerDisplayName || it.providerType || "");
@@ -275,6 +316,13 @@
           const json = await res.json().catch(() => null);
           if (!res.ok || !json || json.ok !== true) throw new Error((json && json.error) ? json.error : ("HTTP " + res.status));
           await refreshProviders();
+          try {
+            if (window.parent && window.parent !== window) {
+              window.parent.postMessage({ type: "aevatar-secrets-ui:changed", action: "restore", providerName: name }, "*");
+            }
+          } catch {
+            // ignore
+          }
         } catch (err) {
           setConnectMsg(err && err.message ? err.message : String(err), "err");
         }
@@ -292,6 +340,13 @@
           const json = await res.json().catch(() => null);
           if (!res.ok || !json || json.ok !== true) throw new Error((json && json.error) ? json.error : ("HTTP " + res.status));
           await refreshProviders();
+          try {
+            if (window.parent && window.parent !== window) {
+              window.parent.postMessage({ type: "aevatar-secrets-ui:changed", action: "trash_delete", providerName: name }, "*");
+            }
+          } catch {
+            // ignore
+          }
         } catch (err) {
           setConnectMsg(err && err.message ? err.message : String(err), "err");
         }
@@ -331,13 +386,116 @@
     const popular = providers.filter((p) => p.category === "popular");
     const other = providers.filter((p) => p.category === "other");
 
+    $("secDefault").classList.toggle("hidden", instances.length === 0);
     $("secConfigured").classList.toggle("hidden", instances.length === 0);
     $("secTrash").classList.toggle("hidden", trash.length === 0);
 
+    renderDefaultSection(instances);
+    try {
+      const h = $("embeddingsHint");
+      if (h) {
+        const e = state.embeddings || {};
+        const cfg = Boolean(e.configured);
+        const masked = safeText(e.masked || "").trim();
+        h.textContent = cfg ? `Configured: ${masked || "(hidden)"}` : "Not configured yet.";
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      const h = $("skillsMpHint");
+      if (h) {
+        const s = state.skillsMp || {};
+        const cfg = Boolean(s.configured);
+        const masked = safeText(s.masked || "").trim();
+        h.textContent = cfg ? `Configured: ${masked || "(hidden)"}` : "Not configured yet.";
+      }
+    } catch {
+      // ignore
+    }
     renderInstanceSection("listConfigured", instances);
     renderTrashSection("listTrash", trash);
     renderProviderSection("listPopular", popular);
     renderProviderSection("listOther", other);
+  }
+
+  function renderDefaultSection(instances) {
+    const sel = $("defaultSelect");
+    const hint = $("defaultHint");
+    const btn = $("defaultSetBtn");
+    if (!sel || !btn) return;
+
+    // Rebuild options
+    const cur = safeText(state.defaultProvider).trim();
+    sel.innerHTML = "";
+    const opt0 = document.createElement("option");
+    opt0.value = "";
+    opt0.textContent = "-- select default --";
+    sel.appendChild(opt0);
+
+    for (const it of instances || []) {
+      const name = safeText(it.name).trim();
+      if (!name) continue;
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      sel.appendChild(opt);
+    }
+
+    // Select current
+    if (cur) {
+      try { sel.value = cur; } catch {}
+    } else {
+      sel.value = "";
+    }
+
+    if (hint) {
+      hint.textContent = cur ? `Current: ${cur}` : "Not set yet (will be auto-selected after you configure a provider).";
+    }
+
+    updateDefaultButtons();
+  }
+
+  function updateDefaultButtons() {
+    const sel = $("defaultSelect");
+    const btn = $("defaultSetBtn");
+    if (!sel || !btn) return;
+    const v = safeText(sel.value).trim();
+    const cur = safeText(state.defaultProvider).trim();
+    btn.disabled = isEmpty(v) || v.toLowerCase() === cur.toLowerCase();
+  }
+
+  async function setDefaultProvider() {
+    const name = safeText($("defaultSelect").value).trim();
+    if (isEmpty(name)) return;
+
+    $("defaultSetBtn").disabled = true;
+    try {
+      const res = await fetch("/api/llm/default", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ providerName: name }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json || json.ok !== true) throw new Error((json && json.error) ? json.error : ("HTTP " + res.status));
+
+      state.defaultProvider = name;
+      await refreshProviders();
+
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({ type: "aevatar-secrets-ui:changed", action: "set_default", providerName: name }, "*");
+        }
+      } catch {
+        // ignore
+      }
+    } catch (e) {
+      // Reuse connect msg for visibility (modal UX); this UI is local-only anyway.
+      setConnectMsg(e && e.message ? e.message : String(e), "err");
+    } finally {
+      updateDefaultButtons();
+    }
   }
 
   function setConnectMsg(text, kind) {
@@ -614,6 +772,308 @@
     setView("advanced");
   }
 
+  // ------------------------------------------------------------
+  // Embeddings (global fallback) UI
+  // ------------------------------------------------------------
+  function setEmbMsg(text, kind) {
+    const el = $("embMsg");
+    el.textContent = safeText(text);
+    el.className = "msg";
+    if (kind === "ok") el.classList.add("ok");
+    if (kind === "err") el.classList.add("err");
+  }
+
+  function resetEmbeddingsViewState() {
+    state.embKeyShown = false;
+    state.embIsNewKeyDraft = false;
+    state.embHasExistingKey = false;
+    state.embExistingKeyMasked = "";
+    state.embExistingKeyFull = "";
+  }
+
+  function updateEmbeddingsButtons() {
+    const enabled = Boolean($("embEnabledInput").checked);
+    const providerType = safeText($("embProviderTypeInput").value).trim();
+    const endpoint = safeText($("embEndpointInput").value).trim();
+    const model = safeText($("embModelInput").value).trim();
+    const key = safeText($("embApiKeyInput").value).trim();
+
+    const canUseDraftKey = state.embIsNewKeyDraft && !isEmpty(key);
+    const canUseStoredKey = state.embHasExistingKey;
+    const hasKeySource = canUseDraftKey || canUseStoredKey;
+
+    // Require endpoint + model when enabling embeddings.
+    const requiredOk = !enabled || (!isEmpty(endpoint) && !isEmpty(model));
+    $("embSaveBtn").disabled = !requiredOk || (enabled && !hasKeySource);
+
+    // Delete available if any config looks present.
+    $("embDeleteBtn").disabled = !(
+      state.embHasExistingKey ||
+      !isEmpty(providerType) ||
+      !isEmpty(endpoint) ||
+      !isEmpty(model) ||
+      Boolean(state.embeddings && state.embeddings.configured)
+    );
+  }
+
+  async function loadEmbeddingsConfigIntoForm() {
+    try {
+      const res = await fetch("/api/embeddings");
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json || json.ok !== true) throw new Error("HTTP " + res.status);
+
+      const e = json.embeddings || {};
+      state.embeddings = e;
+
+      const enabled = (e.enabled === null || typeof e.enabled === "undefined") ? true : Boolean(e.enabled);
+      $("embEnabledInput").checked = enabled;
+
+      const providerType = safeText(e.providerType || "").trim() || "deepseek";
+      const endpoint = safeText(e.endpoint || "").trim() || "https://dashscope.aliyuncs.com/compatible-mode/v1";
+      const model = safeText(e.model || "").trim() || "text-embedding-v3";
+
+      $("embProviderTypeInput").value = providerType;
+      $("embEndpointInput").value = endpoint;
+      $("embModelInput").value = model;
+
+      const configured = Boolean(e.configured);
+      state.embHasExistingKey = configured;
+      state.embExistingKeyMasked = safeText(e.masked || "");
+      state.embExistingKeyFull = "";
+      state.embKeyShown = false;
+
+      if (configured && state.embExistingKeyMasked) {
+        $("embApiKeyInput").type = "text";
+        $("embApiKeyInput").value = state.embExistingKeyMasked;
+        $("embToggleKeyBtn").textContent = "Show";
+      } else {
+        $("embApiKeyInput").type = "password";
+        $("embApiKeyInput").value = "";
+        $("embToggleKeyBtn").textContent = "Show";
+      }
+    } catch (e) {
+      // best-effort: keep defaults
+      $("embEnabledInput").checked = true;
+      if (isEmpty($("embProviderTypeInput").value)) $("embProviderTypeInput").value = "deepseek";
+      if (isEmpty($("embEndpointInput").value)) $("embEndpointInput").value = "https://dashscope.aliyuncs.com/compatible-mode/v1";
+      if (isEmpty($("embModelInput").value)) $("embModelInput").value = "text-embedding-v3";
+    } finally {
+      updateEmbeddingsButtons();
+    }
+  }
+
+  function openEmbeddings() {
+    resetEmbeddingsViewState();
+    setEmbMsg("");
+    setView("embeddings");
+    void loadEmbeddingsConfigIntoForm();
+  }
+
+  async function saveEmbeddings() {
+    const enabled = Boolean($("embEnabledInput").checked);
+    const providerType = safeText($("embProviderTypeInput").value).trim();
+    const endpoint = safeText($("embEndpointInput").value).trim();
+    const model = safeText($("embModelInput").value).trim();
+    const apiKey = safeText($("embApiKeyInput").value).trim();
+
+    $("embSaveBtn").disabled = true;
+    try {
+      const body = {
+        enabled,
+        providerType,
+        endpoint,
+        model,
+        // Safety: never write masked key unless user is actively drafting.
+        apiKey: state.embIsNewKeyDraft ? apiKey : null,
+      };
+
+      const res = await fetch("/api/embeddings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json || json.ok !== true) throw new Error((json && json.error) ? json.error : ("HTTP " + res.status));
+
+      setEmbMsg("Saved.", "ok");
+      resetEmbeddingsViewState();
+      await refreshProviders();
+      await loadEmbeddingsConfigIntoForm();
+
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({ type: "aevatar-secrets-ui:changed", action: "embeddings_save" }, "*");
+        }
+      } catch {
+        // ignore
+      }
+    } catch (e) {
+      setEmbMsg(e && e.message ? e.message : String(e), "err");
+    } finally {
+      updateEmbeddingsButtons();
+    }
+  }
+
+  async function deleteEmbeddings() {
+    if (!window.confirm("Delete embeddings configuration (including API key)?")) return;
+    $("embDeleteBtn").disabled = true;
+    try {
+      const res = await fetch("/api/embeddings", { method: "DELETE" });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json || json.ok !== true) throw new Error((json && json.error) ? json.error : ("HTTP " + res.status));
+
+      setEmbMsg("Deleted.", "ok");
+      resetEmbeddingsViewState();
+      await refreshProviders();
+      await loadEmbeddingsConfigIntoForm();
+
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({ type: "aevatar-secrets-ui:changed", action: "embeddings_delete" }, "*");
+        }
+      } catch {
+        // ignore
+      }
+    } catch (e) {
+      setEmbMsg(e && e.message ? e.message : String(e), "err");
+    } finally {
+      updateEmbeddingsButtons();
+    }
+  }
+
+  // ------------------------------------------------------------
+  // SkillsMP UI
+  // ------------------------------------------------------------
+  function setSkillsMpMsg(text, kind) {
+    const el = $("skillsMpMsg");
+    el.textContent = safeText(text);
+    el.className = "msg";
+    if (kind === "ok") el.classList.add("ok");
+    if (kind === "err") el.classList.add("err");
+  }
+
+  function resetSkillsMpViewState() {
+    state.skillsMpKeyShown = false;
+    state.skillsMpIsNewKeyDraft = false;
+    state.skillsMpHasExistingKey = false;
+    state.skillsMpExistingKeyMasked = "";
+    state.skillsMpExistingKeyFull = "";
+  }
+
+  function updateSkillsMpButtons() {
+    const key = safeText($("skillsMpApiKeyInput").value).trim();
+    const canUseDraftKey = state.skillsMpIsNewKeyDraft && !isEmpty(key);
+    const canUseStoredKey = state.skillsMpHasExistingKey;
+    const hasKeySource = canUseDraftKey || canUseStoredKey;
+    $("skillsMpSaveBtn").disabled = !hasKeySource;
+    $("skillsMpDeleteBtn").disabled = !state.skillsMpHasExistingKey && isEmpty(safeText($("skillsMpBaseUrlInput").value).trim());
+  }
+
+  async function loadSkillsMpStatusIntoForm() {
+    try {
+      const res = await fetch("/api/skillsmp/status");
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json || json.ok !== true) throw new Error("HTTP " + res.status);
+
+      const configured = Boolean(json.configured);
+      const masked = safeText(json.masked || "");
+      const baseUrl = safeText(json.baseUrl || "");
+
+      state.skillsMpHasExistingKey = configured;
+      state.skillsMpExistingKeyMasked = masked;
+      state.skillsMpExistingKeyFull = "";
+      state.skillsMpKeyShown = false;
+
+      $("skillsMpBaseUrlInput").value = baseUrl || "https://skillsmp.com";
+
+      if (configured && masked) {
+        $("skillsMpApiKeyInput").type = "text";
+        $("skillsMpApiKeyInput").value = masked;
+        $("skillsMpToggleKeyBtn").textContent = "Show";
+      } else {
+        $("skillsMpApiKeyInput").type = "password";
+        $("skillsMpApiKeyInput").value = "";
+        $("skillsMpToggleKeyBtn").textContent = "Show";
+      }
+    } catch (e) {
+      $("skillsMpBaseUrlInput").value = "https://skillsmp.com";
+    } finally {
+      updateSkillsMpButtons();
+    }
+  }
+
+  function openSkillsMp() {
+    resetSkillsMpViewState();
+    setSkillsMpMsg("");
+    setView("skillsmp");
+    void loadSkillsMpStatusIntoForm();
+  }
+
+  async function saveSkillsMp() {
+    const apiKey = safeText($("skillsMpApiKeyInput").value).trim();
+    const baseUrl = safeText($("skillsMpBaseUrlInput").value).trim();
+
+    $("skillsMpSaveBtn").disabled = true;
+    try {
+      const body = {
+        apiKey: state.skillsMpIsNewKeyDraft ? apiKey : null,
+        baseUrl: baseUrl || null,
+      };
+
+      const res = await fetch("/api/skillsmp", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json || json.ok !== true) throw new Error((json && json.error) ? json.error : ("HTTP " + res.status));
+
+      setSkillsMpMsg("Saved.", "ok");
+      resetSkillsMpViewState();
+      await refreshProviders();
+      await loadSkillsMpStatusIntoForm();
+
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({ type: "aevatar-secrets-ui:changed", action: "skillsmp_save" }, "*");
+        }
+      } catch {
+        // ignore
+      }
+    } catch (e) {
+      setSkillsMpMsg(e && e.message ? e.message : String(e), "err");
+    } finally {
+      updateSkillsMpButtons();
+    }
+  }
+
+  async function deleteSkillsMp() {
+    if (!window.confirm("Delete SkillsMP configuration (including API key)?")) return;
+    $("skillsMpDeleteBtn").disabled = true;
+    try {
+      const res = await fetch("/api/skillsmp", { method: "DELETE" });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json || json.ok !== true) throw new Error((json && json.error) ? json.error : ("HTTP " + res.status));
+
+      setSkillsMpMsg("Deleted.", "ok");
+      resetSkillsMpViewState();
+      await refreshProviders();
+      await loadSkillsMpStatusIntoForm();
+
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({ type: "aevatar-secrets-ui:changed", action: "skillsmp_delete" }, "*");
+        }
+      } catch {
+        // ignore
+      }
+    } catch (e) {
+      setSkillsMpMsg(e && e.message ? e.message : String(e), "err");
+    } finally {
+      updateSkillsMpButtons();
+    }
+  }
+
   async function saveEndpointOverride(providerName) {
     const name = safeText(providerName).trim();
     if (isEmpty(name)) return;
@@ -875,6 +1335,14 @@
       setConnectMsg("Moved to Trash. Delete permanently from the Trash section on the home page.", "ok");
       await refreshProviders();
       await loadProviderDetails(providerName);
+
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({ type: "aevatar-secrets-ui:changed", action: "disconnect", providerName }, "*");
+        }
+      } catch {
+        // ignore
+      }
     } catch (e) {
       setConnectMsg(e && e.message ? e.message : String(e), "err");
     } finally {
@@ -956,13 +1424,23 @@
     };
     $("connectCloseBtn").onclick = () => setView("list");
     $("advCloseBtn").onclick = () => setView("list");
+    $("embCloseBtn").onclick = () => setView("list");
+    $("skillsMpCloseBtn").onclick = () => setView("list");
     $("backBtn").onclick = () => setView("list");
     $("advBackBtn").onclick = () => setView("list");
+    $("embBackBtn").onclick = () => setView("list");
+    $("skillsMpBackBtn").onclick = () => setView("list");
 
     $("searchInput").addEventListener("input", debounce(() => {
       state.search = safeText($("searchInput").value);
       renderList();
     }, 50));
+
+    $("defaultSelect").addEventListener("change", debounce(updateDefaultButtons, 30));
+    $("defaultSetBtn").onclick = () => setDefaultProvider();
+
+    $("embeddingsItem").onclick = () => openEmbeddings();
+    $("skillsMpItem").onclick = () => openSkillsMp();
 
     $("advancedItem").onclick = () => openAdvanced();
 
@@ -1097,6 +1575,135 @@
     $("advValueInput").addEventListener("input", debounce(updateAdvancedButtons, 60));
     $("advSaveBtn").onclick = () => saveRaw();
     $("advRemoveBtn").onclick = () => removeRaw();
+
+    // Embeddings view
+    $("embToggleKeyBtn").onclick = () => {
+      if (!state.embHasExistingKey || state.embIsNewKeyDraft) {
+        state.embKeyShown = !state.embKeyShown;
+        $("embApiKeyInput").type = state.embKeyShown ? "text" : "password";
+        $("embToggleKeyBtn").textContent = state.embKeyShown ? "Hide" : "Show";
+        return;
+      }
+
+      // Existing key mode: reveal via API.
+      if (!state.embKeyShown) {
+        (async () => {
+          try {
+            const res = await fetch("/api/embeddings/api-key?reveal=true");
+            const json = await res.json().catch(() => null);
+            if (!json || json.ok !== true || !json.value) {
+              setEmbMsg("Failed to reveal key (not configured).", "err");
+              return;
+            }
+            state.embKeyShown = true;
+            state.embExistingKeyFull = safeText(json.value || "");
+            $("embApiKeyInput").type = "text";
+            $("embApiKeyInput").value = state.embExistingKeyFull;
+            $("embToggleKeyBtn").textContent = "Hide";
+            updateEmbeddingsButtons();
+          } catch (e) {
+            setEmbMsg(e && e.message ? e.message : String(e), "err");
+          }
+        })();
+      } else {
+        state.embKeyShown = false;
+        state.embExistingKeyFull = "";
+        $("embApiKeyInput").type = "text";
+        $("embApiKeyInput").value = state.embExistingKeyMasked || "";
+        $("embToggleKeyBtn").textContent = "Show";
+        updateEmbeddingsButtons();
+      }
+    };
+
+    $("embEnabledInput").addEventListener("change", debounce(updateEmbeddingsButtons, 30));
+    $("embProviderTypeInput").addEventListener("input", debounce(updateEmbeddingsButtons, 60));
+    $("embEndpointInput").addEventListener("input", debounce(updateEmbeddingsButtons, 60));
+    $("embModelInput").addEventListener("input", debounce(updateEmbeddingsButtons, 60));
+    $("embApiKeyInput").addEventListener("focus", () => {
+      if (!state.embIsNewKeyDraft && state.embHasExistingKey) {
+        try { $("embApiKeyInput").select(); } catch {}
+      }
+    });
+    $("embApiKeyInput").addEventListener("input", debounce(() => {
+      const cur = safeText($("embApiKeyInput").value).trim();
+      if (!state.embIsNewKeyDraft) {
+        const equalsMasked = state.embHasExistingKey && cur === safeText(state.embExistingKeyMasked).trim();
+        const equalsFull = state.embHasExistingKey && state.embExistingKeyFull && cur === safeText(state.embExistingKeyFull).trim();
+        if (!equalsMasked && !equalsFull && !isEmpty(cur)) {
+          state.embIsNewKeyDraft = true;
+          state.embKeyShown = false;
+          $("embApiKeyInput").type = "password";
+          $("embToggleKeyBtn").textContent = "Show";
+        }
+      }
+      updateEmbeddingsButtons();
+    }, 60));
+
+    $("embSaveBtn").onclick = () => saveEmbeddings();
+    $("embDeleteBtn").onclick = () => deleteEmbeddings();
+
+    // SkillsMP view
+    $("skillsMpToggleKeyBtn").onclick = () => {
+      if (!state.skillsMpHasExistingKey || state.skillsMpIsNewKeyDraft) {
+        state.skillsMpKeyShown = !state.skillsMpKeyShown;
+        $("skillsMpApiKeyInput").type = state.skillsMpKeyShown ? "text" : "password";
+        $("skillsMpToggleKeyBtn").textContent = state.skillsMpKeyShown ? "Hide" : "Show";
+        return;
+      }
+
+      // Existing key mode: reveal via API
+      if (!state.skillsMpKeyShown) {
+        (async () => {
+          try {
+            const res = await fetch("/api/skillsmp/api-key?reveal=true");
+            const json = await res.json().catch(() => null);
+            if (!json || json.ok !== true || !json.value) {
+              setSkillsMpMsg("Failed to reveal key (not configured).", "err");
+              return;
+            }
+            state.skillsMpKeyShown = true;
+            state.skillsMpExistingKeyFull = safeText(json.value || "");
+            $("skillsMpApiKeyInput").type = "text";
+            $("skillsMpApiKeyInput").value = state.skillsMpExistingKeyFull;
+            $("skillsMpToggleKeyBtn").textContent = "Hide";
+            updateSkillsMpButtons();
+          } catch (e) {
+            setSkillsMpMsg(e && e.message ? e.message : String(e), "err");
+          }
+        })();
+      } else {
+        state.skillsMpKeyShown = false;
+        state.skillsMpExistingKeyFull = "";
+        $("skillsMpApiKeyInput").type = "text";
+        $("skillsMpApiKeyInput").value = state.skillsMpExistingKeyMasked || "";
+        $("skillsMpToggleKeyBtn").textContent = "Show";
+        updateSkillsMpButtons();
+      }
+    };
+
+    $("skillsMpBaseUrlInput").addEventListener("input", debounce(updateSkillsMpButtons, 60));
+    $("skillsMpApiKeyInput").addEventListener("focus", () => {
+      if (!state.skillsMpIsNewKeyDraft && state.skillsMpHasExistingKey) {
+        try { $("skillsMpApiKeyInput").select(); } catch {}
+      }
+    });
+    $("skillsMpApiKeyInput").addEventListener("input", debounce(() => {
+      const cur = safeText($("skillsMpApiKeyInput").value).trim();
+      if (!state.skillsMpIsNewKeyDraft) {
+        const equalsMasked = state.skillsMpHasExistingKey && cur === safeText(state.skillsMpExistingKeyMasked).trim();
+        const equalsFull = state.skillsMpHasExistingKey && state.skillsMpExistingKeyFull && cur === safeText(state.skillsMpExistingKeyFull).trim();
+        if (!equalsMasked && !equalsFull && !isEmpty(cur)) {
+          state.skillsMpIsNewKeyDraft = true;
+          state.skillsMpKeyShown = false;
+          $("skillsMpApiKeyInput").type = "password";
+          $("skillsMpToggleKeyBtn").textContent = "Show";
+        }
+      }
+      updateSkillsMpButtons();
+    }, 60));
+
+    $("skillsMpSaveBtn").onclick = () => saveSkillsMp();
+    $("skillsMpDeleteBtn").onclick = () => deleteSkillsMp();
   }
 
   async function init() {

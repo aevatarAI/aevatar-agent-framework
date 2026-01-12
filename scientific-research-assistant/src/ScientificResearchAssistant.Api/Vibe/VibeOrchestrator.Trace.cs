@@ -94,8 +94,11 @@ internal sealed partial class VibeOrchestrator
             var summaryAbs = Path.Combine(ws.RunsDir, runId, "summary.md");
             var summaryRel = Path.GetRelativePath(ws.SessionRoot, summaryAbs).Replace('\\', '/').Trim('/');
 
+            // NOTE:
+            // - UI wants the full summary text here (no truncation).
+            // - This may increase SSE payload size, but trace summaries are already persisted to file;
+            //   the UI still has max-height/scroll to stay usable.
             var preview = (summaryMarkdown ?? string.Empty).Replace("\r", "").Trim();
-            if (preview.Length > 800) preview = preview[..800];
 
             session.Events.Publish(new CustomEvent
             {

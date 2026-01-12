@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Send, Upload } from "lucide-react";
 
-type InputMode = "chat" | "vibe";
+type InputMode = "chat" | "vibe" | "vibe_loop";
 
 type AgentRosterItem = {
   agent: string;
@@ -14,31 +14,25 @@ export default function Composer(props: {
   mode: InputMode;
   onModeChange: (mode: InputMode) => void;
   roster?: AgentRosterItem[] | null;
-  providers?: string[] | null;
-  providerName?: string | null;
-  onProviderChange?: (providerName: string) => void;
   busy: boolean;
   onSend: (payload: {
     text: string;
     mode: InputMode;
     toAgents: string[];
-    providerName?: string;
     files: File[];
-  }) => Promise<void>;
+  }) => Promise<boolean>;
 }) {
-  const { sessionId, connected, mode, onModeChange, roster, providers, providerName, onProviderChange, busy, onSend } = props;
+  const { sessionId, connected, mode, onModeChange, roster, busy, onSend } = props;
   const [text, setText] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [toAgents, setToAgents] = useState<string[]>([]); // empty => default research_assistant
 
   const agentDetailsRef = useRef<HTMLDetailsElement | null>(null);
-  const providerDetailsRef = useRef<HTMLDetailsElement | null>(null);
 
   // Close dropdowns on outside click / ESC (details doesn't do this by default).
   useEffect(() => {
     function closeAll() {
       agentDetailsRef.current?.removeAttribute("open");
-      providerDetailsRef.current?.removeAttribute("open");
     }
 
     function onPointerDown(ev: PointerEvent) {
@@ -46,10 +40,8 @@ export default function Composer(props: {
       if (!t) return;
 
       const agentEl = agentDetailsRef.current;
-      const providerEl = providerDetailsRef.current;
 
       if (agentEl?.open && !agentEl.contains(t)) agentEl.removeAttribute("open");
-      if (providerEl?.open && !providerEl.contains(t)) providerEl.removeAttribute("open");
     }
 
     function onKeyDown(ev: KeyboardEvent) {
@@ -76,11 +68,6 @@ export default function Composer(props: {
       return a.localeCompare(b);
     });
   }, [roster]);
-
-  const providerOptions = useMemo(() => {
-    const list = Array.isArray(providers) ? providers.filter(Boolean) : [];
-    return Array.from(new Set(list)).sort((a, b) => a.localeCompare(b));
-  }, [providers]);
 
   const toLabel = useMemo(() => {
     const uniq = Array.from(new Set((toAgents || []).map((x) => String(x ?? "").trim()).filter(Boolean)));
@@ -112,15 +99,16 @@ export default function Composer(props: {
   async function send() {
     const t = text.trim();
     if (!connected || !sessionId || busy || !t) return;
-    await onSend({
+    const ok = await onSend({
       text: t,
       mode,
       toAgents,
-      providerName: providerName ? String(providerName) : undefined,
       files,
     });
-    setText("");
-    setFiles([]);
+    if (ok) {
+      setText("");
+      setFiles([]);
+    }
   }
 
   return (
@@ -141,7 +129,9 @@ export default function Composer(props: {
                     ? "Connecting… (SSE)"
                     : mode === "vibe"
                       ? "Vibe researching… (goals + DAG + trace + multi-agent)"
-                      : "Ask a scientific question…"
+                      : mode === "vibe_loop"
+                        ? "Vibe loop… (auto multi-round vibe until budget exhausted)"
+                        : "Ask a scientific question…"
               }
               className="w-full bg-white border border-slate-200 rounded-xl px-3 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition placeholder-slate-400 text-sm text-slate-900"
               disabled={!connected || busy}
@@ -150,7 +140,7 @@ export default function Composer(props: {
 
           {/* Bottom bar (opencode-ish): mode switch + agents + model + actions */}
           <div className="border-t border-slate-200 px-4 py-2 flex flex-wrap items-center gap-3">
-            {/* Mode switch: chat (yellow) / vibe (blue) */}
+            {/* Mode switch: chat (yellow) / vibe (blue) / vibe_loop (purple) */}
             <div className="inline-flex rounded-lg border border-slate-200 overflow-hidden shrink-0">
               <button
                 type="button"
@@ -174,16 +164,23 @@ export default function Composer(props: {
               >
                 vibe
               </button>
+              <button
+                type="button"
+                onClick={() => onModeChange("vibe_loop")}
+                disabled={!connected || busy}
+                className={`px-3 py-1 text-xs font-medium transition ${
+                  mode === "vibe_loop" ? "bg-violet-600 text-white" : "bg-white text-slate-700 hover:bg-slate-50"
+                } disabled:opacity-50`}
+                title="Vibe loop (repeat vibe rounds; uses default budgets unless overridden by API)"
+              >
+                vibe_loop
+              </button>
             </div>
 
             {/* Agents dropdown (single / broadcast) */}
             <details
               ref={agentDetailsRef}
               className="relative min-w-0 max-w-[240px]"
-              onToggle={(e) => {
-                const d = e.currentTarget;
-                if (d.open) providerDetailsRef.current?.removeAttribute("open");
-              }}
             >
               <summary className="cursor-pointer select-none text-sm text-slate-900 flex items-center gap-2 min-w-0 [&::-webkit-details-marker]:hidden">
                 <span className="font-semibold truncate">{toLabel}</span>
@@ -233,42 +230,6 @@ export default function Composer(props: {
                       Clear selection
                     </button>
                   </>
-                )}
-              </div>
-            </details>
-
-            {/* Model / provider dropdown */}
-            <details
-              ref={providerDetailsRef}
-              className="relative min-w-0 max-w-[240px]"
-              onToggle={(e) => {
-                const d = e.currentTarget;
-                if (d.open) agentDetailsRef.current?.removeAttribute("open");
-              }}
-            >
-              <summary className="cursor-pointer select-none text-sm text-slate-900 flex items-center gap-2 min-w-0 [&::-webkit-details-marker]:hidden">
-                <span className="font-semibold truncate">{providerName || "default"}</span>
-                <ChevronDown size={14} className="text-slate-400 shrink-0" />
-              </summary>
-              <div className="absolute left-0 bottom-full mb-2 z-50 w-60 max-h-[60vh] overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white shadow-xl">
-                {providerOptions.length === 0 ? (
-                  <div className="px-3 py-2 text-xs text-slate-500">No providers (check appsettings / secrets)</div>
-                ) : (
-                  providerOptions.map((p) => (
-                    <button
-                      key={p}
-                      type="button"
-                      onClick={() => {
-                        onProviderChange?.(p);
-                        providerDetailsRef.current?.removeAttribute("open");
-                      }}
-                      className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-50 ${
-                        p === providerName ? "bg-amber-50 text-amber-900" : "text-slate-900"
-                      }`}
-                    >
-                      {p}
-                    </button>
-                  ))
                 )}
               </div>
             </details>

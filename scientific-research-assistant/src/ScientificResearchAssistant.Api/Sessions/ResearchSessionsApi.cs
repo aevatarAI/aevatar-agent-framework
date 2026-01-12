@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Aevatar.Agents.AGUI;
+using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.Knowledge.Graph;
 using Aevatar.Agents.Knowledge.Graph.Exceptions;
 using Google.Protobuf.WellKnownTypes;
@@ -43,6 +44,7 @@ internal static class ResearchSessionsApi
         MapCreate(app);
         MapList(app);
         MapTools(app);
+        MapAgentProviders(app);
         MapGoals(app);
         MapDeliverables(app);
         MapCompute(app);
@@ -274,6 +276,67 @@ internal static class ResearchSessionsApi
         });
     }
 
+    private static void MapAgentProviders(WebApplication app)
+    {
+        app.MapGet("/api/sessions/{sessionId}/agent-providers", async (
+            string sessionId,
+            ResearchSessionManager sessions,
+            AgentProvidersStore store,
+            CancellationToken ct) =>
+        {
+            if (!sessions.TryGet(sessionId, out var session))
+                return Results.NotFound(new { error = "session not found" });
+
+            var snap = await store.LoadAsync(session.Id, ct);
+            return Results.Json(new
+            {
+                ok = true,
+                sessionId = session.Id,
+                version = snap.Version,
+                updatedAt = snap.UpdatedAt,
+                map = snap.Map
+            });
+        });
+
+        app.MapPut("/api/sessions/{sessionId}/agent-providers", async (
+            string sessionId,
+            AgentProviderPutInDto input,
+            ResearchSessionManager sessions,
+            AgentProvidersStore store,
+            IOptionsMonitor<LLMProvidersConfig> llm,
+            CancellationToken ct) =>
+        {
+            if (!sessions.TryGet(sessionId, out var session))
+                return Results.NotFound(new { error = "session not found" });
+
+            var agent = (input.Agent ?? string.Empty).Trim();
+            if (agent.Length == 0)
+                return Results.BadRequest(new { ok = false, error = "agent is required" });
+
+            var providerName = (input.ProviderName ?? string.Empty).Trim();
+            if (providerName.Length > 0 && !string.Equals(providerName, "default", StringComparison.OrdinalIgnoreCase))
+            {
+                // Validate provider exists and is runnable (apiKey present).
+                if (!llm.CurrentValue.Providers.TryGetValue(providerName, out var p) || p == null)
+                    return Results.BadRequest(new { ok = false, error = $"unknown provider: {providerName}" });
+                if (string.IsNullOrWhiteSpace(p.ApiKey))
+                    return Results.BadRequest(new { ok = false, error = $"provider has no apiKey: {providerName}" });
+            }
+
+            var saved = await store.UpsertAsync(session.Id, agent, providerName, ct);
+
+            // UI: push snapshot so the Agents panel updates without a page refresh.
+            session.Events.Publish(new CustomEvent
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Name = "aevatar.vibe.agent_providers_snapshot",
+                Value = new { sessionId = session.Id, version = saved.Version, updatedAt = saved.UpdatedAt, map = saved.Map }
+            });
+
+            return Results.Json(new { ok = true, sessionId = session.Id, version = saved.Version, updatedAt = saved.UpdatedAt, map = saved.Map });
+        });
+    }
+
     private static void MapGoals(WebApplication app)
     {
         app.MapGet("/api/sessions/{sessionId}/goals", async (
@@ -436,6 +499,12 @@ internal static class ResearchSessionsApi
         public List<GoalItemInDto>? Items { get; init; }
     }
 
+    private sealed record AgentProviderPutInDto
+    {
+        public string? Agent { get; init; }
+        public string? ProviderName { get; init; } // empty/"default" => clear mapping
+    }
+
     private sealed record GoalItemInDto
     {
         public string? GoalId { get; init; }
@@ -454,8 +523,9 @@ internal static class ResearchSessionsApi
             if (!sessions.TryGet(sessionId, out var session))
                 return Results.NotFound(new { error = "session not found" });
 
-            var snap = await dag.GetSnapshotForListAsync(session.Id, ct);
-            return Results.Json(new { ok = true, sessionId = session.Id, dag = snap });
+            var dagId = string.IsNullOrWhiteSpace(session.DagId) ? session.Id : session.DagId.Trim();
+            var snap = await dag.GetSnapshotForListAsync(dagId, ct);
+            return Results.Json(new { ok = true, sessionId = session.Id, dagId, dag = snap });
         });
 
         app.MapGet("/api/sessions/{sessionId}/dag/{nodeId}/explain", async (
@@ -468,7 +538,8 @@ internal static class ResearchSessionsApi
             if (!sessions.TryGet(sessionId, out var session))
                 return Results.NotFound(new { error = "session not found" });
 
-            var snap = await dag.LoadSnapshotAsync(session.Id, ct);
+            var dagId = string.IsNullOrWhiteSpace(session.DagId) ? session.Id : session.DagId.Trim();
+            var snap = await dag.LoadSnapshotAsync(dagId, ct);
             var explain = DagExplain.Explain(snap, nodeId);
 
             // Return a JSON-friendly shape (avoid protobuf Timestamp JSON issues).
@@ -476,6 +547,7 @@ internal static class ResearchSessionsApi
             {
                 ok = true,
                 sessionId = session.Id,
+                dagId,
                 nodeId = (nodeId ?? string.Empty).Trim(),
                 explain = new
                 {
@@ -497,8 +569,45 @@ internal static class ResearchSessionsApi
             if (!sessions.TryGet(sessionId, out var session))
                 return Results.NotFound(new { error = "session not found" });
 
-            var list = await dag.ListStagedAsync(session.Id, ct);
-            return Results.Json(new { ok = true, sessionId = session.Id, staged = list });
+            var dagId = string.IsNullOrWhiteSpace(session.DagId) ? session.Id : session.DagId.Trim();
+            var list = await dag.ListStagedAsync(dagId, ct);
+            return Results.Json(new { ok = true, sessionId = session.Id, dagId, staged = list });
+        });
+
+        // Bind/unbind a session to a shared dagId (in-memory; process-scoped).
+        app.MapGet("/api/sessions/{sessionId}/dag/binding", (
+            string sessionId,
+            ResearchSessionManager sessions) =>
+        {
+            if (!sessions.TryGet(sessionId, out var session))
+                return Results.NotFound(new { error = "session not found" });
+            var dagId = string.IsNullOrWhiteSpace(session.DagId) ? session.Id : session.DagId.Trim();
+            return Results.Json(new { ok = true, sessionId = session.Id, dagId });
+        });
+
+        app.MapPut("/api/sessions/{sessionId}/dag/binding", async (
+            string sessionId,
+            DagBindingPutInDto input,
+            ResearchSessionManager sessions,
+            WorkspaceService workspace,
+            CancellationToken ct) =>
+        {
+            if (!sessions.TryGet(sessionId, out var session))
+                return Results.NotFound(new { error = "session not found" });
+
+            var dagId = (input?.DagId ?? string.Empty).Trim();
+            if (dagId.Length == 0)
+            {
+                session.DagId = null;
+                return Results.Json(new { ok = true, sessionId = session.Id, dagId = session.Id, mode = "per_session" });
+            }
+
+            // Validate + create dag workspace (throws on invalid format).
+            _ = workspace.EnsureDagWorkspace(dagId);
+            await Task.CompletedTask; // keep signature async
+
+            session.DagId = dagId;
+            return Results.Json(new { ok = true, sessionId = session.Id, dagId, mode = "shared" });
         });
 
         // ============================================================
@@ -520,11 +629,12 @@ internal static class ResearchSessionsApi
                 return Results.NotFound(new { error = "session not found" });
 
             // Ensure hydration for in-memory backend (best-effort).
-            _ = await dag.LoadSnapshotAsync(session.Id, ct);
+            var dagId = string.IsNullOrWhiteSpace(session.DagId) ? session.Id : session.DagId.Trim();
+            _ = await dag.LoadSnapshotAsync(dagId, ct);
 
-            var client = graph.CreateClient(session.Id);
+            var client = graph.CreateClient(dagId);
             var snapshot = await client.GetKnowledgeSnapshotAsync(ct);
-            return Results.Json(new { ok = true, sessionId = session.Id, graph = snapshot });
+            return Results.Json(new { ok = true, sessionId = session.Id, dagId, graph = snapshot });
         });
 
         app.MapGet("/api/sessions/{sessionId}/graph/{nodeId}/chain", async (
@@ -543,9 +653,10 @@ internal static class ResearchSessionsApi
                 return Results.BadRequest(new { error = "nodeId is required" });
 
             // Ensure hydration for in-memory backend (best-effort).
-            _ = await dag.LoadSnapshotAsync(session.Id, ct);
+            var dagId = string.IsNullOrWhiteSpace(session.DagId) ? session.Id : session.DagId.Trim();
+            _ = await dag.LoadSnapshotAsync(dagId, ct);
 
-            var client = graph.CreateClient(session.Id);
+            var client = graph.CreateClient(dagId);
             try
             {
                 var details = await client.GetKnowledgeChainDetailsAsync(nodeId, ct);
@@ -553,6 +664,7 @@ internal static class ResearchSessionsApi
                 {
                     ok = true,
                     sessionId = session.Id,
+                    dagId,
                     nodeId,
                     chain = details.Chain,
                     markdown = details.Description
@@ -575,12 +687,18 @@ internal static class ResearchSessionsApi
                 return Results.NotFound(new { error = "session not found" });
 
             // Ensure hydration for in-memory backend (best-effort).
-            _ = await dag.LoadSnapshotAsync(session.Id, ct);
+            var dagId = string.IsNullOrWhiteSpace(session.DagId) ? session.Id : session.DagId.Trim();
+            _ = await dag.LoadSnapshotAsync(dagId, ct);
 
-            var client = graph.CreateClient(session.Id);
+            var client = graph.CreateClient(dagId);
             var markdown = await client.GenerateFullPaperAsync(ct);
-            return Results.Json(new { ok = true, sessionId = session.Id, markdown });
+            return Results.Json(new { ok = true, sessionId = session.Id, dagId, markdown });
         });
+    }
+
+    private sealed record DagBindingPutInDto
+    {
+        public string? DagId { get; init; } // empty => unbind (per-session)
     }
 
     private static void MapInput(WebApplication app)
@@ -911,6 +1029,7 @@ internal static class ResearchSessionsApi
             BriefStore brief,
             DeliveryCenterStore delivery,
             SessionUiSnapshotStore ui,
+            AgentProvidersStore agentProviders,
             DagStore dag,
             TraceStore trace,
             CancellationToken ct) =>
@@ -999,7 +1118,8 @@ internal static class ResearchSessionsApi
                             {
                                 messageId = x.MessageId,
                                 agent = x.Agent,
-                                stepName = x.StepName
+                                stepName = x.StepName,
+                                providerName = x.ProviderName ?? ""
                             }).ToList()
                         }
                     }, ct);
@@ -1198,9 +1318,26 @@ internal static class ResearchSessionsApi
                             new { agent = "reasoner", agentId = $"{baseId}-reasoner" },
                             new { agent = "librarian", agentId = $"{baseId}-librarian" },
                             new { agent = "verifier", agentId = $"{baseId}-verifier" },
-                            new { agent = "dag_builder", agentId = $"{baseId}-dag_builder" }
+                            new { agent = "dag_builder", agentId = $"{baseId}-dag_builder" },
+                            new { agent = "paper_editor", agentId = $"{baseId}-paper_editor" }
                         }
                     }
+                }, ct);
+            }
+            catch
+            {
+                // best-effort
+            }
+
+            // Agent provider mapping snapshot (File-SSoT)
+            try
+            {
+                var snap = await agentProviders.LoadAsync(session.Id, ct);
+                await WriteSseAsync(new CustomEvent
+                {
+                    Timestamp = Ts(DateTimeOffset.UtcNow),
+                    Name = "aevatar.vibe.agent_providers_snapshot",
+                    Value = new { sessionId = session.Id, version = snap.Version, updatedAt = snap.UpdatedAt, map = snap.Map }
                 }, ct);
             }
             catch
@@ -1292,5 +1429,6 @@ internal static class ResearchSessionsApi
         return t[..maxChars];
     }
 }
+
 
 

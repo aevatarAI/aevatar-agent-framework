@@ -43,7 +43,7 @@ public sealed class SessionUiSnapshotStore
 
     public sealed record UiMessage(string Id, string Role, string Content);
 
-    public sealed record UiMessageMeta(string MessageId, string Agent, string StepName);
+    public sealed record UiMessageMeta(string MessageId, string Agent, string StepName, string ProviderName = "");
 
     public sealed record UiToolOutput(
         string MessageId,

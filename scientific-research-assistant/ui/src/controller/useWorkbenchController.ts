@@ -21,7 +21,7 @@ type ToolSummary = {
   tags?: string[];
 };
 
-type InputMode = "chat" | "vibe";
+type InputMode = "chat" | "vibe" | "vibe_loop";
 
 // ============================================================
 //  Shared controller hook (transport-driven)
@@ -50,6 +50,8 @@ export function useWorkbenchController(args: { transport: SraTransport }) {
   const [status, setStatus] = useState<"Disconnected" | "Connecting" | "Connected">("Disconnected");
   const [runStatus, setRunStatus] = useState<string>("");
   const [lastError, setLastError] = useState<string>("");
+  const [activeRunId, setActiveRunId] = useState<string>("");
+  const [lastPrompt, setLastPrompt] = useState<string>("");
 
   const [tools, setTools] = useState<ToolSummary[]>([]);
   const [toolsOpen, setToolsOpen] = useState(false);
@@ -73,13 +75,10 @@ export function useWorkbenchController(args: { transport: SraTransport }) {
   const [vibeDelivery, setVibeDelivery] = useState<any>(null);
   const [vibeComputeDecision, setVibeComputeDecision] = useState<any>(null);
 
-  // Composer model/provider selection (defaults to apiInfo.llm.default when available)
-  const [selectedProviderName, setSelectedProviderName] = useState<string>("");
-  useEffect(() => {
-    const def = String(apiInfo?.llm?.default ?? "").trim();
-    if (!def) return;
-    if (!selectedProviderName) setSelectedProviderName(def);
-  }, [apiInfo?.llm?.default, selectedProviderName]);
+  // Per-agent provider mapping (Agents panel config)
+  const [agentProviders, setAgentProviders] = useState<Record<string, string>>({});
+  const [agentProvidersBusy, setAgentProvidersBusy] = useState(false);
+  const [agentProvidersError, setAgentProvidersError] = useState("");
 
   const refreshDeliverables = async () => {
     const sid = (sessionId || "").trim();
@@ -250,6 +249,8 @@ export function useWorkbenchController(args: { transport: SraTransport }) {
     runIdRef.current = "";
     setRunStatus("");
     setLastError("");
+    setActiveRunId("");
+    setLastPrompt("");
     setTools([]);
     store.clear();
     setWorkspace(null);
@@ -321,6 +322,17 @@ export function useWorkbenchController(args: { transport: SraTransport }) {
       }
     };
 
+    const pullAgentProviders = async () => {
+      if (!getJson) return;
+      try {
+        const json = await getJson(`/api/sessions/${encodeURIComponent(sid)}/agent-providers`);
+        const map = (json as any)?.map && typeof (json as any).map === "object" ? (json as any).map : {};
+        setAgentProviders(map);
+      } catch {
+        // best-effort
+      }
+    };
+
     const pushSystem = (text2: string) => {
       const id2 = `sys:${sid}:${Date.now()}:${Math.random().toString(16).slice(2, 8)}`;
       store.upsertMessage({ id: id2, role: "system", content: text2, isFinal: true });
@@ -361,7 +373,10 @@ export function useWorkbenchController(args: { transport: SraTransport }) {
         const mid = evt?.messageId;
         const role = (evt?.role ?? "assistant") as ChatRole;
         if (!mid) return;
-        upsertMessage({ id: mid, role, content: "", isFinal: false });
+        // Preserve existing content (e.g. optimistic prompt) so a start event doesn't wipe it.
+        const existing = store.getMessage(mid);
+        const existingContent = typeof existing?.content === "string" ? existing.content : "";
+        upsertMessage({ id: mid, role, content: existingContent, isFinal: false });
 
         // Default: keep agent outputs expanded while streaming.
         if (role === "assistant") {
@@ -377,6 +392,12 @@ export function useWorkbenchController(args: { transport: SraTransport }) {
         const mid = evt?.messageId;
         const delta = evt?.delta ?? "";
         if (!mid || !delta) return;
+        // User prompt is emitted as a single "full text" delta.
+        // If we already have prompt content (optimistic projection or snapshot), avoid duplicating it.
+        const existing = store.getMessage(mid);
+        if ((existing?.role ?? "") === "user" && String(existing?.content ?? "").trim().length > 0) {
+          return;
+        }
         store.appendDelta(mid, delta);
         if (atBottomRef.current) scheduleScrollToBottom("auto");
         else if (!hasNewActivityRef.current) setHasNewActivity(true);
@@ -416,6 +437,7 @@ export function useWorkbenchController(args: { transport: SraTransport }) {
         setRunSteps({ order: [], map: {} });
         const rid = String(evt?.runId ?? "");
         runIdRef.current = rid || runIdRef.current || `${Date.now()}`;
+        if (rid) setActiveRunId(rid);
         pushSystem(rid ? `▶ Run started: ${rid}` : "▶ Run started");
         return;
       }
@@ -548,6 +570,13 @@ export function useWorkbenchController(args: { transport: SraTransport }) {
           setVibeAgents(v);
           return;
         }
+        if (name === "aevatar.vibe.agent_providers_snapshot") {
+          const map = v?.map && typeof v.map === "object" ? v.map : {};
+          setAgentProviders(map as any);
+          setAgentProvidersError("");
+          setAgentProvidersBusy(false);
+          return;
+        }
         if (name === "aevatar.vibe.delivery_snapshot") {
           setVibeDelivery(v?.delivery ?? null);
           return;
@@ -638,6 +667,7 @@ export function useWorkbenchController(args: { transport: SraTransport }) {
         else if (st === "Connected") {
           setStatus("Connected");
           void pullToolsSnapshot();
+          void pullAgentProviders();
         } else if (st === "Disconnected") {
           setStatus("Disconnected");
         } else if (st === "Error") {
@@ -657,9 +687,9 @@ export function useWorkbenchController(args: { transport: SraTransport }) {
     });
   }
 
-  async function send(payload: { text: string; mode: InputMode; toAgents: string[]; providerName?: string; files: File[] }) {
+  async function send(payload: { text: string; mode: InputMode; toAgents: string[]; files: File[] }): Promise<boolean> {
     const text = (payload?.text ?? "").trim();
-    if (!connected || !sessionId || !text || isSending) return;
+    if (!connected || !sessionId || !text || isSending) return false;
 
     setIsSending(true);
     try {
@@ -685,15 +715,38 @@ export function useWorkbenchController(args: { transport: SraTransport }) {
 
       // 2) Single entrypoint input (optional routing hints)
       const toAgents = Array.isArray(payload?.toAgents) ? payload.toAgents.filter(Boolean) : [];
-      await transport.sendInput(sessionId, {
+      const res = await transport.sendInput(sessionId, {
         message: text,
         mode: payload.mode,
-        providerName: payload.providerName ? String(payload.providerName) : undefined,
         toAgents: toAgents.length > 0 ? toAgents : undefined,
         attachmentPaths: attachmentPaths.length > 0 ? attachmentPaths : undefined,
       });
+
+      // ------------------------------------------------------------
+      // Optimistic UI projection:
+      // - Always show the Prompt + cards immediately after SEND, even if SSE lags.
+      // - Use runId returned by HTTP response as the source of truth.
+      // ------------------------------------------------------------
+      const rid = String(res?.runId ?? "").trim();
+      if (rid) {
+        runIdRef.current = rid;
+        setActiveRunId(rid);
+        setLastPrompt(text);
+        setRunStatus("Running…");
+        setRunSteps({ order: [], map: {} });
+
+        // Prompt (user) message: render immediately (avoid "stone into sea" UX).
+        const userMid = `msg:${sessionId}:user:${rid}`;
+        store.upsertMessage({ id: userMid, role: "user", content: text, isFinal: true });
+
+        if (atBottomRef.current) scheduleScrollToBottom("auto");
+        else if (!hasNewActivityRef.current) setHasNewActivity(true);
+      }
+
+      return true;
     } catch (e: any) {
       setLastError(`Send failed: ${e?.message ?? String(e)}`);
+      return false;
     } finally {
       setIsSending(false);
     }
@@ -718,6 +771,8 @@ export function useWorkbenchController(args: { transport: SraTransport }) {
     visibleMessageIds,
     status,
     runStatus,
+    activeRunId,
+    lastPrompt,
     lastError,
     tools,
     toolsOpen,
@@ -748,8 +803,12 @@ export function useWorkbenchController(args: { transport: SraTransport }) {
     setVibeDelivery,
     vibeComputeDecision,
     setVibeComputeDecision,
-    selectedProviderName,
-    setSelectedProviderName,
+    agentProviders,
+    setAgentProviders,
+    agentProvidersBusy,
+    setAgentProvidersBusy,
+    agentProvidersError,
+    setAgentProvidersError,
     refreshDeliverables,
     messageMetaRef,
     messagesEndRef,

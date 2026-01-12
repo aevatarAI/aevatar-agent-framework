@@ -76,6 +76,13 @@ builder.Services.AddAevatarUserSecretsStore();
 builder.Services.Configure<SkillPacksOptions>(builder.Configuration.GetSection(SkillPacksOptions.SectionName));
 builder.Services.AddSingleton<SkillPacksSyncProgress>();
 builder.Services.AddSingleton<SkillPacksSyncService>();
+builder.Services.AddSingleton<SkillPacksConfigFileStore>();
+builder.Services.AddHttpClient<SkillsMpClient>(client =>
+{
+    // Best-effort: keep time-bounded. BaseUrl is resolved inside SkillsMpClient; HttpClient can stay neutral.
+    client.Timeout = TimeSpan.FromSeconds(15);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("aevatar-sra/skillsmp");
+});
 if (!syncOnly)
 {
     builder.Services.AddHostedService<SkillPacksSyncHostedService>();
@@ -95,6 +102,7 @@ builder.Services.AddSingleton<MaterialsService>();
 builder.Services.AddSingleton<ResearchSessionManager>();
 builder.Services.AddSingleton<SessionUiSnapshotStore>();
 builder.Services.AddSingleton<SessionUiTraceRecorder>();
+builder.Services.AddSingleton<ScientificResearchAssistant.Api.Sessions.AgentProvidersStore>();
 builder.Services.AddSingleton<ResearchRunExecutor>();
 
 // File-SSoT collaboration primitives (paper + facts_proposed + mailbox)
@@ -175,10 +183,18 @@ app.MapGet("/api/skills/sync/status", (SkillPacksSyncProgress progress) =>
 app.MapGet("/api/info", (IOptionsMonitor<LLMProvidersConfig> llm, IConfiguration cfg) =>
 {
     var cur = llm.CurrentValue;
-    var defaultProvider = string.IsNullOrWhiteSpace(cur.Default) ? "default" : cur.Default;
+    var defaultProvider = LlmConfigDefaults.ResolveEffectiveDefaultProviderName(cur);
     cur.Providers.TryGetValue(defaultProvider, out var providerCfg);
 
     var mcpResolved = MCPServersConfigReader.Resolve(cfg);
+
+    // Only show providers that are actually runnable (have apiKey).
+    // We still expose full provider keys as `providersAll` for debugging.
+    var providersWithKey = cur.Providers
+        .Where(kv => kv.Value != null && !string.IsNullOrWhiteSpace(kv.Value.ApiKey))
+        .Select(kv => kv.Key)
+        .OrderBy(x => x, StringComparer.Ordinal)
+        .ToList();
 
     return Results.Json(new
     {
@@ -191,7 +207,8 @@ app.MapGet("/api/info", (IOptionsMonitor<LLMProvidersConfig> llm, IConfiguration
         llm = new
         {
             @default = defaultProvider,
-            providers = cur.Providers.Keys.OrderBy(x => x, StringComparer.Ordinal).ToList(),
+            providers = providersWithKey,
+            providersAll = cur.Providers.Keys.OrderBy(x => x, StringComparer.Ordinal).ToList(),
             provider = providerCfg == null
                 ? null
                 : new
@@ -295,6 +312,9 @@ app.MapGet("/api/llm/status", (
 // LLM Secrets API (Secrets.Api compatible; local-only for writes/reveal)
 app.MapLlmSecretsApi();
 
+// SkillsMP proxy API (local-only; uses user secrets)
+app.MapSkillsMpApi();
+
 // Sessions API (AG-UI)
 app.MapResearchSessionsApi();
 
@@ -337,8 +357,8 @@ static class LlmProbe
     public static ResolvedProvider Resolve(LLMProvidersConfig cfg, string? providerName)
     {
         var name = (providerName ?? "").Trim();
-        if (string.IsNullOrWhiteSpace(name))
-            name = string.IsNullOrWhiteSpace(cfg.Default) ? "default" : cfg.Default;
+        if (string.IsNullOrWhiteSpace(name) || string.Equals(name, "default", StringComparison.OrdinalIgnoreCase))
+            name = LlmConfigDefaults.ResolveEffectiveDefaultProviderName(cfg);
 
         if (!cfg.Providers.TryGetValue(name, out var p) || p == null)
         {
@@ -535,5 +555,29 @@ static class LlmProbe
         var s = (text ?? string.Empty).Trim();
         if (s.Length <= max) return s;
         return s.Substring(0, max) + "…";
+    }
+}
+
+static class LlmConfigDefaults
+{
+    public static string ResolveEffectiveDefaultProviderName(LLMProvidersConfig cfg)
+    {
+        var def = (cfg.Default ?? string.Empty).Trim();
+        if (!string.IsNullOrWhiteSpace(def) && cfg.Providers.ContainsKey(def))
+            return def;
+
+        // Prefer providers that actually have apiKey configured.
+        var withKey = cfg.Providers
+            .Where(kv => kv.Value != null && !string.IsNullOrWhiteSpace(kv.Value.ApiKey))
+            .Select(kv => kv.Key)
+            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(withKey))
+            return withKey;
+
+        var any = cfg.Providers.Keys
+            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+        return string.IsNullOrWhiteSpace(any) ? "default" : any;
     }
 }

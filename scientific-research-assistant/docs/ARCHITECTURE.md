@@ -19,6 +19,9 @@
 - **`src/ScientificResearchAssistant.Contracts/`**：**Protobuf 合约**（mailbox / facts / paper patch），所有跨 agent 边界的文件消息都以此为 schema。
 - **`src/ScientificResearchAssistant.Api/Workspace|Facts|Paper/`**：文件协作基础设施（workspace 目录、facts 生命周期、Markdown 稿件）。
 - **`src/ScientificResearchAssistant.Api/Infrastructure/SkillPacksSync*.cs`**：启动时 best-effort 同步 GitHub skills repos（clone/pull），为本地 Agent Skills 提供可更新的 skill packs（支持多个 repo）。
+- **`src/ScientificResearchAssistant.Api/Infrastructure/SkillsMp*.cs`**：SkillsMP 市场集成（loopback-only）：
+  - 搜索 skills（`/api/skillsmp/search` / `/api/skillsmp/ai-search`）
+  - 将 repo 追加到 `skillpacks.json` 并触发同步（`/api/skillsmp/install`）
 - **`src/ScientificResearchAssistant/Vibe/*`**：vibe researching 多智能体角色：
   - `VibePlannerAgent`：生成研究计划（假设/未知/验证路径）
   - `VibeReasonerAgent`：基于 materials（sources）推理（可选 `python_exec` 验证）

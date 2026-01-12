@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Aevatar.Agents.AGUI;
 using Aevatar.Agents.AI;
 using Google.Protobuf.Collections;
@@ -23,9 +24,13 @@ internal sealed partial class VibeOrchestrator
     //  DAG consensus + persistence
     // ============================================================
 
+    private static readonly Regex SourceRefRegex =
+        new(@"(?:(?:\bsource:)|(?:\bsources/))(?<rel>[a-zA-Z0-9_\-./]+?\.(?:md|txt))", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     private async Task<DagRoundResult> RunDagConsensusAsync(
         ResearchSession session,
         string runId,
+        string question,
         MaterialsSnapshot materials,
         SraDagSnapshot currentDag,
         IReadOnlyDictionary<string, string> outputs,
@@ -43,6 +48,10 @@ internal sealed partial class VibeOrchestrator
             emit("_No DAG candidate produced._\n\n");
             return new DagRoundResult(false, false, null, null, null, [], null);
         }
+
+        // Before consensus: auto-create placeholder sources for any referenced-but-missing files.
+        // This prevents verifier red-flags like "referenced source files ... not found in available sources".
+        materials = await TryEnsureSourcePlaceholdersAsync(session.Id, question, materials, candidate, emit, ct);
 
         // EMPTY mutation means "no change" (do not stage / do not block).
         if (candidate.UpsertNodes.Count == 0 && candidate.UpsertEdges.Count == 0)
@@ -78,7 +87,8 @@ internal sealed partial class VibeOrchestrator
 
         if (!cr.Ok || cr.Mutation == null)
         {
-            var stagedPath = await _dag.WriteStagedAsync(session.Id, candidate, ct);
+            var dagId = string.IsNullOrWhiteSpace(session.DagId) ? session.Id : session.DagId.Trim();
+            var stagedPath = await _dag.WriteStagedAsync(dagId, candidate, ct);
 
             session.Events.Publish(new CustomEvent
             {
@@ -87,6 +97,7 @@ internal sealed partial class VibeOrchestrator
                 Value = new
                 {
                     sessionId = session.Id,
+                    dagId,
                     runId,
                     roundIndex = await PredictNextRoundIndexAsync(session.Id, ct),
                     updatedAt = DateTime.UtcNow.ToString("O"),
@@ -107,26 +118,166 @@ internal sealed partial class VibeOrchestrator
         }
 
         // Apply accepted mutation to snapshot.
-        var applied = await _dag.ApplyMutationAsync(session.Id, cr.Mutation, ct);
-
-        session.Events.Publish(new CustomEvent
         {
-            Timestamp = NowMs(),
-            Name = "aevatar.vibe.dag_updated",
-            Value = new
+            var dagId = string.IsNullOrWhiteSpace(session.DagId) ? session.Id : session.DagId.Trim();
+            var applied = await _dag.ApplyMutationAsync(dagId, cr.Mutation, ct);
+
+            session.Events.Publish(new CustomEvent
             {
-                sessionId = session.Id,
-                runId,
-                mutationId = cr.Mutation.MutationId,
-                nodes = cr.Mutation.UpsertNodes.Count,
-                edges = cr.Mutation.UpsertEdges.Count,
-                updatedAt = applied.UpdatedAt?.ToDateTime().ToUniversalTime().ToString("O") ?? ""
+                Timestamp = NowMs(),
+                Name = "aevatar.vibe.dag_updated",
+                Value = new
+                {
+                    sessionId = session.Id,
+                    dagId,
+                    runId,
+                    mutationId = cr.Mutation.MutationId,
+                    nodes = cr.Mutation.UpsertNodes.Count,
+                    edges = cr.Mutation.UpsertEdges.Count,
+                    updatedAt = applied.UpdatedAt?.ToDateTime().ToUniversalTime().ToString("O") ?? ""
+                }
+            });
+
+            emit($"**Accepted** ({cr.Workflow}, mutationId: `{cr.Mutation.MutationId}`)\n\n");
+
+            return new DagRoundResult(true, false, candidate, cr.Mutation, null, [], cr.ArtifactPath);
+        }
+    }
+
+    private async Task<MaterialsSnapshot> TryEnsureSourcePlaceholdersAsync(
+        string sessionId,
+        string question,
+        MaterialsSnapshot materials,
+        SraDagMutation candidate,
+        Action<string> emit,
+        CancellationToken ct)
+    {
+        try
+        {
+            var referenced = ExtractReferencedSourceRelPaths(candidate);
+            if (referenced.Count == 0)
+                return materials;
+
+            var existing = new HashSet<string>(
+                materials.Sources.Select(s => (s.RelativePath ?? string.Empty).Trim()),
+                StringComparer.OrdinalIgnoreCase);
+
+            var missing = referenced
+                .Where(r => !string.IsNullOrWhiteSpace(r) && !existing.Contains(r))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(24)
+                .ToList();
+
+            if (missing.Count == 0)
+                return materials;
+
+            var created = new List<string>(capacity: missing.Count);
+            foreach (var rel in missing)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                var content = BuildPlaceholderSource(rel);
+                try
+                {
+                    await _materials.SaveSourceAsync(
+                        title: InferTitleForPlaceholder(rel),
+                        content: content,
+                        relativePath: rel,
+                        ct);
+                    created.Add($"sources/{rel}".Replace('\\', '/').Trim('/'));
+                }
+                catch
+                {
+                    // If writes are disabled (Materials:AllowWrite=false) or path is unsafe, keep going.
+                }
             }
-        });
 
-        emit($"**Accepted** ({cr.Workflow}, mutationId: `{cr.Mutation.MutationId}`)\n\n");
+            if (created.Count > 0)
+            {
+                EmitSection(emit, "### Librarian auto-filled missing sources (placeholders)\n");
+                foreach (var p in created)
+                    emit($"- `{p}`\n");
+                emit("\n");
 
-        return new DagRoundResult(true, false, candidate, cr.Mutation, null, [], cr.ArtifactPath);
+                // Refresh materials so verifiers see the newly created sources in the MATERIAL INDEX.
+                return await _materials.LoadAsync(sessionId, query: question, ct);
+            }
+
+            return materials;
+        }
+        catch
+        {
+            // best-effort: never break the run because of missing sources handling
+            return materials;
+        }
+    }
+
+    private static HashSet<string> ExtractReferencedSourceRelPaths(SraDagMutation candidate)
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void Scan(string? text)
+        {
+            var s = (text ?? string.Empty).Replace("\r", "");
+            if (s.Length == 0) return;
+
+            foreach (Match m in SourceRefRegex.Matches(s))
+            {
+                var rel = (m.Groups["rel"].Value ?? string.Empty).Replace('\\', '/').Trim('/');
+                if (string.IsNullOrWhiteSpace(rel))
+                    continue;
+                // Reject traversal segments early; MaterialsService will also enforce safety.
+                if (rel.Contains("..", StringComparison.Ordinal))
+                    continue;
+                set.Add(rel);
+            }
+        }
+
+        foreach (var n in candidate.UpsertNodes)
+        {
+            if (n == null) continue;
+            Scan(n.Label);
+            Scan(n.Proof);
+            foreach (var kv in n.Tags)
+            {
+                Scan(kv.Key);
+                Scan(kv.Value);
+            }
+        }
+
+        foreach (var e in candidate.UpsertEdges)
+        {
+            if (e == null) continue;
+            Scan(e.Type);
+        }
+
+        return set;
+    }
+
+    private static string InferTitleForPlaceholder(string rel)
+    {
+        var name = Path.GetFileNameWithoutExtension(rel ?? string.Empty) ?? "";
+        if (string.IsNullOrWhiteSpace(name))
+            return "Placeholder source";
+        return $"Placeholder: {name}";
+    }
+
+    private static string BuildPlaceholderSource(string rel)
+    {
+        var p = (rel ?? string.Empty).Replace('\\', '/').Trim('/');
+        return $"""
+               # Placeholder source
+
+               This file was auto-created because a DAG candidate referenced it but it did not exist under `sources/` at runtime.
+
+               ## Status
+               - grounded: NO
+               - action: replace this placeholder with real, verifiable source material (quotes / citations / links to papers).
+
+               ## How to fix
+               - Put the actual referenced material here, or upload/copy it into `sources/{p}`.
+               - Keep it concise and cite where it comes from (paper name + section/page).
+               """;
     }
 
     private async Task<int> PredictNextRoundIndexAsync(string sessionId, CancellationToken ct)

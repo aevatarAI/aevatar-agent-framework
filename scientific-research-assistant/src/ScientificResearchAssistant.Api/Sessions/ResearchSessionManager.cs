@@ -69,6 +69,16 @@ public sealed class ResearchSession(string id)
     public DateTimeOffset CreatedAt { get; } = DateTimeOffset.UtcNow;
     public string? ProviderName { get; init; }
 
+    // ------------------------------------------------------------
+    // DAG binding (MVP, in-memory)
+    //
+    // 中文说明：
+    // - 默认：每个 session 使用自己的 DAG（dagId == sessionId）
+    // - 共享：多个 session 可绑定同一个 dagId => 共享同一份 KnowledgeGraph/DAG
+    // - 目前 session 本身是内存态（重启会丢），因此 dagId 绑定也仅在进程内生效
+    // ------------------------------------------------------------
+    public string? DagId { get; set; }
+
     public BroadcastEventHub<AgUiEvent> Events { get; } = new(replayBufferSize: 0);
 
     // Lightweight server-side workspace state (rendered via AG-UI STATE_SNAPSHOT/DELTA).

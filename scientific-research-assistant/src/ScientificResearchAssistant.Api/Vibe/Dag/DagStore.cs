@@ -41,6 +41,7 @@ public sealed class DagStore
     private readonly IKnowledgeGraphClientFactory _graphFactory;
     private readonly ILogger<DagStore> _logger;
     private readonly ConcurrentDictionary<string, byte> _hydrated = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new(StringComparer.Ordinal);
 
     public DagStore(WorkspaceService workspace, IKnowledgeGraphClientFactory graphFactory, ILogger<DagStore> logger)
     {
@@ -49,42 +50,44 @@ public sealed class DagStore
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    public string GetSnapshotPath(string sessionId)
+    public string GetSnapshotPath(string dagId)
     {
-        var ws = _workspace.EnsureSessionWorkspace(sessionId);
+        var ws = _workspace.EnsureDagWorkspace(dagId);
         return Path.Combine(GetDagDir(ws), "snapshot.json");
     }
 
-    public async Task<SraDagSnapshot> LoadSnapshotAsync(string sessionId, CancellationToken ct)
+    public async Task<SraDagSnapshot> LoadSnapshotAsync(string dagId, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        var ws = _workspace.EnsureSessionWorkspace(sessionId);
+        var ws = _workspace.EnsureDagWorkspace(dagId);
 
         try
         {
             EnsureDagDirs(ws);
             await EnsureHydratedAsync(ws, ct);
-            return await BuildSnapshotFromGraphAsync(ws.SessionId, ct);
+            return await BuildSnapshotFromGraphAsync(ws.DagId, ct);
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Failed to load dag snapshot (best-effort).");
-            return new SraDagSnapshot { SessionId = ws.SessionId, UpdatedAt = Timestamp.FromDateTime(DateTime.UtcNow) };
+            return new SraDagSnapshot { SessionId = ws.DagId, UpdatedAt = Timestamp.FromDateTime(DateTime.UtcNow) };
         }
     }
 
-    public async Task<SraDagSnapshot> ApplyMutationAsync(string sessionId, SraDagMutation mutation, CancellationToken ct)
+    public async Task<SraDagSnapshot> ApplyMutationAsync(string dagId, SraDagMutation mutation, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(mutation);
         ct.ThrowIfCancellationRequested();
 
-        var ws = _workspace.EnsureSessionWorkspace(sessionId);
+        var ws = _workspace.EnsureDagWorkspace(dagId);
         EnsureDagDirs(ws);
 
+        var gate = _locks.GetOrAdd(ws.DagId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
         try
         {
             await EnsureHydratedAsync(ws, ct);
-            var client = _graphFactory.CreateClient(ws.SessionId);
+            var client = _graphFactory.CreateClient(ws.DagId);
 
             // ============================================================
             //  1) Upsert nodes (best-effort; never fail the whole run)
@@ -194,7 +197,7 @@ public sealed class DagStore
                 }
             }
 
-            var outSnap = await BuildSnapshotFromGraphAsync(ws.SessionId, ct);
+            var outSnap = await BuildSnapshotFromGraphAsync(ws.DagId, ct);
             try
             {
                 await SaveSnapshotAsync(ws, outSnap, ct);
@@ -209,16 +212,20 @@ public sealed class DagStore
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Failed to apply dag mutation (best-effort).");
-            return new SraDagSnapshot { SessionId = ws.SessionId, UpdatedAt = Timestamp.FromDateTime(DateTime.UtcNow) };
+            return new SraDagSnapshot { SessionId = ws.DagId, UpdatedAt = Timestamp.FromDateTime(DateTime.UtcNow) };
+        }
+        finally
+        {
+            try { gate.Release(); } catch { /* ignore */ }
         }
     }
 
-    public async Task<string> WriteStagedAsync(string sessionId, SraDagMutation candidate, CancellationToken ct)
+    public async Task<string> WriteStagedAsync(string dagId, SraDagMutation candidate, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(candidate);
         ct.ThrowIfCancellationRequested();
 
-        var ws = _workspace.EnsureSessionWorkspace(sessionId);
+        var ws = _workspace.EnsureDagWorkspace(dagId);
         EnsureDagDirs(ws);
 
         var id = (candidate.MutationId ?? string.Empty).Trim();
@@ -232,13 +239,13 @@ public sealed class DagStore
         var path = Path.Combine(GetStagedDir(ws), file);
         var json = Formatter.Format(candidate);
         await WriteFileAtomicAsync(ws, path, json, ct);
-        return NormalizeRelative(Path.GetRelativePath(ws.SessionRoot, path));
+        return NormalizeRelative(Path.GetRelativePath(ws.DagRoot, path));
     }
 
-    public async Task<List<object>> ListStagedAsync(string sessionId, CancellationToken ct)
+    public async Task<List<object>> ListStagedAsync(string dagId, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        var ws = _workspace.EnsureSessionWorkspace(sessionId);
+        var ws = _workspace.EnsureDagWorkspace(dagId);
         EnsureDagDirs(ws);
 
         var dir = GetStagedDir(ws);
@@ -254,15 +261,15 @@ public sealed class DagStore
 
         return files.Select(fi => (object)new
         {
-            file = NormalizeRelative(Path.GetRelativePath(ws.SessionRoot, fi.FullName)),
+            file = NormalizeRelative(Path.GetRelativePath(ws.DagRoot, fi.FullName)),
             sizeBytes = fi.Length,
             updatedAt = fi.LastWriteTimeUtc.ToString("O")
         }).ToList();
     }
 
-    public async Task<object> GetSnapshotForListAsync(string sessionId, CancellationToken ct)
+    public async Task<object> GetSnapshotForListAsync(string dagId, CancellationToken ct)
     {
-        var snap = await LoadSnapshotAsync(sessionId, ct);
+        var snap = await LoadSnapshotAsync(dagId, ct);
 
         var nodes = snap.Nodes.Take(MaxNodesForList).Select(n => new
         {
@@ -295,39 +302,39 @@ public sealed class DagStore
     //  Internal helpers
     // ============================================================
 
-    private static string GetDagDir(WorkspacePaths ws) => Path.Combine(ws.ArtifactsDir, "dag");
-    private static string GetStagedDir(WorkspacePaths ws) => Path.Combine(GetDagDir(ws), "staged");
-    private static string GetConsensusDir(WorkspacePaths ws) => Path.Combine(GetDagDir(ws), "consensus");
+    private static string GetDagDir(DagWorkspacePaths ws) => Path.Combine(ws.ArtifactsDir, "dag");
+    private static string GetStagedDir(DagWorkspacePaths ws) => Path.Combine(GetDagDir(ws), "staged");
+    private static string GetConsensusDir(DagWorkspacePaths ws) => Path.Combine(GetDagDir(ws), "consensus");
 
-    private static void EnsureDagDirs(WorkspacePaths ws)
+    private static void EnsureDagDirs(DagWorkspacePaths ws)
     {
         Directory.CreateDirectory(GetDagDir(ws));
         Directory.CreateDirectory(GetStagedDir(ws));
         Directory.CreateDirectory(GetConsensusDir(ws));
     }
 
-    private async Task EnsureHydratedAsync(WorkspacePaths ws, CancellationToken ct)
+    private async Task EnsureHydratedAsync(DagWorkspacePaths ws, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
 
         // One-time hydration per session (per process):
         // - If graph backend already has data (e.g. persistent), do nothing.
         // - Otherwise, import from artifacts/dag/snapshot.json (legacy File-SSoT) as a bootstrap.
-        if (!_hydrated.TryAdd(ws.SessionId, 1))
+        if (!_hydrated.TryAdd(ws.DagId, 1))
         {
             return;
         }
 
         try
         {
-            var client = _graphFactory.CreateClient(ws.SessionId);
+            var client = _graphFactory.CreateClient(ws.DagId);
             var cur = await client.GetKnowledgeSnapshotAsync(ct);
             if (cur.NodeCount > 0 || cur.EdgeCount > 0)
             {
                 return;
             }
 
-            var path = GetSnapshotPath(ws.SessionId);
+            var path = GetSnapshotPath(ws.DagId);
             if (!File.Exists(path))
             {
                 return;
@@ -456,10 +463,10 @@ public sealed class DagStore
         }
     }
 
-    private async Task<SraDagSnapshot> BuildSnapshotFromGraphAsync(string sessionId, CancellationToken ct)
+    private async Task<SraDagSnapshot> BuildSnapshotFromGraphAsync(string dagId, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        var client = _graphFactory.CreateClient(sessionId);
+        var client = _graphFactory.CreateClient(dagId);
         var graph = await client.GetKnowledgeSnapshotAsync(ct);
 
         var nodeList = new List<SraDagNode>(capacity: Math.Max(0, graph.NodeCount));
@@ -518,7 +525,7 @@ public sealed class DagStore
         var updatedAt = any ? maxTs : DateTimeOffset.UtcNow;
         var outSnap = new SraDagSnapshot
         {
-            SessionId = sessionId,
+            SessionId = dagId,
             UpdatedAt = Timestamp.FromDateTime(DateTime.SpecifyKind(updatedAt.UtcDateTime, DateTimeKind.Utc))
         };
 
@@ -609,14 +616,14 @@ public sealed class DagStore
         return s[..max];
     }
 
-    private async Task SaveSnapshotAsync(WorkspacePaths ws, SraDagSnapshot snapshot, CancellationToken ct)
+    private async Task SaveSnapshotAsync(DagWorkspacePaths ws, SraDagSnapshot snapshot, CancellationToken ct)
     {
-        var path = GetSnapshotPath(ws.SessionId);
+        var path = GetSnapshotPath(ws.DagId);
         var json = Formatter.Format(snapshot);
         await WriteFileAtomicAsync(ws, path, json, ct);
     }
 
-    private static async Task WriteFileAtomicAsync(WorkspacePaths ws, string targetPath, string content, CancellationToken ct)
+    private static async Task WriteFileAtomicAsync(DagWorkspacePaths ws, string targetPath, string content, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         Directory.CreateDirectory(ws.TmpDir);

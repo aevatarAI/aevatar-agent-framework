@@ -91,6 +91,52 @@ public sealed class WorkspaceService
         };
     }
 
+    // ============================================================
+    //  Shared DAG workspace (cross-session)
+    //
+    //  Path:
+    //    workspace/dags/{dagId}/
+    //      artifacts/dag/...
+    //      tmp/...
+    //
+    //  中文说明：
+    //  - 多个 session 绑定同一个 dagId 时，共享同一份 KnowledgeGraph/DAG。
+    //  - 这里的文件仅用于“可读镜像/审阅/恢复”，SSoT 仍是 KnowledgeGraph backend。
+    // ============================================================
+    public DagWorkspacePaths EnsureDagWorkspace(string dagId)
+    {
+        dagId = NormalizeId(dagId, nameof(dagId));
+
+        var systemRoot = ResolveSystemRoot();
+        var workspaceRoot = Path.Combine(systemRoot, "workspace");
+        var dagsRoot = Path.Combine(workspaceRoot, "dags");
+        var dagRoot = Path.Combine(dagsRoot, dagId);
+        var artifactsDir = Path.Combine(dagRoot, "artifacts");
+        var tmpDir = Path.Combine(dagRoot, "tmp");
+
+        EnsureWithinRoot(systemRoot, workspaceRoot);
+        EnsureWithinRoot(systemRoot, dagsRoot);
+        EnsureWithinRoot(systemRoot, dagRoot);
+        EnsureWithinRoot(systemRoot, artifactsDir);
+        EnsureWithinRoot(systemRoot, tmpDir);
+
+        Directory.CreateDirectory(dagsRoot);
+        Directory.CreateDirectory(dagRoot);
+        Directory.CreateDirectory(artifactsDir);
+        Directory.CreateDirectory(tmpDir);
+
+        return new DagWorkspacePaths
+        {
+            SystemRoot = systemRoot,
+            WorkspaceRoot = workspaceRoot,
+            DagsRoot = dagsRoot,
+            DagId = dagId,
+            DagRoot = dagRoot,
+            ArtifactsDir = artifactsDir,
+            TmpDir = tmpDir
+        };
+    }
+
     public WorkspaceScanResult ScanWorkspace(string sessionId)
     {
         var ws = EnsureSessionWorkspace(sessionId);
@@ -239,6 +285,19 @@ public sealed record WorkspacePaths
 
     public required string FactsDir { get; init; }
     public required string SourcesDir { get; init; }
+}
+
+public sealed record DagWorkspacePaths
+{
+    public required string SystemRoot { get; init; }
+    public required string WorkspaceRoot { get; init; }
+    public required string DagsRoot { get; init; }
+
+    public required string DagId { get; init; }
+    public required string DagRoot { get; init; }
+
+    public required string ArtifactsDir { get; init; }
+    public required string TmpDir { get; init; }
 }
 
 public sealed record WorkspaceScanResult

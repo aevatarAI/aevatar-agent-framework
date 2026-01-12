@@ -51,8 +51,10 @@ export default function FilesPage(props: {
   sessionFromQuery?: string;
   initialPath?: string;
   onBack?: () => void;
+  embedded?: boolean;
 }) {
   const { transport } = props;
+  const embedded = Boolean(props.embedded);
   const sessionId = (props.sessionId || props.sessionFromQuery || "").trim();
   const initialPath = String(props.initialPath ?? "").trim();
 
@@ -71,9 +73,14 @@ export default function FilesPage(props: {
 
   const dirty = useMemo(() => content !== savedContent, [content, savedContent]);
 
+  const rootClass = embedded
+    ? "h-full min-h-0 bg-slate-50 text-slate-900 font-sans overflow-hidden flex flex-col"
+    : "h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden";
+  const bodyClass = embedded ? "flex-1 min-h-0 flex" : "h-[calc(100vh-56px)] flex min-h-0";
+
   if (!filesEnabled) {
     return (
-      <div className="h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
+      <div className={rootClass}>
         <div className="h-14 flex items-center justify-between px-6 bg-white border-b border-slate-200">
           <div className="flex items-center gap-3 min-w-0">
             <div className="font-semibold text-slate-900">Files</div>
@@ -81,19 +88,14 @@ export default function FilesPage(props: {
               local-only · session: <span className="font-mono text-slate-900">{sessionId || "(none)"}</span>
             </div>
           </div>
-          {props.onBack ? (
-            <button
-              type="button"
-              onClick={props.onBack}
-              className="text-xs px-3 py-2 rounded bg-white hover:bg-slate-50 border border-slate-200 text-slate-700"
-              title="Back to main"
-            >
+          {!embedded && props.onBack ? (
+            <button type="button" onClick={props.onBack} className="text-xs px-3 py-2 rounded bg-white hover:bg-slate-50 border border-slate-200 text-slate-700" title="Back to main">
               Back
             </button>
           ) : null}
         </div>
 
-        <div className="p-6">
+        <div className={embedded ? "p-6 flex-1 min-h-0 overflow-auto" : "p-6"}>
           <div className="max-w-2xl">
             <div className="text-sm font-semibold text-slate-900">Files API is disabled</div>
             <div className="mt-2 text-xs text-slate-600 leading-relaxed">
@@ -108,7 +110,7 @@ export default function FilesPage(props: {
 
   if (!getJson || !putJson) {
     return (
-      <div className="h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
+      <div className={rootClass}>
         <div className="h-14 flex items-center justify-between px-6 bg-white border-b border-slate-200">
           <div className="flex items-center gap-3 min-w-0">
             <div className="font-semibold text-slate-900">Files</div>
@@ -116,19 +118,14 @@ export default function FilesPage(props: {
               unavailable · session: <span className="font-mono text-slate-900">{sessionId || "(none)"}</span>
             </div>
           </div>
-          {props.onBack ? (
-            <button
-              type="button"
-              onClick={props.onBack}
-              className="text-xs px-3 py-2 rounded bg-white hover:bg-slate-50 border border-slate-200 text-slate-700"
-              title="Back to main"
-            >
+          {!embedded && props.onBack ? (
+            <button type="button" onClick={props.onBack} className="text-xs px-3 py-2 rounded bg-white hover:bg-slate-50 border border-slate-200 text-slate-700" title="Back to main">
               Back
             </button>
           ) : null}
         </div>
 
-        <div className="p-6">
+        <div className={embedded ? "p-6 flex-1 min-h-0 overflow-auto" : "p-6"}>
           <div className="max-w-2xl">
             <div className="text-sm font-semibold text-slate-900">Files API is unavailable in this host</div>
             <div className="mt-2 text-xs text-slate-600 leading-relaxed">
@@ -250,7 +247,7 @@ export default function FilesPage(props: {
   }, []);
 
   return (
-    <div className="h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
+    <div className={rootClass}>
       <div className="h-14 flex items-center justify-between px-6 bg-white border-b border-slate-200">
         <div className="flex items-center gap-3 min-w-0">
           <div className="font-semibold text-slate-900">Files</div>
@@ -258,27 +255,20 @@ export default function FilesPage(props: {
             session: <span className="font-mono text-slate-900">{sessionId || "(none)"}</span>
           </div>
         </div>
-        {props.onBack ? (
-          <button
-            type="button"
-            onClick={props.onBack}
-            className="text-xs px-3 py-2 rounded bg-white hover:bg-slate-50 border border-slate-200 text-slate-700"
-            title="Back to main"
-          >
-            Back
-          </button>
-        ) : (
-          <a
-            href="/"
-            className="text-xs px-3 py-2 rounded bg-white hover:bg-slate-50 border border-slate-200 text-slate-700"
-            title="Back to main"
-          >
-            Back
-          </a>
-        )}
+        {!embedded ? (
+          props.onBack ? (
+            <button type="button" onClick={props.onBack} className="text-xs px-3 py-2 rounded bg-white hover:bg-slate-50 border border-slate-200 text-slate-700" title="Back to main">
+              Back
+            </button>
+          ) : (
+            <a href="/" className="text-xs px-3 py-2 rounded bg-white hover:bg-slate-50 border border-slate-200 text-slate-700" title="Back to main">
+              Back
+            </a>
+          )
+        ) : null}
       </div>
 
-      <div className="h-[calc(100vh-56px)] flex min-h-0">
+      <div className={bodyClass}>
         {/* Left: tree */}
         <div className="w-[420px] shrink-0 min-h-0 border-r border-slate-200 bg-white flex flex-col">
           <div className="p-4 border-b border-slate-200">

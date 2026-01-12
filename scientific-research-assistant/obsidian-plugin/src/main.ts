@@ -38,6 +38,14 @@ export default class AevatarSraPlugin extends Plugin {
       callback: () => void this.activateWorkbenchView(),
     });
 
+    // Quick access: open Workbench from ribbon (common UX expectation in Obsidian).
+    // 中文说明：
+    // - 之前“看不到 UI”的主要原因是用户不知道需要从命令面板打开
+    // - Ribbon 入口能显著降低学习成本（不破坏命令面板的 power-user 流程）
+    this.addRibbonIcon("test-tube", "Open SRA Workbench", () => {
+      void this.activateWorkbenchView();
+    });
+
     this.addCommand({
       id: "aevatar-sra-new-session",
       name: "SRA: New Session",

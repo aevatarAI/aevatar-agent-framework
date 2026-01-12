@@ -45,7 +45,9 @@ export class WorkbenchView extends ItemView {
   async onOpen(): Promise<void> {
     const { containerEl } = this;
     containerEl.empty();
+    containerEl.addClass("aevatar-sra");
     containerEl.addClass("aevatar-sra-workbench");
+    containerEl.addClass("aevatar-sra-host");
 
     // NOTE: We intentionally do not use window.location routing in Obsidian.
     // The shared app currently has a few `href="/?...` links for the web host.
@@ -53,6 +55,8 @@ export class WorkbenchView extends ItemView {
     containerEl.addEventListener("click", this.onLinkClickCapture, true);
 
     this.mountEl = containerEl.createDiv({ cls: "aevatar-sra-workbench-root" });
+    // Make the React app fill the view (Obsidian's layout is not 100vh-based).
+    this.mountEl.addClass("aevatar-sra-fill");
     this.reactRoot = createRoot(this.mountEl);
 
     const transport = createObsidianTransport({

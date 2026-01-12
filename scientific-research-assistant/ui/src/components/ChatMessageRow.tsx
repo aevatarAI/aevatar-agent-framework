@@ -1,5 +1,5 @@
-import { useSyncExternalStore } from "react";
-import { TestTube } from "lucide-react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { ChevronDown, TestTube } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { MessageStore } from "../app/messageStore";
@@ -58,6 +58,16 @@ export default function ChatMessageRow(props: {
     if (t.length <= 220) return t;
     return t.slice(0, 220) + "…";
   })();
+
+  const tools = Array.isArray(msg.toolOutputs) ? msg.toolOutputs : [];
+  const toolCount = tools.length;
+  const toolsRunning = tools.some((t) => t.status === "running");
+  const [toolsOpen, setToolsOpen] = useState<boolean>(() => toolsRunning);
+  const [toolsUserToggled, setToolsUserToggled] = useState(false);
+  useEffect(() => {
+    // Auto-open when tools start running, but don't fight the user's explicit toggle.
+    if (!toolsUserToggled && toolsRunning) setToolsOpen(true);
+  }, [toolsRunning, toolsUserToggled]);
 
   return (
     <div
@@ -120,56 +130,78 @@ export default function ChatMessageRow(props: {
               </div>
             )}
 
-            {msg.toolOutputs && msg.toolOutputs.length > 0 && (
-              <div className="mt-4 grid gap-2">
-                {msg.toolOutputs.map((tool) => (
-                  <div key={tool.toolCallId} className="bg-white border border-slate-200 rounded-xl p-3 text-xs font-mono">
-                    <div className="text-indigo-700 mb-1 flex items-center gap-1">
-                      <TestTube size={12} /> {tool.name}
-                      {tool.isMcp && (
-                        <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
-                          MCP
-                        </span>
-                      )}
-                      {tool.status === "running" && (
-                        <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
-                          RUNNING
-                        </span>
-                      )}
-                      {tool.status === "done" && tool.success === false && (
-                        <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200">
-                          FAIL
-                        </span>
-                      )}
-                      {tool.durationMs != null && tool.status === "done" && (
-                        <span className="ml-2 text-[10px] text-slate-500">{tool.durationMs}ms</span>
-                      )}
-                    </div>
-                    {tool.error ? (
-                      <pre className="text-rose-700 whitespace-pre-wrap break-words max-h-[60vh] overflow-auto">{tool.error}</pre>
-                    ) : tool.resultPreview ? (
-                      (() => {
-                        const { main, rawJson } = formatToolPayload(tool.resultPreview!);
-                        return (
-                          <div className="space-y-2">
-                            <pre className="text-slate-900 whitespace-pre-wrap break-words max-h-[60vh] overflow-auto">{main}</pre>
-                            {rawJson && (
-                              <details className="text-slate-600">
-                                <summary className="cursor-pointer select-none">Raw JSON</summary>
-                                <pre className="mt-2 text-slate-700 whitespace-pre-wrap break-words max-h-[60vh] overflow-auto">
-                                  {rawJson}
-                                </pre>
-                              </details>
-                            )}
-                          </div>
-                        );
-                      })()
-                    ) : (
-                      <div className="text-slate-500 italic">no output</div>
+            {toolCount > 0 && (
+              <details
+                className="mt-4 border border-slate-200 rounded-xl bg-white"
+                open={toolsOpen}
+                onToggle={(e) => {
+                  setToolsUserToggled(true);
+                  setToolsOpen(e.currentTarget.open);
+                }}
+              >
+                <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-slate-700 bg-slate-50 rounded-xl flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <TestTube size={14} className="text-indigo-600" />
+                    <span className="font-mono">Tools</span>
+                    <span className="text-slate-500 font-mono">({toolCount})</span>
+                    {toolsRunning && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-white text-slate-700 border border-slate-200">
+                        RUNNING
+                      </span>
                     )}
                   </div>
-                ))}
-              </div>
+                  <ChevronDown size={14} className={`text-slate-500 transition-transform ${toolsOpen ? "rotate-180" : ""}`} />
+                </summary>
+                <div className="p-3 grid gap-2">
+                  {tools.map((tool) => (
+                    <div key={tool.toolCallId} className="bg-white border border-slate-200 rounded-xl p-3 text-xs font-mono">
+                      <div className="text-indigo-700 mb-1 flex items-center gap-1">
+                        <TestTube size={12} /> {tool.name}
+                        {tool.isMcp && (
+                          <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                            MCP
+                          </span>
+                        )}
+                        {tool.status === "running" && (
+                          <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                            RUNNING
+                          </span>
+                        )}
+                        {tool.status === "done" && tool.success === false && (
+                          <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200">
+                            FAIL
+                          </span>
+                        )}
+                        {tool.durationMs != null && tool.status === "done" && (
+                          <span className="ml-2 text-[10px] text-slate-500">{tool.durationMs}ms</span>
+                        )}
+                      </div>
+                      {tool.error ? (
+                        <pre className="text-rose-700 whitespace-pre-wrap break-words max-h-[60vh] overflow-auto">{tool.error}</pre>
+                      ) : tool.resultPreview ? (
+                        (() => {
+                          const { main, rawJson } = formatToolPayload(tool.resultPreview!);
+                          return (
+                            <div className="space-y-2">
+                              <pre className="text-slate-900 whitespace-pre-wrap break-words max-h-[60vh] overflow-auto">{main}</pre>
+                              {rawJson && (
+                                <details className="text-slate-600">
+                                  <summary className="cursor-pointer select-none">Raw JSON</summary>
+                                  <pre className="mt-2 text-slate-700 whitespace-pre-wrap break-words max-h-[60vh] overflow-auto">
+                                    {rawJson}
+                                  </pre>
+                                </details>
+                              )}
+                            </div>
+                          );
+                        })()
+                      ) : (
+                        <div className="text-slate-500 italic">no output</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </details>
             )}
           </>
         )}

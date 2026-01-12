@@ -31,6 +31,7 @@ internal sealed class ResearchRunExecutor
     private readonly WorkspaceService _workspace;
     private readonly VibeOrchestrator _vibe;
     private readonly VibeGoalLoopRunner _vibeLoop;
+    private readonly AgentProvidersStore _agentProviders;
     private readonly IOptions<LLMProvidersConfig> _llm;
     private readonly ILogger<ResearchRunExecutor> _logger;
 
@@ -40,6 +41,7 @@ internal sealed class ResearchRunExecutor
         WorkspaceService workspace,
         VibeOrchestrator vibe,
         VibeGoalLoopRunner vibeLoop,
+        AgentProvidersStore agentProviders,
         IOptions<LLMProvidersConfig> llm,
         ILogger<ResearchRunExecutor> logger)
     {
@@ -48,6 +50,7 @@ internal sealed class ResearchRunExecutor
         _workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
         _vibe = vibe ?? throw new ArgumentNullException(nameof(vibe));
         _vibeLoop = vibeLoop ?? throw new ArgumentNullException(nameof(vibeLoop));
+        _agentProviders = agentProviders ?? throw new ArgumentNullException(nameof(agentProviders));
         _llm = llm ?? throw new ArgumentNullException(nameof(llm));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -88,7 +91,12 @@ internal sealed class ResearchRunExecutor
         await session.RunLock.WaitAsync(ct);
         try
         {
-            var providerOverride = session.ProviderName;
+            // NOTE:
+            // - Default is per-agent providers (Agents panel config).
+            // - Only use ProviderName when the caller explicitly overrides it.
+            var providerOverride = string.IsNullOrWhiteSpace(input.ProviderName)
+                ? null
+                : input.ProviderName.Trim();
             var question = (input.Message ?? string.Empty).Trim();
 
             session.Events.Publish(new RunStartedEvent
@@ -239,9 +247,27 @@ internal sealed class ResearchRunExecutor
         await session.RunLock.WaitAsync(ct);
         try
         {
+            // NOTE:
+            // - Default is per-agent providers (Agents panel config).
+            // - Only use ProviderName when the caller explicitly overrides it.
             var providerOverride = string.IsNullOrWhiteSpace(input.ProviderName)
-                ? session.ProviderName
+                ? null
                 : input.ProviderName.Trim();
+
+            // If no override was provided, prefer the research_assistant mapping so "chat" can follow the same config.
+            if (string.IsNullOrWhiteSpace(providerOverride))
+            {
+                try
+                {
+                    var snap = await _agentProviders.LoadAsync(session.Id, ct);
+                    if (snap.Map.TryGetValue("research_assistant", out var p) && !string.IsNullOrWhiteSpace(p))
+                        providerOverride = p.Trim();
+                }
+                catch
+                {
+                    // best-effort only
+                }
+            }
 
             // Always emit RUN_STARTED first
             session.Events.Publish(new RunStartedEvent
@@ -390,7 +416,9 @@ internal sealed class ResearchRunExecutor
         await session.RunLock.WaitAsync(ct);
         try
         {
-            var providerOverride = session.ProviderName;
+            var providerOverride = string.IsNullOrWhiteSpace(input.ProviderName)
+                ? session.ProviderName
+                : input.ProviderName.Trim();
             var question = (input.Message ?? string.Empty).Trim();
 
             session.Events.Publish(new RunStartedEvent

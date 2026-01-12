@@ -54,7 +54,12 @@ internal sealed class DagPlanSetMilestonesTool : AevatarToolBase
                 {
                     Type = "array",
                     Description = "Milestones array. Each item: { roundIndex: int (0 allowed), expectedOutput: string }. Keep 2-8 items.",
-                    Required = true
+                    Required = true,
+                    Items = new ToolParameter
+                    {
+                        Type = "object",
+                        Description = "Milestone item object with fields: roundIndex (int), expectedOutput (string)"
+                    }
                 },
                 ["note"] = new ToolParameter
                 {

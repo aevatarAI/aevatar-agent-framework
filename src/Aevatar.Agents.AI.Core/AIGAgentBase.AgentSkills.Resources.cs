@@ -158,7 +158,8 @@ public abstract partial class AIGAgentBase
                     {
                         Type = "array",
                         Required = false,
-                        Description = "Optional CLI args (JSON array of strings)."
+                        Description = "Optional CLI args (JSON array of strings).",
+                        Items = new ToolParameter { Type = "string", Description = "CLI arg string" }
                     },
                     ["stdin"] = new()
                     {

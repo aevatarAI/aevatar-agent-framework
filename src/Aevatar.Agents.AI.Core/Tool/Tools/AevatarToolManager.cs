@@ -398,20 +398,34 @@ public class AevatarToolManager : IAevatarToolManager
             return functionParams;
         }
 
-        foreach (var param in parameters.Items)
+        static AevatarParameterDefinition ConvertToolParameter(ToolParameter p, bool required)
         {
-            functionParams[param.Key] = new AevatarParameterDefinition
+            var def = new AevatarParameterDefinition
             {
-                Type = ParseTypeString(param.Value.Type),
-                Description = param.Value.Description,
-                Required = parameters.Required?.Contains(param.Key) ?? false,
-                Default = param.Value.DefaultValue,
-                Enum = param.Value.Enum?
+                Type = ParseTypeString(p.Type),
+                Description = p.Description,
+                Required = required,
+                Default = p.DefaultValue,
+                Enum = p.Enum?
                     .Select(e => e?.ToString())
                     .Where(s => !string.IsNullOrWhiteSpace(s))
                     .Select(s => s!)
                     .ToList()
             };
+
+            if (p.Items != null)
+            {
+                // Nested schemas: array-of-X, array-of-array-of-X, etc.
+                def.Items = ConvertToolParameter(p.Items, required: false);
+            }
+
+            return def;
+        }
+
+        foreach (var param in parameters.Items)
+        {
+            var required = parameters.Required?.Contains(param.Key) ?? false;
+            functionParams[param.Key] = ConvertToolParameter(param.Value, required);
         }
 
         return functionParams;

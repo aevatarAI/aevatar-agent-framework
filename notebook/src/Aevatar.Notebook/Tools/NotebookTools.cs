@@ -224,7 +224,8 @@ internal sealed class RetrieveChunksTool : AevatarToolBase
                 {
                     Type = "array",
                     Description = "Optional list of sourceIds to restrict retrieval",
-                    Required = false
+                    Required = false,
+                    Items = new ToolParameter { Type = "string", Description = "sourceId string" }
                 },
                 ["maxResults"] = new ToolParameter
                 {
@@ -492,7 +493,8 @@ internal sealed class GenerateReportTool : AevatarToolBase
                 {
                     Type = "array",
                     Description = "Optional sourceIds to restrict context building (empty = all)",
-                    Required = false
+                    Required = false,
+                    Items = new ToolParameter { Type = "string", Description = "sourceId string" }
                 }
             }
         };

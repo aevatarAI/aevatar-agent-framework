@@ -185,6 +185,11 @@ public class ToolParameter
     /// Format (e.g., email, uri, date-time, etc.)
     /// </summary>
     public string? Format { get; set; }
+
+    /// <summary>
+    /// Array item schema (only meaningful when Type == "array").
+    /// </summary>
+    public ToolParameter? Items { get; set; }
 }
 
 /// <summary>

@@ -52,7 +52,6 @@ internal sealed partial class VibeOrchestrator
         SessionInputInDto input,
         string question,
         MaterialsSnapshot materials,
-        SraGoalsSnapshot goals,
         SraDagSnapshot dag,
         IReadOnlyList<SraRoundSummary> recentTrace,
         string? providerOverride,
@@ -61,7 +60,7 @@ internal sealed partial class VibeOrchestrator
         try
         {
             var (ra, raId) = await _runtime.GetResearchAssistantAgentAsync(sessionId, providerOverride, ct);
-            var msg = BuildBriefMessage(question, goals, dag, recentTrace, input.ToAgents, input.AttachmentPaths);
+            var msg = BuildBriefMessage(question, dag, recentTrace, input.ToAgents, input.AttachmentPaths);
 
             var req = new ChatRequest
             {
@@ -157,19 +156,11 @@ internal sealed partial class VibeOrchestrator
         }
     }
 
-    private sealed record PlanResult(string? RawJson, string? RoundTitle, List<PlanWorker>? Workers, List<GoalCandidate>? GoalsInit);
+    private sealed record PlanResult(string? RawJson, string? RoundTitle, List<PlanWorker>? Workers);
     private sealed record PlanWorker
     {
         public string? Agent { get; init; }
         public string? Task { get; init; }
-    }
-
-    private sealed record GoalCandidate
-    {
-        public string? GoalId { get; init; }
-        public string? Text { get; init; }
-        public int? Priority { get; init; }
-        public string? Reason { get; init; }
     }
 
     private sealed record LibrarianAxiomCandidate
@@ -186,7 +177,6 @@ internal sealed partial class VibeOrchestrator
         SessionInputInDto input,
         string question,
         MaterialsSnapshot materials,
-        SraGoalsSnapshot goals,
         SraDagSnapshot dag,
         IReadOnlyList<SraRoundSummary> recentTrace,
         string? providerOverride,
@@ -195,7 +185,7 @@ internal sealed partial class VibeOrchestrator
         try
         {
             var (ra, raId) = await _runtime.GetResearchAssistantAgentAsync(sessionId, providerOverride, ct);
-            var msg = BuildPlanMessage(question, goals, dag, recentTrace, input.ToAgents, input.AttachmentPaths);
+            var msg = BuildPlanMessage(question, dag, recentTrace, input.ToAgents, input.AttachmentPaths);
 
             var req = new ChatRequest
             {
@@ -209,31 +199,19 @@ internal sealed partial class VibeOrchestrator
             var resp = await ra.ChatAsync(req, ct);
             var raw = (resp.Content ?? string.Empty).Trim();
             if (!TryExtractJson(raw, out var json))
-                return new PlanResult(null, null, null, null);
+                return new PlanResult(null, null, null);
 
             var parsed = JsonSerializer.Deserialize<PlanJson>(json!, Json);
             var workers = parsed?.Workers?
                 .Where(w => !string.IsNullOrWhiteSpace(w.Agent))
                 .Select(w => new PlanWorker { Agent = w.Agent, Task = w.Task })
                 .ToList();
-
-            var goalsInit = parsed?.GoalsInit?
-                .Where(g => g != null && !string.IsNullOrWhiteSpace(g.Text))
-                .Select(g => new GoalCandidate
-                {
-                    GoalId = g!.GoalId,
-                    Text = g.Text,
-                    Priority = g.Priority,
-                    Reason = g.Reason
-                })
-                .ToList();
-
-            return new PlanResult(json, parsed?.RoundTitle, workers, goalsInit);
+            return new PlanResult(json, parsed?.RoundTitle, workers);
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "[VibeOrchestrator] research_assistant plan failed (best-effort).");
-            return new PlanResult(null, null, null, null);
+            return new PlanResult(null, null, null);
         }
     }
 
@@ -241,10 +219,8 @@ internal sealed partial class VibeOrchestrator
         string sessionId,
         SessionInputInDto input,
         string question,
-        SraGoalsSnapshot goals,
         DagRoundResult dagResult,
         IReadOnlyDictionary<string, string> outputs,
-        IReadOnlyList<GoalCandidate> goalSuggestions,
         IReadOnlyList<string> factsWritten,
         string? providerOverride,
         CancellationToken ct)
@@ -252,7 +228,7 @@ internal sealed partial class VibeOrchestrator
         try
         {
             var (ra, raId) = await _runtime.GetResearchAssistantAgentAsync(sessionId, providerOverride, ct);
-            var msg = BuildSummaryMessage(question, goals, dagResult, outputs, goalSuggestions, factsWritten);
+            var msg = BuildSummaryMessage(question, dagResult, outputs, factsWritten);
 
             var req = new ChatRequest
             {
@@ -287,7 +263,7 @@ internal sealed partial class VibeOrchestrator
         return a + "\n\n" + b;
     }
 
-    private static string BuildDagKnowledgeGrounding(SraDagSnapshot dag)
+    private string BuildDagKnowledgeGrounding(SraDagSnapshot dag)
     {
         dag ??= new SraDagSnapshot();
 
@@ -296,7 +272,7 @@ internal sealed partial class VibeOrchestrator
         const int maxChars = 6000;
 
         var nodes = dag.Nodes
-            .Where(n => n != null && ScientificResearchAssistant.Vibe.VibeResearchAssistantAgent.IsDagKnowledgeNodeForGrounding(n))
+            .Where(n => n != null && _dagGrounding.ShouldIncludeForGrounding(n))
             .OrderBy(n => n!.Type)
             .ThenBy(n => n!.Id, StringComparer.Ordinal)
             .Take(maxNodes)

@@ -10,7 +10,6 @@ using ScientificResearchAssistant.Api.Sessions;
 using ScientificResearchAssistant.Api.Vibe.Brief;
 using ScientificResearchAssistant.Api.Vibe.Delivery;
 using ScientificResearchAssistant.Api.Vibe.Dag;
-using ScientificResearchAssistant.Api.Vibe.Goals;
 using ScientificResearchAssistant.Api.Vibe.Trace;
 using ScientificResearchAssistant.Api.Workspace;
 using ScientificResearchAssistant.Contracts.Collab;
@@ -19,108 +18,6 @@ namespace ScientificResearchAssistant.Api.Vibe;
 
 internal sealed partial class VibeOrchestrator
 {
-    // ============================================================
-    //  Goals persistence helper (same behavior as Goals API)
-    // ============================================================
-
-    private async Task<SraGoalsSnapshot?> TrySaveGoalsAsync(
-        ResearchSession session,
-        SraGoalsSnapshot existing,
-        IReadOnlyList<GoalCandidate> candidates,
-        string updatedBy,
-        string reason,
-        CancellationToken ct)
-    {
-        try
-        {
-            var targetVersion = Math.Max(existing.Version + 1, 1);
-
-            var snap = new SraGoalsSnapshot
-            {
-                SessionId = session.Id,
-                Version = targetVersion
-            };
-
-            var idx = 0;
-            foreach (var g in candidates)
-            {
-                if (g == null) continue;
-                var text = (g.Text ?? string.Empty).Replace("\r", "").Trim();
-                if (text.Length == 0) continue;
-
-                idx++;
-                var goalId = (g.GoalId ?? string.Empty).Trim();
-                if (goalId.Length == 0)
-                    goalId = $"g{idx}";
-
-                snap.Goals.Add(new SraGoalItem
-                {
-                    GoalId = goalId,
-                    Text = text,
-                    Priority = g.Priority ?? 0
-                });
-
-                if (snap.Goals.Count >= 50) break; // bound
-            }
-
-            if (snap.Goals.Count == 0)
-                return null;
-
-            var saved = await _goals.SaveAsync(session.Id, snap, ct);
-
-            // UI: notify goals updated (best-effort)
-            session.Events.Publish(new CustomEvent
-            {
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                Name = "aevatar.vibe.goals_updated",
-                Value = new { sessionId = session.Id, version = saved.Version, count = saved.Goals.Count }
-            });
-
-            // Mailbox broadcast (best-effort) - stable roster for MVP.
-            try
-            {
-                var now = Timestamp.FromDateTime(DateTime.UtcNow);
-                var evt = new SraGoalsUpdated
-                {
-                    SessionId = session.Id,
-                    Snapshot = saved,
-                    Reason = reason ?? "auto",
-                    UpdatedBy = updatedBy ?? "system",
-                    CreatedAt = now
-                };
-
-                var toAgents = new[] { "research_assistant", "planner", "reasoner", "librarian", "verifier", "dag_builder" };
-                foreach (var a in toAgents)
-                {
-                    var envelope = new SraMailboxMessage
-                    {
-                        SessionId = session.Id,
-                        MessageId = $"goals_updated:{saved.Version}",
-                        FromAgent = updatedBy ?? "system",
-                        ToAgent = a,
-                        Type = "goals.updated",
-                        CorrelationId = $"goals:{saved.Version}",
-                        CreatedAt = now,
-                        Payload = Any.Pack(evt)
-                    };
-
-                    await _mailbox.SendAsync(session.Id, a, envelope, ct);
-                }
-            }
-            catch
-            {
-                // best-effort only
-            }
-
-            return saved;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "[VibeOrchestrator] SaveGoals failed (best-effort).");
-            return null;
-        }
-    }
-
     private static int WorkerOrder(string agent)
     {
         return agent switch
@@ -140,7 +37,6 @@ internal sealed partial class VibeOrchestrator
 
     private static string BuildPlanMessage(
         string question,
-        SraGoalsSnapshot goals,
         SraDagSnapshot dag,
         IReadOnlyList<SraRoundSummary> trace,
         List<string>? toAgents,
@@ -155,11 +51,8 @@ internal sealed partial class VibeOrchestrator
             sb.AppendLine($"AttachmentPaths: [{string.Join(", ", attachmentPaths.Select(x => x.Trim()).Where(x => x.Length > 0))}]");
 
         sb.AppendLine();
-        sb.AppendLine("Goals:");
-        foreach (var g in goals.Goals.OrderBy(x => x.Priority).ThenBy(x => x.GoalId, StringComparer.Ordinal).Take(20))
-        {
-            sb.AppendLine($"- ({g.Priority}) {g.GoalId}: {Bound(g.Text ?? "", 200)}");
-        }
+        sb.AppendLine("Plan (from DAG plan nodes):");
+        sb.AppendLine(BuildPlanContextFromDag(dag));
 
         sb.AppendLine();
         sb.AppendLine("DagStats:");
@@ -180,30 +73,25 @@ internal sealed partial class VibeOrchestrator
 
     private static string BuildBriefMessage(
         string question,
-        SraGoalsSnapshot goals,
         SraDagSnapshot dag,
         IReadOnlyList<SraRoundSummary> trace,
         List<string>? toAgents,
         List<string>? attachmentPaths)
     {
         // Reuse the plan message style; brief needs the same context.
-        return BuildPlanMessage(question, goals, dag, trace, toAgents, attachmentPaths);
+        return BuildPlanMessage(question, dag, trace, toAgents, attachmentPaths);
     }
 
     private static string BuildSummaryMessage(
         string question,
-        SraGoalsSnapshot goals,
         DagRoundResult dag,
         IReadOnlyDictionary<string, string> outputs,
-        IReadOnlyList<GoalCandidate> goalSuggestions,
         IReadOnlyList<string> factsWritten)
     {
         var sb = new StringBuilder(4096);
         sb.AppendLine($"Question: {question}");
         sb.AppendLine();
-        sb.AppendLine("Goals (top):");
-        foreach (var g in goals.Goals.OrderBy(x => x.Priority).Take(10))
-            sb.AppendLine($"- ({g.Priority}) {Bound(g.Text ?? "", 220)}");
+        sb.AppendLine("Plan: (see DAG plan nodes)");
 
         if (factsWritten is { Count: > 0 })
         {
@@ -211,20 +99,6 @@ internal sealed partial class VibeOrchestrator
             sb.AppendLine("Facts written this round (ids/paths):");
             foreach (var p in factsWritten.Take(10))
                 sb.AppendLine($"- {Bound(p ?? string.Empty, 240)}");
-        }
-
-        if (goalSuggestions is { Count: > 0 })
-        {
-            sb.AppendLine();
-            sb.AppendLine("Goal suggestions (NEED USER CONFIRMATION; not yet applied):");
-            foreach (var g in goalSuggestions
-                         .Where(x => x != null && !string.IsNullOrWhiteSpace(x.Text))
-                         .OrderBy(x => x.Priority ?? 0)
-                         .Take(12))
-            {
-                var reason = string.IsNullOrWhiteSpace(g.Reason) ? "" : $" (reason: {Bound(g.Reason!, 160)})";
-                sb.AppendLine($"- ({g.Priority ?? 0}) {Bound(g.Text ?? string.Empty, 240)}{reason}");
-            }
         }
 
         sb.AppendLine();
@@ -246,6 +120,66 @@ internal sealed partial class VibeOrchestrator
         }
 
         return sb.ToString();
+    }
+
+    private static string BuildPlanContextFromDag(SraDagSnapshot dag)
+    {
+        dag ??= new SraDagSnapshot();
+
+        // Keep prompt bounded; "plan" is an executable hint, not a long narrative.
+        static int SafeInt(string? s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return 0;
+            return int.TryParse(s.Trim(), out var x) ? x : 0;
+        }
+
+        bool IsMilestone(SraDagNode n) =>
+            n.Tags != null &&
+            n.Tags.TryGetValue("planKind", out var v) &&
+            string.Equals((v ?? string.Empty).Trim(), "milestone", StringComparison.OrdinalIgnoreCase);
+
+        bool IsRoundPlan(SraDagNode n) =>
+            n.Tags != null &&
+            n.Tags.TryGetValue("planKind", out var v) &&
+            string.Equals((v ?? string.Empty).Trim(), "round", StringComparison.OrdinalIgnoreCase);
+
+        var allPlans = dag.Nodes
+            .Where(n => n != null && n.Kind == SraDagNodeKind.Plan)
+            .ToList();
+
+        var milestones = allPlans
+            .Where(n => IsMilestone(n!))
+            .OrderBy(n =>
+            {
+                n!.Tags.TryGetValue("milestoneRoundIndex", out var s);
+                var x = SafeInt(s);
+                return x <= 0 ? int.MaxValue : x;
+            })
+            .ThenBy(n => n!.Id, StringComparer.Ordinal)
+            .Take(8)
+            .ToList();
+
+        var roundPlan = allPlans
+            .Where(n => IsRoundPlan(n!))
+            .OrderByDescending(n => n!.UpdatedAt?.ToDateTime().ToUniversalTime() ?? DateTime.MinValue)
+            .ThenByDescending(n => n!.Id, StringComparer.Ordinal)
+            .FirstOrDefault();
+
+        var plans = new List<SraDagNode>(capacity: 12);
+        plans.AddRange(milestones!);
+        if (roundPlan != null) plans.Add(roundPlan);
+
+        if (plans.Count == 0)
+            return "(no plan nodes yet)";
+
+        var sb = new StringBuilder(512);
+        foreach (var p in plans)
+        {
+            var id = (p.Id ?? string.Empty).Trim();
+            var label = Bound((p.Label ?? string.Empty).Replace("\r", "").Trim(), 220);
+            sb.Append("- ").Append(id.Length == 0 ? "plan" : id).Append(": ").Append(label).AppendLine();
+        }
+        return sb.ToString().TrimEnd();
     }
 
     private static string RenderBriefMarkdown(SraResearchBriefSnapshot brief)
@@ -332,7 +266,6 @@ internal sealed partial class VibeOrchestrator
     private static string BuildWorkerMessage(
         string role,
         string question,
-        SraGoalsSnapshot goals,
         SraDagSnapshot dag,
         List<string>? attachments,
         string? extra = null)
@@ -350,9 +283,8 @@ internal sealed partial class VibeOrchestrator
         }
 
         sb.AppendLine();
-        sb.AppendLine("Goals:");
-        foreach (var g in goals.Goals.OrderBy(x => x.Priority).Take(12))
-            sb.AppendLine($"- ({g.Priority}) {Bound(g.Text ?? "", 220)}");
+        sb.AppendLine("Plan:");
+        sb.AppendLine(BuildPlanContextFromDag(dag));
 
         sb.AppendLine();
         sb.AppendLine("DAG stats:");
@@ -369,7 +301,6 @@ internal sealed partial class VibeOrchestrator
 
     private static string BuildDagBuilderMessage(
         string question,
-        SraGoalsSnapshot goals,
         SraDagSnapshot dag,
         IReadOnlyDictionary<string, string> outputs,
         IReadOnlyList<LibrarianAxiomCandidate> librarianAxioms,
@@ -389,9 +320,8 @@ internal sealed partial class VibeOrchestrator
         }
 
         sb.AppendLine();
-        sb.AppendLine("Goals:");
-        foreach (var g in goals.Goals.OrderBy(x => x.Priority).Take(12))
-            sb.AppendLine($"- ({g.Priority}) {Bound(g.Text ?? "", 220)}");
+        sb.AppendLine("Plan:");
+        sb.AppendLine(BuildPlanContextFromDag(dag));
 
         sb.AppendLine();
         sb.AppendLine($"Current DAG: nodes={dag.Nodes.Count}, edges={dag.Edges.Count}");
@@ -443,7 +373,6 @@ internal sealed partial class VibeOrchestrator
 
     private static string BuildPaperEditorMessage(
         string question,
-        SraGoalsSnapshot goals,
         DagRoundResult dag,
         IReadOnlyDictionary<string, string> outputs,
         string outlineExcerpt,
@@ -462,9 +391,7 @@ internal sealed partial class VibeOrchestrator
         }
 
         sb.AppendLine();
-        sb.AppendLine("Goals (top):");
-        foreach (var g in goals.Goals.OrderBy(x => x.Priority).Take(10))
-            sb.AppendLine($"- ({g.Priority}) {Bound(g.Text ?? string.Empty, 220)}");
+        sb.AppendLine("Plan: (see DAG plan nodes)");
 
         sb.AppendLine();
         sb.AppendLine("DAG outcome:");

@@ -253,6 +253,11 @@ enum SraDagNodeKind {
   SRA_DAG_NODE_KIND_PLAN = 1;
 }
 
+message SraDagAttestation {
+  string pubkey = 1;                  // recommended: hex/base64
+  string signature = 2;               // recommended: base64
+}
+
 message SraDagNode {
   string id = 1;
   SraDagNodeType type = 2;
@@ -260,6 +265,8 @@ message SraDagNode {
   string proof = 4;                   // bounded; long proofs should be file refs
   google.protobuf.Timestamp updated_at = 5;
   SraDagNodeKind kind = 6;            // knowledge vs plan (for grounding / filtering)
+  string owner = 7;                   // optional: owner public key (hex/base64)
+  repeated SraDagAttestation attestations = 8; // verifier signatures / confirmations
   map<string, string> tags = 100;     // optional lightweight labels
 }
 

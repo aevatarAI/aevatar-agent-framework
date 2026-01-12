@@ -35,6 +35,8 @@ public interface IKnowledgeGraphClient
         KnowledgeNodeType nodeType,
         string coreDescription,
         string detailedDescription,
+        KnowledgeNodeKind kind = KnowledgeNodeKind.Knowledge,
+        string? owner = null,
         string? proof = null,
         string? resourceFolderPath = null,
         IEnumerable<string>? dependsOn = null,
@@ -57,6 +59,8 @@ public interface IKnowledgeGraphClient
         KnowledgeNodeType nodeType,
         string? coreDescription = null,
         string? detailedDescription = null,
+        KnowledgeNodeKind? kind = null,
+        string? owner = null,
         string? proof = null,
         string? resourceFolderPath = null,
         CancellationToken cancellationToken = default);

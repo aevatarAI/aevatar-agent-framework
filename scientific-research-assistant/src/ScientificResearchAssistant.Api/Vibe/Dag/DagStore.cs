@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text;
 using Aevatar.Agents.Knowledge.Graph;
 using Aevatar.Agents.Knowledge.Graph.Models;
+using Aevatar.Agents.Core.Secrets;
 using Google.Protobuf;
 using Google.Protobuf.Collections;
 using Google.Protobuf.Reflection;
@@ -39,15 +40,42 @@ public sealed class DagStore
 
     private readonly WorkspaceService _workspace;
     private readonly IKnowledgeGraphClientFactory _graphFactory;
+    private readonly IAevatarUserSecretsStore _secrets;
     private readonly ILogger<DagStore> _logger;
     private readonly ConcurrentDictionary<string, byte> _hydrated = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new(StringComparer.Ordinal);
 
-    public DagStore(WorkspaceService workspace, IKnowledgeGraphClientFactory graphFactory, ILogger<DagStore> logger)
+    public DagStore(
+        WorkspaceService workspace,
+        IKnowledgeGraphClientFactory graphFactory,
+        IAevatarUserSecretsStore secrets,
+        ILogger<DagStore> logger)
     {
         _workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
         _graphFactory = graphFactory ?? throw new ArgumentNullException(nameof(graphFactory));
+        _secrets = secrets ?? throw new ArgumentNullException(nameof(secrets));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
+
+    // Local signer/owner identity (stored in encrypted per-user secrets).
+    // Written by apps/Aevatar.Secrets.Api (and can be shared across apps via ~/.aevatar/secrets.json).
+    private const string DagOwnerPublicKeySecretsKey = "Crypto:EcdsaSecp256k1:PublicKeyHex";
+
+    private string? TryGetLocalDagOwnerPubKey()
+    {
+        try
+        {
+            if (_secrets.TryGet(DagOwnerPublicKeySecretsKey, out var v))
+            {
+                var t = (v ?? string.Empty).Trim();
+                return t.Length == 0 ? null : t;
+            }
+        }
+        catch
+        {
+            // best-effort only
+        }
+        return null;
     }
 
     public string GetSnapshotPath(string dagId)
@@ -88,6 +116,7 @@ public sealed class DagStore
         {
             await EnsureHydratedAsync(ws, ct);
             var client = _graphFactory.CreateClient(ws.DagId);
+            var localOwner = TryGetLocalDagOwnerPubKey();
 
             // ============================================================
             //  1) Upsert nodes (best-effort; never fail the whole run)
@@ -109,6 +138,8 @@ public sealed class DagStore
                     await client.UpsertNodeAsync(
                         nodeId: id,
                         nodeType: MapDagNodeType(n.Type),
+                        kind: MapDagNodeKind(n.Kind),
+                        owner: string.IsNullOrWhiteSpace(n.Owner) ? localOwner : n.Owner.Trim(),
                         coreDescription: label,
                         detailedDescription: detail,
                         proof: string.IsNullOrWhiteSpace(proof) ? null : proof,
@@ -149,6 +180,8 @@ public sealed class DagStore
                     await client.UpsertNodeAsync(
                         nodeId: id,
                         nodeType: KnowledgeNodeType.Generic,
+                        kind: KnowledgeNodeKind.Knowledge,
+                        owner: localOwner,
                         coreDescription: id,
                         detailedDescription: id,
                         proof: null,
@@ -275,8 +308,15 @@ public sealed class DagStore
         {
             id = n.Id,
             type = n.Type.ToString(),
+            kind = n.Kind.ToString(),
+            owner = n.Owner ?? "",
             label = n.Label,
             proof = n.Proof,
+            attestationsCount = n.Attestations.Count,
+            attestations = n.Attestations
+                .Take(20)
+                .Select(a => new { pubkey = a.Pubkey ?? "", signature = a.Signature ?? "" })
+                .ToList(),
             updatedAt = n.UpdatedAt?.ToDateTime().ToUniversalTime().ToString("O") ?? ""
         }).ToList();
 
@@ -367,6 +407,7 @@ public sealed class DagStore
     private async Task ImportSnapshotToGraphAsync(IKnowledgeGraphClient client, SraDagSnapshot snapshot, CancellationToken ct)
     {
         snapshot ??= new SraDagSnapshot();
+        var localOwner = TryGetLocalDagOwnerPubKey();
 
         // 1) Nodes
         foreach (var n in snapshot.Nodes)
@@ -386,6 +427,8 @@ public sealed class DagStore
                 await client.UpsertNodeAsync(
                     nodeId: id,
                     nodeType: MapDagNodeType(n.Type),
+                    kind: MapDagNodeKind(n.Kind),
+                    owner: string.IsNullOrWhiteSpace(n.Owner) ? localOwner : n.Owner.Trim(),
                     coreDescription: label,
                     detailedDescription: detail,
                     proof: string.IsNullOrWhiteSpace(proof) ? null : proof,
@@ -421,6 +464,8 @@ public sealed class DagStore
                 await client.UpsertNodeAsync(
                     nodeId: id,
                     nodeType: KnowledgeNodeType.Generic,
+                    kind: KnowledgeNodeKind.Knowledge,
+                    owner: localOwner,
                     coreDescription: id,
                     detailedDescription: id,
                     cancellationToken: ct);
@@ -495,10 +540,40 @@ public sealed class DagStore
                 Id = id,
                 Type = MapKnowledgeNodeType(n.NodeType),
                 Kind = MapKnowledgeNodeKind(n.Kind),
+                Owner = n.Owner ?? "",
                 Label = label,
                 Proof = proof,
                 UpdatedAt = Timestamp.FromDateTime(DateTime.SpecifyKind(ts.UtcDateTime, DateTimeKind.Utc))
             });
+
+            // Map verifier attestations (best-effort; keep bounded + deterministic order for stable diffs).
+            try
+            {
+                var atts = (n.Attestations ?? Array.Empty<KnowledgeAttestation>())
+                    .Where(a => a != null)
+                    .Select(a => new
+                    {
+                        pub = (a.PubKey ?? string.Empty).Trim(),
+                        sig = (a.Signature ?? string.Empty).Trim()
+                    })
+                    .Where(x => x.pub.Length > 0 && x.sig.Length > 0)
+                    .OrderBy(x => x.pub, StringComparer.Ordinal)
+                    .Take(50)
+                    .ToList();
+
+                foreach (var a in atts)
+                {
+                    nodeList[^1].Attestations.Add(new SraDagAttestation
+                    {
+                        Pubkey = a.pub,
+                        Signature = a.sig
+                    });
+                }
+            }
+            catch
+            {
+                // best-effort only
+            }
         }
 
         foreach (var e in graph.Edges)
@@ -554,6 +629,13 @@ public sealed class DagStore
             SraDagNodeType.Hypothesis => KnowledgeNodeType.ResearchHypothesis,
             SraDagNodeType.Assumption => KnowledgeNodeType.Note,
             _ => KnowledgeNodeType.Generic
+        };
+
+    private static KnowledgeNodeKind MapDagNodeKind(SraDagNodeKind k) =>
+        k switch
+        {
+            SraDagNodeKind.Plan => KnowledgeNodeKind.Plan,
+            _ => KnowledgeNodeKind.Knowledge
         };
 
     private static SraDagNodeType MapKnowledgeNodeType(KnowledgeNodeType t) =>

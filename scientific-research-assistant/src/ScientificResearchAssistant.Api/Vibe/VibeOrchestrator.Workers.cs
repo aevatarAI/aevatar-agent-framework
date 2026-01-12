@@ -10,7 +10,6 @@ using ScientificResearchAssistant.Api.Sessions;
 using ScientificResearchAssistant.Api.Vibe.Brief;
 using ScientificResearchAssistant.Api.Vibe.Delivery;
 using ScientificResearchAssistant.Api.Vibe.Dag;
-using ScientificResearchAssistant.Api.Vibe.Goals;
 using ScientificResearchAssistant.Api.Vibe.Trace;
 using ScientificResearchAssistant.Api.Workspace;
 using ScientificResearchAssistant.Contracts.Collab;
@@ -78,7 +77,6 @@ internal sealed partial class VibeOrchestrator
         SessionInputInDto input,
         string question,
         MaterialsSnapshot materials,
-        SraGoalsSnapshot goals,
         SraDagSnapshot dag,
         string? providerName,
         CancellationToken ct)
@@ -92,7 +90,7 @@ internal sealed partial class VibeOrchestrator
             var (planner, plannerId) = await _runtime.GetPlannerAgentAsync(session.Id, providerName, ct);
             var req = new ChatRequest
             {
-                Message = BuildWorkerMessage("planner", question, goals, dag, attachments: input.AttachmentPaths),
+                Message = BuildWorkerMessage("planner", question, dag, attachments: input.AttachmentPaths),
                 RequestId = input.RequestId ?? Guid.NewGuid().ToString("N"),
                 StageHint = "session:vibe:planner"
             };
@@ -130,7 +128,6 @@ internal sealed partial class VibeOrchestrator
         SessionInputInDto input,
         string question,
         MaterialsSnapshot materials,
-        SraGoalsSnapshot goals,
         SraDagSnapshot dag,
         string? plannerOutput,
         string? providerName,
@@ -149,7 +146,7 @@ internal sealed partial class VibeOrchestrator
 
             var req = new ChatRequest
             {
-                Message = BuildWorkerMessage("reasoner", question, goals, dag, attachments: input.AttachmentPaths,
+                Message = BuildWorkerMessage("reasoner", question, dag, attachments: input.AttachmentPaths,
                     extra: string.IsNullOrWhiteSpace(plannerOutput) ? null : $"Planner output (excerpt):\n{Bound(plannerOutput!, 3000)}"),
                 RequestId = input.RequestId ?? Guid.NewGuid().ToString("N"),
                 StageHint = "session:vibe:reasoner"
@@ -199,7 +196,6 @@ internal sealed partial class VibeOrchestrator
         SessionInputInDto input,
         string question,
         MaterialsSnapshot materials,
-        SraGoalsSnapshot goals,
         SraDagSnapshot dag,
         string? providerName,
         CancellationToken ct)
@@ -213,7 +209,7 @@ internal sealed partial class VibeOrchestrator
             var (lib, libId) = await _runtime.GetLibrarianAgentAsync(session.Id, providerName, ct);
             var req = new ChatRequest
             {
-                Message = BuildWorkerMessage("librarian", question, goals, dag, attachments: input.AttachmentPaths),
+                Message = BuildWorkerMessage("librarian", question, dag, attachments: input.AttachmentPaths),
                 RequestId = input.RequestId ?? Guid.NewGuid().ToString("N"),
                 StageHint = "session:vibe:librarian"
             };
@@ -262,7 +258,6 @@ internal sealed partial class VibeOrchestrator
         SessionInputInDto input,
         string question,
         MaterialsSnapshot materials,
-        SraGoalsSnapshot goals,
         SraDagSnapshot dag,
         string? reasonerOutput,
         string? providerName,
@@ -277,7 +272,7 @@ internal sealed partial class VibeOrchestrator
             var (ver, verId) = await _runtime.GetVerifierAgentAsync(session.Id, providerName, ct);
             var req = new ChatRequest
             {
-                Message = BuildWorkerMessage("verifier", question, goals, dag, attachments: input.AttachmentPaths,
+                Message = BuildWorkerMessage("verifier", question, dag, attachments: input.AttachmentPaths,
                     extra: string.IsNullOrWhiteSpace(reasonerOutput) ? null : $"Reasoner output (excerpt):\n{Bound(reasonerOutput!, 3500)}"),
                 RequestId = input.RequestId ?? Guid.NewGuid().ToString("N"),
                 StageHint = "session:vibe:verifier"
@@ -327,7 +322,6 @@ internal sealed partial class VibeOrchestrator
         SessionInputInDto input,
         string question,
         MaterialsSnapshot materials,
-        SraGoalsSnapshot goals,
         SraDagSnapshot dag,
         IReadOnlyDictionary<string, string> outputs,
         IReadOnlyList<LibrarianAxiomCandidate> librarianAxioms,
@@ -343,7 +337,7 @@ internal sealed partial class VibeOrchestrator
             var (db, dbId) = await _runtime.GetDagBuilderAgentAsync(session.Id, providerName, ct);
             var req = new ChatRequest
             {
-                Message = BuildDagBuilderMessage(question, goals, dag, outputs, librarianAxioms, input.AttachmentPaths),
+                Message = BuildDagBuilderMessage(question, dag, outputs, librarianAxioms, input.AttachmentPaths),
                 RequestId = input.RequestId ?? Guid.NewGuid().ToString("N"),
                 StageHint = "session:vibe:dag_builder"
             };
@@ -407,7 +401,6 @@ internal sealed partial class VibeOrchestrator
         SessionInputInDto input,
         string question,
         MaterialsSnapshot materials,
-        SraGoalsSnapshot goals,
         DagRoundResult dagResult,
         IReadOnlyDictionary<string, string> outputs,
         string? providerName,
@@ -427,7 +420,7 @@ internal sealed partial class VibeOrchestrator
             var (pe, peId) = await _runtime.GetPaperEditorAgentAsync(session.Id, providerName, ct);
             var req = new ChatRequest
             {
-                Message = BuildPaperEditorMessage(question, goals, dagResult, outputs, outline, draft, input.AttachmentPaths),
+                Message = BuildPaperEditorMessage(question, dagResult, outputs, outline, draft, input.AttachmentPaths),
                 RequestId = input.RequestId ?? Guid.NewGuid().ToString("N"),
                 StageHint = "session:vibe:paper_editor"
             };

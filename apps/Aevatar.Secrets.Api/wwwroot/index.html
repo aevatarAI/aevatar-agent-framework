@@ -64,6 +64,21 @@
             <div class="hint" id="skillsMpHint" style="margin-top: 8px;"></div>
           </div>
 
+          <div class="section" id="secIdentity">
+            <div class="section-title">Identity</div>
+            <div class="list">
+              <div class="item" id="secp256k1Item">
+                <div class="logo">🔑</div>
+                <div class="item-main">
+                  <div class="item-name">Signer key <span class="badge">secp256k1</span></div>
+                  <div class="item-desc">Generate and store a local signing key (DAG owner public key)</div>
+                </div>
+                <div class="chev">›</div>
+              </div>
+            </div>
+            <div class="hint" id="secp256k1Hint" style="margin-top: 8px;"></div>
+          </div>
+
           <div class="section hidden" id="secConfigured">
             <div class="section-title">Configured</div>
             <div class="list" id="listConfigured"></div>
@@ -242,6 +257,53 @@
 
           <div class="hint" style="margin-top: 16px;">
             Tip: this key is used by embeddings generators (skills search / vector indexing).
+          </div>
+        </div>
+      </div>
+
+      <!-- CRYPTO VIEW -->
+      <div id="viewCrypto" class="hidden">
+        <div class="topbar">
+          <button class="icon-btn" id="cryptoBackBtn" title="Back">←</button>
+          <div class="title">Signer key (secp256k1)</div>
+          <div class="spacer"></div>
+          <button class="icon-btn" id="cryptoCloseBtn" title="Close">✕</button>
+        </div>
+        <div class="form">
+          <div class="subtitle">
+            Local signer identity stored in encrypted user secrets. Used to stamp DAG nodes with <span class="mono">owner</span> (public key).
+          </div>
+
+          <label>Public key (hex)</label>
+          <div class="row">
+            <div class="grow">
+              <input id="cryptoPubKeyInput" type="text" placeholder="(not configured yet)" readonly />
+            </div>
+            <button class="btn" id="cryptoCopyPubBtn" type="button">Copy</button>
+          </div>
+          <div class="hint" id="cryptoPubMeta" style="margin-top: 6px;"></div>
+
+          <label>Private key</label>
+          <div class="row">
+            <div class="grow">
+              <input id="cryptoPrivMaskedInput" type="text" placeholder="(not configured yet)" readonly />
+            </div>
+          </div>
+          <div class="hint" id="cryptoPrivMeta" style="margin-top: 6px;"></div>
+
+          <div class="actions">
+            <button class="btn primary" id="cryptoGenerateBtn" type="button">Generate & Save</button>
+          </div>
+
+          <div id="cryptoMsg" class="msg"></div>
+
+          <div class="hint" style="margin-top: 16px;">
+            Stores:
+            <span class="mono">Crypto:EcdsaSecp256k1:PrivateKeyHex</span> /
+            <span class="mono">Crypto:EcdsaSecp256k1:PublicKeyHex</span>.
+            <br />
+            When generating a new key, the old private key is preserved under
+            <span class="mono">Crypto:EcdsaSecp256k1:PrivateKeyHex:Backup:&lt;timestamp&gt;</span>.
           </div>
         </div>
       </div>

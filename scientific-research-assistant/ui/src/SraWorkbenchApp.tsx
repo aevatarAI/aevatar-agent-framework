@@ -3,7 +3,6 @@ import type { SraTransport } from "./transport/SraTransport";
 import SharedApiKeyModal from "./panels/ApiKeyModal";
 
 import { Activity, FileText, GitBranch, Plus, RefreshCw, Search, TestTube } from "lucide-react";
-import GoalsPanel from "./panels/GoalsPanel";
 import Composer from "./panels/Composer";
 import DagPanel from "./panels/DagPanel";
 import TracePanel from "./panels/TracePanel";
@@ -138,8 +137,6 @@ export function SraWorkbenchApp(props: SraWorkbenchAppProps) {
     setWorkspaceOpen,
     apiKeyOpen,
     setApiKeyOpen,
-    vibeGoals,
-    setVibeGoals,
     vibeBrief,
     vibeDag,
     setVibeDag,
@@ -659,22 +656,7 @@ export function SraWorkbenchApp(props: SraWorkbenchAppProps) {
                 </div>
               </details>
 
-              <details open className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-                <summary className="cursor-pointer select-none px-4 py-3 flex items-center gap-2 border-b border-slate-200">
-                  <Activity size={14} className="text-indigo-600" />
-                  <span className="text-sm font-semibold text-slate-900">Goals</span>
-                  <span className="ml-auto text-xs text-slate-500 font-mono">{Array.isArray(vibeGoals?.items) ? vibeGoals.items.length : 0}</span>
-                </summary>
-                <div className="p-4">
-                  <GoalsPanel
-                    transport={transport}
-                    sessionId={sessionId}
-                    connected={connected}
-                    snapshot={vibeGoals}
-                    onSaved={(snap) => setVibeGoals(snap)}
-                  />
-                </div>
-              </details>
+              {/* Goals are removed: executable intent lives in DAG plan nodes. */}
 
               <details className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
                 <summary className="cursor-pointer select-none px-4 py-3 flex items-center gap-2 border-b border-slate-200">

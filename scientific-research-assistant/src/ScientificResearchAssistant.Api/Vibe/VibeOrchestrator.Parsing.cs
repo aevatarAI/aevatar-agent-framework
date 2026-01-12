@@ -27,16 +27,7 @@ internal sealed partial class VibeOrchestrator
     {
         public string? RoundTitle { get; init; }
         public List<PlanWorkerJson>? Workers { get; init; }
-        public List<GoalJson>? GoalsInit { get; init; }
         public List<string>? Notes { get; init; }
-    }
-
-    private sealed class GoalJson
-    {
-        public string? GoalId { get; init; }
-        public string? Text { get; init; }
-        public int? Priority { get; init; }
-        public string? Reason { get; init; }
     }
 
     private sealed class PlanWorkerJson
@@ -215,14 +206,13 @@ internal sealed partial class VibeOrchestrator
     }
 
     // ============================================================
-    //  Librarian actions (facts write / axioms / goals)
+    //  Librarian actions (facts write / axioms)
     // ============================================================
 
     private sealed class LibrarianActionsJson
     {
         public List<FactWriteJson>? FactsWrite { get; init; }
         public List<AxiomForDagJson>? AxiomsForDag { get; init; }
-        public List<GoalJson>? GoalSuggestions { get; init; }
     }
 
     private sealed class FactWriteJson
@@ -246,8 +236,7 @@ internal sealed partial class VibeOrchestrator
 
     private sealed record LibrarianActions(
         List<LibrarianFactWrite> FactsWrite,
-        List<LibrarianAxiomCandidate> AxiomsForDag,
-        List<GoalCandidate> GoalSuggestions);
+        List<LibrarianAxiomCandidate> AxiomsForDag);
 
     private static LibrarianActions? TryParseLibrarianActions(string raw)
     {
@@ -308,30 +297,10 @@ internal sealed partial class VibeOrchestrator
             }
         }
 
-        var goals = new List<GoalCandidate>();
-        if (parsed.GoalSuggestions is { Count: > 0 })
-        {
-            foreach (var g in parsed.GoalSuggestions)
-            {
-                if (g == null) continue;
-                var text = (g.Text ?? string.Empty).Replace("\r", "").Trim();
-                if (text.Length == 0) continue;
-
-                goals.Add(new GoalCandidate
-                {
-                    GoalId = g.GoalId,
-                    Text = Bound(text, 2000),
-                    Priority = g.Priority,
-                    Reason = g.Reason
-                });
-                if (goals.Count >= 30) break;
-            }
-        }
-
-        if (facts.Count == 0 && axioms.Count == 0 && goals.Count == 0)
+        if (facts.Count == 0 && axioms.Count == 0)
             return null;
 
-        return new LibrarianActions(facts, axioms, goals);
+        return new LibrarianActions(facts, axioms);
     }
 
     private async Task<List<string>> TryWriteFactsAsync(string sessionId, IReadOnlyList<LibrarianFactWrite> facts, CancellationToken ct)

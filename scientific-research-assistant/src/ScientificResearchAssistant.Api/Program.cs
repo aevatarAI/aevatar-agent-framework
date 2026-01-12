@@ -21,6 +21,7 @@ using ScientificResearchAssistant.Api.Workspace;
 using ScientificResearchAssistant.Api.Vibe.Brief;
 using ScientificResearchAssistant.Api.Vibe.Compute;
 using ScientificResearchAssistant.Api.Vibe.Delivery;
+using ScientificResearchAssistant.Api.Vibe.Dag;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -67,6 +68,7 @@ var syncOnly = args.Any(a => string.Equals(a, "--sync-skills", StringComparison.
 // ==========================================
 builder.Services.Configure<LLMProvidersConfig>(builder.Configuration.GetSection("LLMProviders"));
 builder.Services.Configure<MaterialsOptions>(builder.Configuration.GetSection(MaterialsOptions.SectionName));
+builder.Services.Configure<DagGroundingOptions>(builder.Configuration.GetSection(DagGroundingOptions.SectionName));
 
 // User secrets store (encrypted, per-user) for runtime writes (UI/API/CLI).
 builder.Services.AddAevatarUserSecretsStore();
@@ -113,7 +115,6 @@ builder.Services.AddSingleton<PaperService>();
 builder.Services.AddSingleton<FactLifecycleService>();
 
 // Vibe: file-backed goals (single source of truth)
-builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.Goals.GoalsStore>();
 
 // Vibe: safe uploads for attachment references
 builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.Uploads.UploadsStore>();
@@ -137,6 +138,7 @@ builder.Services.AddKnowledgeGraph();
 // Vibe: DAG/Graph store (SSoT: KnowledgeGraph + file snapshot mirror)
 builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.Dag.DagStore>();
 builder.Services.AddSingleton<ScientificResearchAssistant.Vibe.Tools.IVibeDagAccess, ScientificResearchAssistant.Api.Vibe.Dag.VibeDagAccess>();
+builder.Services.AddSingleton<IDagGroundingPolicy, DefaultDagGroundingPolicy>();
 
 // Vibe: DAG consensus gate (default: verifier-quorum; optional: maker-v2 via CognitiveStrategy)
 builder.Services.AddSingleton<Aevatar.CognitiveMesh.Strategies.CognitiveStrategy>();

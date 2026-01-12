@@ -67,7 +67,6 @@ export function useWorkbenchController(args: { transport: SraTransport }) {
   const [apiKeyOpen, setApiKeyOpen] = useState(false);
 
   // Vibe snapshots (CUSTOM aevatar.vibe.*)
-  const [vibeGoals, setVibeGoals] = useState<any>(null);
   const [vibeBrief, setVibeBrief] = useState<any>(null);
   const [vibeDag, setVibeDag] = useState<any>(null);
   const [vibeTrace, setVibeTrace] = useState<any>(null);
@@ -254,7 +253,6 @@ export function useWorkbenchController(args: { transport: SraTransport }) {
     setTools([]);
     store.clear();
     setWorkspace(null);
-    setVibeGoals(null);
     setVibeBrief(null);
     setVibeDag(null);
     setVibeTrace(null);
@@ -290,17 +288,7 @@ export function useWorkbenchController(args: { transport: SraTransport }) {
       }
     };
 
-    const pullGoalsSnapshot = async () => {
-      if (!getJson) return;
-      try {
-        const json = await getJson(`/api/sessions/${encodeURIComponent(sid)}/goals`);
-        const g = (json as any)?.goals;
-        if (!g) return;
-        setVibeGoals({ sessionId: sid, ...g });
-      } catch {
-        // best-effort
-      }
-    };
+    // Goals removed: executable intent lives in DAG plan nodes.
 
     const pullDeliverables = async () => {
       try {
@@ -530,14 +518,7 @@ export function useWorkbenchController(args: { transport: SraTransport }) {
         // ------------------------------------------------------------
         // Vibe snapshots (File-SSoT projections)
         // ------------------------------------------------------------
-        if (name === "aevatar.vibe.goals_snapshot") {
-          setVibeGoals(v);
-          return;
-        }
-        if (name === "aevatar.vibe.goals_updated") {
-          void pullGoalsSnapshot();
-          return;
-        }
+        // Goals removed: executable intent lives in DAG plan nodes.
         if (name === "aevatar.vibe.brief_snapshot") {
           setVibeBrief(v);
           return;
@@ -695,6 +676,50 @@ export function useWorkbenchController(args: { transport: SraTransport }) {
     try {
       setLastError("");
 
+      // ------------------------------------------------------------
+      // Slash commands (local-only helpers, do NOT start a run)
+      // ------------------------------------------------------------
+      if (text === "/status" || text === "/agents") {
+        const getJson = transport.getJson;
+        if (!getJson) throw new Error("Transport does not support GET JSON.");
+        const json: any = await getJson(`/api/sessions/${encodeURIComponent(sessionId)}/status`);
+        const st = json?.agents ? json : null;
+
+        const lines: string[] = [];
+        lines.push("### Agent status");
+        if (st?.runId) lines.push(`- runId: \`${String(st.runId)}\``);
+        if (Array.isArray(st?.steps?.running) && st.steps.running.length > 0) {
+          lines.push(`- running steps: ${st.steps.running.map((x: any) => `\`${String(x)}\``).join(", ")}`);
+        } else {
+          lines.push("- running steps: (none)");
+        }
+        if (Array.isArray(st?.agents) && st.agents.length > 0) {
+          lines.push("");
+          lines.push("Agents:");
+          for (const a of st.agents) {
+            const agent = String(a?.agent ?? "").trim() || "agent";
+            const stepName = String(a?.stepName ?? "").trim();
+            const status = String(a?.status ?? "").trim() || "unknown";
+            const provider = String(a?.providerName ?? "").trim();
+            lines.push(`- **${agent}**: ${status}${stepName ? ` (${stepName})` : ""}${provider ? ` [${provider}]` : ""}`);
+          }
+        }
+        if (Array.isArray(st?.runningTools) && st.runningTools.length > 0) {
+          lines.push("");
+          lines.push(`Running tools (${st.runningTools.length}):`);
+          for (const t of st.runningTools.slice(0, 10)) {
+            lines.push(`- ${String(t?.toolName ?? "tool")} (${String(t?.toolCallId ?? "")})`);
+          }
+        }
+
+        const msg = lines.join("\n").trim();
+        const mid = `sys:${sessionId}:assistant:status:${Date.now()}`;
+        store.upsertMessage({ id: mid, role: "assistant", content: msg, isFinal: true });
+        if (atBottomRef.current) scheduleScrollToBottom("auto");
+        else if (!hasNewActivityRef.current) setHasNewActivity(true);
+        return true;
+      }
+
       // 1) Upload attachments (optional)
       let attachmentPaths: string[] = [];
       const files = Array.isArray(payload?.files) ? payload.files : [];
@@ -789,8 +814,6 @@ export function useWorkbenchController(args: { transport: SraTransport }) {
     setWorkspaceOpen,
     apiKeyOpen,
     setApiKeyOpen,
-    vibeGoals,
-    setVibeGoals,
     vibeBrief,
     setVibeBrief,
     vibeDag,

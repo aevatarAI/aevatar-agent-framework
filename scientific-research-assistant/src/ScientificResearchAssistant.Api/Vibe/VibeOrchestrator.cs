@@ -36,10 +36,10 @@ internal sealed partial class VibeOrchestrator
     private readonly ResearchRuntime _runtime;
     private readonly MaterialsService _materials;
     private readonly WorkspaceService _workspace;
-    private readonly GoalsStore _goals;
     private readonly BriefStore _brief;
     private readonly DeliveryCenterStore _delivery;
     private readonly DagStore _dag;
+    private readonly IDagGroundingPolicy _dagGrounding;
     private readonly TraceStore _trace;
     private readonly FileMailboxService _mailbox;
     private readonly PaperService _paper;
@@ -50,10 +50,10 @@ internal sealed partial class VibeOrchestrator
         ResearchRuntime runtime,
         MaterialsService materials,
         WorkspaceService workspace,
-        GoalsStore goals,
         BriefStore brief,
         DeliveryCenterStore delivery,
         DagStore dag,
+        IDagGroundingPolicy dagGrounding,
         TraceStore trace,
         FileMailboxService mailbox,
         PaperService paper,
@@ -63,10 +63,10 @@ internal sealed partial class VibeOrchestrator
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         _materials = materials ?? throw new ArgumentNullException(nameof(materials));
         _workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
-        _goals = goals ?? throw new ArgumentNullException(nameof(goals));
         _brief = brief ?? throw new ArgumentNullException(nameof(brief));
         _delivery = delivery ?? throw new ArgumentNullException(nameof(delivery));
         _dag = dag ?? throw new ArgumentNullException(nameof(dag));
+        _dagGrounding = dagGrounding ?? throw new ArgumentNullException(nameof(dagGrounding));
         _trace = trace ?? throw new ArgumentNullException(nameof(trace));
         _mailbox = mailbox ?? throw new ArgumentNullException(nameof(mailbox));
         _paper = paper ?? throw new ArgumentNullException(nameof(paper));
@@ -95,7 +95,6 @@ internal sealed partial class VibeOrchestrator
         var dagId = string.IsNullOrWhiteSpace(session.DagId) ? session.Id : session.DagId.Trim();
 
         // Load File-SSoT context (best-effort).
-        var goals = await _goals.LoadAsync(session.Id, ct);
         var dagSnap = await _dag.LoadSnapshotAsync(dagId, ct);
         var recentTrace = await _trace.LoadLatestAsync(session.Id, max: 5, ct);
 
@@ -151,9 +150,8 @@ internal sealed partial class VibeOrchestrator
             // best-effort only
         }
 
-        // Librarian side-effects (facts/goals/axioms) collected during this round.
+        // Librarian side-effects (facts/axioms) collected during this round.
         var librarianAxioms = new List<LibrarianAxiomCandidate>();
-        var goalSuggestions = new List<GoalCandidate>();
         var factsWritten = new List<string>();
 
         // ------------------------------------------------------------
@@ -165,7 +163,7 @@ internal sealed partial class VibeOrchestrator
             var existing = await _brief.LoadAsync(session.Id, ct);
             if (existing.Version <= 0)
             {
-                var brief = await TryGetBriefAsync(session.Id, input, question, materials, goals, dagSnap, recentTrace, raProvider, ct);
+                var brief = await TryGetBriefAsync(session.Id, input, question, materials, dagSnap, recentTrace, raProvider, ct);
                 if (brief != null)
                 {
                     // First brief for a session: start at version=1.
@@ -184,6 +182,32 @@ internal sealed partial class VibeOrchestrator
                     EmitSection(emitAssistantDelta, "### Research Brief (1 page)\n");
                     emitAssistantDelta(RenderBriefMarkdown(saved));
                     emitAssistantDelta("\n\n");
+
+                    // ------------------------------------------------------------
+                    // Persist brief milestones into DAG (as multiple "plan" nodes)
+                    //
+                    // 中文说明：
+                    // - 以前 goals 是一次产出多个条目；现在用 brief.milestones 作为“多条 plan”
+                    // - 这些 plan 节点用于全局 roadmap（并不会污染 knowledge grounding）
+                    // ------------------------------------------------------------
+                    try
+                    {
+                        var mm = BuildMilestonesPlanDagMutation(session.Id, runId, question, saved);
+                        if (mm != null)
+                        {
+                            dagSnap = await _dag.ApplyMutationAsync(dagId, mm, ct);
+                            session.Events.Publish(new CustomEvent
+                            {
+                                Timestamp = NowMs(),
+                                Name = "aevatar.vibe.milestones_plan_dag_written",
+                                Value = new { sessionId = session.Id, dagId, runId, mutationId = mm.MutationId, milestones = saved.Milestones.Count }
+                            });
+                        }
+                    }
+                    catch
+                    {
+                        // best-effort only
+                    }
                 }
             }
         }
@@ -205,7 +229,7 @@ internal sealed partial class VibeOrchestrator
             StepName = "vibe.ra_plan"
         });
 
-        var plan = await TryGetPlanAsync(session.Id, input, question, materials, goals, dagSnap, recentTrace, raProvider, ct);
+        var plan = await TryGetPlanAsync(session.Id, input, question, materials, dagSnap, recentTrace, raProvider, ct);
         if (!string.IsNullOrWhiteSpace(plan.RawJson))
         {
             EmitSection(emitAssistantDelta, "### Plan (research_assistant)\n");
@@ -239,26 +263,6 @@ internal sealed partial class VibeOrchestrator
         catch
         {
             // best-effort only
-        }
-
-        // Auto-init goals if empty (research_assistant may provide goalsInit in plan JSON).
-        if (goals.Goals.Count == 0 && plan.GoalsInit is { Count: > 0 })
-        {
-            var saved = await TrySaveGoalsAsync(
-                session,
-                existing: goals,
-                candidates: plan.GoalsInit,
-                updatedBy: "research_assistant",
-                reason: "auto_init_empty",
-                ct);
-            if (saved != null)
-            {
-                goals = saved;
-                EmitSection(emitAssistantDelta, "### Goals initialized (research_assistant)\n");
-                foreach (var g in saved.Goals.OrderBy(x => x.Priority).Take(12))
-                    emitAssistantDelta($"- ({g.Priority}) {Bound(g.Text ?? string.Empty, 220)}\n");
-                emitAssistantDelta("\n");
-            }
         }
 
         session.Events.Publish(new StepFinishedEvent
@@ -296,21 +300,21 @@ internal sealed partial class VibeOrchestrator
             switch (agent)
             {
                 case "planner":
-                    outputs[agent] = await RunPlannerAsync(session, runId, input, question, materials, goals, dagSnap, plannerProvider, ct);
+                    outputs[agent] = await RunPlannerAsync(session, runId, input, question, materials, dagSnap, plannerProvider, ct);
                     break;
                 case "reasoner":
-                    outputs[agent] = await RunReasonerAsync(session, runId, input, question, materials, goals, dagSnap, outputs.TryGetValue("planner", out var p) ? p : null, reasonerProvider, ct);
+                    outputs[agent] = await RunReasonerAsync(session, runId, input, question, materials, dagSnap, outputs.TryGetValue("planner", out var p) ? p : null, reasonerProvider, ct);
                     break;
                 case "librarian":
-                    outputs[agent] = await RunLibrarianAsync(session, runId, input, question, materials, goals, dagSnap, librarianProvider, ct);
+                    outputs[agent] = await RunLibrarianAsync(session, runId, input, question, materials, dagSnap, librarianProvider, ct);
                     break;
                 case "verifier":
-                    outputs[agent] = await RunVerifierAsync(session, runId, input, question, materials, goals, dagSnap, outputs.TryGetValue("reasoner", out var r) ? r : null, verifierProvider, ct);
+                    outputs[agent] = await RunVerifierAsync(session, runId, input, question, materials, dagSnap, outputs.TryGetValue("reasoner", out var r) ? r : null, verifierProvider, ct);
                     break;
                 case "dag_builder":
                     // Refresh DAG snapshot right before builder (other sessions may have mutated the shared DAG).
                     dagSnap = await _dag.LoadSnapshotAsync(dagId, ct);
-                    outputs[agent] = await RunDagBuilderAsync(session, runId, input, question, materials, goals, dagSnap, outputs, librarianAxioms, dagBuilderProvider, ct);
+                    outputs[agent] = await RunDagBuilderAsync(session, runId, input, question, materials, dagSnap, outputs, librarianAxioms, dagBuilderProvider, ct);
                     break;
                 default:
                     // Unknown agent name in plan: ignore (MVP).
@@ -330,29 +334,6 @@ internal sealed partial class VibeOrchestrator
                         {
                             librarianAxioms.Clear();
                             librarianAxioms.AddRange(actions.AxiomsForDag);
-                        }
-
-                        if (actions.GoalSuggestions is { Count: > 0 })
-                        {
-                            goalSuggestions.AddRange(actions.GoalSuggestions);
-
-                            // If goals are still empty, allow librarian to bootstrap them (best-effort).
-                            if (goals.Goals.Count == 0)
-                            {
-                                var saved = await TrySaveGoalsAsync(
-                                    session,
-                                    existing: goals,
-                                    candidates: actions.GoalSuggestions,
-                                    updatedBy: "librarian",
-                                    reason: "librarian_suggested_empty",
-                                    ct);
-                                if (saved != null)
-                                {
-                                    goals = saved;
-                                    // Auto-applied bootstrap: no user confirmation needed.
-                                    goalSuggestions.Clear();
-                                }
-                            }
                         }
 
                         if (actions.FactsWrite is { Count: > 0 })
@@ -415,7 +396,6 @@ internal sealed partial class VibeOrchestrator
                     input,
                     question,
                     materials,
-                    goals,
                     dagResult,
                     outputs,
                     paperEditorProvider,
@@ -453,17 +433,7 @@ internal sealed partial class VibeOrchestrator
             StepName = "vibe.summary"
         });
 
-        var summaryMd = await TryGetSummaryAsync(
-            session.Id,
-            input,
-            question,
-            goals,
-            dagResult,
-            outputs,
-            goalSuggestions,
-            factsWritten,
-            raProvider,
-            ct);
+        var summaryMd = await TryGetSummaryAsync(session.Id, input, question, dagResult, outputs, factsWritten, raProvider, ct);
         if (!string.IsNullOrWhiteSpace(summaryMd))
         {
             EmitSection(emitAssistantDelta, "### Round Summary\n");
@@ -490,6 +460,8 @@ internal sealed partial class VibeOrchestrator
 
         var now = Timestamp.FromDateTime(DateTime.UtcNow);
 
+        // Keep plan nodes unique even under shared DAG (multiple sessions writing into one dagId).
+        // runId already includes sessionId in "{sessionId}:{seq}" form, so this is collision-resistant.
         var nodeId = SanitizeId($"plan_{runId}");
         if (nodeId.Length == 0)
             nodeId = $"plan_{Guid.NewGuid():N}";
@@ -506,12 +478,14 @@ internal sealed partial class VibeOrchestrator
             Type = SraDagNodeType.Assumption,
             Label = Bound(label, 200),
             Proof = Bound(proof, 1200),
-            UpdatedAt = now
+            UpdatedAt = now,
+            Kind = SraDagNodeKind.Plan
         };
-        node.Tags["kind"] = "plan";
+        // Tags are optional; graph backend persists Kind separately, but tags are still useful in mutation artifacts.
         node.Tags["runId"] = runId;
-        node.Tags["sessionId"] = sessionId;
+        node.Tags["originSessionId"] = sessionId;
         node.Tags["author"] = "research_assistant";
+        node.Tags["planKind"] = "round";
 
         var m = new SraDagMutation
         {
@@ -526,6 +500,79 @@ internal sealed partial class VibeOrchestrator
         // No edges by default: plan nodes are metadata, not derivations.
 
         return m;
+    }
+
+    private static SraDagMutation? BuildMilestonesPlanDagMutation(
+        string sessionId,
+        string runId,
+        string? question,
+        SraResearchBriefSnapshot brief)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId) || string.IsNullOrWhiteSpace(runId))
+            return null;
+        if (brief == null || brief.Milestones.Count == 0)
+            return null;
+
+        var now = Timestamp.FromDateTime(DateTime.UtcNow);
+
+        var m = new SraDagMutation
+        {
+            SessionId = sessionId,
+            MutationId = $"milestones_plan_{runId}",
+            AuthorAgent = "research_assistant",
+            CreatedAt = now
+        };
+        m.Labels["kind"] = "plan";
+        m.Labels["planKind"] = "milestone";
+
+        // Stable-ish ids: upsert the same milestone nodes across runs for the same session.
+        // (If brief is rewritten, these nodes will be updated, not duplicated.)
+        var idx = 0;
+        foreach (var ms in brief.Milestones.Take(12))
+        {
+            idx++;
+            var roundIndex = ms?.RoundIndex ?? 0;
+            var expected = (ms?.ExpectedOutput ?? string.Empty).Replace("\r", "").Trim();
+            if (expected.Length == 0) continue;
+
+            var suffix = roundIndex > 0 ? $"r{roundIndex}" : $"i{idx}";
+            var nodeId = SanitizeId($"plan_{sessionId}_ms_{suffix}");
+            if (nodeId.Length == 0)
+                nodeId = $"plan_{Guid.NewGuid():N}";
+
+            var label = roundIndex > 0
+                ? $"Milestone (Round {roundIndex}): {Bound(expected, 160)}"
+                : $"Milestone: {Bound(expected, 180)}";
+
+            var proofSb = new StringBuilder(256);
+            var q = (question ?? string.Empty).Replace("\r", "").Trim();
+            if (q.Length > 0) proofSb.AppendLine($"Question: {Bound(q, 600)}");
+            if (roundIndex > 0) proofSb.AppendLine($"TargetRound: {roundIndex}");
+            proofSb.AppendLine();
+            proofSb.AppendLine("ExpectedOutput:");
+            proofSb.AppendLine(Bound(expected, 600));
+
+            var node = new SraDagNode
+            {
+                Id = nodeId,
+                Type = SraDagNodeType.Assumption,
+                Label = Bound(label, 200),
+                Proof = Bound(proofSb.ToString().Trim(), 1200),
+                UpdatedAt = now,
+                Kind = SraDagNodeKind.Plan
+            };
+
+            node.Tags["runId"] = runId;
+            node.Tags["originSessionId"] = sessionId;
+            node.Tags["author"] = "research_assistant";
+            node.Tags["planKind"] = "milestone";
+            node.Tags["milestoneRoundIndex"] = roundIndex.ToString();
+
+            m.UpsertNodes.Add(node);
+            if (m.UpsertNodes.Count >= 12) break;
+        }
+
+        return m.UpsertNodes.Count == 0 ? null : m;
     }
 
     private static string BuildPlanProof(string? question, List<PlanWorker>? workers)

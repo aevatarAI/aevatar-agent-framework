@@ -23,6 +23,14 @@ public sealed class KnowledgeNode
     /// </summary>
     public KnowledgeNodeKind Kind { get; init; } = KnowledgeNodeKind.Knowledge;
 
+    /// <summary>
+    /// Owner public key of this node (the agent/user who authored it).
+    /// <para>
+    /// Recommended encoding: hex or base64. Empty/null means "unknown / not set".
+    /// </para>
+    /// </summary>
+    public string? Owner { get; init; }
+
     /// <summary>Core description - a concise summary of the key conclusion.</summary>
     public required string CoreDescription { get; init; }
 

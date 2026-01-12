@@ -5,8 +5,14 @@ import type { SraTransport } from "../transport/SraTransport";
 type DagNode = {
   id: string;
   type?: string;
+  kind?: string;
   label?: string;
   proof?: string;
+  owner?: string;
+  attestationsCount?: number;
+  attestations?: { pubkey?: string; signature?: string }[];
+  updatedAt?: string;
+  tags?: Record<string, string>;
 };
 
 type DagEdge = {
@@ -49,6 +55,13 @@ export default function DagPanel(props: {
     if (!selected) return null;
     return nodes.find((n) => n?.id === selected) ?? null;
   }, [nodes, selected]);
+
+  const shortKey = (s: string, head = 10, tail = 8) => {
+    const t = (s || "").trim();
+    if (!t) return "";
+    if (t.length <= head + tail + 3) return t;
+    return `${t.slice(0, head)}…${t.slice(-tail)}`;
+  };
 
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
@@ -153,6 +166,16 @@ export default function DagPanel(props: {
                 >
                   <div className="font-mono break-all">{n.id}</div>
                   {n.label && <div className="text-[11px] text-slate-600 line-clamp-2">{n.label}</div>}
+                  <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px] text-slate-600">
+                    {n.kind ? <span className="px-1.5 py-0.5 rounded bg-white border border-slate-200">kind:{n.kind}</span> : null}
+                    {n.type ? <span className="px-1.5 py-0.5 rounded bg-white border border-slate-200">type:{n.type}</span> : null}
+                    {n.owner ? <span className="px-1.5 py-0.5 rounded bg-white border border-slate-200">owner:{shortKey(n.owner)}</span> : null}
+                    {(typeof n.attestationsCount === "number" ? n.attestationsCount : (Array.isArray(n.attestations) ? n.attestations.length : 0)) > 0 ? (
+                      <span className="px-1.5 py-0.5 rounded bg-white border border-slate-200">
+                        attest:{typeof n.attestationsCount === "number" ? n.attestationsCount : (n.attestations?.length ?? 0)}
+                      </span>
+                    ) : null}
+                  </div>
                 </button>
               ))
             )}
@@ -168,6 +191,7 @@ export default function DagPanel(props: {
               <div className="text-xs font-mono break-all text-slate-900">{selectedNode.id}</div>
               <div className="flex items-center gap-2 text-[11px] text-slate-600">
                 <span className="px-1.5 py-0.5 rounded bg-white border border-slate-200">{selectedNode.type || "unknown"}</span>
+                {selectedNode.kind ? <span className="px-1.5 py-0.5 rounded bg-white border border-slate-200">kind:{selectedNode.kind}</span> : null}
                 {explain ? (
                   <span
                     className={`px-1.5 py-0.5 rounded border ${
@@ -179,6 +203,29 @@ export default function DagPanel(props: {
                   </span>
                 ) : null}
               </div>
+
+              {selectedNode.owner ? (
+                <div className="text-[11px] text-slate-700">
+                  <span className="text-slate-500">owner:</span>{" "}
+                  <span className="font-mono break-all">{selectedNode.owner}</span>
+                </div>
+              ) : null}
+
+              {Array.isArray(selectedNode.attestations) && selectedNode.attestations.length > 0 ? (
+                <details className="bg-white border border-slate-200 rounded-md p-2">
+                  <summary className="cursor-pointer select-none text-[11px] text-slate-600">
+                    Attestations ({typeof selectedNode.attestationsCount === "number" ? selectedNode.attestationsCount : selectedNode.attestations.length})
+                  </summary>
+                  <div className="mt-2 space-y-1">
+                    {selectedNode.attestations.slice(0, 20).map((a, idx) => (
+                      <div key={`${a?.pubkey ?? ""}:${idx}`} className="text-[11px] text-slate-800">
+                        <div className="font-mono break-all">pubkey: {a?.pubkey ?? ""}</div>
+                        <div className="font-mono break-all text-slate-500">sig: {a?.signature ?? ""}</div>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              ) : null}
 
               {selectedNode.label ? <div className="text-xs text-slate-800">{selectedNode.label}</div> : null}
 

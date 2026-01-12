@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Core.Secrets;
+using AElf.Cryptography;
 using Microsoft.AspNetCore.Http.Json;
 
 // ============================================================
@@ -44,6 +45,83 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 
 app.MapGet("/health", () => Results.Text("ok"));
+
+// ------------------------------------------------------------
+// Local signer identity (secp256k1, Ethereum-compatible curve)
+// Stored at:
+// - Crypto:EcdsaSecp256k1:PrivateKeyHex
+// - Crypto:EcdsaSecp256k1:PublicKeyHex
+//
+// Backup policy:
+// - Generating a new key will automatically copy the old private key into:
+//   Crypto:EcdsaSecp256k1:PrivateKeyHex:Backup:<unixMs>
+// - Never delete backups automatically.
+//
+// NOTE:
+// - Private key is NEVER returned by API.
+// - All endpoints are localhost-only.
+// ------------------------------------------------------------
+
+const string SecpPrivKey = "Crypto:EcdsaSecp256k1:PrivateKeyHex";
+const string SecpPubKey = "Crypto:EcdsaSecp256k1:PublicKeyHex";
+const string SecpPrivBackupPrefix = "Crypto:EcdsaSecp256k1:PrivateKeyHex:Backup:";
+
+app.MapGet("/api/crypto/secp256k1/status", (IAevatarUserSecretsStore secrets, HttpContext http) =>
+{
+    if (!IsLocal(http))
+        return Results.Forbid();
+
+    var hasPriv = secrets.TryGet(SecpPrivKey, out var priv) && !string.IsNullOrWhiteSpace(priv);
+    var hasPub = secrets.TryGet(SecpPubKey, out var pub) && !string.IsNullOrWhiteSpace(pub);
+
+    var pubHex = hasPub ? (pub ?? string.Empty).Trim() : string.Empty;
+    var privMasked = hasPriv ? SecretMask.MaskMiddle((priv ?? string.Empty).Trim()) : string.Empty;
+
+    var backupCount = secrets
+        .GetAll()
+        .Keys
+        .Count(k => k != null && k.StartsWith(SecpPrivBackupPrefix, StringComparison.OrdinalIgnoreCase));
+
+    return Results.Json(new
+    {
+        ok = true,
+        configured = hasPriv && hasPub,
+        privateKey = new { configured = hasPriv, masked = privMasked, keyPath = SecpPrivKey, backupsPrefix = SecpPrivBackupPrefix, backupCount },
+        publicKey = new { configured = hasPub, hex = pubHex, keyPath = SecpPubKey }
+    });
+});
+
+app.MapPost("/api/crypto/secp256k1/generate", (IAevatarUserSecretsStore secrets, HttpContext http) =>
+{
+    if (!IsLocal(http))
+        return Results.Forbid();
+
+    // Backup old private key (if any).
+    var backedUp = false;
+    string? backupKey = null;
+    if (secrets.TryGet(SecpPrivKey, out var oldPriv) && !string.IsNullOrWhiteSpace(oldPriv))
+    {
+        backupKey = SecpPrivBackupPrefix + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        secrets.Set(backupKey, oldPriv.Trim());
+        backedUp = true;
+    }
+
+    // Generate new secp256k1 keypair.
+    var kp = CryptoHelper.GenerateKeyPair();
+    var privHex = Convert.ToHexString(kp.PrivateKey).ToLowerInvariant();
+    var pubHex = Convert.ToHexString(kp.PublicKey).ToLowerInvariant();
+
+    secrets.Set(SecpPrivKey, privHex);
+    secrets.Set(SecpPubKey, pubHex);
+
+    return Results.Json(new
+    {
+        ok = true,
+        backedUp,
+        backupKey,
+        publicKeyHex = pubHex
+    });
+});
 
 // ------------------------------------------------------------
 // Providers (base types) + instances (configured) for UI

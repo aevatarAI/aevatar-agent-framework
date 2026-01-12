@@ -13,7 +13,6 @@ using ScientificResearchAssistant.Api.Vibe.Brief;
 using ScientificResearchAssistant.Api.Vibe.Compute;
 using ScientificResearchAssistant.Api.Vibe.Delivery;
 using ScientificResearchAssistant.Api.Vibe.Dag;
-using ScientificResearchAssistant.Api.Vibe.Goals;
 using ScientificResearchAssistant.Api.Vibe.Trace;
 using ScientificResearchAssistant.Api.Vibe.Uploads;
 using ScientificResearchAssistant.Api.Workspace;
@@ -45,17 +44,104 @@ internal static class ResearchSessionsApi
         MapList(app);
         MapTools(app);
         MapAgentProviders(app);
-        MapGoals(app);
         MapDeliverables(app);
         MapCompute(app);
         MapUploads(app);
         MapDag(app);
+        MapStatus(app);
         MapInput(app);
         MapMcpReconnect(app);
         MapFacts(app);
         MapWorkspace(app);
         MapFiles(app);
         MapAgUiEvents(app);
+    }
+
+    private static void MapStatus(WebApplication app)
+    {
+        app.MapGet("/api/sessions/{sessionId}/status", async (
+            string sessionId,
+            ResearchSessionManager sessions,
+            SessionUiSnapshotStore ui,
+            CancellationToken ct) =>
+        {
+            if (!sessions.TryGet(sessionId, out var session))
+                return Results.NotFound(new { error = "session not found" });
+
+            var uiSnap = await ui.LoadAsync(session.Id, ct);
+
+            var runId = uiSnap.RunSteps?.RunId ?? "";
+            var order = uiSnap.RunSteps?.Order ?? [];
+            var map = uiSnap.RunSteps?.Map ?? new Dictionary<string, SessionUiSnapshotStore.UiRunStep>();
+
+            var runningSteps = map
+                .Where(kv => string.Equals(kv.Value?.Status, "running", StringComparison.OrdinalIgnoreCase))
+                .Select(kv => kv.Key)
+                .OrderBy(x => x, StringComparer.Ordinal)
+                .ToList();
+
+            var doneSteps = map
+                .Where(kv => string.Equals(kv.Value?.Status, "done", StringComparison.OrdinalIgnoreCase))
+                .Select(kv => kv.Key)
+                .OrderBy(x => x, StringComparer.Ordinal)
+                .ToList();
+
+            // Aggregate per-agent activity from message_meta snapshot (best-effort).
+            var agentLatest = new Dictionary<string, SessionUiSnapshotStore.UiMessageMeta>(StringComparer.OrdinalIgnoreCase);
+            foreach (var m in uiSnap.MessageMeta ?? [])
+            {
+                if (m == null) continue;
+                var agent = (m.Agent ?? string.Empty).Trim();
+                if (agent.Length == 0) continue;
+                agentLatest[agent] = m; // last writer wins (snapshot order is best-effort)
+            }
+
+            var agents = agentLatest
+                .Values
+                .Select(m =>
+                {
+                    var stepName = (m.StepName ?? string.Empty).Trim();
+                    // Heuristic: if step is currently running, agent is "running", else "idle".
+                    var status = runningSteps.Contains(stepName, StringComparer.Ordinal) ? "running" : "idle";
+                    return new
+                    {
+                        agent = (m.Agent ?? string.Empty).Trim(),
+                        stepName,
+                        providerName = (m.ProviderName ?? string.Empty).Trim(),
+                        status
+                    };
+                })
+                .OrderBy(x => x.agent, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var runningTools = (uiSnap.Tools ?? [])
+                .Where(t => t != null && string.Equals(t.Status, "running", StringComparison.OrdinalIgnoreCase))
+                .Select(t => new
+                {
+                    messageId = t.MessageId,
+                    toolCallId = t.ToolCallId,
+                    toolName = t.ToolName
+                })
+                .Take(40)
+                .ToList();
+
+            return Results.Json(new
+            {
+                ok = true,
+                sessionId = session.Id,
+                updatedAt = uiSnap.UpdatedAt ?? "",
+                runId,
+                steps = new
+                {
+                    order,
+                    map,
+                    running = runningSteps,
+                    done = doneSteps
+                },
+                agents,
+                runningTools
+            }, Json);
+        });
     }
 
     private static void MapFiles(WebApplication app)
@@ -337,125 +423,7 @@ internal static class ResearchSessionsApi
         });
     }
 
-    private static void MapGoals(WebApplication app)
-    {
-        app.MapGet("/api/sessions/{sessionId}/goals", async (
-            string sessionId,
-            ResearchSessionManager sessions,
-            GoalsStore goals,
-            CancellationToken ct) =>
-        {
-            if (!sessions.TryGet(sessionId, out var session))
-                return Results.NotFound(new { error = "session not found" });
-
-            var snap = await goals.LoadAsync(session.Id, ct);
-            return Results.Json(new
-            {
-                ok = true,
-                sessionId = session.Id,
-                goals = new
-                {
-                    version = snap.Version,
-                    updatedAt = snap.UpdatedAt?.ToDateTime().ToUniversalTime().ToString("O") ?? "",
-                    items = snap.Goals.Select(g => new
-                    {
-                        goalId = g.GoalId,
-                        text = g.Text,
-                        priority = g.Priority,
-                        updatedAt = g.UpdatedAt?.ToDateTime().ToUniversalTime().ToString("O") ?? ""
-                    }).ToList()
-                }
-            });
-        });
-
-        app.MapPut("/api/sessions/{sessionId}/goals", async (
-            string sessionId,
-            GoalsPutInDto input,
-            ResearchSessionManager sessions,
-            GoalsStore goals,
-            FileMailboxService mailbox,
-            CancellationToken ct) =>
-        {
-            if (!sessions.TryGet(sessionId, out var session))
-                return Results.NotFound(new { error = "session not found" });
-
-            var existing = await goals.LoadAsync(session.Id, ct);
-            var targetVersion = input.Version ?? 0;
-            if (targetVersion <= existing.Version)
-                targetVersion = existing.Version + 1;
-
-            var snap = new SraGoalsSnapshot
-            {
-                SessionId = session.Id,
-                Version = targetVersion
-            };
-
-            if (input.Items != null)
-            {
-                foreach (var it in input.Items)
-                {
-                    if (it == null) continue;
-                    var text = (it.Text ?? string.Empty).Trim();
-                    if (text.Length == 0) continue;
-
-                    snap.Goals.Add(new SraGoalItem
-                    {
-                        GoalId = (it.GoalId ?? string.Empty).Trim(),
-                        Text = text,
-                        Priority = it.Priority ?? 0
-                    });
-                }
-            }
-
-            var saved = await goals.SaveAsync(session.Id, snap, ct);
-
-            // UI: notify goals updated (best-effort)
-            session.Events.Publish(new CustomEvent
-            {
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                Name = "aevatar.vibe.goals_updated",
-                Value = new { sessionId = session.Id, version = saved.Version, count = saved.Goals.Count }
-            });
-
-            // Mailbox broadcast (best-effort) - stable roster for MVP.
-            try
-            {
-                var now = Timestamp.FromDateTime(DateTime.UtcNow);
-                var evt = new SraGoalsUpdated
-                {
-                    SessionId = session.Id,
-                    Snapshot = saved,
-                    Reason = "user_edit",
-                    UpdatedBy = "user",
-                    CreatedAt = now
-                };
-
-                var toAgents = new[] { "research_assistant", "planner", "reasoner", "librarian", "verifier", "dag_builder" };
-                foreach (var a in toAgents)
-                {
-                    var envelope = new SraMailboxMessage
-                    {
-                        SessionId = session.Id,
-                        MessageId = $"goals_updated:{saved.Version}",
-                        FromAgent = "user",
-                        ToAgent = a,
-                        Type = "goals.updated",
-                        CorrelationId = $"goals:{saved.Version}",
-                        CreatedAt = now,
-                        Payload = Any.Pack(evt)
-                    };
-
-                    await mailbox.SendAsync(session.Id, a, envelope, ct);
-                }
-            }
-            catch
-            {
-                // best-effort only
-            }
-
-            return Results.Json(new { ok = true, sessionId = session.Id, version = saved.Version, count = saved.Goals.Count });
-        });
-    }
+    // Goals removed: executable intent lives in DAG plan nodes.
 
     private static void MapUploads(WebApplication app)
     {
@@ -1025,7 +993,6 @@ internal static class ResearchSessionsApi
             ResearchSessionManager sessions,
             ResearchRuntime runtime,
             WorkspaceService workspace,
-            GoalsStore goals,
             BriefStore brief,
             DeliveryCenterStore delivery,
             SessionUiSnapshotStore ui,
@@ -1183,32 +1150,7 @@ internal static class ResearchSessionsApi
             // ------------------------------------------------------------
             //  Vibe bootstrap snapshots (File-SSoT projections)
             // ------------------------------------------------------------
-            try
-            {
-                var snap = await goals.LoadAsync(session.Id, ct);
-                await WriteSseAsync(new CustomEvent
-                {
-                    Timestamp = Ts(DateTimeOffset.UtcNow),
-                    Name = "aevatar.vibe.goals_snapshot",
-                    Value = new
-                    {
-                        sessionId = session.Id,
-                        version = snap.Version,
-                        updatedAt = snap.UpdatedAt?.ToDateTime().ToUniversalTime().ToString("O") ?? "",
-                        items = snap.Goals.Select(g => new
-                        {
-                            goalId = g.GoalId,
-                            text = g.Text,
-                            priority = g.Priority,
-                            updatedAt = g.UpdatedAt?.ToDateTime().ToUniversalTime().ToString("O") ?? ""
-                        }).ToList()
-                    }
-                }, ct);
-            }
-            catch
-            {
-                // best-effort
-            }
+            // Goals removed: executable intent lives in DAG plan nodes.
 
             try
             {

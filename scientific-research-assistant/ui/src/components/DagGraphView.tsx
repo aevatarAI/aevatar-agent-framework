@@ -4,6 +4,9 @@ type DagNode = {
   id: string;
   type?: string;
   label?: string;
+  kind?: string;
+  owner?: string;
+  attestationsCount?: number;
 };
 
 type DagEdge = {
@@ -268,7 +271,7 @@ export default function DagGraphView(props: {
           const selected = selectedId === id;
           return (
             <g key={id} onClick={() => onSelect?.(id)} style={{ cursor: onSelect ? "pointer" : "default" }}>
-              <title>{`${id}${n.label ? `\n${String(n.label)}` : ""}`}</title>
+              <title>{`${id}${n.type ? `\ntype=${String(n.type)}` : ""}${n.kind ? `\nkind=${String(n.kind)}` : ""}${n.owner ? `\nowner=${String(n.owner)}` : ""}${typeof n.attestationsCount === "number" ? `\nattestations=${n.attestationsCount}` : ""}${n.label ? `\n${String(n.label)}` : ""}`}</title>
               <circle cx={p.x} cy={p.y} r={R} fill={c.fill} stroke={selected ? "#4f46e5" : c.stroke} strokeWidth={selected ? 4 : 2} />
               <text x={p.x} y={p.y + 4} textAnchor="middle" fontSize="11" fill="#0f172a" style={{ userSelect: "none" }}>
                 {id}

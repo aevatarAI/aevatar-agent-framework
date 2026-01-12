@@ -49,6 +49,9 @@
     skillsMpHasExistingKey: false,
     skillsMpExistingKeyMasked: "",
     skillsMpExistingKeyFull: "",
+
+    // Crypto view state (secp256k1 signer)
+    crypto: { configured: false, publicKeyHex: "", privateConfigured: false, privateMasked: "", backupCount: 0 },
   };
   const categoryOrder = { configured: 0, popular: 1, other: 2 };
   const safeText = (s) => String(s || "");
@@ -76,6 +79,7 @@
     $("viewAdvanced").classList.toggle("hidden", view !== "advanced");
     $("viewEmbeddings").classList.toggle("hidden", view !== "embeddings");
     $("viewSkillsMp").classList.toggle("hidden", view !== "skillsmp");
+    $("viewCrypto").classList.toggle("hidden", view !== "crypto");
   }
 
   function findProviderType(id) {
@@ -121,13 +125,14 @@
 
   async function refreshProviders() {
     try {
-      const [pRes, iRes, tRes, dRes, eRes, sRes] = await Promise.all([
+      const [pRes, iRes, tRes, dRes, eRes, sRes, cRes] = await Promise.all([
         fetch("/api/llm/providers"),
         fetch("/api/llm/instances"),
         fetch("/api/trash/api-keys"),
         fetch("/api/llm/default"),
         fetch("/api/embeddings"),
         fetch("/api/skillsmp/status"),
+        fetch("/api/crypto/secp256k1/status"),
       ]);
       if (!pRes.ok) throw new Error("HTTP " + pRes.status);
       if (!iRes.ok) throw new Error("HTTP " + iRes.status);
@@ -135,6 +140,7 @@
       if (!dRes.ok) throw new Error("HTTP " + dRes.status);
       if (!eRes.ok) throw new Error("HTTP " + eRes.status);
       if (!sRes.ok) throw new Error("HTTP " + sRes.status);
+      if (!cRes.ok) throw new Error("HTTP " + cRes.status);
 
       const pJson = await pRes.json().catch(() => null);
       const iJson = await iRes.json().catch(() => null);
@@ -142,6 +148,7 @@
       const dJson = await dRes.json().catch(() => null);
       const eJson = await eRes.json().catch(() => null);
       const sJson = await sRes.json().catch(() => null);
+      const cJson = await cRes.json().catch(() => null);
 
       state.providers = Array.isArray(pJson && pJson.providers) ? pJson.providers : [];
       state.instances = Array.isArray(iJson && iJson.instances) ? iJson.instances : [];
@@ -149,6 +156,13 @@
       state.defaultProvider = safeText(dJson && dJson.providerName).trim();
       state.embeddings = (eJson && eJson.embeddings) ? eJson.embeddings : state.embeddings;
       state.skillsMp = (sJson && sJson.ok === true) ? sJson : state.skillsMp;
+      state.crypto = (cJson && cJson.ok === true) ? {
+        configured: Boolean(cJson.configured),
+        publicKeyHex: safeText(cJson.publicKey && cJson.publicKey.hex).trim(),
+        privateConfigured: Boolean(cJson.privateKey && cJson.privateKey.configured),
+        privateMasked: safeText(cJson.privateKey && cJson.privateKey.masked).trim(),
+        backupCount: Number(cJson.privateKey && cJson.privateKey.backupCount) || 0,
+      } : state.crypto;
     } catch (e) {
       console.error(e);
       state.providers = [];
@@ -157,6 +171,7 @@
       state.defaultProvider = "";
       state.embeddings = { enabled: null, providerType: "", model: "", endpoint: "", configured: false, masked: "" };
       state.skillsMp = { configured: false, masked: "", keyPath: "SkillsMP:ApiKey", baseUrl: "" };
+      state.crypto = { configured: false, publicKeyHex: "", privateConfigured: false, privateMasked: "", backupCount: 0 };
     }
     renderList();
   }
@@ -410,6 +425,20 @@
         const cfg = Boolean(s.configured);
         const masked = safeText(s.masked || "").trim();
         h.textContent = cfg ? `Configured: ${masked || "(hidden)"}` : "Not configured yet.";
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      const h = $("secp256k1Hint");
+      if (h) {
+        const c = state.crypto || {};
+        const cfg = Boolean(c.configured);
+        const pk = safeText(c.publicKeyHex || "").trim();
+        h.textContent = cfg
+          ? `Configured: ${pk ? (pk.slice(0, 10) + "…" + pk.slice(-8)) : "(unknown)"}`
+          : "Not configured yet.";
       }
     } catch {
       // ignore
@@ -1009,6 +1038,59 @@
     void loadSkillsMpStatusIntoForm();
   }
 
+  // ------------------------------------------------------------
+  // Crypto UI (secp256k1 signer)
+  // ------------------------------------------------------------
+  function setCryptoMsg(text, kind) {
+    const el = $("cryptoMsg");
+    el.textContent = safeText(text);
+    el.className = "msg";
+    if (kind === "ok") el.classList.add("ok");
+    if (kind === "err") el.classList.add("err");
+  }
+
+  function loadCryptoIntoForm() {
+    const c = state.crypto || {};
+    $("cryptoPubKeyInput").value = safeText(c.publicKeyHex || "");
+    $("cryptoPrivMaskedInput").value = safeText(c.privateMasked || "");
+
+    const pubMeta = $("cryptoPubMeta");
+    if (pubMeta) {
+      pubMeta.textContent = c.configured
+        ? "This public key will be written into DAG nodes as owner (hex)."
+        : "Not configured yet.";
+    }
+
+    const privMeta = $("cryptoPrivMeta");
+    if (privMeta) {
+      const backups = Number(c.backupCount) || 0;
+      privMeta.textContent = c.privateConfigured
+        ? `Private key is stored encrypted (never shown). Backups: ${backups}.`
+        : "Not configured yet.";
+    }
+  }
+
+  function openCrypto() {
+    setCryptoMsg("");
+    setView("crypto");
+    loadCryptoIntoForm();
+  }
+
+  async function generateCryptoKey() {
+    try {
+      setCryptoMsg("");
+      if (!window.confirm("Generate a NEW secp256k1 private key and save it?\n\nOld private key (if any) will be backed up automatically.")) return;
+      const res = await fetch("/api/crypto/secp256k1/generate", { method: "POST" });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json || json.ok !== true) throw new Error((json && json.error) ? json.error : ("HTTP " + res.status));
+      await refreshProviders();
+      setCryptoMsg(json.backedUp ? "Generated. Old key backed up." : "Generated.", "ok");
+      loadCryptoIntoForm();
+    } catch (e) {
+      setCryptoMsg(e && e.message ? e.message : String(e), "err");
+    }
+  }
+
   async function saveSkillsMp() {
     const apiKey = safeText($("skillsMpApiKeyInput").value).trim();
     const baseUrl = safeText($("skillsMpBaseUrlInput").value).trim();
@@ -1426,10 +1508,12 @@
     $("advCloseBtn").onclick = () => setView("list");
     $("embCloseBtn").onclick = () => setView("list");
     $("skillsMpCloseBtn").onclick = () => setView("list");
+    $("cryptoCloseBtn").onclick = () => setView("list");
     $("backBtn").onclick = () => setView("list");
     $("advBackBtn").onclick = () => setView("list");
     $("embBackBtn").onclick = () => setView("list");
     $("skillsMpBackBtn").onclick = () => setView("list");
+    $("cryptoBackBtn").onclick = () => setView("list");
 
     $("searchInput").addEventListener("input", debounce(() => {
       state.search = safeText($("searchInput").value);
@@ -1441,6 +1525,7 @@
 
     $("embeddingsItem").onclick = () => openEmbeddings();
     $("skillsMpItem").onclick = () => openSkillsMp();
+    $("secp256k1Item").onclick = () => openCrypto();
 
     $("advancedItem").onclick = () => openAdvanced();
 
@@ -1575,6 +1660,19 @@
     $("advValueInput").addEventListener("input", debounce(updateAdvancedButtons, 60));
     $("advSaveBtn").onclick = () => saveRaw();
     $("advRemoveBtn").onclick = () => removeRaw();
+
+    // Crypto view
+    $("cryptoGenerateBtn").onclick = () => generateCryptoKey();
+    $("cryptoCopyPubBtn").onclick = async () => {
+      try {
+        const v = safeText(state.crypto && state.crypto.publicKeyHex).trim();
+        if (!v) return;
+        await navigator.clipboard.writeText(v);
+        setCryptoMsg("Copied public key.", "ok");
+      } catch (e) {
+        setCryptoMsg(e && e.message ? e.message : String(e), "err");
+      }
+    };
 
     // Embeddings view
     $("embToggleKeyBtn").onclick = () => {

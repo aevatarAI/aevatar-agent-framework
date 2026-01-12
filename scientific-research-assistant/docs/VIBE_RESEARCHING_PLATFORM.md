@@ -23,11 +23,14 @@
    - `librarian`：证据/资料整理与缺口
    - `verifier`：硬验证（可选 python_exec）
    - `dag_builder`：产出 DAG mutation candidate（STRICT JSON）
-4. **DAG 共识 gate（默认：verifier-quorum）**：对 DAG candidate 做轻量 vote + red-flagging
-   - **verifier-quorum**：多个 `verifier` 对同一 candidate 投票；满足 `approve >= quorum` 且无 hard red-flags 即通过
-   - **通过**：写入最终 DAG snapshot
-   - **失败**：candidate 写入 staged（保留待后续再审/再跑）
+4. **DAG apply（当前实现：no verification / no consensus）**：
+   - 解析 `dag_builder` 产出的 candidate（JSON）并直接 apply 到 DAG
+   - 若 candidate 引用不存在的 `sources/*.md|txt`，会自动创建 placeholder source 文件（避免引用断裂）
+   - apply 成功后发 `aevatar.vibe.dag_updated`
 5. **research_assistant（summary）**：生成本轮总结（Markdown），并落盘为 Derivation Trace
+
+补充：更细的“谁在什么时候更新 brief / plan nodes / trace / UI message_meta”等，见：
+- `docs/VIBE_VIBE_ORCHESTRATION_CODEWALK.md`
 
 ---
 
@@ -95,8 +98,7 @@ SSE endpoint：`GET /api/sessions/{sessionId}/agui/events`
 #### 4.2 Live updates（run 中/结束后）
 - `aevatar.vibe.goals_updated`（目前作为 signal，前端会再 GET /goals 拉全量）
 - `aevatar.vibe.brief_updated`（signal，前端会再 GET /deliverables 拉全量）
-- `aevatar.vibe.dag_updated`（共识通过并写入 DAG 后）
-- `aevatar.vibe.consensus_blocked`（共识失败，candidate 被 staged）
+- `aevatar.vibe.dag_updated`（DAG apply 成功后）
 - `aevatar.vibe.delivery_updated`（signal：delivery center 更新后）
 - `aevatar.vibe.round_summary`（本轮 trace entry：包含 preview + summaryPath）
 - `aevatar.vibe.compute_decision`（用户点击 execute/degrade/skip 后）

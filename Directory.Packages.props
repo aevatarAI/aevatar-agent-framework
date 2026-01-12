@@ -240,5 +240,6 @@
     <PackageVersion Include="Npgsql" Version="8.0.5" />
     <!-- PDF extraction -->
     <PackageVersion Include="UglyToad.PdfPig" Version="1.7.0-custom-5" />
+    <PackageVersion Include="AElf.Cryptography" Version="1.12.0" />
   </ItemGroup>
 </Project>

@@ -16,6 +16,7 @@ internal sealed class GraphClientBackedStore : IKnowledgeGraphStore
     private const string PropSessionId = "sessionId";
     private const string PropNodeId = "nodeId";
     private const string PropNodeType = "nodeType";
+    private const string PropOwner = "owner";
     private const string PropCoreDescription = "coreDescription";
     private const string PropDetailedDescription = "detailedDescription";
     private const string PropProof = "proof";
@@ -57,6 +58,7 @@ internal sealed class GraphClientBackedStore : IKnowledgeGraphStore
             [PropNodeId] = new StringValue(node.Id),
             [PropNodeType] = new StringValue(nodeTypeStr),
             [PropNodeKind] = new StringValue(node.Kind.ToString()),
+            [PropOwner] = new StringValue((node.Owner ?? string.Empty).Trim()),
             [PropCoreDescription] = new StringValue(node.CoreDescription),
             [PropDetailedDescription] = new StringValue(node.DetailedDescription),
             [PropTimestamp] = new StringValue(node.Timestamp.ToString("O")),
@@ -287,6 +289,11 @@ internal sealed class GraphClientBackedStore : IKnowledgeGraphStore
             : KnowledgeNodeKind.Knowledge.ToString();
         var kind = Enum.TryParse<KnowledgeNodeKind>(kindStr, out var nk) ? nk : KnowledgeNodeKind.Knowledge;
 
+        var owner = props.TryGetValue(PropOwner, out var ownerVal) && ownerVal is StringValue ownerSv
+            ? ownerSv.Data
+            : null;
+        owner = string.IsNullOrWhiteSpace(owner) ? null : owner.Trim();
+
         var coreDescription = props.TryGetValue(PropCoreDescription, out var coreVal) && coreVal is StringValue coreSv
             ? coreSv.Data
             : "";
@@ -337,6 +344,7 @@ internal sealed class GraphClientBackedStore : IKnowledgeGraphStore
             SessionId = sessionId,
             NodeType = nodeType,
             Kind = kind,
+            Owner = owner,
             CoreDescription = coreDescription,
             DetailedDescription = detailedDescription,
             Proof = proof,

@@ -32,6 +32,8 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
         KnowledgeNodeType nodeType,
         string coreDescription,
         string detailedDescription,
+        KnowledgeNodeKind kind = KnowledgeNodeKind.Knowledge,
+        string? owner = null,
         string? proof = null,
         string? resourceFolderPath = null,
         IEnumerable<string>? dependsOn = null,
@@ -80,6 +82,8 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
             Id = nodeId,
             SessionId = SessionId,
             NodeType = nodeType,
+            Kind = kind,
+            Owner = string.IsNullOrWhiteSpace(owner) ? null : owner.Trim(),
             CoreDescription = coreDescription,
             DetailedDescription = detailedDescription,
             Proof = proof,
@@ -110,6 +114,8 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
         KnowledgeNodeType nodeType,
         string? coreDescription = null,
         string? detailedDescription = null,
+        KnowledgeNodeKind? kind = null,
+        string? owner = null,
         string? proof = null,
         string? resourceFolderPath = null,
         CancellationToken cancellationToken = default)
@@ -119,6 +125,7 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
         var coreIn = (coreDescription ?? string.Empty).Trim();
         var detailIn = (detailedDescription ?? string.Empty).Trim();
         var proofIn = string.IsNullOrWhiteSpace(proof) ? null : proof.Trim();
+        var ownerIn = (owner ?? string.Empty).Trim();
 
         var now = DateTimeOffset.UtcNow;
         var existing = await _store.GetNodeAsync(SessionId, nodeId, cancellationToken);
@@ -149,6 +156,8 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
                 Id = nodeId,
                 SessionId = SessionId,
                 NodeType = nodeType,
+                Kind = kind ?? KnowledgeNodeKind.Knowledge,
+                Owner = ownerIn.Length == 0 ? null : ownerIn,
                 CoreDescription = core,
                 DetailedDescription = detail,
                 Proof = proofIn,
@@ -165,6 +174,8 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
         // Update: empty inputs keep existing values.
         // NodeType: treat Generic as "unspecified" (do not downgrade).
         var mergedType = nodeType != KnowledgeNodeType.Generic ? nodeType : existing.NodeType;
+        var mergedKind = kind ?? existing.Kind;
+        var mergedOwner = ownerIn.Length == 0 ? existing.Owner : ownerIn;
         var mergedCore = coreIn.Length == 0 ? existing.CoreDescription : coreIn;
         var mergedDetail = detailIn.Length == 0 ? existing.DetailedDescription : detailIn;
         var mergedProof = proofIn ?? existing.Proof;
@@ -182,6 +193,8 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
             Id = existing.Id,
             SessionId = existing.SessionId,
             NodeType = mergedType,
+            Kind = mergedKind,
+            Owner = mergedOwner,
             CoreDescription = mergedCore,
             DetailedDescription = mergedDetail,
             Proof = mergedProof,
@@ -266,6 +279,8 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
             ResourceFolderPath = node.ResourceFolderPath,
             ResourceUri = node.ResourceUri,
             Timestamp = DateTimeOffset.UtcNow,
+                Kind = node.Kind,
+                Owner = node.Owner,
             DependsOn = mergedDeps
         };
         await _store.AddNodeAsync(updated, cancellationToken);

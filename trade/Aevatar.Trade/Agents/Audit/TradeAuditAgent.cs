@@ -24,6 +24,18 @@ namespace Aevatar.Trade.Agents.Audit;
 /// </summary>
 public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
 {
+    // ---------------------------------------------------------------------
+    //  Encoding policy (IMPORTANT)
+    //
+    //  Why:
+    //  - Encoding.UTF8 in .NET emits a UTF-8 BOM (EF BB BF) when creating a new file.
+    //  - JSONL expects each line to be valid JSON; a leading BOM breaks strict parsers.
+    //
+    //  Rule:
+    //  - Always write UTF-8 *without* BOM.
+    // ---------------------------------------------------------------------
+    private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -263,7 +275,7 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
         var path = Path.Combine(State.OutputDir, State.CurrentFile);
 
         // Append-only file IO (robust, no long-lived handles)
-        await File.AppendAllTextAsync(path, line + "\n", Encoding.UTF8);
+        await File.AppendAllTextAsync(path, line + "\n", Utf8NoBom);
     }
 
     // =====================================================================
@@ -446,7 +458,7 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
             var requestId = Guid.NewGuid().ToString("N")[..16];
             var fileName = $"aiwars_upload_{DateTime.UtcNow:yyyyMMddHHmmss}_{requestId}_{safeDecision}.json";
             var path = Path.Combine(dir, fileName);
-            await File.WriteAllTextAsync(path, payloadJson, Encoding.UTF8);
+            await File.WriteAllTextAsync(path, payloadJson, Utf8NoBom);
 
             if (!string.IsNullOrWhiteSpace(decisionId))
                 _aiWarsUploadRequestedDecisionIds.Add(decisionId);
@@ -651,7 +663,7 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
             }
 
             var header = BuildMarkdownHeader();
-            await File.WriteAllTextAsync(mdPath, header, Encoding.UTF8);
+            await File.WriteAllTextAsync(mdPath, header, Utf8NoBom);
         }
         catch (Exception ex)
         {
@@ -737,7 +749,7 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
             if (!fi.Exists)
                 return activePath;
 
-            var upcomingBytes = Encoding.UTF8.GetByteCount(upcomingBlock);
+            var upcomingBytes = Utf8NoBom.GetByteCount(upcomingBlock);
             if (fi.Length + upcomingBytes <= _maxMarkdownBytes)
                 return activePath;
 
@@ -832,7 +844,7 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
 
 """;
             var mdPath = await GetMarkdownPathForAppendAsync(block);
-            await File.AppendAllTextAsync(mdPath, block, Encoding.UTF8);
+            await File.AppendAllTextAsync(mdPath, block, Utf8NoBom);
         }
         catch (Exception ex)
         {
@@ -868,7 +880,7 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
 
 """;
             var mdPath = await GetMarkdownPathForAppendAsync(block);
-            await File.AppendAllTextAsync(mdPath, block, Encoding.UTF8);
+            await File.AppendAllTextAsync(mdPath, block, Utf8NoBom);
             return;
         }
         catch { /* ignore */ }
@@ -894,7 +906,7 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
 
 """;
             var mdPath = await GetMarkdownPathForAppendAsync(block);
-            await File.AppendAllTextAsync(mdPath, block, Encoding.UTF8);
+            await File.AppendAllTextAsync(mdPath, block, Utf8NoBom);
         }
         catch { /* ignore */ }
     }
@@ -944,7 +956,7 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
         {
             var block = BuildCycleMarkdown(completed);
             var mdPath = await GetMarkdownPathForAppendAsync(block);
-            await File.AppendAllTextAsync(mdPath, block, Encoding.UTF8);
+            await File.AppendAllTextAsync(mdPath, block, Utf8NoBom);
         }
         catch (Exception ex)
         {

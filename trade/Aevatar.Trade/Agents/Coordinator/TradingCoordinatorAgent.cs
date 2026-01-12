@@ -191,6 +191,20 @@ public class TradingCoordinatorAgent : AIGAgentBase
             "[Coordinator] Received sentiment: Score={Score}, Trend={Trend}",
             evt.SentimentScore, evt.SentimentTrend);
 
+        // ------------------------------------------------------------
+        //  Observability: fan-out analysis to downstream chain
+        //
+        //  Why:
+        //  - Sentiment/Technical are published Up to Coordinator.
+        //  - TradeAudit is attached under Executor (Coordinator -> Risk -> Executor -> Audit).
+        //  - If we don't forward analysis Down, Audit cannot build "Signal Snapshot"
+        //    (it will show N/A forever).
+        //
+        //  Rule:
+        //  - Fire-and-forget (never block coordinator stream).
+        // ------------------------------------------------------------
+        _ = PublishAsync(evt, Aevatar.Agents.EventDirection.Down);
+
         _ = TryMakeDecisionAsync();
         return Task.CompletedTask;
     }
@@ -206,6 +220,9 @@ public class TradingCoordinatorAgent : AIGAgentBase
             "[Coordinator] Received technical: Trend={Trend}, Signal={Signal}",
             evt.TrendDirection, evt.Signal);
 
+        // Observability: forward latest analysis to audit chain (see HandleSentimentAnalysis).
+        _ = PublishAsync(evt, Aevatar.Agents.EventDirection.Down);
+
         _ = TryMakeDecisionAsync();
         return Task.CompletedTask;
     }
@@ -220,6 +237,9 @@ public class TradingCoordinatorAgent : AIGAgentBase
         Logger.LogDebug(
             "[Coordinator] Received news: Impact={Impact}, Level={Level}",
             evt.ImpactType, evt.ImpactLevel);
+
+        // Observability: forward latest analysis to audit chain (see HandleSentimentAnalysis).
+        _ = PublishAsync(evt, Aevatar.Agents.EventDirection.Down);
 
         _ = TryMakeDecisionAsync();
         return Task.CompletedTask;

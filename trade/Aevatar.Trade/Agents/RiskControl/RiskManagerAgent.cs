@@ -1,3 +1,4 @@
+using Aevatar.Agents;
 using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Core;
@@ -13,6 +14,37 @@ namespace Aevatar.Trade.Agents.RiskControl;
 /// </summary>
 public class RiskManagerAgent : AIGAgentBase
 {
+    // Risk LLM must not block the stream forever; otherwise Coordinator publishes get back-pressured.
+    private const int LlmTimeoutSeconds = 300;
+
+    // ============================================================
+    //  高频行情事件“止血阀”
+    //
+    //  背景（本质）：
+    //  - LocalMessageStream 是有界队列（满了会 Wait），会产生反压。
+    //  - MarketTick/Kline 属于高频“背景噪声”，Risk/Executor/Audit 并不需要处理它们。
+    //  - 但如果不拦截，Tick 会沿层级一路 DOWN 到 Executor/Audit，导致队列堆积，
+    //    最终把上游 Publish 卡住，表现为“系统停了、日志停了、DecisionCycle 不闭环”。
+    //
+    //  方案：
+    //  - 在 RiskManager 作为“决策/执行链路的闸门”，对 MarketTick/Kline 事件把 Direction 改为 Unspecified，
+    //    让 Actor 层的 ContinuePropagationAsync 不再向下传播（不会再打到 Executor/Audit）。
+    // ============================================================
+    [AllEventHandler(Priority = 0)]
+    private Task CutOffMarketDataPropagation(EventEnvelope envelope)
+    {
+        if (envelope.Direction != EventDirection.Down)
+            return Task.CompletedTask;
+
+        var typeUrl = envelope.Payload?.TypeUrl ?? "";
+        if (typeUrl.EndsWith("MarketTickEvent", StringComparison.Ordinal) ||
+            typeUrl.EndsWith("KlineUpdateEvent", StringComparison.Ordinal))
+        {
+            envelope.Direction = EventDirection.Unspecified;
+        }
+
+        return Task.CompletedTask;
+    }
     // ============ AI Configuration ============
 
     public override string SystemPrompt { get; set; } = """
@@ -287,7 +319,33 @@ public class RiskManagerAgent : AIGAgentBase
 
         try
         {
-            var chat = await ChatAsync(ChatRequest.Create(prompt));
+            var timeout = TimeSpan.FromSeconds(LlmTimeoutSeconds);
+            using var timeoutCts = new CancellationTokenSource(timeout);
+
+            ChatResponse chat;
+            try
+            {
+                var task = ChatAsync(ChatRequest.Create(prompt), timeoutCts.Token);
+                chat = await task.WaitAsync(timeout);
+            }
+            catch (TimeoutException)
+            {
+                timeoutCts.Cancel();
+                Logger.LogWarning(
+                    "[RiskManager] LLM timeout >{Timeout}s. Rejecting trade to keep system unblocked. DecisionId={DecisionId}",
+                    LlmTimeoutSeconds, evt.DecisionId);
+                await RejectTrade(evt, new List<string> { $"risk-llm-timeout>{LlmTimeoutSeconds}s" }, "HIGH");
+                return;
+            }
+            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+            {
+                Logger.LogWarning(
+                    "[RiskManager] LLM timeout >{Timeout}s. Rejecting trade to keep system unblocked. DecisionId={DecisionId}",
+                    LlmTimeoutSeconds, evt.DecisionId);
+                await RejectTrade(evt, new List<string> { $"risk-llm-timeout>{LlmTimeoutSeconds}s" }, "HIGH");
+                return;
+            }
+
             var evaluation = ParseEvaluationResponse(chat.Content ?? string.Empty);
 
             if (evaluation.Approved)

@@ -22,8 +22,32 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
     private Timer? _heartbeatTimer;
     private Timer? _pollingTimer;
     private int _pollingRunning;
+    private DateTime _pollingRunningSinceUtc = DateTime.MinValue;
+    private DateTime _lastPollingOkUtc = DateTime.MinValue;
+    private DateTime _lastPollingErrorUtc = DateTime.MinValue;
+    private string _lastPollingError = "";
+    private int _consecutivePollingErrors;
     private DateTime _nextKlinePollUtc = DateTime.MinValue;
     private string _pollingInterval = "15m";
+    
+    // ---------------------------------------------------------------------
+    //  Polling reliability guardrails
+    //
+    //  Problem:
+    //  - REST polling runs on a Timer; if a single HTTP call hangs too long,
+    //    _pollingRunning stays 1 and the whole system appears "stopped".
+    //
+    //  Solution:
+    //  - Enforce per-call timeouts (pass CancellationToken to IWeexApiClient).
+    //  - Heartbeat watchdog restarts polling if it is stuck or silent.
+    // ---------------------------------------------------------------------
+    private const int PollTickerTimeoutSeconds = 10;
+    private const int PollKlinesTimeoutSeconds = 20;
+    private const int PollStuckWarnSeconds = 30;
+    private const int PollNoTickRestartSeconds = 20;
+    // Publish to LocalMessageStream is bounded+back-pressured (FullMode=Wait).
+    // Never let high-frequency market data publishing stall the polling loop.
+    private const int PublishTimeoutSeconds = 2;
 
     public IWeexApiClient ApiClient
     {
@@ -76,10 +100,22 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
                 ? "Mode=REST polling"
                 : "Mode=Stopped";
 
+        var lastTickUtc = State.LastTickTime?.ToDateTime();
+        var lastTickAge = lastTickUtc.HasValue
+            ? $"{Math.Max(0, (DateTime.UtcNow - lastTickUtc.Value).TotalSeconds):F0}s"
+            : "N/A";
+
+        var pollInFlight = Volatile.Read(ref _pollingRunning) == 1
+            ? "YES"
+            : "NO";
+
         return Task.FromResult(
             $"DataCollector: {_subscribedSymbols.Count} symbols, " +
             $"{State.TicksReceived} ticks, " +
-            mode);
+            $"{mode}, " +
+            $"LastTick={lastTickAge}, " +
+            $"PollInFlight={pollInFlight}, " +
+            $"PollErrs={_consecutivePollingErrors}");
     }
 
     // ============ Public Methods ============
@@ -187,7 +223,11 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
 
         State.IsConnected = false;
         _heartbeatTimer?.Dispose();
+        _heartbeatTimer = null;
         _pollingTimer?.Dispose();
+        _pollingTimer = null;
+        Interlocked.Exchange(ref _pollingRunning, 0);
+        _pollingRunningSinceUtc = DateTime.MinValue;
 
         Logger.LogInformation("[DataCollector] Stopped collecting: {Reason}", reason);
 
@@ -263,21 +303,27 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
 
         // Poll tickers frequently; klines at (roughly) kline interval.
         _pollingTimer?.Dispose();
+        _pollingTimer = null;
+        Interlocked.Exchange(ref _pollingRunning, 0);
+        _pollingRunningSinceUtc = DateTime.MinValue;
         // 高频 tick：用户明确要求“决策更频繁”，这里把 REST polling 从 2s 提升到 1s。
         // NOTE: 仍有 _pollingRunning 互斥保护，避免 HTTP 调用慢时重入堆积。
-        _pollingTimer = new Timer(_ => _ = PollOnceAsync(symbols), null, TimeSpan.Zero, TimeSpan.FromSeconds(1));
+        var symbolSnapshot = symbols.ToArray();
+        _pollingTimer = new Timer(_ => _ = PollOnceAsync(symbolSnapshot), null, TimeSpan.Zero, TimeSpan.FromSeconds(1));
     }
 
-    private async Task PollOnceAsync(IEnumerable<string> symbols)
+    private async Task PollOnceAsync(IReadOnlyCollection<string> symbols)
     {
         if (_apiClient == null) return;
         if (Interlocked.Exchange(ref _pollingRunning, 1) == 1) return;
 
         try
         {
+            _pollingRunningSinceUtc = DateTime.UtcNow;
             foreach (var symbol in symbols)
             {
-                var ticker = await _apiClient.GetTickerAsync(symbol);
+                using var tickerCts = new CancellationTokenSource(TimeSpan.FromSeconds(PollTickerTimeoutSeconds));
+                var ticker = await _apiClient.GetTickerAsync(symbol, tickerCts.Token);
                 OnTickerReceived(ticker);
             }
 
@@ -288,7 +334,8 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
 
                 foreach (var symbol in symbols)
                 {
-                    var klines = await _apiClient.GetKlinesAsync(symbol, _pollingInterval, limit: 1);
+                    using var klineCts = new CancellationTokenSource(TimeSpan.FromSeconds(PollKlinesTimeoutSeconds));
+                    var klines = await _apiClient.GetKlinesAsync(symbol, _pollingInterval, limit: 1, klineCts.Token);
                     var last = klines.LastOrDefault();
                     if (last == null) continue;
 
@@ -305,17 +352,34 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
                         CloseTime = Timestamp.FromDateTime(last.CloseTime)
                     };
 
-                    await PublishKlineEventAsync(evt);
+                    // Fire-and-forget with publish timeout to avoid stalling the polling loop.
+                    _ = PublishKlineEventAsync(evt);
                 }
             }
+
+            _lastPollingOkUtc = DateTime.UtcNow;
+            _consecutivePollingErrors = 0;
+            _lastPollingError = "";
+            _lastPollingErrorUtc = DateTime.MinValue;
+        }
+        catch (OperationCanceledException)
+        {
+            _consecutivePollingErrors++;
+            _lastPollingErrorUtc = DateTime.UtcNow;
+            _lastPollingError = $"timeout (ticker={PollTickerTimeoutSeconds}s, klines={PollKlinesTimeoutSeconds}s)";
+            Logger.LogWarning("[DataCollector] REST polling timed out. ConsecutiveErrors={Count}", _consecutivePollingErrors);
         }
         catch (Exception ex)
         {
+            _consecutivePollingErrors++;
+            _lastPollingErrorUtc = DateTime.UtcNow;
+            _lastPollingError = ex.Message;
             Logger.LogWarning(ex, "[DataCollector] REST polling failed");
         }
         finally
         {
             Interlocked.Exchange(ref _pollingRunning, 0);
+            _pollingRunningSinceUtc = DateTime.MinValue;
         }
     }
 
@@ -365,7 +429,14 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
     {
         try
         {
-            await PublishAsync(evt);
+            using var publishCts = new CancellationTokenSource(TimeSpan.FromSeconds(PublishTimeoutSeconds));
+            await PublishAsync(evt, ct: publishCts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            Logger.LogWarning(
+                "[DataCollector] Dropped ticker event due to publish backpressure >{Timeout}s. Symbol={Symbol}",
+                PublishTimeoutSeconds, evt.Symbol);
         }
         catch (Exception ex)
         {
@@ -399,7 +470,14 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
     {
         try
         {
-            await PublishAsync(evt);
+            using var publishCts = new CancellationTokenSource(TimeSpan.FromSeconds(PublishTimeoutSeconds));
+            await PublishAsync(evt, ct: publishCts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            Logger.LogWarning(
+                "[DataCollector] Dropped kline event due to publish backpressure >{Timeout}s. Symbol={Symbol} Interval={Interval}",
+                PublishTimeoutSeconds, evt.Symbol, evt.Interval);
         }
         catch (Exception ex)
         {
@@ -431,6 +509,39 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
 
     private void CheckConnection()
     {
+        // ------------------------------------------------------------
+        //  REST polling watchdog
+        //  - If polling is silent for too long, restart the timer.
+        //  - If polling is "in-flight" for too long, force-unlock so the timer can recover.
+        // ------------------------------------------------------------
+        if (!State.IsConnected && _pollingTimer != null && _subscribedSymbols.Count > 0)
+        {
+            var now = DateTime.UtcNow;
+            var lastTickUtc = State.LastTickTime?.ToDateTime();
+            var lastTickAgeSeconds = lastTickUtc.HasValue
+                ? (now - lastTickUtc.Value).TotalSeconds
+                : double.PositiveInfinity;
+
+            if (Volatile.Read(ref _pollingRunning) == 1 &&
+                _pollingRunningSinceUtc != DateTime.MinValue &&
+                (now - _pollingRunningSinceUtc).TotalSeconds >= PollStuckWarnSeconds)
+            {
+                Logger.LogWarning(
+                    "[DataCollector] REST polling appears stuck (>{Seconds}s). Forcing unlock + restart.",
+                    PollStuckWarnSeconds);
+                Interlocked.Exchange(ref _pollingRunning, 0);
+                _pollingRunningSinceUtc = DateTime.MinValue;
+                StartPolling(_subscribedSymbols.ToArray());
+            }
+            else if (lastTickAgeSeconds >= PollNoTickRestartSeconds)
+            {
+                Logger.LogWarning(
+                    "[DataCollector] No ticks for {Age}s in REST polling mode. Restarting polling. LastError={Err}",
+                    lastTickAgeSeconds, _lastPollingError);
+                StartPolling(_subscribedSymbols.ToArray());
+            }
+        }
+
         if (!State.IsConnected && _wsClient != null)
         {
             Logger.LogWarning("[DataCollector] Connection lost, attempting reconnect...");

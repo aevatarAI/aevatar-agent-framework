@@ -79,6 +79,8 @@ public class TechnicalAnalystAgent : AIGAgentBase
     private int _analysisRunning;
     private const int KlineBufferSize = 200;
     private const int MinAnalysisIntervalSeconds = 1;
+    // See MarketSentimentAgent for rationale.
+    private const int LlmTimeoutSeconds = 300;
 
     // ============ Lifecycle ============
 
@@ -147,7 +149,31 @@ public class TechnicalAnalystAgent : AIGAgentBase
 
         try
         {
-            var chat = await ChatAsync(ChatRequest.Create(prompt));
+            var timeout = TimeSpan.FromSeconds(LlmTimeoutSeconds);
+            using var timeoutCts = new CancellationTokenSource(timeout);
+
+            ChatResponse chat;
+            try
+            {
+                var task = ChatAsync(ChatRequest.Create(prompt), timeoutCts.Token);
+                chat = await task.WaitAsync(timeout);
+            }
+            catch (TimeoutException)
+            {
+                timeoutCts.Cancel();
+                Logger.LogWarning(
+                    "[TechnicalAgent] LLM timeout >{Timeout}s for {Symbol}. Skip this analysis cycle.",
+                    LlmTimeoutSeconds, symbol);
+                return;
+            }
+            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+            {
+                Logger.LogWarning(
+                    "[TechnicalAgent] LLM timeout >{Timeout}s for {Symbol}. Skip this analysis cycle.",
+                    LlmTimeoutSeconds, symbol);
+                return;
+            }
+
             var analysis = ParseAnalysisResponse(chat.Content ?? string.Empty, symbol, indicators);
 
             // Update state
@@ -159,9 +185,9 @@ public class TechnicalAnalystAgent : AIGAgentBase
             _techState.LastAnalysis = Timestamp.FromDateTime(DateTime.UtcNow);
 
             // Publish analysis results
-            // IMPORTANT:
-            // - TechnicalAgent and Coordinator are siblings under DataCollector.
-            // - Publish Up so DataCollector can fan-out the analysis to all siblings (including Coordinator).
+            // IMPORTANT (hierarchy):
+            // - TechnicalAgent is a child of Coordinator.
+            // - Publish Up so the Coordinator can receive the analysis.
             await PublishAsync(analysis, Aevatar.Agents.EventDirection.Up);
 
             Logger.LogInformation(

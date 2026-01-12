@@ -125,6 +125,17 @@ trade/
 
 ## 快速开始
 
+### 一键重启（推荐）
+
+如果你经常遇到 “端口被占用 / Aspire/DCP 残留进程 / 重启麻烦”，直接用 `trade/start.sh`：
+
+```bash
+cd trade
+chmod +x ./start.sh
+./start.sh          # 默认 --no-build
+# ./start.sh --build # 可选：先 build 再启动
+```
+
 ### 依赖
 
 - **.NET SDK**：建议 .NET 10（本仓库以 net10.0 构建）

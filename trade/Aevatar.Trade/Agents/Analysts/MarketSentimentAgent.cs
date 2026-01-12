@@ -77,6 +77,10 @@ public class MarketSentimentAgent : AIGAgentBase
     private DateTime _lastAnalysisUtc = DateTime.MinValue;
     private int _analysisRunning;
     private const int MinAnalysisIntervalSeconds = 1;
+    // NOTE: Must be < LocalMessageStream capacity (default 1000) * tick interval (1s),
+    // otherwise the DataCollector can be back-pressured and appear "stuck".
+    // 300s is generous and matches DecisionEngine default timeout.
+    private const int LlmTimeoutSeconds = 300;
 
     // Market indicator cache (avoid hammering WEEX endpoints every second)
     private readonly Dictionary<string, MarketIndicatorSnapshot> _indicatorCache =
@@ -89,6 +93,9 @@ public class MarketSentimentAgent : AIGAgentBase
         public double? FundingRateRatio { get; init; }   // 0.0001 means 0.01%
         public double? OpenInterest { get; init; }
     }
+    
+    // 交易所 REST 指标请求必须有超时，否则会把 Agent stream 永久卡死（LocalMessageStream 会反压，最终让系统“看起来停了”）。
+    private const int IndicatorFetchTimeoutSeconds = 10;
 
     // ============ Lifecycle ============
 
@@ -171,7 +178,35 @@ public class MarketSentimentAgent : AIGAgentBase
 
         try
         {
-            var chat = await ChatAsync(ChatRequest.Create(prompt));
+            // IMPORTANT:
+            // - This runs inside the agent's event handler chain (stream is serial).
+            // - If LLM hangs forever, this stream blocks, its queue fills, and DataCollector publish will back-pressure.
+            // - Guard with WaitAsync so we ALWAYS release the stream.
+            var timeout = TimeSpan.FromSeconds(LlmTimeoutSeconds);
+            using var timeoutCts = new CancellationTokenSource(timeout);
+
+            ChatResponse chat;
+            try
+            {
+                var task = ChatAsync(ChatRequest.Create(prompt), timeoutCts.Token);
+                chat = await task.WaitAsync(timeout);
+            }
+            catch (TimeoutException)
+            {
+                timeoutCts.Cancel();
+                Logger.LogWarning(
+                    "[SentimentAgent] LLM timeout >{Timeout}s for {Symbol}. Skip this analysis cycle.",
+                    LlmTimeoutSeconds, symbol);
+                return;
+            }
+            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+            {
+                Logger.LogWarning(
+                    "[SentimentAgent] LLM timeout >{Timeout}s for {Symbol}. Skip this analysis cycle.",
+                    LlmTimeoutSeconds, symbol);
+                return;
+            }
+
             var analysis = ParseAnalysisResponse(
                 chat.Content ?? string.Empty,
                 symbol,
@@ -191,9 +226,9 @@ public class MarketSentimentAgent : AIGAgentBase
             _sentimentState.SentimentHistory.Add(analysis.SentimentScore);
 
             // Publish analysis results
-            // IMPORTANT:
-            // - SentimentAgent and Coordinator are siblings under DataCollector.
-            // - Publish Up so DataCollector can fan-out the analysis to all siblings (including Coordinator).
+            // IMPORTANT (hierarchy):
+            // - SentimentAgent is a child of Coordinator.
+            // - Publish Up so the Coordinator can receive the analysis.
             await PublishAsync(analysis, Aevatar.Agents.EventDirection.Up);
 
             Logger.LogInformation(
@@ -305,9 +340,43 @@ public class MarketSentimentAgent : AIGAgentBase
                     return (cached.FundingRateRatio, cached.OpenInterest);
             }
 
-            var fundTask = ApiClient.GetCurrentFundingRateAsync(symbol);
-            var oiTask = ApiClient.GetOpenInterestAsync(symbol);
-            await Task.WhenAll(fundTask, oiTask);
+            var timeout = TimeSpan.FromSeconds(IndicatorFetchTimeoutSeconds);
+            using var timeoutCts = new CancellationTokenSource(timeout);
+
+            var fundTask = ApiClient.GetCurrentFundingRateAsync(symbol, timeoutCts.Token);
+            var oiTask = ApiClient.GetOpenInterestAsync(symbol, timeoutCts.Token);
+            try
+            {
+                await Task.WhenAll(fundTask, oiTask).WaitAsync(timeout);
+            }
+            catch (TimeoutException)
+            {
+                timeoutCts.Cancel();
+                // Backoff via cache so we don't hammer WEEX when it is slow/unreachable.
+                _indicatorCache[symbol] = new MarketIndicatorSnapshot
+                {
+                    FetchedAtUtc = DateTime.UtcNow,
+                    FundingRateRatio = null,
+                    OpenInterest = null
+                };
+                Logger.LogDebug(
+                    "[SentimentAgent] Market indicator fetch timeout >{Timeout}s for {Symbol}",
+                    IndicatorFetchTimeoutSeconds, symbol);
+                return (null, null);
+            }
+            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+            {
+                _indicatorCache[symbol] = new MarketIndicatorSnapshot
+                {
+                    FetchedAtUtc = DateTime.UtcNow,
+                    FundingRateRatio = null,
+                    OpenInterest = null
+                };
+                Logger.LogDebug(
+                    "[SentimentAgent] Market indicator fetch timeout >{Timeout}s for {Symbol}",
+                    IndicatorFetchTimeoutSeconds, symbol);
+                return (null, null);
+            }
 
             var funding = (await fundTask) is { } f ? (double?) (double)f : null;
             var oi = (await oiTask) is { } o ? (double?) (double)o : null;

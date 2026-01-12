@@ -16,6 +16,7 @@ namespace Aevatar.Trade.Api.Controllers;
 [Route("api/[controller]")]
 public class AuditController : ControllerBase
 {
+    private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
     private readonly TradeAuditConfig _audit;
     private readonly IHostEnvironment _env;
     private readonly ILogger<AuditController> _logger;
@@ -157,16 +158,20 @@ public class AuditController : ControllerBase
             if (!System.IO.File.Exists(srcPath))
                 return NotFound(new { error = $"File not found: {safeName}" });
 
-            var outName = safeName.EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase)
-                ? safeName[..^5] + ".normalized.jsonl"
-                : safeName + ".normalized.jsonl";
+            // Produce: <base>.normalized.jsonl
+            // NOTE: ".jsonl" includes the dot; avoid the classic "..normalized" mistake.
+            var baseName = safeName.EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase)
+                ? Path.GetFileNameWithoutExtension(safeName)
+                : safeName;
+            var outName = baseName + ".normalized.jsonl";
             var outPath = Path.Combine(dir, outName);
 
             var converted = 0;
             var total = 0;
 
-            await using (var writer = new StreamWriter(outPath, append: false, Encoding.UTF8))
+            await using (var writer = new StreamWriter(outPath, append: false, Utf8NoBom))
             {
+                // Read using utf-8-sig to tolerate BOM (some old files were created with Encoding.UTF8).
                 foreach (var line in System.IO.File.ReadLines(srcPath, Encoding.UTF8))
                 {
                     if (string.IsNullOrWhiteSpace(line))
@@ -175,7 +180,13 @@ public class AuditController : ControllerBase
                     total++;
                     try
                     {
-                        using var doc = JsonDocument.Parse(line);
+                        // Strip BOM if it appears at the beginning of the line (very first line).
+                        // This keeps JSON parsing strict and prevents tooling from failing.
+                        var normalizedLine = line.Length > 0 && line[0] == '\uFEFF'
+                            ? line[1..]
+                            : line;
+
+                        using var doc = JsonDocument.Parse(normalizedLine);
                         var root = doc.RootElement;
                         if (root.ValueKind != JsonValueKind.Object)
                             continue;
@@ -200,12 +211,15 @@ public class AuditController : ControllerBase
                         }
 
                         // Already normalized or unknown shape: keep line as is.
-                        await writer.WriteLineAsync(line);
+                        await writer.WriteLineAsync(normalizedLine);
                     }
                     catch
                     {
                         // Keep the original line if parsing fails; do not lose data.
-                        await writer.WriteLineAsync(line);
+                        var normalizedLine = line.Length > 0 && line[0] == '\uFEFF'
+                            ? line[1..]
+                            : line;
+                        await writer.WriteLineAsync(normalizedLine);
                     }
                 }
             }

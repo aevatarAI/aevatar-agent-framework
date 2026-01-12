@@ -7,6 +7,8 @@ A session-scoped knowledge graph library designed for scientific research assist
 This library provides a directed acyclic graph (DAG) structure for managing scientific knowledge with:
 
 - **Knowledge Nodes**: Represent pieces of scientific knowledge (axioms, theorems, experiments, definitions, etc.)
+- **Knowledge Nodes Kind**: Each node can be either `Plan` (tentative) or `Knowledge` (asserted)
+- **Knowledge Attestations**: `Knowledge` nodes can carry a list of `(pubkey, signature)` attestations
 - **Inference Edges**: Connect nodes via dependency relationships (A depends on B means A is derived from B)
 - **Session Isolation**: Each session maintains its own isolated knowledge graph
 - **Paper Generation**: Automatically generate mini research papers from knowledge chains
@@ -37,6 +39,18 @@ Knowledge graphs must remain acyclic to maintain valid logical inference chains:
 - A node can depend on multiple existing nodes (multiple premises)
 - Circular dependencies are automatically detected and rejected
 - This ensures all knowledge can be traced back to foundational axioms
+
+**Note**: DAG edges represent dependency relationships. The `Plan/Knowledge` distinction is modeled at the node level.
+
+### 2.1 Attestation Payload (Signature Canonicalization)
+
+For `Knowledge` nodes, attestations are recorded as a list of `(pubkey, signature)`.
+
+- **What to sign**: a canonical UTF-8 payload string (see `KnowledgeNodeAttestationPayload.Build(...)`)
+- **Encoding**:
+  - `pubkey`: recommend base64 or hex
+  - `signature`: recommend base64
+- **Verification rule of thumb**: verify signature over the payload (or its SHA-256 hash, by convention) with the given public key
 
 ### 3. Pluggable Storage Backend
 

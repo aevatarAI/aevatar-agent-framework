@@ -83,6 +83,7 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/Aevatar.Agents.A2UI/Aevatar.Agents.A2UI.csproj" />
+    <Project Path="src/Aevatar.Agents.Knowledge.Graph/Aevatar.Agents.Knowledge.Graph.csproj" />
     <Project Path="src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
     <Project Path="src\Aevatar.Agents.AGUI\Aevatar.Agents.AGUI.csproj" />
     <Project Path="src\Aevatar.Agents.AI.Abstractions\Aevatar.Agents.AI.Abstractions.csproj" />

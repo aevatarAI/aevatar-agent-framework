@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Aevatar.Agents.Knowledge.Graph.Models;
 using Aevatar.Agents.Persistence.Graph.Abstractions;
 using Aevatar.Agents.Persistence.Graph.Core.Semantic;
@@ -21,9 +22,12 @@ internal sealed class GraphClientBackedStore : IKnowledgeGraphStore
     private const string PropResourceUri = "resourceUri";
     private const string PropTimestamp = "timestamp";
     private const string PropDependsOn = "dependsOn";
+    private const string PropNodeKind = "nodeKind";
+    private const string PropNodeAttestationsJson = "nodeAttestationsJson";
     private const string PropCreatedAt = "createdAt";
 
     private readonly IGraphClient _graphClient;
+    private static readonly JsonSerializerOptions AttestationsJsonOptions = new(JsonSerializerDefaults.Web);
 
     public GraphClientBackedStore(IGraphClient graphClient)
     {
@@ -52,10 +56,12 @@ internal sealed class GraphClientBackedStore : IKnowledgeGraphStore
             [PropSessionId] = new StringValue(node.SessionId),
             [PropNodeId] = new StringValue(node.Id),
             [PropNodeType] = new StringValue(nodeTypeStr),
+            [PropNodeKind] = new StringValue(node.Kind.ToString()),
             [PropCoreDescription] = new StringValue(node.CoreDescription),
             [PropDetailedDescription] = new StringValue(node.DetailedDescription),
             [PropTimestamp] = new StringValue(node.Timestamp.ToString("O")),
-            [PropDependsOn] = new StringValue(string.Join(",", node.DependsOn))
+            [PropDependsOn] = new StringValue(string.Join(",", node.DependsOn)),
+            [PropNodeAttestationsJson] = new StringValue(JsonSerializer.Serialize(node.Attestations, AttestationsJsonOptions))
         };
 
         if (node.Proof != null)
@@ -276,6 +282,11 @@ internal sealed class GraphClientBackedStore : IKnowledgeGraphStore
             : "Generic";
         var nodeType = Enum.TryParse<KnowledgeNodeType>(nodeTypeStr, out var nt) ? nt : KnowledgeNodeType.Generic;
 
+        var kindStr = props.TryGetValue(PropNodeKind, out var kindVal) && kindVal is StringValue kindSv
+            ? kindSv.Data
+            : KnowledgeNodeKind.Knowledge.ToString();
+        var kind = Enum.TryParse<KnowledgeNodeKind>(kindStr, out var nk) ? nk : KnowledgeNodeKind.Knowledge;
+
         var coreDescription = props.TryGetValue(PropCoreDescription, out var coreVal) && coreVal is StringValue coreSv
             ? coreSv.Data
             : "";
@@ -297,6 +308,22 @@ internal sealed class GraphClientBackedStore : IKnowledgeGraphStore
             ? DateTimeOffset.Parse(timestampSv.Data)
             : DateTimeOffset.UtcNow;
 
+        IReadOnlyList<KnowledgeAttestation> attestations = Array.Empty<KnowledgeAttestation>();
+        if (props.TryGetValue(PropNodeAttestationsJson, out var attVal) && attVal is StringValue attSv &&
+            !string.IsNullOrWhiteSpace(attSv.Data))
+        {
+            try
+            {
+                var list = JsonSerializer.Deserialize<List<KnowledgeAttestation>>(attSv.Data, AttestationsJsonOptions);
+                attestations = (IReadOnlyList<KnowledgeAttestation>?)list ?? Array.Empty<KnowledgeAttestation>();
+            }
+            catch
+            {
+                // Best-effort: tolerate malformed JSON from legacy/backends.
+                attestations = Array.Empty<KnowledgeAttestation>();
+            }
+        }
+
         var dependsOnStr = props.TryGetValue(PropDependsOn, out var depsVal) && depsVal is StringValue depsSv
             ? depsSv.Data
             : "";
@@ -309,12 +336,14 @@ internal sealed class GraphClientBackedStore : IKnowledgeGraphStore
             Id = nodeId,
             SessionId = sessionId,
             NodeType = nodeType,
+            Kind = kind,
             CoreDescription = coreDescription,
             DetailedDescription = detailedDescription,
             Proof = proof,
             ResourceFolderPath = null, // Not stored in Neo4j
             ResourceUri = resourceUri,
             Timestamp = timestamp,
+            Attestations = attestations,
             DependsOn = dependsOn
         };
     }

@@ -17,6 +17,12 @@ public sealed class KnowledgeNode
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public required KnowledgeNodeType NodeType { get; init; }
 
+    /// <summary>
+    /// Whether this node is a tentative plan node or an asserted knowledge node.
+    /// <para>Default is <see cref="KnowledgeNodeKind.Knowledge"/> to preserve historical semantics.</para>
+    /// </summary>
+    public KnowledgeNodeKind Kind { get; init; } = KnowledgeNodeKind.Knowledge;
+
     /// <summary>Core description - a concise summary of the key conclusion.</summary>
     public required string CoreDescription { get; init; }
 
@@ -34,6 +40,14 @@ public sealed class KnowledgeNode
 
     /// <summary>When this node was created.</summary>
     public DateTimeOffset Timestamp { get; init; }
+
+    /// <summary>
+    /// Attestations for a knowledge node, as a list of (pubkey, signature).
+    /// <para>
+    /// For <see cref="KnowledgeNodeKind.Plan"/> this should typically be empty.
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<KnowledgeAttestation> Attestations { get; init; } = [];
 
     /// <summary>IDs of nodes this node depends on (upstream dependencies).</summary>
     public IReadOnlyList<string> DependsOn { get; init; } = [];

@@ -48,3 +48,5 @@ public sealed class MockLLMProviderFactory : ILLMProviderFactory
     public Task<IAevatarLLMProvider> GetDefaultProviderAsync(CancellationToken cancellationToken = default)
         => Task.FromResult<IAevatarLLMProvider>(_provider);
 }
+
+

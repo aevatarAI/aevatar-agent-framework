@@ -497,3 +497,13 @@ trade-audit/
 # Script temp files
 scripts/.pids/
 *.pid
+
+memory/
+trace/*
+workspace/
+
+# Local skill packs (downloaded/updated at runtime)
+scientific-research-assistant/.skillpacks/
+scientific-research-assistant/skillpacks/
+scientific-research-assistant/src/ScientificResearchAssistant.Api/skillpacks.json
+scientific-research-assistant/src/ScientificResearchAssistant.Api/mcp.json

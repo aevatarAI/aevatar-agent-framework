@@ -4,6 +4,7 @@ using Aevatar.Agents.Abstractions.CQRS;
 using Aevatar.Agents.Abstractions.EventSourcing;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Core.CQRS;
+using Aevatar.Agents.Core.Context;
 using Aevatar.Agents.Plugins.CQRS;
 using Aevatar.Agents.Plugins.CQRS.Batching;
 using Aevatar.Agents.Plugins.CQRS.Elasticsearch;
@@ -12,6 +13,8 @@ using Aevatar.Agents.Core.EventDeduplication;
 using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Runtime.Local;
 using Aevatar.Agents.Runtime.Local.Subscription;
+using Aevatar.Agents.Runtime.Orleans.Context;
+using Aevatar.App.Controllers;
 using Elastic.Clients.Elasticsearch;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -178,6 +181,10 @@ public static class AgentRuntimeExtensions
             Log.Information("   ⚠️ Orleans mode - IStateProjector NOT registered here (Silo handles it)");
         }
         
+        // State Query Service - bridges Controller to IStateIndexService
+        services.AddSingleton<IStateQueryService, StateQueryService>();
+        Log.Information("   ✅ StateQueryService registered");
+        
         Log.Information("   ✅ CQRS query services configured");
     }
 
@@ -200,6 +207,10 @@ public static class AgentRuntimeExtensions
             new LocalSubscriptionManager(
                 sp.GetRequiredService<LocalMessageStreamRegistry>(),
                 sp.GetRequiredService<ILogger<LocalSubscriptionManager>>()));
+
+        // Agent Context for Local runtime (AsyncLocal-based)
+        services.AddAgentContext();
+        Log.Information("   ✅ Agent Context configured (AsyncLocal)");
     }
 
     /// <summary>
@@ -207,15 +218,6 @@ public static class AgentRuntimeExtensions
     /// </summary>
     private static void RegisterOrleansRuntime(IServiceCollection services, OrleansRuntimeOptions orleansOptions)
     {
-        // Configure StreamingOptions for Orleans
-        services.Configure<Aevatar.Agents.StreamingOptions>(options =>
-        {
-            options.StreamProviderName = orleansOptions.StreamProviderName;
-            // Get DefaultNamespace from Streaming configuration
-            var config = services.BuildServiceProvider().GetRequiredService<IConfiguration>();
-            options.DefaultStreamNamespace = config.GetValue("Streaming:DefaultNamespace", "AevatarAgents");
-        });
-
         // Orleans runtime requires Orleans Silo to be configured via UseOrleansClient
         // The actual grain factory comes from Orleans
         services.AddSingleton<IGAgentActorFactory, Aevatar.Agents.Runtime.Orleans.OrleansGAgentActorFactory>();
@@ -225,6 +227,15 @@ public static class AgentRuntimeExtensions
 
         // Ensure IGrainFactory is available (forward from IClusterClient if needed)
         services.TryAddSingleton<IGrainFactory>(sp => sp.GetRequiredService<IClusterClient>());
+        
+        // Configure MessageStreamProviderOptions from configuration (required for OrleansGAgentActor to use MassTransit)
+        var config = services.BuildServiceProvider().GetRequiredService<IConfiguration>();
+        services.Configure<MessageStreamProviderOptions>(config.GetSection("MessageStream"));
+        Log.Information("   ✅ MessageStreamProviderOptions configured");
+
+        // Agent Context for Orleans runtime (bridges with Orleans RequestContext)
+        services.AddOrleansAgentContext();
+        Log.Information("   ✅ Agent Context configured (Orleans RequestContext bridge)");
 
         // Orleans subscription manager (optional - for advanced stream management)
         // services.AddSingleton<ISubscriptionManager>(...);

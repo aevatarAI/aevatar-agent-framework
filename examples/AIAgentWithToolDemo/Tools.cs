@@ -2,7 +2,7 @@ using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 using Aevatar.Agents.AI.Abstractions;
-using Aevatar.Agents.AI.WithTool.Abstractions;
+using Aevatar.Agents.AI.Tool.Abstractions;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 

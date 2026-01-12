@@ -1,7 +1,7 @@
 using System.ComponentModel;
 using System.Text.Json;
 using Aevatar.Agents.AI.Abstractions.Tests.ToolManager;
-using Aevatar.Agents.AI.WithTool.Abstractions;
+using Aevatar.Agents.AI.Tool.Abstractions;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;

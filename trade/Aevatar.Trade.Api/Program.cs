@@ -8,6 +8,11 @@ using Orleans.Configuration;
 var builder = WebApplication.CreateBuilder(args);
 
 // ============ Secrets ============
+// Global user-level secrets (encrypted, per-user) - best-effort.
+// - Default: ~/.aevatar/secrets.json
+// - Override: AEVATAR_SECRETS_PATH / AEVATAR_SECRETS_DIR
+builder.Configuration.AddAevatarUserSecrets();
+
 // Load local secrets file (gitignored) for quick hackathon setup.
 // NOTE: Environment variables can still be used, but this file enables "drop-in" setup on a new machine.
 builder.Configuration.AddJsonFile("appsettings.secrets.json", optional: true, reloadOnChange: true);

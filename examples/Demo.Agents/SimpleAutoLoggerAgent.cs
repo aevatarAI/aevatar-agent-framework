@@ -6,8 +6,8 @@ using Microsoft.Extensions.Logging;
 namespace Demo.Agents;
 
 /// <summary>
-/// 简单的 Agent 示例 - 演示自动 Logger 注入
-/// 不需要在构造函数中处理 Logger
+/// Simple agent example - demonstrates automatic Logger injection
+/// No need to handle Logger in constructor
 /// </summary>
 public class SimpleAutoLoggerAgent : GAgentBase<SimpleAgentState>
 {
@@ -23,7 +23,7 @@ public class SimpleAutoLoggerAgent : GAgentBase<SimpleAgentState>
     {
         _processedCount++;
         
-        // Logger 已经被自动注入，可以直接使用
+        // Logger has been automatically injected and can be used directly
         Logger.LogInformation("Received weather update: Temp={Temperature}, Condition={Condition}", 
             evt.Temperature, evt.Condition);
         
@@ -64,11 +64,11 @@ public class SimpleAutoLoggerAgent : GAgentBase<SimpleAgentState>
     {
         await base.OnActivateAsync(ct);
         
-        // 初始化状态
+        // Initialize state
         State.Name = $"SimpleAutoLoggerAgent-{Id}";
         State.IsActive = true;
         
-        // Logger 在这里已经可用
+        // Logger is available here
         Logger.LogInformation("SimpleAutoLoggerAgent {Id} activated", Id);
     }
     

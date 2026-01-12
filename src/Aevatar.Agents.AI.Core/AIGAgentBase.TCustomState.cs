@@ -25,6 +25,7 @@ public abstract class AIGAgentBase<TCustomState> : AIGAgentBase
                     "Direct CustomState modification is not allowed when Event Sourcing is active (Version > 0). " +
                     "Use RaiseEvent to modify state.");
             }
+
             State.CustomState = _customStateAccessor.SetValue(value, "Direct State assignment");
         }
     }

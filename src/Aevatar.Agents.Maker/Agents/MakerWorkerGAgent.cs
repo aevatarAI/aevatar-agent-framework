@@ -267,7 +267,10 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
             else
             {
                 // Fallback: non-streaming (LLMProvider has built-in resilience)
-                var response = await LLMProvider.GenerateAsync(llmRequest, cts.Token);
+                var response = await GenerateLLMWithHooksAsync(
+                    requestId: string.IsNullOrWhiteSpace(request.RequestId) ? Guid.NewGuid().ToString("N") : request.RequestId,
+                    llmRequest: llmRequest,
+                    cancellationToken: cts.Token);
                 content = response.Content;
                 
                 if (response.Usage != null)
@@ -385,8 +388,12 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
         Logger.LogWarning("[STREAMING] Worker {WorkerId} ({Provider}) starting streaming for task {TaskId}, proposalId={ProposalId}",
             CustomState.WorkerId, CustomConfig.LlmProviderName, CustomState.CurrentTaskId, proposalId);
 
-        // LLMProvider has built-in resilience for initial connection
-        await foreach (var token in LLMProvider.GenerateStreamAsync(request, ct))
+        // Stream tokens with Hook/Harness stages (best-effort).
+        var requestId = string.IsNullOrWhiteSpace(CustomState.CurrentRequestId)
+            ? Guid.NewGuid().ToString("N")
+            : CustomState.CurrentRequestId;
+
+        await foreach (var token in GenerateLLMStreamWithHooksAsync(requestId, request, ct))
         {
             // Track Time To First Token
             var isFirst = !firstTokenReceived;

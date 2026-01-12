@@ -29,6 +29,7 @@ function appendMsg(role, content) {
   div.querySelector(".content").textContent = content;
   log.appendChild(div);
   log.scrollTop = log.scrollHeight;
+  return div;
 }
 
 function pretty(obj) {
@@ -48,10 +49,13 @@ async function refreshInfo() {
     try {
       el("enableStoreChk").checked = !!info.settings?.enableMemoryStoreAppend;
       el("enableVectorChk").checked = !!info.settings?.enableMemoryVectorIndexAppend;
+      el("allowInternalToolsChk").checked = !!info.settings?.allowInternalTools;
+      el("allowDangerousToolsChk").checked = !!info.settings?.allowDangerousTools;
       el("pathsBox").textContent = pretty({
         agentId: info.agentId,
         defaultMemoryId: `privateagent::${info.agentId}`,
         ...info.paths,
+        persistence: info.persistence,
         settings: info.settings,
       });
 
@@ -68,6 +72,96 @@ async function refreshInfo() {
     setBadge(false, `error · ${e.message}`);
     return null;
   }
+}
+
+async function refreshTools() {
+  const data = await fetchJson("/api/tools");
+  el("toolsBox").textContent = pretty(data);
+}
+
+async function refreshKbStatus() {
+  try {
+    const data = await fetchJson("/api/kb/status");
+    el("kbBox").textContent = pretty(data);
+
+    // Fill defaults when kb is already selected
+    if (data?.memoryId) {
+      el("kbMemoryId").value ||= data.memoryId;
+      el("searchMemoryId").value ||= data.memoryId;
+      el("memEntriesId").value ||= data.memoryId;
+      el("vectorMemoryId").value ||= data.memoryId;
+    }
+
+    if (data?.title) {
+      el("kbTitle").value ||= data.title;
+    }
+  } catch {
+    // ignore
+  }
+}
+
+async function kbIngest() {
+  const bookId = (el("kbBookId").value || "").trim();
+  const title = (el("kbTitle").value || "").trim();
+  const text = el("kbText").value || "";
+  if (!text.trim()) return;
+
+  el("kbBox").textContent = "ingesting...";
+
+  const out = await fetchJson("/api/kb/ingest", {
+    method: "POST",
+    body: JSON.stringify({
+      bookId: bookId || null,
+      title: title || null,
+      text,
+      generateEmbeddings: true,
+      selectAfterIngest: true,
+    }),
+  });
+
+  el("kbBox").textContent = pretty(out);
+
+  if (out?.memoryId) {
+    el("kbMemoryId").value = out.memoryId;
+    el("searchMemoryId").value = out.memoryId;
+    el("memEntriesId").value = out.memoryId;
+    el("vectorMemoryId").value = out.memoryId;
+  }
+
+  appendMsg("meta", `kb ingested: ${out.memoryId || ""}`);
+}
+
+async function kbList() {
+  const out = await fetchJson("/api/kb/resources");
+  el("kbBox").textContent = pretty(out);
+}
+
+async function kbSelect() {
+  const memoryId = (el("kbMemoryId").value || "").trim();
+  const title = (el("kbTitle").value || "").trim();
+
+  const out = await fetchJson("/api/kb/select", {
+    method: "POST",
+    body: JSON.stringify({
+      memoryId: memoryId || null,
+      title: title || null,
+    }),
+  });
+
+  el("kbBox").textContent = pretty(out);
+  appendMsg("meta", memoryId ? `kb selected: ${memoryId}` : "kb cleared");
+
+  // Keep the search panel aligned with the selected KB
+  if (out?.memoryId) {
+    el("searchMemoryId").value = out.memoryId;
+    el("memEntriesId").value ||= out.memoryId;
+    el("vectorMemoryId").value ||= out.memoryId;
+  }
+}
+
+async function kbClear() {
+  el("kbMemoryId").value = "";
+  await kbSelect();
 }
 
 async function refreshState() {
@@ -120,13 +214,23 @@ async function searchMemory() {
 async function applySettings() {
   const enableMemoryStoreAppend = !!el("enableStoreChk").checked;
   const enableMemoryVectorIndexAppend = !!el("enableVectorChk").checked;
+  const allowInternalTools = !!el("allowInternalToolsChk").checked;
+  const allowDangerousTools = !!el("allowDangerousToolsChk").checked;
 
   const out = await fetchJson("/api/settings", {
     method: "POST",
-    body: JSON.stringify({ enableMemoryStoreAppend, enableMemoryVectorIndexAppend }),
+    body: JSON.stringify({
+      enableMemoryStoreAppend,
+      enableMemoryVectorIndexAppend,
+      allowInternalTools,
+      allowDangerousTools,
+    }),
   });
 
-  appendMsg("meta", `settings updated: store=${out.enableMemoryStoreAppend} vector=${out.enableMemoryVectorIndexAppend}`);
+  appendMsg(
+    "meta",
+    `settings updated: store=${out.enableMemoryStoreAppend} vector=${out.enableMemoryVectorIndexAppend} internal=${out.allowInternalTools} dangerous=${out.allowDangerousTools}`
+  );
   await refreshInfo();
 }
 
@@ -145,8 +249,12 @@ async function loadMemoryEntries() {
 async function memoryStats() {
   const memoryId = el("memEntriesId").value.trim();
   if (!memoryId) return;
-  const data = await fetchJson(`/api/memory/stats?memoryId=${encodeURIComponent(memoryId)}`);
-  el("memBox").textContent = pretty(data);
+  try {
+    const data = await fetchJson(`/api/memory/stats?memoryId=${encodeURIComponent(memoryId)}`);
+    el("memBox").textContent = pretty(data);
+  } catch (e) {
+    el("memBox").textContent = `error: ${e.message}`;
+  }
 }
 
 async function vectorSearch() {
@@ -164,8 +272,12 @@ async function vectorSearch() {
 async function vectorStats() {
   const memoryId = el("vectorMemoryId").value.trim();
   if (!memoryId) return;
-  const data = await fetchJson(`/api/vector/stats?memoryId=${encodeURIComponent(memoryId)}`);
-  el("vectorBox").textContent = pretty(data);
+  try {
+    const data = await fetchJson(`/api/vector/stats?memoryId=${encodeURIComponent(memoryId)}`);
+    el("vectorBox").textContent = pretty(data);
+  } catch (e) {
+    el("vectorBox").textContent = `error: ${e.message}`;
+  }
 }
 
 async function seedTrace() {
@@ -209,15 +321,68 @@ async function sendChat() {
   el("chatInput").value = "";
   appendMsg("user", msg);
 
+  const sendBtn = el("sendBtn");
+  const input = el("chatInput");
+  sendBtn.disabled = true;
+  input.disabled = true;
+
+  // Create assistant placeholder and stream into it.
+  const assistantDiv = appendMsg("assistant", "");
+  const assistantContent = assistantDiv.querySelector(".content");
+
+  let full = "";
   try {
-    const res = await fetchJson("/api/chat", {
+    const res = await fetch("/api/chat/stream", {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message: msg }),
     });
 
-    appendMsg("assistant", res.content || "");
-    if (res.toolCalled) {
-      appendMsg("meta", `tool: ${res.toolCall?.name}\nresult: ${res.toolCall?.result || ""}`);
+    if (!res.ok || !res.body) {
+      const text = await res.text();
+      throw new Error(text || `HTTP ${res.status}`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      // Parse NDJSON lines.
+      while (true) {
+        const idx = buffer.indexOf("\n");
+        if (idx < 0) break;
+        const line = buffer.slice(0, idx).trim();
+        buffer = buffer.slice(idx + 1);
+        if (!line) continue;
+
+        let evt;
+        try { evt = JSON.parse(line); } catch { continue; }
+        if (!evt || !evt.type) continue;
+
+        if (evt.type === "delta") {
+          const chunk = evt.content || "";
+          full += chunk;
+          assistantContent.textContent = full;
+        } else if (evt.type === "error") {
+          appendMsg("meta", `stream error: ${evt.error || "unknown"}`);
+        } else if (evt.type === "end") {
+          // Ensure we show final content (server also sends it).
+          if (typeof evt.content === "string" && evt.content.length >= full.length) {
+            full = evt.content;
+            assistantContent.textContent = full;
+          }
+
+          if (evt.toolCalled && evt.toolCall) {
+            appendMsg("meta", `tool: ${evt.toolCall.name}\nresult: ${evt.toolCall.result || ""}`);
+          }
+        }
+      }
     }
 
     // Auto refresh memory panels after each message
@@ -225,6 +390,10 @@ async function sendChat() {
     await refreshCqrs();
   } catch (e) {
     appendMsg("meta", `error: ${e.message}`);
+  } finally {
+    sendBtn.disabled = false;
+    input.disabled = false;
+    input.focus();
   }
 }
 
@@ -298,6 +467,23 @@ function wire() {
     try { await refreshInfo(); } catch (e) { appendMsg("meta", `info error: ${e.message}`); }
   });
 
+  el("refreshToolsBtn").addEventListener("click", async () => {
+    try { await refreshTools(); } catch (e) { appendMsg("meta", `tools error: ${e.message}`); }
+  });
+
+  el("kbIngestBtn").addEventListener("click", async () => {
+    try { await kbIngest(); } catch (e) { appendMsg("meta", `kb ingest error: ${e.message}`); }
+  });
+  el("kbListBtn").addEventListener("click", async () => {
+    try { await kbList(); } catch (e) { appendMsg("meta", `kb list error: ${e.message}`); }
+  });
+  el("kbSelectBtn").addEventListener("click", async () => {
+    try { await kbSelect(); } catch (e) { appendMsg("meta", `kb select error: ${e.message}`); }
+  });
+  el("kbClearBtn").addEventListener("click", async () => {
+    try { await kbClear(); } catch (e) { appendMsg("meta", `kb clear error: ${e.message}`); }
+  });
+
   el("refreshMemResourcesBtn").addEventListener("click", async () => {
     try { await refreshMemoryResources(); } catch (e) { appendMsg("meta", `memory error: ${e.message}`); }
   });
@@ -333,6 +519,8 @@ async function boot() {
     await refreshState();
     await refreshCqrs();
     await refreshTraceList();
+    await refreshTools();
+    await refreshKbStatus();
   } catch {
     // ignore at startup
   }

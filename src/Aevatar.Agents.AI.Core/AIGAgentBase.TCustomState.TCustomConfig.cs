@@ -41,6 +41,6 @@ public abstract class AIGAgentBase<TCustomState, TCustomConfig> : AIGAgentBase<T
 
     protected virtual void ConfigCustom(TCustomConfig customConfig)
     {
-        
+
     }
 }

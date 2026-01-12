@@ -1,7 +1,11 @@
 using System.Text.Json;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Core;
-using Aevatar.Agents.AI.WithTool.Abstractions;
+using Aevatar.Agents.AI.Tool.Abstractions;
+using Aevatar.Agents.AI.Tool.Tools.BuiltIn;
+using Aevatar.Agents.AI.Tool.Tools.CoreTools;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MemoryDemo;
 
@@ -13,6 +17,9 @@ namespace MemoryDemo;
 /// </summary>
 public sealed class MemoryDemoAgent : AIGAgentBase
 {
+    private const string KnowledgeBaseMemoryIdContextKey = "kb_memory_id";
+    private const string KnowledgeBaseTitleContextKey = "kb_title";
+
     public MemoryDemoAgent()
     {
         // Make the demo deterministic and easy to trigger.
@@ -25,6 +32,12 @@ public sealed class MemoryDemoAgent : AIGAgentBase
         // (Both are best-effort; failures won't break chat.)
         EnableMemoryStoreAppend = true;
         EnableMemoryVectorIndexAppend = true;
+
+        // Tool safety policy (keep demo stable + predictable):
+        // - Allow internal tools like query_state
+        // - Disallow dangerous/confirmation tools (HTTP, side effects, etc.)
+        AllowInternalTools = true;
+        AllowDangerousTools = false;
 
         SystemPrompt =
             """
@@ -39,6 +52,77 @@ public sealed class MemoryDemoAgent : AIGAgentBase
 
     public override Task<string> GetDescriptionAsync() =>
         Task.FromResult("MemoryDemoAgent (History + Compaction + CQRS + search_memory)");
+
+    /// <summary>
+    /// Demo: get/set current knowledge-base selection.
+    /// The selected memoryId is stored in <c>State.Context</c> so it survives restarts.
+    /// </summary>
+    public (string? MemoryId, string? Title) GetKnowledgeBase()
+    {
+        var state = GetState();
+
+        var memoryId = state.Context.TryGetValue(KnowledgeBaseMemoryIdContextKey, out var id) ? id : null;
+        var title = state.Context.TryGetValue(KnowledgeBaseTitleContextKey, out var t) ? t : null;
+
+        return (string.IsNullOrWhiteSpace(memoryId) ? null : memoryId.Trim(),
+            string.IsNullOrWhiteSpace(title) ? null : title.Trim());
+    }
+
+    public void SetKnowledgeBase(string? memoryId, string? title = null)
+    {
+        var state = GetState();
+
+        if (string.IsNullOrWhiteSpace(memoryId))
+        {
+            state.Context.Remove(KnowledgeBaseMemoryIdContextKey);
+            state.Context.Remove(KnowledgeBaseTitleContextKey);
+            return;
+        }
+
+        state.Context[KnowledgeBaseMemoryIdContextKey] = memoryId.Trim();
+
+        if (string.IsNullOrWhiteSpace(title))
+            state.Context.Remove(KnowledgeBaseTitleContextKey);
+        else
+            state.Context[KnowledgeBaseTitleContextKey] = title.Trim();
+    }
+
+    protected override string? GetEffectiveSystemPrompt()
+    {
+        var basePrompt = base.GetEffectiveSystemPrompt() ?? string.Empty;
+        var (kbMemoryId, kbTitle) = GetKnowledgeBase();
+
+        if (string.IsNullOrWhiteSpace(kbMemoryId))
+            return basePrompt;
+
+        var titleLine = string.IsNullOrWhiteSpace(kbTitle) ? "" : $"\n- Book: {kbTitle}";
+
+        // Keep instructions explicit and deterministic: always retrieve before answering.
+        return
+            $"{basePrompt}\n\nKnowledge base (book) is enabled.\n- memoryId: {kbMemoryId}{titleLine}\n" +
+            $"- For EVERY user question, call tool 'search_memory' with memoryType=\"working\" and memoryId=\"{kbMemoryId}\".\n" +
+            "- Use retrieved passages to answer. If nothing relevant is found, say you don't know.\n";
+    }
+
+    /// <summary>
+    /// Demo polish: keep the exposed tool set focused.
+    /// - query_state (read-only, internal)
+    /// - search_memory (memory recall)
+    /// </summary>
+    protected override async Task RegisterToolsAsync(CancellationToken cancellationToken = default)
+    {
+        // Core: state query (read-only, internal access)
+        await RegisterToolAsync(new StateQueryTool(), cancellationToken: cancellationToken);
+
+        // Built-in: memory search (CQRS + MemoryStore/VectorIndex + State snapshot)
+        await RegisterToolAsync(
+            new AevatarMemorySearchTool(
+                new TypedLoggerAdapter<AevatarMemorySearchTool>(Logger),
+                CqrsStateQueryService,
+                MemoryStore,
+                MemoryVectorIndex),
+            cancellationToken: cancellationToken);
+    }
 
     // ============================================================
     //  Demo-only: force CQRS projection after each chat
@@ -115,7 +199,9 @@ public sealed class MemoryDemoAgent : AIGAgentBase
             ToolManager = ToolManager,
             PublishEventCallback = msg => PublishAsync(msg, ct: ct),
             Logger = Logger,
-            GetSessionId = () => Id.ToString()
+            GetSessionId = () => Id.ToString(),
+            AllowInternalTools = AllowInternalTools,
+            AllowDangerousTools = AllowDangerousTools
         };
 
         return await ToolManager.ExecuteToolAsync("search_memory", parameters, execCtx, ct);
@@ -131,6 +217,34 @@ public sealed class MemoryDemoAgent : AIGAgentBase
 
         var emb = await GenerateEmbeddingAsync(text.Trim(), cancellationToken: ct);
         return emb == null ? null : emb.Vector.ToArray();
+    }
+
+    // ============================================================
+    //  Minimal typed logger adapter for tools
+    //
+    //  WHY:
+    //  - Some tool constructors require ILogger<T>.
+    //  - AIGAgentBase exposes ILogger (non-generic).
+    //  - Keep demo self-contained; do not rely on internal/private adapters.
+    // ============================================================
+    private sealed class TypedLoggerAdapter<T> : ILogger<T>
+    {
+        private readonly ILogger _inner;
+
+        public TypedLoggerAdapter(ILogger inner) => _inner = inner ?? NullLogger.Instance;
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull
+            => _inner.BeginScope(state);
+
+        public bool IsEnabled(LogLevel logLevel) => _inner.IsEnabled(logLevel);
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+            => _inner.Log(logLevel, eventId, state, exception, formatter);
     }
 }
 

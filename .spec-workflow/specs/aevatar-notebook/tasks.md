@@ -1,0 +1,74 @@
+# Tasks Document
+
+- [x] 1. 整理 Notebook 领域的 Protobuf 契约（Sources/Chunks/Reports/ContextSlices）
+  - File: `notebook/Protos/notebook_messages.proto`
+  - File: `notebook/Aevatar.Notebook.csproj`
+  - Purpose: 为跨边界数据（资料元信息、分块、引用、报告版本、上下文切片）提供稳定契约，避免把复杂 JSON 当“长期真相源”
+  - _Leverage: `docs/AI_MEMORY_GUIDE.md`, `src/Aevatar.Agents.Abstractions/abstrations_messages.proto`, `src/Aevatar.Agents.AI.Abstractions/ai_abstractions_messages.proto`_
+  - _Requirements: 1, 2, 6, 7, 8, 10_
+  - _Prompt: Role: C# / Protobuf Engineer | Task: Implement the task for spec aevatar-notebook, first run spec-workflow-guide to get the workflow guide then implement the task: define `notebook_messages.proto` for notebook domain metadata (NotebookId, SourceMeta, SourceChunkMeta, ReportMeta, Citation, ContextSlice) ensuring all cross-boundary types are protobuf; wire it into `Aevatar.Notebook.csproj` for codegen | Restrictions: Do not introduce non-protobuf cross-boundary DTOs; do not break existing framework proto packages; keep field numbers stable; avoid decimal | _Leverage: existing proto patterns in src/ and AI_MEMORY_GUIDE.md | _Requirements: 1,2,6,7,8,10 | Success: proto compiles, generated C# types usable from notebook project, no build errors; update tasks.md status to [-] while working and [x] after completion with log-implementation_
+
+- [x] 2. 实现 Source 分块与索引写入（MemoryStore + VectorIndex）
+  - File: `notebook/Sources/SourceChunker.cs`
+  - File: `notebook/Sources/SourceIndexer.cs`
+  - Purpose: 将 source 文本切成有界 chunks（带 offset/seq），写入 `IMemoryStore`（Layer 4），并可选写入 `IMemoryVectorIndex`（Layer 4.1）
+  - _Leverage: `docs/MEMORY_STORE.md`, `docs/MEMORY_VECTOR_INDEX.md`, `src/Aevatar.Agents.Core/Memory/FileMemoryStore.cs`, `src/Aevatar.Agents.AI.Core/AIGAgentBase.MemoryStore.cs`_
+  - _Requirements: 2, 3, 6, 9_
+  - _Prompt: Role: Backend Developer (.NET) specializing in retrieval systems | Task: Implement the task for spec aevatar-notebook, first run spec-workflow-guide to get the workflow guide then implement the task: add bounded chunking + indexer that writes MemoryEntry per chunk and optionally upserts vectors; ensure tags include sourceId/chunk_index/offset range and chunk text is bounded; embeddings optional | Restrictions: No unbounded loops; must be best-effort; must keep per-source and total sizes bounded; do not change framework IMemoryStore/IMemoryVectorIndex interfaces | _Leverage: existing file/mongo/supabase memory providers | _Requirements: 2,3,6,9 | Success: chunking deterministic, indexer writes entries/vectors, unit tests added, no build errors; log implementation and mark [x]_
+
+- [x] 3. NotebookContextBuilder（预算内“全覆盖 + top‑k”上下文拼装）
+  - File: `notebook/Context/NotebookContextBuilder.cs`
+  - File: `notebook/Context/NotebookContextBudget.cs`
+  - Purpose: 构建问答/报告的 Notebook context：每源至少一段可追踪摘要/预览（全覆盖），并追加与 query 相关的 top‑k chunks（向量优先，store fallback）
+  - _Leverage: `docs/AI_MEMORY_GUIDE.md`（P0/P1/P2/P3）, `src/Aevatar.Agents.AI.Core/Tool/Tools/BuiltIn/AevatarMemorySearchTool.cs`_
+  - _Requirements: 6, 3, 2, 4_
+  - _Prompt: Role: Retrieval Engineer | Task: Implement the task for spec aevatar-notebook, first run spec-workflow-guide to get the workflow guide then implement the task: implement NotebookContextBuilder with explicit budgets (maxTotalChars/maxPerSourceChars/maxChunks) and deterministic output ordering; include citation-friendly markers (sourceId + chunkId); support selected sources | Restrictions: Must guarantee every selected source appears at least once in context; must degrade gracefully when vector index unavailable; avoid token explosion | _Leverage: current `BuildNotebookContextAsync` in notebook/Program.cs for baseline | _Requirements: 6,3,2,4 | Success: context builder tested, deterministic, bounded; replace Program.cs ad-hoc context build; log implementation and mark [x]_
+
+- [x] 4. Sources API：支持文件上传（txt），并触发分块/索引
+  - File: `notebook/Program.cs`
+  - File: `notebook/Sources/SourceApi.cs`
+  - Purpose: 提供 `POST /api/sources/file`（txt），落库为 source resource + chunks，并返回 sourceId
+  - _Leverage: `notebook/Program.cs` existing endpoints, `SourceIndexer` (Task 2)_
+  - _Requirements: 1, 2_
+  - _Prompt: Role: Backend API Developer | Task: Implement the task for spec aevatar-notebook, first run spec-workflow-guide to get the workflow guide then implement the task: add txt upload endpoint, validate size/type, call indexer, return consistent JSON; keep old text endpoint | Restrictions: No large file into memory unbounded; set max size; do not accept arbitrary binary | _Leverage: Minimal API style in notebook/Program.cs | _Requirements: 1,2 | Success: endpoint works, errors are clear, tests cover happy/error paths; log implementation and mark [x]_
+
+- [x] 5. Q&A API：支持选择 sources、引用输出与 ExecutionTrace 记录
+  - File: `notebook/Program.cs`
+  - File: `notebook/Tracing/NotebookTraceBuilder.cs`
+  - Purpose: `POST /api/chat` 接收 selectedSources、构建 context、调用 Agent；输出 citations（sourceIds/chunkIds）；写入 `ExecutionTrace`（Layer 4.2 投影链路可用）
+  - _Leverage: `src/Aevatar.Agents.Core/Tracing/ProjectingExecutionTraceStore.cs`, `src/Aevatar.Agents.Core/MemoryGraph/ExecutionTraceMemoryProjector.cs`_
+  - _Requirements: 6, 8_
+  - _Prompt: Role: Backend Developer (observability) | Task: Implement the task for spec aevatar-notebook, first run spec-workflow-guide to get the workflow guide then implement the task: extend chat endpoint to accept selectedSources + return citations; create ExecutionTrace capturing: sources selected, context strategy, top‑k chunks, llm call metadata; save via IExecutionTraceStore | Restrictions: Trace must not include secrets; keep payload bounded; best-effort | _Leverage: existing trace infra in core (auto graph projection) | _Requirements: 6,8 | Success: chat returns citations; trace saved; graph can be loaded (file/neo4j); log implementation and mark [x]_
+
+- [x] 6. Report 生成：多步 pipeline + 版本化落 MemoryStore
+  - File: `notebook/Reports/ReportPipeline.cs`
+  - File: `notebook/Program.cs`
+  - Purpose: 支持生成报告（outline → draft → refine），每次生成产生 reportId/version；报告内容写入 `IMemoryStore`
+  - _Leverage: `docs/AI_MEMORY_GUIDE.md`（Layer0 无状态生成建议）, `notebook/Agents/NotebookAgent.cs`_
+  - _Requirements: 7, 2, 6_
+  - _Prompt: Role: AI Product Engineer | Task: Implement the task for spec aevatar-notebook, first run spec-workflow-guide to get the workflow guide then implement the task: create report pipeline that uses stateless prompts per step but shares Notebook context; persist outputs as MemoryEntry with report meta tags; return citations and versions | Restrictions: Keep prompts deterministic; do not dump full sources into state; best-effort persistence | _Leverage: existing Agent + MemoryStore append behavior | _Requirements: 7,2,6 | Success: report generation works with versions; stored in MemoryStore; UI can list/view reports; log implementation and mark [x]_
+
+- [x] 7. UI：三栏交互完善（source 选择、引用跳转、报告历史）
+  - File: `notebook/wwwroot/index.html`
+  - File: `notebook/wwwroot/app.js`
+  - Purpose: NotebookLM-like 体验：source 列表可多选参与上下文；回答/报告显示引用；点击引用可定位 source/chunk
+  - _Leverage: current static UI in notebook/wwwroot_
+  - _Requirements: 1, 6, 7_
+  - _Prompt: Role: Frontend Engineer (vanilla JS) | Task: Implement the task for spec aevatar-notebook, first run spec-workflow-guide to get the workflow guide then implement the task: add source selection UI, include selectedSources in /api/chat + /api/report calls; render citations as clickable chips; show report history list | Restrictions: Keep UI minimal; avoid large DOM rendering; handle loading/errors | _Leverage: existing app.js patterns | _Requirements: 1,6,7 | Success: end-to-end flow usable; citations clickable; no console errors; log implementation and mark [x]_
+
+- [x] 8. Tooling：新增 Notebook 专用工具集（可被模型调用）
+  - File: `notebook/Tools/NotebookTools.cs`
+  - File: `notebook/Program.cs`
+  - Purpose: 提供 `list_sources/get_source/retrieve_chunks/generate_report/get_report/get_execution_graph` 等工具，并接入 ToolManager
+  - _Leverage: `src/Aevatar.Agents.AI.Core/Tool/Tools/BuiltIn/AevatarMemorySearchTool.cs`, ToolManager 注入机制_
+  - _Requirements: 10, 6, 7, 8_
+  - _Prompt: Role: Tooling Engineer | Task: Implement the task for spec aevatar-notebook, first run spec-workflow-guide to get the workflow guide then implement the task: create notebook toolset with stable JSON outputs; integrate into agent ToolManager; ensure tools are bounded and safe | Restrictions: Do not expose secrets; tool outputs must be bounded; prefer protobuf-backed ids | _Leverage: built-in tool patterns | _Requirements: 10,6,7,8 | Success: tools registered, callable, and covered by tests; log implementation and mark [x]_
+
+- [x] 9. 端到端验证文档（file/mongodb/supabase/neo4j）
+  - File: `notebook/VALIDATION.md`
+  - Purpose: 用最少步骤验证不同后端配置下功能可用（Sources/Q&A/Report/Trace/Graph）
+  - _Leverage: `examples/MemoryDemo/VALIDATION.md`_
+  - _Requirements: 9, 8_
+  - _Prompt: Role: Developer Experience Engineer | Task: Implement the task for spec aevatar-notebook, first run spec-workflow-guide to get the workflow guide then implement the task: write validation checklist for notebook app including persistence switching and expected behaviors; include common troubleshooting | Restrictions: Keep concise; no secrets in docs | _Leverage: MemoryDemo validation style | _Requirements: 9,8 | Success: doc is executable by copy/paste commands; matches current code behavior; log implementation and mark [x]_
+
+

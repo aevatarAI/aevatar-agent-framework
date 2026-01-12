@@ -177,6 +177,10 @@ var builder = Host.CreateApplicationBuilder(args);
 // 2. Load Configuration
 builder.Configuration
     .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
+    // Global user-level secrets (encrypted, per-user) - best-effort.
+    // - Default: ~/.aevatar/secrets.json
+    // - Override: AEVATAR_SECRETS_PATH / AEVATAR_SECRETS_DIR
+    .AddAevatarUserSecrets()
     .AddJsonFile("appsettings.secrets.json", optional: true, reloadOnChange: true);
 
 // 3. Configure Logging

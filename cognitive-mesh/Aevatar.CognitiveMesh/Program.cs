@@ -3,6 +3,7 @@ using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.MEAI.DependencyInjection;
 using Aevatar.Agents.Cognitive.DependencyInjection;
 using Aevatar.Agents.CreativeReasoning;
+using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Maker;
 using Aevatar.Agents.Plugins.MassTransit.DependencyInjection;
 using Aevatar.Agents.Runtime.Local;
@@ -29,8 +30,20 @@ var builder = WebApplication.CreateBuilder(args);
 // ─────────────────────────────────────────────────────────────
 builder.Configuration
     .AddJsonFile("appsettings.json", optional: true)
+    .AddAevatarUserSecrets()
     .AddJsonFile("appsettings.secrets.json", optional: true)
     .AddEnvironmentVariables();
+
+// ─────────────────────────────────────────────────────────────
+//  Ports (repo policy)
+// ─────────────────────────────────────────────────────────────
+// Repo policy: do not use :5000 as default/example.
+// If no URLs are configured (ASPNETCORE_URLS / --urls), use 5678 as the
+// recommended local port. Any available port is fine.
+if (string.IsNullOrWhiteSpace(builder.Configuration["urls"]))
+{
+    builder.WebHost.UseUrls("http://localhost:5678");
+}
 
 builder.Services.Configure<LLMProvidersConfig>(builder.Configuration.GetSection("LLMProviders"));
 

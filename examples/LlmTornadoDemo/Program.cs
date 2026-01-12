@@ -5,6 +5,7 @@ using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.LLMTornado;
 using Aevatar.Agents.Core.EventSourcing;
+using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Runtime.Local;
 using Google.Protobuf.WellKnownTypes;
 using LlmTornadoDemo;
@@ -21,6 +22,7 @@ var host = Host.CreateDefaultBuilder(args)
     .ConfigureAppConfiguration((context, config) =>
     {
         config.AddJsonFile("appsettings.json", optional: true)
+            .AddAevatarUserSecrets()
             .AddJsonFile("appsettings.secrets.json", optional: true);
         config.AddEnvironmentVariables();
     })

@@ -1,0 +1,96 @@
+# Requirements Document
+
+## Introduction
+
+本规格定义：在现有 `examples/ClaudeAgentSdkProviderDemo/` 的基础上，**新增“真实 Claude Agent SDK”运行模式**，让 Demo 可以在保持默认离线 mock 的同时，切换为 **真实 Claude Agent SDK（TypeScript/Node）** 驱动的 runner，并修订 `README.md` 给出一套可自助配置的真实环境指南（安装、鉴权、配置、运行、排障）。
+
+核心诉求：
+- **Demo 默认仍然离线可跑**（mock 模式，零外网依赖）。
+- **真实模式**：当开发者完成环境安装与鉴权后，可切换到真实 Claude Agent SDK runner，并通过 `settingSources: ["project"]` 等能力读取项目级指令（如 `CLAUDE.md`），展示其区别于常规 provider 的工程化价值。
+
+## Alignment with Product Vision
+
+- **Time-to-First-Agent**：Demo 保持“默认一键运行”，同时提供真实模式扩展路径，降低从 Demo 到真实集成的摩擦。
+- **Pluggable**：继续通过 `LLMProviders` + `ProviderType=claude_agent_sdk` 展示 provider 可插拔边界。
+- **Safe by default**：真实模式不默认启用危险能力；所有 secrets 仅通过环境变量/本地 secret store 注入；不在 repo 写入密钥。
+- **File-SSoT**：真实模式通过项目根目录的 `CLAUDE.md` / `.claude/*`（由 Claude Agent SDK 读取）体现文件化配置与可审计协作。
+
+## Requirements
+
+### Requirement 1 — 模式切换：mock（默认）↔ real（可选）
+
+**User Story:** 作为框架使用者，我希望 Demo 默认离线可跑，但也能一键切换到真实 Claude Agent SDK 模式，以验证真实集成链路。
+
+#### Acceptance Criteria
+
+1. WHEN 未设置任何额外环境变量 THEN Demo SHALL 默认使用 mock runner（离线、可复现）。
+2. WHEN 设置 `CLAUDE_AGENT_SDK_DEMO_MODE=real` THEN Demo SHALL 改为使用真实 Claude Agent SDK runner（进程外）。
+3. IF 真实模式所需依赖缺失（例如 Node / Claude Code runtime / npm 包）THEN Demo SHALL 输出明确的缺失项与修复步骤，不得静默失败。
+
+---
+
+### Requirement 2 — 真实 runner：使用官方 Claude Agent SDK（TypeScript/Node）
+
+**User Story:** 作为开发者，我希望 demo 的 real runner 真正调用 Claude Agent SDK（而不是 mock），并保持与 Aevatar provider 的 stdin/stdout marker 协议兼容。
+
+#### Acceptance Criteria
+
+1. WHEN real runner 收到 stdin JSON 请求 THEN runner SHALL 调用 `@anthropic-ai/claude-agent-sdk` 的 `query(...)`（或官方等价 API）执行，并将输出映射为：
+   - `AEVATAR_AGENT_SDK_STREAM:{text}`（best-effort streaming）
+   - `AEVATAR_AGENT_SDK_OUTPUT:{json}`（至少包含 `{ "content": "..." }`）
+2. WHEN 请求包含 `settingSources` 且包含 `"project"` THEN runner SHALL 使 Claude Agent SDK 加载项目级指令（例如 `CLAUDE.md`），并在输出中可观察到其影响（例如输出包含受项目指令约束的固定前缀/格式）。
+3. IF `ANTHROPIC_API_KEY` 缺失且 Claude Code 未登录/未鉴权 THEN runner SHALL 给出可读错误与配置指引（不打印 key 本体）。
+
+---
+
+### Requirement 3 — README：真实环境配置指南（可自助）
+
+**User Story:** 作为使用者，我希望 README 清晰说明如何配置真实环境，并区分 mock/real 两种模式。
+
+#### Acceptance Criteria
+
+1. README SHALL 包含：
+   - 真实模式需要安装的组件（例如 Claude Code runtime、Agent SDK npm 包）
+   - 需要的环境变量（至少 `ANTHROPIC_API_KEY`）
+   - 如何切换模式（`CLAUDE_AGENT_SDK_DEMO_MODE=real`）
+   - 常见报错排障（module not found / auth failed / permission prompts）
+2. README SHALL 明确声明：
+   - mock 模式离线可跑
+   - real 模式会访问真实服务（可能产生费用）
+3. README SHALL NOT 给出任何 secrets 示例值；不得出现 `:5000` 示例端口；如提 sidecar（非本规格）默认建议 `:5678`。
+
+---
+
+### Requirement 4 — 安全边界：真实模式的“写入范围”与风险提示
+
+**User Story:** 作为安全审阅者，我希望 demo 的真实模式不会误伤仓库其他目录，并且有明确风险提示。
+
+#### Acceptance Criteria
+
+1. WHEN 真实模式运行 THEN Demo SHALL 将 `projectRoot` 指向 demo 的 build 输出目录下的 `demo_project/`（而非 repo 根目录），将潜在文件修改限制在 demo 沙箱范围内。
+2. README SHALL 明确提示真实模式可能触发文件/命令工具（取决于 Claude Agent SDK 权限策略与用户配置），并建议在隔离环境中运行。
+
+## Non-Functional Requirements
+
+### Code Architecture and Modularity
+
+- real runner 与 mock runner 分离（不同文件/不同目录），互不干扰。
+- demo 的 .NET 侧只负责模式选择与配置注入，不把 Claude Agent SDK 细节塞进 .NET 逻辑。
+
+### Performance
+
+- mock 模式运行时间维持在秒级。
+
+### Security
+
+- 所有 secrets 仅通过环境变量/secret store；不得写入 repo、不得打印到日志。
+
+### Reliability
+
+- 缺依赖/缺鉴权时错误信息可自助修复。
+
+### Usability
+
+- 新增/修订 README 让用户在 10 分钟内跑通 real 模式（前提：依赖与 key 已就绪）。
+
+

@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/scientific-research-assistant-paper-collab/design.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-05T09:34:57.228Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767605697218_ezqjco4gq",
+      "approvalTitle": "Approve spec design: scientific-research-assistant-paper-collab (workspace file-SSoT + mailbox + facts_proposed consensus/verify + Markdown paper single-writer)"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-05T09:39:48.273Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767605697218_ezqjco4gq",
+      "approvalTitle": "Approve spec design: scientific-research-assistant-paper-collab (workspace file-SSoT + mailbox + facts_proposed consensus/verify + Markdown paper single-writer)"
+    }
+  ]
+}

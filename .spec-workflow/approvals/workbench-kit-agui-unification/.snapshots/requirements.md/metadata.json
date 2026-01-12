@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/workbench-kit-agui-unification/requirements.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-10T03:24:29.888Z",
+      "trigger": "initial",
+      "approvalId": "approval_1768015469871_z5cywer9s",
+      "approvalTitle": "Approve requirements: workbench-kit-agui-unification"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-10T04:06:26.677Z",
+      "trigger": "approved",
+      "approvalId": "approval_1768015469871_z5cywer9s",
+      "approvalTitle": "Approve requirements: workbench-kit-agui-unification"
+    }
+  ]
+}

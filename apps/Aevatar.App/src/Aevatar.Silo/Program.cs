@@ -15,14 +15,16 @@ using Aevatar.Agents.Runtime.Orleans.Extensions;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Persistence.MongoDB;
+using Aevatar.Agents.Persistence.MongoDB.GAgent;
 using Aevatar.Agents.Runtime.Orleans.EventSourcing;
 using Aevatar.Agents.Runtime.Orleans.MongoDB;
 using Aevatar.Agents.Orleans.MongoDB;
 using Aevatar.Agents.Plugins.MassTransit.DependencyInjection;
-using Aevatar.Agents.Runtime.Orleans.CQRS;
 using Aevatar.Agents.Plugins.CQRS;
 using Aevatar.Agents.Plugins.CQRS.Batching;
 using Aevatar.Agents.Plugins.CQRS.Elasticsearch;  // Use Core's CQRS implementation
+using Aevatar.Agents.AI.Abstractions.Configuration;
+using Aevatar.Agents.AI.MEAI.DependencyInjection;
 
 namespace Aevatar.Silo;
 
@@ -95,7 +97,7 @@ public class Program
                 MongoDBServiceCollectionExtensions.ConfigureBsonSerializers();
                 
                 // MongoDB configuration
-                var mongoConnectionString = context.Configuration.GetConnectionString("MongoDB") 
+                var mongoConnectionString = context.Configuration.GetConnectionString("Orleans") 
                     ?? "mongodb://localhost:27017/AevatarBusiness";
                 var databaseName = context.Configuration.GetSection("Storage")
                     .GetValue("DatabaseName", "AevatarBusiness");
@@ -117,6 +119,11 @@ public class Program
 
                 // Configure MessageStreamProviderOptions
                 services.Configure<MessageStreamProviderOptions>(context.Configuration.GetSection("MessageStream"));
+                
+                // Configure LLM Providers for AI Agents
+                services.Configure<LLMProvidersConfig>(context.Configuration.GetSection("LLMProviders"));
+                services.AddMEAI();
+                Log.Information("🤖 LLM Providers configured from appsettings.json");
 
                 // MassTransit Stream Plugin - ONLY if MessageStream.Provider is "MassTransit"
                 var messageStreamProvider = context.Configuration.GetSection("MessageStream").GetValue("Provider", "Orleans");
@@ -143,14 +150,15 @@ public class Program
                 
                 Log.Information("✅ Aevatar Agent System configured with MongoDB stores");
 
-                // CQRS State Projection (Orleans Stream)
-                services.AddOrleansCQRS(options =>
-                {
-                    options.StreamProviderName = "Default";
-                    options.StreamNamespace = "StateProjection";
-                });
-                
-                // Use Core's CQRS implementation (same as HttpApi.Host in Local mode)
+                // CQRS State Projection
+                // When MassTransit.CQRS.Enabled=true in config:
+                //   - IStateDispatcher is registered (publishes to MassTransit InMemory bus)
+                //   - StateProjectionConsumer consumes messages and calls IStateProjector
+                //   - This provides async, non-blocking state projection
+                // When MassTransit.CQRS.Enabled=false:
+                //   - IStateProjector is called directly (sync/batched)
+                //
+                // Configure IStateProjector (Elasticsearch via BatchedStateProjector)
                 var esUrl = context.Configuration.GetValue<string>("Elasticsearch:Url") ?? "http://localhost:9200";
                 var esPrefix = context.Configuration.GetValue<string>("Elasticsearch:IndexPrefix") ?? "aevatar-state";
                 
@@ -172,6 +180,11 @@ public class Program
                 });
                 
                 Log.Information("✅ CQRS configured with Core.BatchedStateProjector (ES: {EsUrl})", esUrl);
+                
+                // Note: ManagerOptions configuration removed - not available in Silo project
+                // ManagerIds configuration is handled in HttpApi.Host project
+                
+                Log.Information("✅ Silo configuration completed");
             });
     }
 }

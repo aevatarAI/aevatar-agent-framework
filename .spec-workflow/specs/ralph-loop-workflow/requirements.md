@@ -1,0 +1,103 @@
+# Requirements Document
+
+## Introduction
+
+本 spec 定义一个新的 **Ralph Loop Workflow**（以下简称 *ralph-loop*）：用于执行“**成功标准可自动验证**”的长链路任务（例如测试通过、覆盖率达标、静态检查通过），通过 **有界迭代**（bounded loop）持续改进目标工件，直到满足验收标准或达到预算上限。
+
+ralph-loop 的核心价值在于把“反复打磨/验证/纠偏”工程化为框架级 workflow：默认带护栏（预算、超时、输出截断、安全策略、可观测性），让长任务 **更稳定、更可控、更可审计**。
+
+## Alignment with Product Vision
+
+该能力与 steering 文档保持一致：
+
+- **Events are Truth**：每轮迭代以结构化事件记录输入、动作、验证、结论，便于追踪与回放。
+- **Boundary Types Must Be Protobuf**：ralph-loop 引入的跨边界 State/Event/Config 必须以 Protobuf 定义，确保跨运行时一致性与可演进。
+- **Runtime Agnostic by Design**：workflow 逻辑保持运行时无关；涉及“工作区/命令执行”等副作用能力通过工具层与宿主策略收敛。
+- **Operational Readiness**：为长链路 loop 提供可观测性（迭代、工具、验证、停止原因），支撑生产化运行与排障。
+
+## Requirements
+
+### Requirement 1 — Start a Ralph Loop run with an objective and budgets
+
+**User Story:** As a 框架使用者（AI/Agent 工程团队）, I want to 启动一个 ralph-loop run（携带目标与预算）, so that 系统能在安全护栏内自动迭代，直到达到可验证的成功标准或停止。
+
+#### Acceptance Criteria
+
+1. WHEN 用户/上层系统启动 ralph-loop 并提供 `goal`（目标描述）与 `success_criteria`（成功标准） THEN 系统 SHALL 创建新的 `run_id`，初始化运行状态为 `status=running` 且 `iteration=0`。
+2. IF `goal` 或 `success_criteria` 缺失/为空 THEN 系统 SHALL 以结构化错误结束运行（`status=failed`），并 SHALL NOT 执行任何具有副作用的工具调用。
+3. WHEN 提供 `budget.max_iterations` THEN 系统 SHALL 将其作为硬上限，并在达到上限时以 `status=limit` 停止。
+4. WHEN 提供 `budget.timeouts`（例如每轮/每步超时） THEN 系统 SHALL 在超时后终止本轮并推进到停止判定（失败/上限/可恢复中断），且 SHALL NOT 无限等待任何子步骤。
+
+### Requirement 2 — Deterministic verification decides continuation or completion
+
+**User Story:** As a 平台/工程负责人, I want ralph-loop 的“完成/继续”由确定性的 verifier 决定, so that loop 不依赖主观判断且可自动化落地到 CI/本地。
+
+#### Acceptance Criteria
+
+1. WHEN verifier 输出“通过（pass）” THEN 系统 SHALL 立即停止迭代并标记 `status=completed`，且 SHALL 产出最终摘要（包含满足了哪些成功标准）。
+2. WHEN verifier 输出“未通过（fail）” THEN 系统 SHALL 进入下一轮迭代（`iteration += 1`），直到满足通过条件或触发预算/致命错误停止条件。
+3. IF verifier 本身执行失败（例如工具不可用/权限不足/解析失败/超时） THEN 系统 SHALL 记录该失败为本轮结果的一部分，并 SHALL 依据预算与策略选择：继续（best-effort）或终止（failed）。
+4. WHEN `status=completed|failed|limit` THEN 系统 SHALL 产出一个结构化的 Final Result（至少包含：`run_id`、`stop_reason`、`iterations_executed`、verifier 摘要、以及关键诊断信息）。
+
+### Requirement 3 — Safety and policy: never exceed tool permissions
+
+**User Story:** As a 平台所有者/安全负责人, I want ralph-loop 在执行工具与验证时严格遵守权限与安全策略, so that 自动化循环不会越权或造成不可控副作用。
+
+#### Acceptance Criteria
+
+1. WHEN ralph-loop 需要执行任意工具（包括 verifier 依赖的工具） THEN 系统 SHALL 复用并强制执行现有的工具策略（例如危险工具开关、内部工具开关、allowlist 等），并 SHALL 以“拒绝”而非“绕过”处理越权请求。
+2. IF 工具被策略拒绝 THEN 系统 SHALL 产生可被模型/调用方读取的结构化拒绝结果（包含 deniedReason），并 SHALL 记录到该轮迭代的诊断信息中。
+3. WHEN 需要执行命令/脚本类能力 THEN 系统 SHALL 以 **non-interactive** 模式运行，并强制 **timeout + output bound**（stdout/stderr 截断标记），以避免挂死与输出爆炸。
+4. IF 运行环境不允许副作用（例如生产运行时禁用危险工具） THEN 系统 SHALL 支持“只读/分析”模式：允许执行无副作用 verifier（或直接失败并给出明确原因），并 SHALL NOT 降级为更危险的行为。
+
+### Requirement 4 — Protobuf-first contracts for cross-boundary state/events/config
+
+**User Story:** As a 框架贡献者, I want ralph-loop 的 State/Event/Config 都以 Protobuf 定义, so that 它在 Local/ProtoActor/Orleans 之间可一致序列化、可演进、可测试。
+
+#### Acceptance Criteria
+
+1. WHEN ralph-loop 引入新的 State/Event/Config 或任何跨边界数据结构 THEN 系统 SHALL 在 `.proto` 中定义并生成 C# 类型（禁止手写可序列化跨边界类）。
+2. IF 需要记录工具调用、验证结果或迭代摘要 THEN 系统 SHALL 使用有界（bounded）字段设计（例如限制长度/条数，禁止存放大块原文或敏感数据）。
+3. WHEN Protobuf schema 演进 THEN 系统 SHALL 遵循兼容性规则（可加字段，不改号，不复用字段号）。
+
+### Requirement 5 — Observability and progress reporting per iteration
+
+**User Story:** As a 运维/开发者, I want 看到 ralph-loop 每轮在做什么、为什么停止, so that 我能调试长任务并建立信任。
+
+#### Acceptance Criteria
+
+1. WHEN 每轮迭代开始与结束 THEN 系统 SHALL 产出结构化事件/记录（至少包含：`run_id`、`iteration`、阶段、耗时、stop_reason/继续原因）。
+2. WHEN 发生错误（工具失败、verifier 失败、解析失败等） THEN 系统 SHALL 发出结构化错误记录（有界错误信息），并保证主链路稳定（不因单点错误无限重试或崩溃）。
+3. WHEN 工具输出或诊断信息超过配置上限 THEN 系统 SHALL 截断并携带可观测标记（例如 `truncated=true`、`total_chars`、`kept_chars`），便于排障与成本控制。
+
+## Non-Functional Requirements
+
+### Code Architecture and Modularity
+
+- **Single Responsibility Principle**: ralph-loop workflow 的每个文件/模块职责清晰（编排、验证、状态/事件契约、工具适配分别收敛）。
+- **Modular Design**: verifier 与工具能力可插拔（允许在不改 workflow 核心逻辑的情况下替换/扩展）。
+- **Dependency Management**: 新增依赖遵循 Central Package Management（`Directory.Packages.props`），避免在各项目散落版本号。
+- **Clear Interfaces**: 跨层通信（workflow ↔ tools ↔ runtime）必须通过清晰契约完成，跨边界类型必须 Protobuf。
+
+### Performance
+
+- ralph-loop MUST be bounded by budgets（max_iterations、timeouts、output limits），不得出现无限循环或无限输出。
+- 默认实现应避免把大块内容写入 state/event；长内容应通过摘要/引用方式表达。
+
+### Security
+
+- 默认遵循“最小权限”：危险工具默认受控（由宿主策略决定是否启用）。
+- 任何记录/事件不得泄漏 secrets；如需输出诊断信息，必须有界且避免包含敏感原文。
+- 仓库端口策略必须遵守：**禁止使用 `:5000`** 作为示例/默认端口；如示例需要端口，优先 `:5678` 且可配置。
+
+### Reliability
+
+- 所有 fan-out/子步骤必须具备 total timeout + idle timeout，并将失败/超时计入完成，避免 dead-wait。
+- workflow 必须在工具不可用/权限不足时给出明确可操作的失败原因（而不是静默或无穷重试）。
+
+### Usability
+
+- 提供清晰的启动参数/配置说明（goal、success_criteria、budgets、policy/allowlist、verifier 选择）。
+- 对“适用/不适用”场景给出明确指引：仅适用于成功标准可自动验证的任务；不适用于需要主观判断的创作类任务。
+
+

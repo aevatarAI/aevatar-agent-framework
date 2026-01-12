@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/agent-hooks-harness/requirements.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-05T05:21:54.227Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767590514212_q98otzj8a",
+      "approvalTitle": "Spec agent-hooks-harness: approve requirements.md"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-05T05:24:02.819Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767590514212_q98otzj8a",
+      "approvalTitle": "Spec agent-hooks-harness: approve requirements.md"
+    }
+  ]
+}

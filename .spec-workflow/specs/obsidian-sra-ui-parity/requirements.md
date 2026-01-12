@@ -1,0 +1,150 @@
+# Requirements Document
+
+## Introduction
+
+本 spec 的目标是让 **Obsidian Desktop** 成为 `ScientificResearchAssistant.Api`（SRA 后端）的 **完整主 UI**：在 Obsidian 内提供与 `scientific-research-assistant/frontend`（React Web UI）等价的交互能力，包括 **AI 聊天（AG-UI streaming）** 与各类面板（Tools / Workspace / Goals / Brief / DAG / Trace / Deliverables / Files / Compute / API Key 等），从而“在 Obsidian 里完成 SRA 系统现有前端能做的所有工作”。
+
+关键约束：
+
+- **桌面端优先**：只要求 Obsidian Desktop（Electron）可用。
+- **不破坏现有前后端分离**：SRA 后端保持独立可运行；Web 前端继续可用；Obsidian 插件作为“新增 UI 入口”。
+- **尽量复用现有 UI 代码**：优先复用/共享 `frontend/` 的组件与 controller 逻辑，避免双份 UI 长期分叉。
+- **端口政策**：仓库内默认/示例端口不得使用 `:5000`；sidecar 默认 `:5678`。
+
+## Alignment with Product Vision
+
+- 符合 **Events are Truth**：Obsidian UI 以 AG-UI SSE 事件流作为实时事实源，并允许回放/落盘以提高可观测性与可追溯性。
+- 符合 **Runtime Agnostic by Design**：UI 只依赖后端 HTTP/SSE 协议；后端内部运行时（Local/Orleans/ProtoActor）演进不影响 UI 能力。
+- 符合 **Remote Access（Future Vision）**：插件以可配置 `baseUrl` 连接后端；本 spec 仍以 desktop 本地 sidecar 为主，但为未来远程保留演进空间。
+
+## Requirements
+
+### Requirement 1 — Obsidian “SRA Workbench” replaces the Web UI feature set
+
+**User Story:** 作为科研人员（用户），我希望在 Obsidian 里获得与 SRA Web 前端等价的工作台能力，以便不离开笔记环境就能完成对话式科研与多智能体推理流程。
+
+#### Acceptance Criteria
+
+1. WHEN 用户在 Obsidian 中打开 SRA Workbench THEN 系统 SHALL 提供与 `scientific-research-assistant/frontend` 同级的核心功能：会话管理、聊天、SSE 状态、工具面板、workspace 面板、vibe 面板组（goals/brief/dag/trace/delivery/compute）、文件浏览与编辑、API key/LLM 管理入口。
+2. IF 某功能依赖后端 local-only API（例如 session workspace 文件管理） AND 当前 `baseUrl` 指向远程服务 THEN 系统 SHALL 以“不可用/仅桌面本地支持”的方式降级展示，而非产生误导性 UI。
+3. WHEN Web 前端仍在运行 THEN 系统 SHALL 不影响其工作（不修改后端协议导致破坏性变化；不强制用户迁移）。
+
+### Requirement 2 — Session lifecycle parity (create/list/select + status)
+
+**User Story:** 作为用户，我希望在 Obsidian 内创建/列出/选择 session，并清楚看到连接状态，以便持续在同一研究上下文中工作。
+
+#### Acceptance Criteria
+
+1. WHEN 用户点击 “New session” THEN 系统 SHALL 调用 `POST /api/sessions` 并在 UI 中设置为 active session。
+2. WHEN 用户需要选择 session THEN 系统 SHALL 调用 `GET /api/sessions` 展示列表并允许切换。
+3. WHEN active session 变更 THEN 系统 SHALL 断开旧 SSE 并连接新 session 的 SSE（快照优先）。
+4. IF session 不存在 THEN 系统 SHALL 返回明确的错误提示，并提供重新创建 session 的路径。
+
+### Requirement 3 — AG-UI streaming chat parity (multi-agent, steps, tool cards)
+
+**User Story:** 作为用户，我希望 Obsidian 内的聊天体验与 Web UI 一致：流式输出、工具卡片、步骤卡片、多 agent 输出可筛选/折叠，以便快速理解多智能体的执行轨迹。
+
+#### Acceptance Criteria
+
+1. WHEN 用户连接到 session THEN 系统 SHALL 订阅 `GET /api/sessions/{id}/agui/events`，先接收 `MESSAGES_SNAPSHOT`/`STATE_SNAPSHOT` 与相关 `CUSTOM` 快照事件，再进入 live stream。
+2. WHEN 收到 `TEXT_MESSAGE_*` 事件 THEN 系统 SHALL 以 token streaming 的方式渲染消息，并在消息结束时标记为 final。
+3. WHEN 收到 tool/step 相关事件（含 `CUSTOM aevatar.ui.*` 与 tool_start/tool_end） THEN 系统 SHALL 展示与 Web UI 等价的 tool cards / run steps 面板，并支持刷新后重连恢复（至少恢复快照）。
+4. WHEN 用户选择 agent filter THEN 系统 SHALL 按 agent 过滤消息展示（用户消息不被过滤掉）。
+5. WHEN 用户滚动离开底部 THEN 系统 SHALL 不强制跳转到底部，并提供“新消息提示”与一键回到底部的交互。
+
+### Requirement 4 — Composer parity (mode/provider/toAgents/attachments)
+
+**User Story:** 作为用户，我希望在 Obsidian 的输入框中选择运行模式、LLM provider，并可携带附件与路由提示，以便精确控制一次 run 的执行方式。
+
+#### Acceptance Criteria
+
+1. WHEN 用户发送消息 THEN 系统 SHALL 调用 `POST /api/sessions/{id}/input`，支持 `mode`（至少 `chat`/`vibe`/`vibe_loop`）、`providerName`、`toAgents`、`loop` 等字段。
+2. WHEN 用户添加附件 THEN 系统 SHALL 通过 `POST /api/sessions/{id}/uploads` 上传，并将返回的 `attachmentPaths` 填入 `input.attachmentPaths`。
+3. IF 附件超出后端限制（数量/大小/类型） THEN 系统 SHALL 提示限制原因并允许用户继续发送（无附件模式）。
+
+### Requirement 5 — Tools panel parity (search, MCP visibility, refresh)
+
+**User Story:** 作为用户，我希望在 Obsidian 中浏览可用工具（含 MCP tools），并支持搜索与刷新，以便理解并控制 agent 的工具生态。
+
+#### Acceptance Criteria
+
+1. WHEN 用户打开 Tools 面板 THEN 系统 SHALL 获取并展示工具快照（等价于 Web UI 的 tools 列表与 MCP tools 计数）。
+2. WHEN 用户搜索工具 THEN 系统 SHALL 在本地进行过滤（不要求后端支持搜索）。
+3. WHEN 用户触发 MCP reconnect THEN 系统 SHALL 调用 `POST /api/sessions/{id}/mcp/reconnect` 并在 UI 中展示结果/错误（以 SSE custom/tool snapshot 反馈为准）。
+
+### Requirement 6 — Workspace panel parity (materials overview)
+
+**User Story:** 作为用户，我希望在 Obsidian 中查看 workspace/materials 的概览，以便确认当前 facts/sources 是否被加载，以及会话工作区状态。
+
+#### Acceptance Criteria
+
+1. WHEN 用户打开 Workspace 面板 THEN 系统 SHALL 展示 `STATE_SNAPSHOT` 中的 workspace 信息与 materials 列表/计数。
+2. WHEN 用户请求刷新 workspace THEN 系统 SHALL 调用 `GET /api/sessions/{id}/workspace` 并更新展示。
+
+### Requirement 7 — Vibe panels parity (Goals/Brief/DAG/Trace/Delivery/Compute)
+
+**User Story:** 作为用户，我希望在 Obsidian 中完整使用 vibe researching 的所有面板，以便编辑 goals、查看 brief、浏览 DAG、回放 trace、查看 delivery、做 compute decision。
+
+#### Acceptance Criteria
+
+1. WHEN 用户编辑 goals THEN 系统 SHALL 调用 `PUT /api/sessions/{id}/goals` 保存，并在 UI 与 SSE 中看到 `aevatar.vibe.goals_*` 的一致更新。
+2. WHEN 用户查看 brief THEN 系统 SHALL 展示 `aevatar.vibe.brief_snapshot` 与 `GET /api/sessions/{id}/deliverables` 的一致信息。
+3. WHEN 用户查看 DAG THEN 系统 SHALL 展示 DAG snapshot，并支持节点 explain（`GET /api/sessions/{id}/dag/{nodeId}/explain`）与 staged 候选（如适用）。
+4. WHEN 用户查看 trace THEN 系统 SHALL 展示 trace 列表（含 summaryPath 等），并支持打开/引用对应产物。
+5. WHEN 用户需要做 compute decision THEN 系统 SHALL 调用 `POST /api/sessions/{id}/compute/decision` 并在 UI 中显示决策与回执（含自定义事件反馈）。
+
+### Requirement 8 — Files page parity (session workspace file manager)
+
+**User Story:** 作为用户，我希望在 Obsidian 内浏览并编辑 SRA session workspace 文件（如 paper/draft、runs artifacts），以便直接修订与检查 file-SSoT 产物。
+
+#### Acceptance Criteria
+
+1. WHEN 用户打开 Files 页面 THEN 系统 SHALL 提供与 Web UI 等价的文件树、查看、编辑、保存能力（对应后端 `/api/sessions/{id}/files/*`）。
+2. IF 当前环境不满足 local-only 限制 THEN 系统 SHALL 禁用该能力并给出清晰提示（例如“仅本地 sidecar 支持”）。
+
+### Requirement 9 — API key / LLM provider UX parity (no key stored in plugin)
+
+**User Story:** 作为用户，我希望在 Obsidian 中完成与 Web UI 等价的 LLM 配置与诊断（providers/models/test），同时避免把密钥存进插件设置。
+
+#### Acceptance Criteria
+
+1. WHEN 用户打开 API key/LLM 面板 THEN 系统 SHALL 支持列举 providers、测试 provider、列出 models、设置/移除 API key（通过后端 secrets/llm endpoints）。
+2. WHEN 用户设置 API key THEN 系统 SHALL 将 key 写入后端的加密 user secrets（或由 Secrets UI/CLI 完成），而不是写入 Obsidian 插件配置。
+3. IF `baseUrl` 不是 loopback（远程） THEN 系统 SHALL 默认禁用“读回/显示 key”的能力，并提示安全原因。
+
+### Requirement 10 — Skills sync parity (status + logs)
+
+**User Story:** 作为用户，我希望在 Obsidian 中一键更新 Agent Skills packs 并查看进度日志，以便持续使用最新的本地技能包而无需重启。
+
+#### Acceptance Criteria
+
+1. WHEN 用户点击 Update Skills THEN 系统 SHALL 调用 `POST /api/skills/sync` 并显示 best-effort 的进度与日志。
+2. WHEN 用户查看 sync status THEN 系统 SHALL 调用 `GET /api/skills/sync/status` 并展示状态快照。
+
+## Non-Functional Requirements
+
+### Code Architecture and Modularity
+
+- **UI 复用优先**：Obsidian UI 与 Web UI 尽量共享同一套 React 组件/状态管理逻辑，通过抽象的 transport（HTTP/SSE）适配运行环境。
+- **Additive only**：不得破坏现有 SRA Web UI；对后端的改动必须向后兼容（新增字段/新增端点）。
+- **文件规模约束**：保持单文件 < 800 行，避免把 Web UI 逻辑无脑塞进一个 plugin 文件。
+
+### Performance
+
+- SSE 渲染与落盘不得卡住 Obsidian UI；长列表/大量事件需做虚拟化/节流（至少对 events.jsonl 追加写入进行合并/缓冲）。
+
+### Security
+
+- 插件设置不保存明文 API key。
+- 对“远程 baseUrl”场景提供安全降级（local-only 能力禁用、敏感接口默认禁用）。
+
+### Reliability
+
+- SSE 中断可自动重连（指数退避），并在 UI 中清晰展示状态。
+- UI 刷新/Obsidian 重启后能尽量通过后端快照恢复视图（不依赖 SSE replay）。
+
+### Usability
+
+- 提供清晰的命令入口与侧边栏/页面导航，使用户能在 Obsidian 内完成与 Web UI 等价的完整工作流。
+
+

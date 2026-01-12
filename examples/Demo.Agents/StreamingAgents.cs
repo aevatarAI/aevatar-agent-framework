@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Demo.Agents;
 
-// 流处理Agent
+// Stream processing agent
 public class StreamProcessorAgent : GAgentBase<StreamState>
 {
     private int _messageCount = 0;
@@ -26,9 +26,9 @@ public class StreamProcessorAgent : GAgentBase<StreamState>
     }
 }
 
-// StreamState 已在 demo_messages.proto 中定义
+// StreamState is defined in demo_messages.proto
 
-// 发布者Agent
+// Publisher agent
 public class PublisherAgent : GAgentBase<PublisherState>
 {
     

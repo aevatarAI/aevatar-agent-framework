@@ -29,7 +29,7 @@ public interface IAevatarLLMProvider
         return Task.FromResult(new AevatarModelInfo
         {
             Name = "unknown",
-            MaxTokens = 4096,
+            MaxTokens = AevatarAIDefaults.DefaultMaxTokensExtended,
             SupportsStreaming = false,
             SupportsFunctions = false
         });

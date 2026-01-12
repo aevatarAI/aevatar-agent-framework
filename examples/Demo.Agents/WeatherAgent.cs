@@ -4,10 +4,10 @@ using Microsoft.Extensions.Logging;
 
 namespace Demo.Agents;
 
-// WeatherAgentState 已在 demo_messages.proto 中定义
+// WeatherAgentState is defined in demo_messages.proto
 
 /// <summary>
-/// 示例：天气查询Agent
+/// Example: Weather query agent
 /// </summary>
 public class WeatherAgent : GAgentBase<WeatherAgentState>
 {
@@ -17,19 +17,19 @@ public class WeatherAgent : GAgentBase<WeatherAgentState>
     }
 
     /// <summary>
-    /// 查询天气
+    /// Query weather
     /// </summary>
     public async Task<string> GetWeatherAsync(string city, CancellationToken ct = default)
     {
-        // 更新状态
+        // Update state
         State.Location = city;
         State.UpdateCount++;
         State.LastUpdate = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow);
 
-        // 模拟天气查询
+        // Simulate weather query
         var weather = GenerateWeather(city);
         
-        // 更新天气状态
+        // Update weather state
         var parts = weather.Split(',');
         if (parts.Length >= 2)
         {
@@ -40,19 +40,19 @@ public class WeatherAgent : GAgentBase<WeatherAgentState>
             }
         }
 
-        Console.WriteLine($"[WeatherAgent] 城市 {city} 天气查询: {weather}");
+        Console.WriteLine($"[WeatherAgent] Weather query for city {city}: {weather}");
 
         return weather;
     }
 
     /// <summary>
-    /// 获取查询统计
+    /// Get query statistics
     /// </summary>
     public int GetQueryCount() => State.UpdateCount;
 
     private string GenerateWeather(string city)
     {
-        var weathers = new[] { "晴天", "多云", "阴天", "小雨", "大雨", "雪" };
+        var weathers = new[] { "Sunny", "Cloudy", "Overcast", "Light Rain", "Heavy Rain", "Snow" };
         var random = new Random(city.GetHashCode());
         var temp = random.Next(-10, 35);
         var weather = weathers[random.Next(weathers.Length)];

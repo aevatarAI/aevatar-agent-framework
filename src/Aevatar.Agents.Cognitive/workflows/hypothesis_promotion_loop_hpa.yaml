@@ -202,6 +202,14 @@ steps:
           CRITICAL:
           - Extract axioms from raw_task. Each axiom is a line that begins with an ID prefix like "O1:" or "A1:".
           - Do NOT invent axioms.
+          - Extract optional user guidance from raw_task (if present):
+            - Focus / explore direction: the text under the header "Focus (optional):" (can be multi-line).
+              This corresponds to the UI "Goal" field and should guide what hypotheses to propose next.
+            - Seed hypothesis (optional): the text under the header "SeedHypothesis (optional):" (can be multi-line).
+              If absent, also accept legacy inline formats inside Focus like "SeedHypothesis:" / "InitialHypothesis:".
+            - Store these into state.focus and state.seed_hypothesis for later rounds.
+            - If a user seed hypothesis includes extra premises not represented by allowed IDs, do NOT smuggle them in:
+              either weaken the statement to be unconditional, or move the extra premise into motivation as a gap δ.
           - Propose EXACTLY ONE additional assumption (S1) as a "quantum-structure setup".
             - It does NOT have to be derivable from the axioms, but it should be plausible and NOT obviously inconsistent with them.
             - It MUST be explicit and operational (a concrete structural choice), not a vague slogan.
@@ -213,6 +221,9 @@ steps:
             - Assumption IDs: from state.assumptions (exactly ["S1"])
             - Theorem IDs (only if present in the initial theorems list, e.g. "T3")
           - Seed current_hypothesis with a small, checkable statement likely derivable from axioms + assumptions.
+            - If state.seed_hypothesis is non-empty, use it as the seed hypothesis statement (still fill depends_on/factor_sequence).
+              If the provided seed is too strong, minimally weaken it while staying aligned.
+            - Otherwise, pick a seed that aligns with state.focus (if non-empty).
           - The seed hypothesis MUST NOT rely on any extra premise/lemma.
             - Avoid conditional premises like "if G is finite / if boundary area is finite / assume ...".
             - If you notice a missing lemma in motivation, that means the hypothesis is NOT suitable as the seed.
@@ -229,6 +240,8 @@ steps:
 
           Output JSON schema:
           {
+            "focus": string,
+            "seed_hypothesis": string,
             "axioms": [string],
             "assumptions": [
               { "id": string, "statement": string, "motivation": string }
@@ -266,6 +279,8 @@ steps:
           - max_iterations MUST be set to max_depth={{max_depth}}.
           - seen_hypotheses MUST start empty.
           - assumptions MUST contain exactly 1 item with id="S1".
+          - focus MUST be a string (use "" if not provided).
+          - seed_hypothesis MUST be a string (use "" if not provided).
 
           Language: {{language}}
         output: json
@@ -363,6 +378,12 @@ steps:
 
           Assumptions (extra premises, cite as [S1] when used):
           {{ state.assumptions | json }}
+
+          User focus / explore direction (optional):
+          {{ state.focus | default: "" }}
+
+          User-provided seed hypothesis (optional, for context only):
+          {{ state.seed_hypothesis | default: "" }}
 
           Recent proved theorems (id + statement only):
           {{ recent_theorems | json }}
@@ -464,6 +485,12 @@ steps:
         Assumptions:
         {{ state.assumptions | json }}
 
+        User focus / explore direction (optional):
+        {{ state.focus | default: "" }}
+
+        User-provided seed hypothesis (optional, for context only):
+        {{ state.seed_hypothesis | default: "" }}
+
         RelevantFacts (top-k theorems):
         {{ relevant_facts | json }}
 
@@ -555,6 +582,12 @@ steps:
               Assumptions:
               {{ state.assumptions | json }}
 
+              User focus / explore direction (optional):
+              {{ state.focus | default: "" }}
+
+              User-provided seed hypothesis (optional, for context only):
+              {{ state.seed_hypothesis | default: "" }}
+
               RelevantFacts:
               {{ relevant_facts | json }}
 
@@ -592,6 +625,10 @@ steps:
               statement, motivation, depends_on, factor_sequence
             - Use "reason" to explain why it likely reduces the gap δ found by scouts and is easiest to verify.
             - Prefer: fewer dependencies, minimal repair, shortest proof path, low ordering fragility.
+            - If user focus is non-empty, prefer a candidate aligned with that direction (unless it fails to repair the gap δ).
+
+            User focus / explore direction (optional):
+            {{ state.focus | default: "" }}
 
             B pool:
             {{ b_pool | json }}
@@ -730,6 +767,12 @@ steps:
 
             Assumptions:
             {{ state.assumptions | json }}
+
+            User focus / explore direction (optional):
+            {{ state.focus | default: "" }}
+
+            User-provided seed hypothesis (optional, for context only):
+            {{ state.seed_hypothesis | default: "" }}
 
             RelevantFacts:
             {{ relevant_facts | json }}
@@ -953,6 +996,17 @@ steps:
                     path: theorems
                     value: "{{ new_theorem }}"
 
+                  # Deduplicate promoted theorems by statement (avoid trivial re-promotions / paraphrase collisions).
+                  - op: distinct
+                    from: state.theorems
+                    key: statement
+                    store: theorems_dedup
+
+                  - op: set_path
+                    target: state
+                    path: theorems
+                    value: "{{ theorems_dedup }}"
+
                   - op: inc_path
                     target: state
                     path: iteration
@@ -1026,6 +1080,12 @@ steps:
                     path: status
                     value: limit
 
+              # Token-free snapshot after promotion (lets UI/Graph update before workflow completes).
+              - id: checkpoint_state_after_promote
+                type: checkpoint
+                variables:
+                  - state
+
             # ---- Verification failed: choose next hypothesis from B pool ----
             if_false:
               - id: ensure_b_pool_verify_failed
@@ -1053,6 +1113,12 @@ steps:
 
                       Assumptions:
                       {{ state.assumptions | json }}
+
+                      User focus / explore direction (optional):
+                      {{ state.focus | default: "" }}
+
+                      User-provided seed hypothesis (optional, for context only):
+                      {{ state.seed_hypothesis | default: "" }}
 
                       RelevantFacts:
                       {{ relevant_facts | json }}
@@ -1093,6 +1159,10 @@ steps:
                       statement, motivation, depends_on, factor_sequence
                     - Use "reason" to explain why it best closes the gap δ and is easiest to verify next.
                     - Prefer: fewer dependencies, minimal repair, low ordering fragility.
+                    - If user focus is non-empty, prefer a candidate aligned with that direction (unless it fails to repair the gap δ).
+
+                    User focus / explore direction (optional):
+                    {{ state.focus | default: "" }}
 
                     B pool:
                     {{ b_pool | json }}
@@ -1206,6 +1276,12 @@ steps:
                   Assumptions:
                   {{ state.assumptions | json }}
 
+                  User focus / explore direction (optional):
+                  {{ state.focus | default: "" }}
+
+                  User-provided seed hypothesis (optional, for context only):
+                  {{ state.seed_hypothesis | default: "" }}
+
                   RelevantFacts:
                   {{ relevant_facts | json }}
 
@@ -1245,6 +1321,10 @@ steps:
                   statement, motivation, depends_on, factor_sequence
                 - Use "reason" to explain why it best reduces the gap δ / refutation cause and is easiest to verify next.
                 - Prefer: fewer dependencies, minimal repair, low ordering fragility.
+                - If user focus is non-empty, prefer a candidate aligned with that direction (unless it fails to repair the gap δ).
+
+                User focus / explore direction (optional):
+                {{ state.focus | default: "" }}
 
                 B pool:
                 {{ b_pool | json }}

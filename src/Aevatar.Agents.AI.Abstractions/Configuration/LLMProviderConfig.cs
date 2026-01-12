@@ -47,12 +47,15 @@ public class LLMProviderConfig
     /// <summary>
     /// Maximum tokens
     /// </summary>
-    public int MaxTokens { get; set; } = 2000;
+    public int MaxTokens { get; set; } = AevatarAIDefaults.DefaultMaxOutputTokens;
 
     /// <summary>
     /// Timeout duration (milliseconds)
     /// </summary>
-    public int TimeoutMilliseconds { get; set; } = 60000;
+    // NOTE:
+    // - Default to 10 minutes to match current MEAI/OpenAI client behavior (large context + tool loops can be slow).
+    // - Apps can override per-provider in configuration.
+    public int TimeoutMilliseconds { get; set; } = 600_000;
 
     /// <summary>
     /// Whether to enable streaming response
@@ -107,7 +110,15 @@ public class LLMProvidersConfig
     /// <summary>
     /// Default provider name
     /// </summary>
-    public string Default { get; set; } = "openai-gpt4";
+    public string Default { get; set; }
+
+    /// <summary>
+    /// Global/default embedding channel configuration.
+    /// <para/>
+    /// If a specific provider does not specify <see cref="LLMProviderConfig.Embeddings"/>,
+    /// this global config can be used as the fallback.
+    /// </summary>
+    public LLMEmbeddingConfig? Embeddings { get; set; }
 
     /// <summary>
     /// Provider dictionary (key: provider name, value: configuration)
@@ -116,15 +127,14 @@ public class LLMProvidersConfig
 }
 
 /// <summary>
-/// Embedding configuration, used to drive IEmbeddingGenerator
+/// Embedding configuration, used to drive IEmbeddingGenerator.
+/// <para/>
+/// NOTE:
+/// - There is intentionally no "Enabled" switch here.
+/// - If this section is present (provider-level or global fallback), the system will try to use embeddings (best-effort).
 /// </summary>
 public class LLMEmbeddingConfig
 {
-    /// <summary>
-    /// Whether to enable Embedding channel (default true)
-    /// </summary>
-    public bool Enabled { get; set; } = true;
-
     /// <summary>
     /// Embedding provider type (OpenAI, AzureOpenAI, Ollama, etc.).
     /// If not specified, defaults to main configuration's ProviderType.

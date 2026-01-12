@@ -1,0 +1,30 @@
+{
+  "filePath": ".spec-workflow/steering/structure.md",
+  "currentVersion": 3,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-05T09:14:10.320Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767604450317_e717ufdqb",
+      "approvalTitle": "Approve steering structure.md (facts/sources + workspace/mailbox directory conventions)"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-05T09:28:00.671Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767605101407_0s419bawn",
+      "approvalTitle": "Approve steering structure.md (v2: paper/ facts_proposed/ decisions/ mailbox protocol, sources optional)"
+    },
+    {
+      "version": 3,
+      "filename": "snapshot-003.json",
+      "timestamp": "2026-01-06T05:53:29.312Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767678759197_klo4os8yc",
+      "approvalTitle": "Steering: structure.md"
+    }
+  ]
+}

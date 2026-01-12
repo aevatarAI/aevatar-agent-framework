@@ -29,7 +29,7 @@ public sealed class MEAIEmbeddingFactory : IAIAgentEmbeddingFactory
         if (providerConfig == null)
             throw new ArgumentNullException(nameof(providerConfig));
 
-        if (providerConfig.Embeddings is not { Enabled: true })
+        if (providerConfig.Embeddings == null)
             return Task.FromResult<IEmbeddingGenerator<string, Embedding<float>>?>(null);
 
         try

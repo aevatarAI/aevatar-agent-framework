@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Reflection;
 using Google.Protobuf;
+using Google.Protobuf.Reflection;
 using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.Core.EventSourcing;
@@ -23,35 +24,53 @@ public class ProtobufEventTypeResolver : IEventTypeResolver
 
     public EventTypeInfo? Resolve(string typeUrl, Assembly searchAssembly)
     {
-        var simpleTypeName = ExtractSimpleTypeName(typeUrl);
+        var fullTypeName = ExtractFullTypeName(typeUrl);
+        var simpleTypeName = ExtractSimpleTypeName(fullTypeName);
 
         // Fast path: cache hit
-        if (_typeCache.TryGetValue(simpleTypeName, out var info))
+        if (_typeCache.TryGetValue(fullTypeName, out var info))
         {
             return info;
         }
 
         // Slow path: build and cache
-        info = BuildTypeCache(simpleTypeName, searchAssembly);
+        info = BuildTypeCache(fullTypeName, simpleTypeName, searchAssembly);
         if (info != null)
         {
-            _typeCache[simpleTypeName] = info;
-            _logger?.LogInformation("Type {TypeName} cached. Total cached types: {Count}", simpleTypeName, _typeCache.Count);
+            _typeCache[fullTypeName] = info;
+            _logger?.LogInformation("Type {TypeName} cached. Total cached types: {Count}", fullTypeName, _typeCache.Count);
         }
 
         return info;
     }
 
-    private EventTypeInfo? BuildTypeCache(string simpleTypeName, Assembly assembly)
+    private EventTypeInfo? BuildTypeCache(string fullTypeName, string simpleTypeName, Assembly assembly)
     {
         try
         {
-            var matchingType = assembly.GetTypes()
-                .FirstOrDefault(t => t.Name == simpleTypeName && typeof(IMessage).IsAssignableFrom(t));
+            // 1) Prefer exact Protobuf full-name match via static Descriptor.FullName.
+            var matchingType = FindMessageTypeByDescriptorFullName(assembly, fullTypeName)
+                               ?? FindMessageTypeBySimpleName(assembly, simpleTypeName);
+
+            // 2) Fallback: scan all loaded assemblies (cross-boundary events often live in different modules).
+            if (matchingType == null)
+            {
+                foreach (var a in AppDomain.CurrentDomain.GetAssemblies()
+                             .Where(x => !x.IsDynamic)
+                             .OrderBy(x => x.FullName, StringComparer.Ordinal))
+                {
+                    matchingType = FindMessageTypeByDescriptorFullName(a, fullTypeName)
+                                   ?? FindMessageTypeBySimpleName(a, simpleTypeName);
+                    if (matchingType != null)
+                        break;
+                }
+            }
 
             if (matchingType == null)
             {
-                _logger?.LogWarning("Type {TypeName} not found in assembly {Assembly}", simpleTypeName, assembly.FullName);
+                _logger?.LogWarning(
+                    "Type {TypeName} not found (TypeUrl fullName: {FullTypeName}) starting from assembly {Assembly}",
+                    simpleTypeName, fullTypeName, assembly.FullName);
                 return null;
             }
 
@@ -71,17 +90,70 @@ public class ProtobufEventTypeResolver : IEventTypeResolver
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Error building type cache for {TypeName}", simpleTypeName);
+            _logger?.LogError(ex, "Error building type cache for {TypeName}", fullTypeName);
             return null;
         }
     }
 
-    private static string ExtractSimpleTypeName(string typeUrl)
+    private static string ExtractFullTypeName(string typeUrl)
     {
-        var fullTypeName = typeUrl.Substring(typeUrl.LastIndexOf('/') + 1);
+        if (string.IsNullOrWhiteSpace(typeUrl))
+            return string.Empty;
+        var idx = typeUrl.LastIndexOf('/');
+        return idx >= 0 && idx < typeUrl.Length - 1
+            ? typeUrl[(idx + 1)..]
+            : typeUrl.Trim();
+    }
+
+    private static string ExtractSimpleTypeName(string fullTypeName)
+    {
+        if (string.IsNullOrWhiteSpace(fullTypeName))
+            return string.Empty;
         return fullTypeName.Contains('.')
-            ? fullTypeName.Substring(fullTypeName.LastIndexOf('.') + 1)
+            ? fullTypeName[(fullTypeName.LastIndexOf('.') + 1)..]
             : fullTypeName;
+    }
+
+    private static Type? FindMessageTypeByDescriptorFullName(Assembly assembly, string fullTypeName)
+    {
+        if (string.IsNullOrWhiteSpace(fullTypeName))
+            return null;
+
+        try
+        {
+            foreach (var t in assembly.GetTypes())
+            {
+                if (!typeof(IMessage).IsAssignableFrom(t)) continue;
+
+                var descObj = t.GetProperty("Descriptor", BindingFlags.Public | BindingFlags.Static)
+                    ?.GetValue(null);
+                if (descObj is not MessageDescriptor desc) continue;
+                if (string.Equals(desc.FullName, fullTypeName, StringComparison.Ordinal))
+                    return t;
+            }
+        }
+        catch
+        {
+            // best-effort: some assemblies may throw on GetTypes()
+        }
+
+        return null;
+    }
+
+    private static Type? FindMessageTypeBySimpleName(Assembly assembly, string simpleTypeName)
+    {
+        if (string.IsNullOrWhiteSpace(simpleTypeName))
+            return null;
+
+        try
+        {
+            return assembly.GetTypes()
+                .FirstOrDefault(t => t.Name == simpleTypeName && typeof(IMessage).IsAssignableFrom(t));
+        }
+        catch
+        {
+            return null;
+        }
     }
     
     public void ClearCache()

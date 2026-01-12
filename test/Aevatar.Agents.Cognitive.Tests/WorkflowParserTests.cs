@@ -87,6 +87,55 @@ public class WorkflowParserTests
     }
 
     [Fact]
+    public void Parse_ShouldLoadRalphLoopWorkflow()
+    {
+        var parser = new WorkflowParser();
+        var wf = parser.ParseFile(Path.Combine(
+            RepoRoot(),
+            "src",
+            "Aevatar.Agents.Cognitive",
+            "workflows",
+            "ralph-loop.yaml"));
+
+        wf.Name.ShouldBe("ralph-loop");
+        wf.Steps.Count.ShouldBeGreaterThan(0);
+
+        var extract = wf.Steps.Single(s => s.Id == "extract_signals");
+        extract.Type.ShouldBe("llm_call");
+
+        // defaults.llm_call should be injected (guardrails)
+        extract.Parameters.ContainsKey("timeout_seconds").ShouldBeTrue();
+        extract.Parameters.ContainsKey("idle_timeout_seconds").ShouldBeTrue();
+        extract.Parameters.ContainsKey("max_length").ShouldBeTrue();
+        extract.Parameters.ContainsKey("strict_parse").ShouldBeTrue();
+
+        var search = wf.Steps.Single(s => s.Id == "code_search");
+        search.Type.ShouldBe("workspace_code_search");
+        search.Parameters.ContainsKey("pattern").ShouldBeTrue();
+
+        // defaults.workspace_code_search should be injected (bounded outputs)
+        search.Parameters.ContainsKey("max_results").ShouldBeTrue();
+        search.Parameters.ContainsKey("context_lines").ShouldBeTrue();
+
+        var read = wf.Steps.Single(s => s.Id == "read_file");
+        read.Type.ShouldBe("workspace_read_file");
+        read.Parameters.ContainsKey("path").ShouldBeTrue();
+        read.Parameters.ContainsKey("max_chars").ShouldBeTrue();
+
+        var verify = wf.Steps.Single(s => s.Id == "verify");
+        verify.Type.ShouldBe("sandbox_command");
+        verify.Parameters.ContainsKey("command").ShouldBeTrue();
+        verify.Parameters.ContainsKey("timeout_ms").ShouldBeTrue();
+        verify.Parameters.ContainsKey("max_output_chars").ShouldBeTrue();
+
+        // Ensure recursion pattern exists (stop_or_continue conditional with workflow_call)
+        var stop = wf.Steps.Single(s => s.Id == "stop_or_continue");
+        stop.Type.ShouldBe("conditional");
+        stop.IfFalse.ShouldNotBeNull();
+        stop.IfFalse!.Any(s => s.Type == "workflow_call" && s.Workflow == "ralph-loop").ShouldBeTrue();
+    }
+
+    [Fact]
     public void Parse_ShouldNormalizeNestedMappings_ForTransformOps()
     {
         var yaml = @"

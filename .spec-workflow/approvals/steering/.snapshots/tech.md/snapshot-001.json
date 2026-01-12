@@ -1,0 +1,16 @@
+{
+  "id": "snapshot_1767604443642_lg0henucv",
+  "approvalId": "approval_1767604443637_qz0uy1z39",
+  "approvalTitle": "Approve steering tech.md (facts/sources + file-based blackboard/mailbox tech constraints)",
+  "version": 1,
+  "timestamp": "2026-01-05T09:14:03.642Z",
+  "trigger": "initial",
+  "status": "pending",
+  "content": "# Technology Stack\n\n## Project Type\n\nMonorepo 内的分布式智能体框架 + 多个产品化系统（本 steering 聚焦“科研助手平台”的可交付工程约束）。\n\n## Core Technologies\n\n### Primary Language(s)\n- **Language**: C# (.NET 10) + TypeScript (React/Vite)\n- **Runtime/Compiler**: .NET 10 SDK, Node.js\n\n### Key Dependencies/Libraries\n- **Aevatar Agent Framework**: Actor Model + event-driven agent runtime\n- **AG-UI**: snapshot-first SSE 事件流协议（Run/Step/Text/State/Custom）\n- **Protocol Buffers**: 跨边界类型的唯一可信 schema（state/event/config/message）\n\n### Application Architecture\n\n- **Event-driven**: agent 之间通过事件/stream 协作（runtime-agnostic）\n- **Boundary projection**: 不污染核心推理逻辑，通过边界层投影成 AG-UI + 文件产物\n- **File system as blackboard**（可选）：facts/sources/artifacts 用于可审计落盘与跨 agent 协作\n\n### Data Storage (if applicable)\n\n- **Primary storage (MVP)**: 文件系统（`facts/` + `sources/` + session artifacts）\n- **Optional**: MemoryStore / VectorIndex（Embedding 检索）\n- **Data formats**:\n  - **Protobuf schema**：所有跨边界类型必须有 `.proto`\n  - **Human-readable**：可用 Protobuf JSON 映射落盘为 `.json/.md`（便于 review）\n\n### External Integrations (if applicable)\n\n- **LLM Providers**: MEAI provider factory via `LLMProviders` config\n- **MCP**: Claude Scientific Skills（HTTP/Docker）\n\n### Monitoring & Dashboard Technologies (if applicable)\n\n- **Dashboard Framework**: React + Vite + Tailwind\n- **Real-time Communication**: SSE (AG-UI)\n\n## Development Environment\n\n### Build & Development Tools\n- `dotnet build` / `dotnet test`\n- `npm run dev` / `npm run build`\n\n### Code Quality Tools\n- .NET analyzers + TypeScript compiler + ESLint\n\n## Technical Requirements & Constraints\n\n### Security & Compliance\n\n- **Dangerous tools default-off**：例如 `python_exec` 必须显式开启\n- **Secrets hygiene**：真实密钥只允许在本地 secrets 文件，不可提交\n\n### Scalability & Reliability\n\n- 工程约束：任何 UI/投影逻辑 best-effort，不允许杀主流程\n- snapshot-first：断线重连不依赖 replay tool/token spam\n\n## Technical Decisions & Rationale\n\n### Decision Log\n\n1. **facts + sources 分层**\n   - *Why*: 区分“可依赖事实”和“可引用来源”，让推理更可控、更可复用\n2. **文件目录作为可审计产物**\n   - *Why*: 研究过程需要复现与 review；文件系统天然支持版本化与协作\n3. **Protobuf schema-first**\n   - *Why*: 跨 runtime/跨 agent 的边界必须可演进、可验证、可序列化\n\n## Known Limitations\n\n- 文件目录协作在并发场景下需要额外机制（原子写、锁、幂等）；MVP 只提供约定与最小实现\n\n\n",
+  "fileStats": {
+    "size": 2795,
+    "lines": 79,
+    "lastModified": "2026-01-05T09:12:55.439Z"
+  },
+  "comments": []
+}

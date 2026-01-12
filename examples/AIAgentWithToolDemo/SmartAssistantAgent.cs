@@ -2,7 +2,7 @@ using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Core;
-using Aevatar.Agents.AI.WithTool.Abstractions;
+using Aevatar.Agents.AI.Tool.Abstractions;
 using Microsoft.Extensions.Logging;
 
 namespace AIAgentWithToolDemo;

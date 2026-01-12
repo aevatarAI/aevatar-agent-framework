@@ -2,6 +2,7 @@ using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.MEAI;
+using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Runtime.Local;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -21,6 +22,7 @@ public static class Program
                 var baseDir = AppContext.BaseDirectory;
 
                 config.AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
+                    .AddAevatarUserSecrets()
                     .AddJsonFile("appsettings.secrets.json", optional: true, reloadOnChange: false)
                     .AddJsonFile(Path.Combine(baseDir, "appsettings.json"), optional: true, reloadOnChange: false)
                     .AddJsonFile(Path.Combine(baseDir, "appsettings.secrets.json"), optional: true, reloadOnChange: false);
@@ -78,7 +80,7 @@ public static class Program
         catch (Exception ex)
         {
             logger.LogError(ex,
-                "LLM init failed. Add API key to examples/SkillsMCPUnifiedDemo/appsettings.secrets.json then retry.");
+                "LLM init failed. Add API key via ~/.aevatar/secrets.json (recommended) or examples/SkillsMCPUnifiedDemo/appsettings.secrets.json then retry.");
             return;
         }
 
@@ -94,6 +96,8 @@ public static class Program
         //     "请先调用 skills_list，然后 skills_load 加载 json-pretty skill，把这个 JSON 格式化后返回：{\"a\":1,\"b\":{\"c\":2,\"d\":[3,4]}}");
         // await RunChatAsync(logger, agent,
         //     "请先调用 skills_list，然后 skills_load 加载 slugify-helper skill，把 'Hello, Aevatar Agent Framework!' 转成 slug。");
+        // await RunChatAsync(logger, agent,
+        //     "请先调用 skills_list，然后 skills_load 加载 python-calc skill，再按 skill 的步骤回答：计算 1/7 的小数（至少 30 位）。");
 
         // Optional MCP demo: Context7 (if tools are present)
         var tools = await agent.GetRegisteredToolsAsync();

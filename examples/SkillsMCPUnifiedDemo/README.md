@@ -3,6 +3,7 @@
 这个 demo 把四件事串在一起：
 
 1) **dotnet-file skills**：把 `skills/*.cs` 作为 Tool（通过 `.NET 10` 的 `dotnet run --file` 执行）
+1.5) **python-file skills**：把 `skills/*.py` 作为 Tool（通过 `python3 -I -u` 执行；可用 `AEVATAR_PYTHON_BIN` 覆盖 python 路径）
 2) **Agent Skills (SKILL.md)**：通过 `skills_list/skills_load` 让 LLM 按需加载 skill（并支持 `allowed-tools` 硬约束）
 3) **MCP (Model Context Protocol)**：把 MCP server 的 tools 注册进 Agent（可选：docker filesystem / Context7）
 4) **In-proc AI tools**：用 C# 类直接注册工具（`text_stats/json_prettify/slugify`）
@@ -45,6 +46,7 @@ dotnet run --project examples/SkillsMCPUnifiedDemo/SkillsMCPUnifiedDemo.csproj
 - `agent_skills/text-analyzer/SKILL.md`：`allowed-tools: [text_stats]`（本地 AI tool）
 - `agent_skills/json-pretty/SKILL.md`：`allowed-tools: [json_prettify]`（本地 AI tool）
 - `agent_skills/slugify-helper/SKILL.md`：`allowed-tools: [slugify]`（本地 AI tool）
+- `agent_skills/python-calc/SKILL.md`：`allowed-tools: [py_calc]`（python-file tool：精确算术表达式计算）
 - `agent_skills/context7-docs/SKILL.md`：`allowed-tools: [resolve-library-id, get-library-docs]`（MCP：Context7）
 - `agent_skills/mcp-filesystem-browse/SKILL.md`：MCP filesystem（docker-fs，没写 allowlist，避免不同版本 tool 名差异）
 
@@ -52,6 +54,21 @@ dotnet run --project examples/SkillsMCPUnifiedDemo/SkillsMCPUnifiedDemo.csproj
 
 - **dotnet-file tools（`skills/*.cs`）**：
   - `get_time` / `system_info` / `get_env` / `file_read` / `file_search`
+- **python-file tools（`skills/*.py`）**：
+  - `py_calc`
 - **in-proc tools（C#）**：
   - `text_stats` / `json_prettify` / `slugify`
+
+## 约定：怎么把一个文件变成 Tool
+
+- **放置位置**：把工具文件放进 `examples/SkillsMCPUnifiedDemo/skills/`
+- **必须有 manifest 才会被自动注册**：
+  - **dotnet-file (`.cs`)**：文件头包含 `/*aevatar_tool { ... } */`
+  - **python-file (`.py`)**：三引号块以 `"""aevatar_tool` 或 `'''aevatar_tool` 开头，内部是 JSON
+
+## 试一下 python-file skill（可选）
+
+- **前提**：本机能运行 `python3`（或设置 `AEVATAR_PYTHON_BIN=/abs/path/to/python`）
+- **示例对话**：
+  - `请先调用 skills_list，然后 skills_load 加载 python-calc skill，再按 skill 的步骤回答：计算 1/7 的小数（至少 30 位）。`
 

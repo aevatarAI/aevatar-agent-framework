@@ -1,0 +1,14 @@
+{
+  "filePath": ".spec-workflow/specs/aevatar-notebook/requirements.md",
+  "currentVersion": 1,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2025-12-31T09:06:50.300Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767172010280_0vmt5ilr0",
+      "approvalTitle": "Approve requirements for spec aevatar-notebook"
+    }
+  ]
+}

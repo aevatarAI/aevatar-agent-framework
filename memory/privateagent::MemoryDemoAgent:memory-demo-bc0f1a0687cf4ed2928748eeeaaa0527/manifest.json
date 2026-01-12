@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "memoryId": "privateagent::MemoryDemoAgent:memory-demo-bc0f1a0687cf4ed2928748eeeaaa0527",
+  "scopeType": "PrivateAgent",
+  "scopeId": "MemoryDemoAgent:memory-demo-bc0f1a0687cf4ed2928748eeeaaa0527",
+  "entryCount": 2,
+  "latestAtUtc": "2025-12-29T07:37:34.425908+00:00",
+  "files": {
+    "entriesBinary": "entries.pb",
+    "manifest": "manifest.json"
+  }
+}

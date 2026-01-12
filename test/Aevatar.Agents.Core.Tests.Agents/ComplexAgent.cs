@@ -4,7 +4,7 @@ using Google.Protobuf.WellKnownTypes;
 namespace Aevatar.Agents.Core.Tests.Agents;
 
 /// <summary>
-/// 复杂状态Agent
+/// Complex state agent
 /// </summary>
 public class ComplexAgent : GAgentBase<ComplexAgentState>
 {

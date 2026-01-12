@@ -3,7 +3,7 @@ using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Abstractions.Tests.Fixtures;
 using Aevatar.Agents.AI.Abstractions.Tests.LLMProvider;
-using Aevatar.Agents.AI.WithTool.Abstractions;
+using Aevatar.Agents.AI.Tool.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;

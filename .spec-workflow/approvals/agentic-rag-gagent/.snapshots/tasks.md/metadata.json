@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/agentic-rag-gagent/tasks.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-07T10:40:29.776Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767782429726_s48jjb41p",
+      "approvalTitle": "agentic-rag-gagent — approve tasks.md"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-07T10:40:37.275Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767782429726_s48jjb41p",
+      "approvalTitle": "agentic-rag-gagent — approve tasks.md"
+    }
+  ]
+}

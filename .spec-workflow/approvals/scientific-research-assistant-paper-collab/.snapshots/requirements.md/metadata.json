@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/scientific-research-assistant-paper-collab/requirements.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-05T09:30:58.355Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767605458352_e66e4jw6o",
+      "approvalTitle": "Approve spec requirements: scientific-research-assistant-paper-collab (File-SSoT + mailbox + Markdown paper + facts_proposed→consensus/verify→facts)"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-05T09:31:37.232Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767605458352_e66e4jw6o",
+      "approvalTitle": "Approve spec requirements: scientific-research-assistant-paper-collab (File-SSoT + mailbox + Markdown paper + facts_proposed→consensus/verify→facts)"
+    }
+  ]
+}

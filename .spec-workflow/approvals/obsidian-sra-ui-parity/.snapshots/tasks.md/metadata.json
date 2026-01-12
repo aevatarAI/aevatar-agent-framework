@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/obsidian-sra-ui-parity/tasks.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-09T03:30:56.467Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767929456449_dlvmni0fj",
+      "approvalTitle": "Approve tasks for obsidian-sra-ui-parity (Full SRA Web UI parity inside Obsidian)"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-09T03:31:06.034Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767929456449_dlvmni0fj",
+      "approvalTitle": "Approve tasks for obsidian-sra-ui-parity (Full SRA Web UI parity inside Obsidian)"
+    }
+  ]
+}

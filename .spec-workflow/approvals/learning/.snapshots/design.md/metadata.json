@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/learning/design.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-06T08:52:03.577Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767689523573_aj69jzvx5",
+      "approvalTitle": "Spec design approval: learning (AI Native Learning System)"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-06T08:53:56.608Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767689523573_aj69jzvx5",
+      "approvalTitle": "Spec design approval: learning (AI Native Learning System)"
+    }
+  ]
+}

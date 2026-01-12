@@ -1,0 +1,586 @@
+# Tasks Document
+
+> 约束：每个任务尽量只改动 **1~3 个文件**（便于审阅/回滚），并严格遵守：
+> - **禁止使用 :5000**
+> - **跨边界类型必须 Protobuf（State/Event/Config/EventSourcing）**
+> - **AG‑UI SSE：snapshot-first（至少 MESSAGES_SNAPSHOT）**
+> - **LLMProviders 可配置（不硬编码）**
+> - **Aspire AppHost + start.sh 必须提供**
+
+---
+
+- [x] 1. 创建系统入口 README（learning/README.md）
+  - Files:
+    - `learning/README.md`
+  - Implement:
+    - 系统目标与“AI Native”定义（无 AI 不成立）
+    - 运行方式：`./learning/start.sh` / `dotnet run --project learning/Aevatar.Learning.AppHost` / 分别启动
+    - 配置入口：`learning/docs/CONFIGURATION.md` + `appsettings.secrets.json.example`
+    - 端口说明：后端 5678、前端 5173（禁止 5000）
+  - Purpose: 提供系统入口文档，确保新同学 5 分钟跑起来
+  - _Leverage: `notebook/README.md`, `trade/README.md`, `novel/README.md`_
+  - _Requirements: 10, Non-Functional Requirements_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Technical writer | Task: Write `learning/README.md` as a single-page runnable guide with clear run/config steps and port policy. | Restrictions: No secrets; do not mention/use :5000; keep instructions copy-pastable. | _Leverage: notebook/trade/novel README patterns | _Requirements: 10 + NFR | Success: A new developer can run the system with start.sh and knows where to configure LLMProviders. (Workflow: mark task [-] before coding; after completion call log-implementation with artifacts; then mark [x].)_
+
+- [x] 2. 架构文档：ARCHITECTURE（learning/docs/ARCHITECTURE.md）
+  - Files:
+    - `learning/docs/ARCHITECTURE.md`
+  - Implement:
+    - 模块边界（Core/Api/Agents/Frontend/AppHost）
+    - 事件流：用户输入 → Agent 执行 → AG‑UI SSE（快照优先）
+    - 重连策略：先 `MESSAGES_SNAPSHOT`，可选 `STATE_SNAPSHOT`，再 live
+    - 为什么选择 Tauri（桌面端/本地资料/文件系统权限）
+  - Purpose: 把“系统骨架”讲清楚，避免未来无穷分支
+  - _Leverage: `learning/design.md`, `docs/AGUI_INTEGRATION_GUIDE.md`, `notebook/docs/ARCHITECTURE.md`_
+  - _Requirements: 10, Non-Functional Requirements_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: System architect | Task: Author `learning/docs/ARCHITECTURE.md` describing module boundaries, AG-UI dataflow (snapshot-first), and Tauri rationale. | Restrictions: No port 5000; keep architecture minimal and actionable; avoid vague diagrams. | _Leverage: learning/design.md + AGUI guide | _Requirements: 10 + NFR | Success: Doc explains how a user input becomes AG-UI events and where each responsibility lives. (Workflow: mark task [-] before coding; after completion log-implementation; then mark [x].)_
+
+- [x] 3. 配置文档：CONFIGURATION（learning/docs/CONFIGURATION.md）
+  - Files:
+    - `learning/docs/CONFIGURATION.md`
+  - Implement:
+    - `LLMProviders` 配置结构与示例（含 request-level providerName 覆盖）
+    - 运行时切换（Local/Orleans）的配置入口（即使 MVP 只实现 Local，也要写清“未来如何切”）
+    - 端口与 env：`LEARNING_API_PORT` / `LEARNING_FRONTEND_PORT` / `LEARNING_NOTEBOOK_ROOT` 等
+    - secrets 放置：`learning/src/Aevatar.Learning.Api/appsettings.secrets.json`（提供 `.example`）
+  - Purpose: 把“配置在哪里改”说到位，减少反复问答
+  - _Leverage: `notebook/README.md`（LLMProviders 示例）, `Directory.Packages.props`_
+  - _Requirements: 10, Non-Functional Requirements_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: DX engineer | Task: Write `learning/docs/CONFIGURATION.md` with LLMProviders examples, port/env variables, and runtime selection notes. | Restrictions: No secrets committed; no :5000; include copy-pastable JSON examples. | _Leverage: notebook LLMProviders docs | _Requirements: 10 + NFR | Success: User can configure a provider and verify via /api/info. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+- [x] 4. 开发文档：DEVELOPMENT（learning/docs/DEVELOPMENT.md）
+  - Files:
+    - `learning/docs/DEVELOPMENT.md`
+  - Implement:
+    - 本地开发流程（start.sh / AppHost / 分别启动）
+    - 常见问题排查：SSE 不通、CSP、Tauri dev、LLM 超时
+    - “不绑定 :5000” 与端口冲突处理（lsof kill）
+  - Purpose: 提供可执行的本地开发指南
+  - _Leverage: `novel/dev.sh`（脚本策略）, `notebook/VALIDATION.md`_
+  - _Requirements: 10, Non-Functional Requirements_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Developer advocate | Task: Write `learning/docs/DEVELOPMENT.md` focusing on local dev/debug and common failure modes (SSE/CSP/Tauri). | Restrictions: No :5000; keep steps actionable and short. | _Leverage: novel dev + notebook validation patterns | _Requirements: 10 + NFR | Success: A developer can debug port/CSP/SSE issues from the doc alone. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+---
+
+- [x] 5. 一键启动脚本（learning/start.sh）
+  - Files:
+    - `learning/start.sh`
+  - Implement:
+    - 默认端口：后端 5678、前端 5173（可 env 覆盖）
+    - `--web`（vite web）与 `--tauri`（tauri dev）双模式
+    - 可选 `--no-kill`；默认 kill 端口（lsof）
+    - 等待 `http://localhost:<backend>/health` OK 再启动前端
+    - 注入前端 env：`VITE_LEARNING_API_URL`
+  - Purpose: 本地一键联调入口（稳定、可维护）
+  - _Leverage: `novel/dev.sh`, `notebook/start.sh`_
+  - _Requirements: 10, Non-Functional Requirements_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: DevOps/SRE | Task: Create `learning/start.sh` modeled after `novel/dev.sh` with port-kill, health wait, tauri/web modes, and env injection. | Restrictions: Must not use :5000; macOS/Linux friendly; cleanup child processes on exit. | _Leverage: novel/dev.sh | _Requirements: 10 + NFR | Success: `./learning/start.sh` starts backend then frontend reliably, and Ctrl+C cleans up. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+---
+
+- [x] 6. Protobuf：Learning 核心契约（State/Events/Config）
+  - Files:
+    - `learning/src/Aevatar.Learning/Protos/learning_messages.proto`
+    - `learning/src/Aevatar.Learning/Aevatar.Learning.csproj`
+  - Implement:
+    - 定义 `LearningNotebookState`（至少：history/progress/notebookId）
+    - 定义最小事件：`LearningUserInputEvent`、`LearningNotebookCreatedEvent`（后续可扩展）
+    - csproj 接入 proto codegen（与仓库模式一致）
+  - Purpose: 先立“不可动摇的契约”，避免后续状态/事件泥团
+  - _Leverage: `AGENTS.md`（Protobuf 铁律）, `notebook/Protos/notebook_messages.proto`（模式参考）, `src/Aevatar.Agents.AI.Abstractions/ai_abstractions_messages.proto`_
+  - _Requirements: 1, 10, Non-Functional Requirements_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: C# / Protobuf Engineer | Task: Add `learning_messages.proto` defining protobuf State/Events needed by the learning agent and wire codegen in the csproj. | Restrictions: No C# POCO for State/Event/Config; keep field numbers stable; avoid decimal; no port 5000. | _Leverage: notebook proto patterns | _Requirements: 1,10 + NFR | Success: `dotnet build` generates protobuf C# types and the project references compile. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+- [x] 7. Core：最小 Agent（LearningNotebookAgent）
+  - Files:
+    - `learning/src/Aevatar.Learning/Agents/LearningNotebookAgent.cs`
+  - Implement:
+    - `GAgentBase<LearningNotebookState>`（无参构造）
+    - `OnActivateAsync` 初始化 state 属性（不替换 State）
+    - `GetDescriptionAsync` 返回可读摘要
+    - 预留处理入口（EventHandler）用于接收用户输入事件（后续接入 Q&A/百科/卡片/测验）
+  - Purpose: 确保系统“至少有一个可运行 Agent”，并满足框架规范
+  - _Leverage: `AGENTS.md`（Agent 开发规范）, `notebook/src/Aevatar.Notebook/Agents/NotebookAgent.cs`（参考）_
+  - _Requirements: 10, Non-Functional Requirements_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Aevatar Agent developer | Task: Implement `LearningNotebookAgent` with protobuf state, correct lifecycle init, and a minimal event handler skeleton. | Restrictions: Parameterless ctor; do not assign new State; handlers return Task; no blocking calls. | _Leverage: AGENTS.md + notebook agent patterns | _Requirements: 10 + NFR | Success: Agent can be created/activated in Local runtime without runtime serialization issues. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+---
+
+- [x] 8. API：项目脚手架（Aevatar.Learning.Api）
+  - Files:
+    - `learning/src/Aevatar.Learning.Api/Aevatar.Learning.Api.csproj`
+    - `learning/src/Aevatar.Learning.Api/Program.cs`
+    - `learning/src/Aevatar.Learning.Api/appsettings.json`
+  - Implement:
+    - Minimal API host（禁用 :5000，默认绑定 :5678 由 start.sh/env 提供）
+    - 配置：camelCase JSON（AG‑UI 约定）
+    - 注册 LLMProvidersConfig（不硬编码 provider）
+    - 添加 `/health` 与 `/api/info`
+  - Purpose: 形成后端最小可运行宿主
+  - _Leverage: `notebook/src/Aevatar.Notebook.Api/Program.cs`, `notebook/README.md`（/api/info 诊断理念）_
+  - _Requirements: 10, Non-Functional Requirements_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: .NET Minimal API engineer | Task: Scaffold `Aevatar.Learning.Api` (csproj/Program/appsettings) with /health + /api/info, camelCase JSON, and LLMProviders wiring. | Restrictions: No :5000; do not hardcode provider; keep host minimal. | _Leverage: notebook api host patterns | _Requirements: 10 + NFR | Success: `dotnet run` serves /health and /api/info on :5678 when ASPNETCORE_URLS is set. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+- [x] 9. API：secrets 示例（appsettings.secrets.json.example）
+  - Files:
+    - `learning/src/Aevatar.Learning.Api/appsettings.secrets.json.example`
+  - Implement:
+    - `LLMProviders` 示例（providerName 可覆盖）
+    - 明确提示：不要提交真实 key
+  - Purpose: 让配置可复制粘贴
+  - _Leverage: `notebook/src/Aevatar.Notebook.Api/appsettings.secrets.json.example`_
+  - _Requirements: 10, Non-Functional Requirements_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Configuration curator | Task: Add `appsettings.secrets.json.example` for LLMProviders, matching repo patterns. | Restrictions: No real secrets; no :5000; keep example minimal. | _Leverage: notebook secrets example | _Requirements: 10 + NFR | Success: User can copy to appsettings.secrets.json and /api/info reflects provider info (non-sensitive). (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+- [x] 10. API：Sessions + AG‑UI SSE（snapshot-first）
+  - Files:
+    - `learning/src/Aevatar.Learning.Api/Sessions/LearningSessionsApi.cs`
+    - `learning/src/Aevatar.Learning.Api/Program.cs`
+  - Implement:
+    - `POST /api/sessions`（返回 sessionId；可选 providerName）
+    - `POST /api/sessions/{id}/input`（触发 run；AG‑UI 输出 RUN/STEP/TEXT）
+    - `GET  /api/sessions/{id}/agui/events`（SSE，先 `MESSAGES_SNAPSHOT` 再 live；`replay:false`）
+    - 严格 camelCase JSON 序列化
+  - Purpose: 打通前后端实时链路（系统最小价值闭环）
+  - _Leverage: `notebook/src/Aevatar.Notebook.Api/Sessions/NotebookSessionsApi.cs`, `src/Aevatar.Agents.AGUI/AgUiEvents.cs`_
+  - _Requirements: 3, 10, Non-Functional Requirements_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Backend engineer (SSE/streaming) | Task: Implement sessions endpoints and AG-UI SSE with snapshot-first semantics and live events for run/step/text. | Restrictions: Must send MESSAGES_SNAPSHOT first; do not use replay; no :5000; keep SSE robust (no buffering). | _Leverage: NotebookSessionsApi pattern + AgUiEvents | _Requirements: 3,10 + NFR | Success: Connecting to `/api/sessions/{id}/agui/events` immediately yields MESSAGES_SNAPSHOT and then streaming TEXT_MESSAGE_* during input run. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+---
+
+- [x] 11. Core：Notebook ⇄ 目录映射（NotebookDirectoryStore）
+  - Files:
+    - `learning/src/Aevatar.Learning/Notebooks/NotebookWorkspace.cs`
+    - `learning/src/Aevatar.Learning/Notebooks/NotebookDirectoryStore.cs`
+  - Implement:
+    - 默认根目录：`~/AevatarLearning/`（可 env `LEARNING_NOTEBOOK_ROOT` 覆盖）
+    - 统一目录结构：`sources/ reports/ encyclopedia/ cards/ quizzes/ skills/`（由 `NotebookWorkspace` 负责拼路径与创建子目录）
+    - Create/List/Get 的最小能力（MVP）
+    - 权限/路径校验（不可写就报错）
+  - Purpose: 支撑“每个 notebook 对应真实目录”的硬需求
+  - _Leverage: `novel/frontend`（本地文件系统理念）, `notebook/`（以 scope 组织数据的思路）_
+  - _Requirements: 1, 2_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Backend engineer (filesystem) | Task: Implement `NotebookDirectoryStore` that creates and manages notebook directories under a configurable root. | Restrictions: Must validate paths; no unbounded directory traversal; cross-boundary state remains protobuf. | _Requirements: 1,2 | Success: Creating a notebook yields a stable notebookId + an existing writable directory. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+- [x] 12. API：Notebook 管理接口（create/list/open）
+  - Files:
+    - `learning/src/Aevatar.Learning.Api/Notebooks/NotebooksApi.cs`
+    - `learning/src/Aevatar.Learning.Api/Program.cs`
+  - Implement:
+    - `POST /api/notebooks`（创建 notebook：displayName + 可选 rootPath）
+    - `GET  /api/notebooks`（列表）
+    - `GET  /api/notebooks/{id}`（详情：目录路径/统计摘要占位）
+  - Purpose: 让前端可以管理多个学习专题
+  - _Leverage: `learning/src/Aevatar.Learning/Notebooks/NotebookDirectoryStore.cs`_
+  - _Requirements: 1, 8_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: API designer | Task: Add minimal notebooks CRUD endpoints (create/list/get) wired to NotebookDirectoryStore. | Restrictions: No secrets; validate inputs; no :5000. | _Leverage: NotebookDirectoryStore | _Requirements: 1,8 | Success: Frontend can create and list notebooks, each mapping to a real directory. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+---
+
+- [x] 13. Frontend：依赖与构建脚本（Tauri + Vite + React + @agui/sdk）
+  - Files:
+    - `learning/frontend/package.json`
+    - `learning/frontend/vite.config.ts`
+    - `learning/frontend/tsconfig.json`
+  - Implement:
+    - scripts：`dev:web`（vite）、`build:web`、`dev`（tauri dev）、`build`（tauri build）
+    - 依赖：React + `@agui/sdk` + Tauri v2 基础包
+    - Vite dev server 端口固定 5173（避免端口漂移）
+  - Purpose: 建立可运行的前端工程骨架
+  - _Leverage: `novel/frontend/package.json`, `trade/frontend/vite.config.ts`（固定端口）_
+  - _Requirements: 10, Non-Functional Requirements_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Frontend build engineer | Task: Scaffold the learning frontend package (React + Vite + TS + @agui/sdk + Tauri) with stable dev port 5173 and scripts for web/tauri. | Restrictions: Do not hardcode backend URL; no :5000. | _Leverage: novel frontend patterns | _Requirements: 10 + NFR | Success: `cd learning/frontend && npm run dev:web` starts Vite on :5173. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+- [x] 14. Frontend：最小 UI 框架（Session + Chat + State）
+  - Files:
+    - `learning/frontend/index.html`
+    - `learning/frontend/src/main.tsx`
+    - `learning/frontend/src/App.tsx`
+  - Implement:
+    - Session 创建/选择
+    - 输入框发送 user input
+    - 消息区（消费 `MESSAGES_SNAPSHOT` + `TEXT_MESSAGE_*`）
+    - 状态区（先展示 JSON：`CUSTOM/STATE_*` 事件汇总）
+  - Purpose: UI 先跑通 AG‑UI 标准链路
+  - _Leverage: `docs/AGUI_INTEGRATION_GUIDE.md`（前端用法）, `notebook` UI（交互参考）_
+  - _Requirements: 3, 8, 10_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: React developer | Task: Implement minimal UI (session picker + chat + state panel) that can connect to AG-UI SSE and render messages/state. | Restrictions: Backend URL must be configurable (Vite proxy or env); no :5000; keep UI minimal and stable. | _Requirements: 3,8,10 | Success: User can create a session, send input, and see streaming assistant output. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+- [x] 15. Frontend：AG‑UI 客户端封装与重连策略
+  - Files:
+    - `learning/frontend/src/lib/agui.ts`
+    - `learning/frontend/src/App.tsx`
+  - Implement:
+    - 用 `@agui/sdk` 封装连接逻辑（subscribe handlers）
+    - 断线重连：重连后依赖 `MESSAGES_SNAPSHOT` 恢复（不依赖 replay）
+    - 将 `CUSTOM` 事件渲染为“可折叠 JSON”便于调试
+  - Purpose: 让 AG‑UI 客户端逻辑可复用、可测试
+  - _Leverage: `docs/AGUI_INTEGRATION_GUIDE.md`_
+  - _Requirements: 3, 10_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Frontend engineer (realtime) | Task: Add a small AG-UI client wrapper around @agui/sdk and wire snapshot-first reconnect behavior into the UI. | Restrictions: No replay dependency; no hardcoded backend; no :5000. | _Requirements: 3,10 | Success: Refreshing the UI shows latest messages instantly via snapshot-first without waiting for replay. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+- [x] 16. Frontend：Tauri 配置（CSP/connect-src）
+  - Files:
+    - `learning/frontend/src-tauri/tauri.conf.json`
+    - `learning/frontend/src-tauri/Cargo.toml`
+    - `learning/frontend/src-tauri/src/main.rs`
+  - Implement:
+    - Tauri v2 基础工程
+    - CSP `connect-src` 允许 `http://localhost:*` / `127.0.0.1:*`（dev 连接后端/前端）
+  - Purpose: 满足“桌面端 Tauri”硬需求，并确保 dev 可连本地后端
+  - _Leverage: `novel/frontend/src-tauri/tauri.conf.json`_
+  - _Requirements: 10, Non-Functional Requirements_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Tauri engineer | Task: Add minimal Tauri v2 scaffolding and CSP connect-src suitable for local dev (5173 + backend port). | Restrictions: No :5000; keep permissions minimal; prefer allowlist over broad. | _Leverage: novel tauri config | _Requirements: 10 + NFR | Success: `npm run dev` launches tauri dev and the webview can connect to local backend SSE. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+---
+
+- [x] 17. Aspire AppHost：编排后端 + 前端（web dev）
+  - Files:
+    - `learning/Aevatar.Learning.AppHost/Aevatar.Learning.AppHost.csproj`
+    - `learning/Aevatar.Learning.AppHost/Program.cs`
+  - Implement:
+    - `AddProject<Projects.Aevatar_Learning_Api>(...)`
+    - `AddExecutable(..., "npm", <frontendDir>, "run", "dev:web")` 固定 5173
+    - 注入后端地址给前端（env：`VITE_LEARNING_API_URL` 或 proxy target）
+  - Purpose: 通过 Aspire 一键联调（可观测、可控）
+  - _Leverage: `trade/Aevatar.Trade.AppHost/Program.cs`_
+  - _Requirements: 10, Non-Functional Requirements_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Aspire engineer | Task: Create `Aevatar.Learning.AppHost` that orchestrates the API project and the frontend web dev server with stable ports and env injection. | Restrictions: No :5000; avoid extra NuGet; keep consistent with trade AppHost patterns. | _Leverage: trade AppHost | _Requirements: 10 + NFR | Success: `dotnet run --project learning/Aevatar.Learning.AppHost` shows both endpoints in Aspire dashboard and frontend opens on :5173. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+- [x] 18. 根目录 slnx：aevatar-learning-system.slnx
+  - Files:
+    - `aevatar-learning-system.slnx`
+  - Implement:
+    - 纳入 `learning/src/*`、`learning/Aevatar.Learning.AppHost/*`、`learning/docs/*`、`learning/start.sh`、`learning/README.md`
+    - 风格对齐 `aevatar-trade-system.slnx`
+  - Purpose: 让系统成为 monorepo 的“一等公民”
+  - _Leverage: `aevatar-trade-system.slnx`_
+  - _Requirements: 10, Non-Functional Requirements_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: .NET solution maintainer | Task: Add `aevatar-learning-system.slnx` including learning system projects and docs, matching repo conventions. | Restrictions: No :5000; keep solution entries minimal and correct. | _Leverage: aevatar-trade-system.slnx | _Requirements: 10 + NFR | Success: `dotnet build aevatar-learning-system.slnx` builds the learning system projects. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+---
+
+- [x] 19. MVP：Notebook 基线功能（Sources/Q&A/Report）对齐 notebook 系统
+  - Files:
+    - `learning/docs/NOTEBOOK_PARITY.md`
+  - Implement:
+    - 明确“如何复用 notebook 的既有实现”（类/模块映射表）
+    - 明确 MVP 先对齐哪些 API/能力（sources 导入、问答、报告生成）
+  - Purpose: 把“包含 notebook 的全部功能”的迁移/复用策略写清，避免双实现
+  - _Leverage: `notebook/src/`（现有实现）, `learning/design.md`（reuse 清单）_
+  - _Requirements: 2, 3, 4, 10_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Refactoring planner | Task: Document a concrete reuse/migration plan from existing `notebook/` system into `learning/` (what to reuse vs reimplement), including API parity targets for MVP. | Restrictions: No code changes beyond this doc file; keep it specific (file paths and responsibilities). | _Leverage: notebook/src + learning/design.md | _Requirements: 2,3,4,10 | Success: Plan is precise enough that implementation tasks can follow without ambiguity. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+---
+
+- [x] 20. Core：Sources 持久化（写入 notebook 目录）
+  - Files:
+    - `learning/src/Aevatar.Learning/Sources/SourceStore.cs`
+  - Implement:
+    - 在 `NotebookWorkspace` 下写入 source 文件与元信息（最小支持 txt/markdown 文本）
+    - 生成稳定 `sourceId`；支持 list/get
+    - 约束：大小上限、禁止任意二进制执行路径
+  - Purpose: 支撑资料导入与后续上下文构建
+  - _Leverage: `notebook/src/Aevatar.Notebook/Sources/*`（分块/索引理念）, `learning/src/Aevatar.Learning/Notebooks/NotebookWorkspace.cs`_
+  - _Requirements: 2_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Backend engineer (storage) | Task: Implement `SourceStore` that persists imported sources into a notebook directory with stable ids and safe size/type validation. | Restrictions: No unbounded memory reads; validate inputs; no secrets. | _Leverage: notebook source patterns + NotebookWorkspace | _Requirements: 2 | Success: Sources can be created/listed/read from the notebook directory deterministically. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+- [x] 21. API：Sources 导入与管理接口
+  - Files:
+    - `learning/src/Aevatar.Learning.Api/Sources/SourcesApi.cs`
+    - `learning/src/Aevatar.Learning.Api/Program.cs`
+  - Implement:
+    - `POST /api/notebooks/{id}/sources/text`
+    - `POST /api/notebooks/{id}/sources/file`（先只支持 txt/md）
+    - `GET  /api/notebooks/{id}/sources`
+    - `GET  /api/notebooks/{id}/sources/{sourceId}`
+  - Purpose: 对齐 notebook 基线能力（资料导入/管理）
+  - _Leverage: `notebook/src/Aevatar.Notebook.Api/Sources/*`, `learning/src/Aevatar.Learning/Sources/SourceStore.cs`_
+  - _Requirements: 2_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Backend API developer | Task: Add Sources APIs for notebook-scoped import/list/get using SourceStore, with clear errors for invalid inputs. | Restrictions: No :5000; size limits; best-effort; no secrets. | _Leverage: notebook sources api patterns | _Requirements: 2 | Success: User can import a source and see it in list; invalid inputs return actionable errors. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+- [x] 22. Core：Notebook Context Builder（有界上下文拼装）
+  - Files:
+    - `learning/src/Aevatar.Learning/Context/LearningContextBuilder.cs`
+  - Implement:
+    - 给定 query + selected sources，生成“有界、可追溯”的上下文文本
+    - 至少保证：每个 selected source 在上下文中有可追溯表示（sourceId + 片段/摘要）
+    - 预算：maxTotalChars/maxPerSourceChars/maxSources
+  - Purpose: 为 Q&A/报告/百科/测验提供统一上下文层
+  - _Leverage: `notebook/src/Aevatar.Notebook/Context/NotebookContextBuilder.cs`_
+  - _Requirements: 3, 4, 5, 7_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Retrieval engineer | Task: Implement a bounded, deterministic context builder that includes traceable per-source representations and obeys explicit budgets. | Restrictions: Must be bounded; deterministic ordering; no token explosion; best-effort when sources missing. | _Leverage: notebook context builder | _Requirements: 3,4,5,7 | Success: Context builder output is stable, bounded, and includes sourceId markers for citations. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+- [x] 23. Core：Q&A（LLM 调用 + streaming）
+  - Files:
+    - `learning/src/Aevatar.Learning/Chat/LearningChatService.cs`
+  - Implement:
+    - 基于 `LearningContextBuilder` 构建 prompt 注入
+    - 通过 `LLMProviders` 选择 provider（允许 override）
+    - 支持 streaming（为 AG‑UI TEXT_MESSAGE_* 提供 token/chunk）
+  - Purpose: 让“AI Native”在后端真正跑起来（无 AI 不成立）
+  - _Leverage: `notebook/src/Aevatar.Notebook.Api/Sessions/NotebookSessionsApi.cs`（streaming 模式）, `src/Aevatar.Agents.AI.*`（provider 选择）_
+  - _Requirements: 3, 10, Non-Functional Requirements_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: AI backend engineer | Task: Implement `LearningChatService` that builds context, calls configurable LLM provider, and exposes streaming output for AG-UI. | Restrictions: Do not hardcode provider; keep outputs bounded; handle timeouts gracefully; no :5000. | _Leverage: notebook session streaming + LLMProvidersConfig | _Requirements: 3,10 + NFR | Success: Service can stream assistant output for a given query + notebook context. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+- [x] 24. API：把 Sessions/input 连接到真实 Q&A run（AG‑UI 输出）
+  - Files:
+    - `learning/src/Aevatar.Learning.Api/Sessions/LearningSessionsApi.cs`
+  - Implement:
+    - `POST /api/sessions/{id}/input` 触发 `LearningChatService` 执行
+    - AG‑UI：`RUN_STARTED` → `STEP_STARTED(chat)` → `TEXT_MESSAGE_*` → `STEP_FINISHED` → `RUN_FINISHED`
+    - 失败路径：`RUN_ERROR` + `RUN_FINISHED(ok=false)`
+    - CustomEvent：输出 citations/上下文策略（可折叠 JSON）
+  - Purpose: 打通“输入 → AI → UI streaming”主链路
+  - _Leverage: `notebook/src/Aevatar.Notebook.Api/Sessions/NotebookSessionsApi.cs`, `src/Aevatar.Agents.AGUI/AgUiEvents.cs`_
+  - _Requirements: 3, 10_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Backend engineer (AG-UI) | Task: Wire sessions input execution to LearningChatService and emit correct AG-UI lifecycle events and metadata. | Restrictions: Must keep snapshot-first SSE behavior; no replay; no :5000. | _Leverage: NotebookSessionsApi + AgUiEvents | _Requirements: 3,10 | Success: Frontend sees correct RUN/STEP/TEXT events and can render citations metadata. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+- [x] 25. Core：报告生成（结构化 + 版本化写入 notebook 目录）
+  - Files:
+    - `learning/src/Aevatar.Learning/Reports/LearningReportService.cs`
+  - Implement:
+    - 基于 context 生成结构化报告（标题/摘要/要点/引用）
+    - 版本化写入 `reports/`（reportId + timestamp/version）
+  - Purpose: 对齐 notebook 的报告整理能力
+  - _Leverage: `notebook/Reports/ReportPipeline.cs`（pipeline 思路）, `learning/src/Aevatar.Learning/Context/LearningContextBuilder.cs`_
+  - _Requirements: 4_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: AI product engineer | Task: Implement a report generator that uses notebook context and persists versioned reports under the notebook directory. | Restrictions: Keep prompts deterministic; outputs bounded; no secrets; no :5000. | _Leverage: notebook report pipeline concepts | _Requirements: 4 | Success: Reports are generated and persisted with stable ids/versions, and include citation markers. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+- [x] 26. API：报告接口（generate/list/get）
+  - Files:
+    - `learning/src/Aevatar.Learning.Api/Reports/ReportsApi.cs`
+    - `learning/src/Aevatar.Learning.Api/Program.cs`
+  - Implement:
+    - `POST /api/notebooks/{id}/reports:generate`
+    - `GET  /api/notebooks/{id}/reports`
+    - `GET  /api/notebooks/{id}/reports/{reportId}`
+  - Purpose: 把报告能力暴露给前端
+  - _Leverage: `learning/src/Aevatar.Learning/Reports/LearningReportService.cs`_
+  - _Requirements: 4_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Backend API developer | Task: Add report generate/list/get endpoints using LearningReportService with clear errors and bounded payloads. | Restrictions: No :5000; do not leak secrets; keep responses small (support paging if needed). | _Requirements: 4 | Success: Frontend can generate a report and browse report history. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+---
+
+- [x] 27. Core：百科系统（构建/更新 + 查询）
+  - Files:
+    - `learning/src/Aevatar.Learning/Encyclopedia/EncyclopediaService.cs`
+  - Implement:
+    - “构建/更新百科”：基于 sources 生成结构化条目（MVP：jsonl 存储于 `encyclopedia/`）
+    - “症状/体质描述 → 结构化输出”：推荐条目 + 为什么有效 + 手法建议 + 理论讲解
+  - Purpose: 满足 AI Native 的“专题百科”能力
+  - _Leverage: `learning/src/Aevatar.Learning/Context/LearningContextBuilder.cs`_
+  - _Requirements: 5_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: AI knowledge engineer | Task: Implement encyclopedia build/query service that persists structured entries and can answer symptom queries with structured results + explanations. | Restrictions: Must be notebook-scoped; bounded outputs; best-effort when data insufficient; no :5000. | _Requirements: 5 | Success: Given a notebook with relevant sources, the service can generate entries and answer a sample query with the required sections. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+- [x] 28. API：百科接口（build/query）
+  - Files:
+    - `learning/src/Aevatar.Learning.Api/Encyclopedia/EncyclopediaApi.cs`
+    - `learning/src/Aevatar.Learning.Api/Program.cs`
+  - Implement:
+    - `POST /api/notebooks/{id}/encyclopedia:build`
+    - `POST /api/notebooks/{id}/encyclopedia:query`
+  - Purpose: 让前端能触发百科构建与查询
+  - _Leverage: `learning/src/Aevatar.Learning/Encyclopedia/EncyclopediaService.cs`_
+  - _Requirements: 5_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Backend API developer | Task: Add encyclopedia build/query endpoints with clear request/response formats and error handling. | Restrictions: No :5000; validate inputs; keep results bounded. | _Requirements: 5 | Success: Frontend can build encyclopedia and query it via HTTP. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+---
+
+- [x] 29. Core：学习卡片（SRS）服务（队列 + 复习记录 + AI 记忆技巧）
+  - Files:
+    - `learning/src/Aevatar.Learning/Cards/CardsService.cs`
+  - Implement:
+    - 卡片存储：`cards/`（jsonl 或 json），按 notebook 隔离
+    - SRS：每日队列（new + due），记录 review（成功/失败/间隔）
+    - AI：可选生成记忆技巧（失败可降级为空）
+  - Purpose: 满足“每日学习 + 间隔重复”的核心学习闭环
+  - _Leverage: `learning/src/Aevatar.Learning/Context/LearningContextBuilder.cs`（卡片生成用上下文）, `notebook`（AI 调用模式）_
+  - _Requirements: 6, 8_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Learning systems engineer | Task: Implement CardsService with notebook-scoped storage, SRS scheduling, review recording, and optional AI mnemonics generation with graceful fallback. | Restrictions: Deterministic scheduling; bounded storage; no :5000; AI is optional but must not break flow. | _Requirements: 6,8 | Success: Service can produce a daily queue and update scheduling based on user reviews; mnemonics generation is best-effort. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+- [x] 30. API：学习卡片接口（generate/daily/review/stats）
+  - Files:
+    - `learning/src/Aevatar.Learning.Api/Cards/CardsApi.cs`
+    - `learning/src/Aevatar.Learning.Api/Program.cs`
+  - Implement:
+    - `POST /api/notebooks/{id}/cards:generate`
+    - `GET  /api/notebooks/{id}/cards:daily`
+    - `POST /api/notebooks/{id}/cards:review`
+    - `GET  /api/notebooks/{id}/cards:stats`
+  - Purpose: 前端可驱动 SRS 学习流程
+  - _Leverage: `learning/src/Aevatar.Learning/Cards/CardsService.cs`_
+  - _Requirements: 6, 8_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Backend API developer | Task: Add cards endpoints for generation, daily queue, review submission, and stats. | Restrictions: No :5000; validate inputs; keep payloads bounded. | _Requirements: 6,8 | Success: Frontend can run a full daily cycle (get queue → review → see stats updated). (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+---
+
+- [x] 31. Core：测验系统（生成题目 + 判分/解析 + 记录）
+  - Files:
+    - `learning/src/Aevatar.Learning/Quiz/QuizService.cs`
+  - Implement:
+    - 基于 sources/context 生成题目集合（选择/判断/简答）
+    - 提交作答后给出参考答案/解析，并记录测验结果到 `quizzes/`
+    - AI 判分 best-effort；可配置严格/灵活模式
+  - Purpose: 满足“复习巩固”的测验能力
+  - _Leverage: `learning/src/Aevatar.Learning/Context/LearningContextBuilder.cs`_
+  - _Requirements: 7, 8_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Assessment engineer | Task: Implement QuizService that can generate quizzes from notebook sources, accept answers, produce explanations, and persist results. | Restrictions: Notebook-scoped; bounded outputs; AI grading must be best-effort and configurable; no :5000. | _Requirements: 7,8 | Success: Service supports MCQ/true-false/short-answer generation and records a graded attempt with explanations. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+- [x] 32. API：测验接口（generate/submit/history）
+  - Files:
+    - `learning/src/Aevatar.Learning.Api/Quiz/QuizApi.cs`
+    - `learning/src/Aevatar.Learning.Api/Program.cs`
+  - Implement:
+    - `POST /api/notebooks/{id}/quiz:generate`
+    - `POST /api/notebooks/{id}/quiz:submit`
+    - `GET  /api/notebooks/{id}/quiz:history`
+  - Purpose: 让前端能生成与提交测验并查看历史
+  - _Leverage: `learning/src/Aevatar.Learning/Quiz/QuizService.cs`_
+  - _Requirements: 7, 8_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Backend API developer | Task: Add quiz endpoints for generate/submit/history using QuizService with clear DTOs and validation. | Restrictions: No :5000; bounded payloads; explicit error messages. | _Requirements: 7,8 | Success: Frontend can run a quiz flow and view past attempts. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+---
+
+- [x] 33. Core：Skills 生成（面向 Agent 的技能包）
+  - Files:
+    - `learning/src/Aevatar.Learning/Skills/SkillsService.cs`
+  - Implement:
+    - 基于 notebook 主题/资料/产出生成 skills（MVP：Markdown + JSON 结构可选）
+    - 版本化写入 `skills/`（可导出/复制）
+  - Purpose: 把“学习专题”转化为可复用的 agent skills
+  - _Leverage: `learning/src/Aevatar.Learning/Context/LearningContextBuilder.cs`_
+  - _Requirements: 9_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Agent tooling engineer | Task: Implement SkillsService that generates notebook-scoped skill bundles (prompts/tooling notes/knowledge summary) and persists versioned outputs. | Restrictions: No secrets; bounded outputs; best-effort when sources insufficient; no :5000. | _Requirements: 9 | Success: Service produces a versioned skill bundle file that can be copied into other agents/projects. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+- [x] 34. API：Skills 接口（generate/list/get）
+  - Files:
+    - `learning/src/Aevatar.Learning.Api/Skills/SkillsApi.cs`
+    - `learning/src/Aevatar.Learning.Api/Program.cs`
+  - Implement:
+    - `POST /api/notebooks/{id}/skills:generate`
+    - `GET  /api/notebooks/{id}/skills`
+    - `GET  /api/notebooks/{id}/skills/{version}`
+  - Purpose: 前端可触发生成并浏览 skills 历史
+  - _Leverage: `learning/src/Aevatar.Learning/Skills/SkillsService.cs`_
+  - _Requirements: 9_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Backend API developer | Task: Add skills generate/list/get endpoints with stable output formats and validation. | Restrictions: No :5000; no secrets; keep outputs bounded. | _Requirements: 9 | Success: Frontend can generate and browse skill bundle versions. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+---
+
+- [x] 35. Core：进度统计汇总（Notebook 首页数据源）
+  - Files:
+    - `learning/src/Aevatar.Learning/Progress/ProgressService.cs`
+  - Implement:
+    - 汇总：sources 数、reports 数、cards（due/new）、quiz 历史计数、最近活动时间
+    - notebook-scoped（从 notebook 目录读取）
+  - Purpose: 支撑 Notebook 首页展示学习进度
+  - _Leverage: `learning/src/Aevatar.Learning/Notebooks/NotebookWorkspace.cs`_
+  - _Requirements: 8_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Backend engineer (analytics) | Task: Implement a notebook-scoped ProgressService that summarizes sources/reports/cards/quizzes metrics for the notebook home page. | Restrictions: Must be fast and bounded; no heavy scans; no :5000. | _Requirements: 8 | Success: Service returns a small summary object that can be rendered directly on the notebook home page. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+- [x] 36. API：Notebook 详情返回进度统计（home dashboard）
+  - Files:
+    - `learning/src/Aevatar.Learning.Api/Notebooks/NotebooksApi.cs`
+    - `learning/src/Aevatar.Learning.Api/Program.cs`
+  - Implement:
+    - 在 `GET /api/notebooks/{id}` 返回 `progressSummary`
+    - 注册 `ProgressService` 到 DI（Program）
+  - Purpose: 前端首页无需多次请求即可拿到核心统计
+  - _Leverage: `learning/src/Aevatar.Learning/Progress/ProgressService.cs`_
+  - _Requirements: 8_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Backend API developer | Task: Extend notebook detail endpoint to include progressSummary computed by ProgressService and wire DI registration. | Restrictions: No :5000; keep response bounded; do not leak filesystem paths unless necessary. | _Requirements: 8 | Success: Notebook home can render progress summary from a single GET call. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+---
+
+- [x] 37. Frontend：Notebook 列表/创建/选择（连接 session）
+  - Files:
+    - `learning/frontend/src/features/notebooks/NotebookPicker.tsx`
+    - `learning/frontend/src/App.tsx`
+  - Implement:
+    - 调用 `GET/POST /api/notebooks`
+    - 选择 notebook 后：创建/绑定 session，并连接对应 SSE
+    - 展示 notebook 的 `progressSummary`（来自 notebook detail）
+  - Purpose: 把“学习专题”变成桌面端的主入口
+  - _Leverage: `learning/frontend/src/lib/agui.ts`, `learning/src/Aevatar.Learning.Api/Notebooks/NotebooksApi.cs`_
+  - _Requirements: 1, 8_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Frontend developer (React) | Task: Add a Notebook picker UI that creates/lists/selects notebooks and binds the selected notebook to a session + AG-UI stream, showing progressSummary. | Restrictions: No hardcoded backend; keep UI minimal; handle loading/errors. | _Requirements: 1,8 | Success: User can create/select a notebook and immediately enter its session chat view. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+- [x] 38. Frontend：Sources 面板（导入/列表/预览）
+  - Files:
+    - `learning/frontend/src/features/sources/SourcesPanel.tsx`
+    - `learning/frontend/src/App.tsx`
+  - Implement:
+    - 导入文本/文件（web 模式用 `<input type=file>`；tauri 模式后续扩展）
+    - 列表与预览：`GET /api/notebooks/{id}/sources*`
+  - Purpose: 对齐 notebook 的资料管理体验（MVP）
+  - _Leverage: `learning/src/Aevatar.Learning.Api/Sources/SourcesApi.cs`_
+  - _Requirements: 2_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Frontend engineer | Task: Add a Sources panel that can import/list/preview sources for the selected notebook via the Sources API. | Restrictions: Keep UI responsive; handle large text with truncation; no hardcoded backend. | _Requirements: 2 | Success: User can import a source and see it appear immediately in the notebook. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+- [x] 39. Frontend：Reports 面板（生成/历史/查看）
+  - Files:
+    - `learning/frontend/src/features/reports/ReportsPanel.tsx`
+    - `learning/frontend/src/App.tsx`
+  - Implement:
+    - 生成报告：调用 `POST /reports:generate`
+    - 展示历史：`GET /reports`
+    - 查看：`GET /reports/{id}`
+  - Purpose: 报告整理的可视化入口
+  - _Leverage: `learning/src/Aevatar.Learning.Api/Reports/ReportsApi.cs`_
+  - _Requirements: 4_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Frontend engineer | Task: Add a Reports panel that can generate and browse versioned reports for the notebook. | Restrictions: Show loading/progress; keep UI minimal; no hardcoded backend. | _Requirements: 4 | Success: User can generate a report and view its history versions. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+- [x] 40. Frontend：百科面板（build/query）
+  - Files:
+    - `learning/frontend/src/features/encyclopedia/EncyclopediaPanel.tsx`
+    - `learning/frontend/src/App.tsx`
+  - Implement:
+    - build/update 按钮：`POST /encyclopedia:build`
+    - 查询输入框：`POST /encyclopedia:query`
+    - 结构化结果渲染（推荐/解释/手法/理论）
+  - Purpose: 把“专题百科”变成可用功能
+  - _Leverage: `learning/src/Aevatar.Learning.Api/Encyclopedia/EncyclopediaApi.cs`_
+  - _Requirements: 5_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Frontend engineer | Task: Build an encyclopedia panel that can trigger build and query, and render structured sections from the API response. | Restrictions: Keep UI simple; handle long text with collapsible blocks; no hardcoded backend. | _Requirements: 5 | Success: User can input a symptom query and get structured recommendations with explanations. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+- [x] 41. Frontend：学习卡片（daily queue + review）
+  - Files:
+    - `learning/frontend/src/features/cards/CardsPanel.tsx`
+    - `learning/frontend/src/App.tsx`
+  - Implement:
+    - 获取每日队列：`GET /cards:daily`
+    - 提交复习结果：`POST /cards:review`
+    - 展示记忆技巧（若有）与统计
+  - Purpose: 支撑每日学习的主要交互
+  - _Leverage: `learning/src/Aevatar.Learning.Api/Cards/CardsApi.cs`_
+  - _Requirements: 6, 8_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Frontend engineer | Task: Implement a cards panel for daily SRS queue and review submission, showing stats and optional mnemonics. | Restrictions: Keep interaction fast; avoid deep nesting; no hardcoded backend. | _Requirements: 6,8 | Success: User can complete a daily review loop and see stats update. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+- [x] 42. Frontend：测验（生成/作答/结果）
+  - Files:
+    - `learning/frontend/src/features/quiz/QuizPanel.tsx`
+    - `learning/frontend/src/App.tsx`
+  - Implement:
+    - 生成测验：`POST /quiz:generate`
+    - 作答提交：`POST /quiz:submit`
+    - 结果展示：分数/解析/错题
+  - Purpose: 让复习巩固变成“可操作”
+  - _Leverage: `learning/src/Aevatar.Learning.Api/Quiz/QuizApi.cs`_
+  - _Requirements: 7, 8_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Frontend engineer | Task: Implement a quiz panel that generates a quiz, collects answers, submits, and renders grading/explanations. | Restrictions: Keep UI minimal; handle multiple question types; no hardcoded backend. | _Requirements: 7,8 | Success: User can take a generated quiz and see explanations and score. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+- [x] 43. Frontend：Skills（生成/版本浏览/复制导出）
+  - Files:
+    - `learning/frontend/src/features/skills/SkillsPanel.tsx`
+    - `learning/frontend/src/App.tsx`
+  - Implement:
+    - 生成：`POST /skills:generate`
+    - 历史：`GET /skills`
+    - 查看：`GET /skills/{version}`，支持一键复制
+  - Purpose: 把学习成果转成可复用技能
+  - _Leverage: `learning/src/Aevatar.Learning.Api/Skills/SkillsApi.cs`_
+  - _Requirements: 9_
+  - _Prompt: Implement the task for spec learning, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Frontend engineer | Task: Implement a skills panel to generate and browse versioned skill bundles and provide copy/export UX. | Restrictions: Keep UI minimal; no hardcoded backend; avoid large DOM render. | _Requirements: 9 | Success: User can generate a skill bundle and copy it for reuse. (Workflow: mark task [-]; log-implementation; mark [x].)_
+
+

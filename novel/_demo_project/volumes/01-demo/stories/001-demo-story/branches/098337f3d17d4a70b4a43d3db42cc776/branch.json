@@ -1,0 +1,11 @@
+﻿{
+  "StoryRelativePath": "volumes/01-demo/stories/001-demo-story",
+  "BranchId": "098337f3d17d4a70b4a43d3db42cc776",
+  "Name": "alt-route-1",
+  "BasedOnBranchId": "",
+  "CreatedAt": {
+    "Seconds": 1766932386,
+    "Nanos": 13167000
+  },
+  "Labels": {}
+}

@@ -1,0 +1,564 @@
+syntax = "proto3";
+
+package Aevatar.Novel;
+
+option csharp_namespace = "Aevatar.Novel.Contracts";
+
+import "google/protobuf/timestamp.proto";
+
+// ============================================================
+//  Novel Assets (Unified) - 小说资产统一协议
+//
+//  WHY:
+//  - 本仓库铁律：任何跨越边界的类型必须使用 Protobuf 定义。
+//  - UI(Tauri/React) <-> Sidecar(.NET) <-> Multi-Agent 的“唯一真相源”。
+//  - 把 Story（剧情大纲）作为一等公民资产，支撑全自动流水线 + 可插手协商。
+//
+//  DESIGN:
+//  - Book/Novel -> Volume -> Story -> Chapter。
+//  - 大文本优先用 BlobRef (URI) 引用；必要时可 inline（但要控制大小）。
+//  - 兼容性：只新增字段，不复用编号，不改字段类型。
+// ============================================================
+
+enum TextFormat {
+  TEXT_FORMAT_UNSPECIFIED = 0;
+  TEXT_FORMAT_PLAIN_TEXT = 1;
+  TEXT_FORMAT_MARKDOWN = 2;
+}
+
+// Large text / binary payloads should live in external storage (local file/db/object store),
+// referenced via a stable URI.
+message TextBlobRef {
+  // E.g. "file:///.../chapter_001.md" or "sqlite://..." or "s3://...".
+  string uri = 1;
+
+  int64 size_bytes = 2;
+
+  // Optional integrity hint. Example: "sha256:abcd..."
+  string content_hash = 3;
+}
+
+message TextPayload {
+  TextFormat format = 1;
+
+  // Prefer blob_ref for large payloads.
+  oneof value {
+    string inline_text = 2;
+    TextBlobRef blob_ref = 3;
+  }
+
+  // Optional preview for UI (keep it short).
+  string preview = 10;
+}
+
+// ============================================================
+//  Pipeline Negotiation Policy (Config Asset)
+// ============================================================
+
+enum PauseBehavior {
+  PAUSE_BEHAVIOR_UNSPECIFIED = 0;
+  PAUSE_BEHAVIOR_PAUSE_AT_ALL = 1;    // Safe mode: pause at every intermediate artifact.
+  PAUSE_BEHAVIOR_PAUSE_AT_NONE = 2;   // Full auto: never pause (unless manual pause requested).
+  PAUSE_BEHAVIOR_PAUSE_AT_LIST = 3;   // Pause only at specified pause_points.
+}
+
+enum PausePoint {
+  PAUSE_POINT_UNSPECIFIED = 0;
+  PAUSE_POINT_STORY_OUTLINE = 1;
+  PAUSE_POINT_PARAGRAPH_PLAN = 2;
+  PAUSE_POINT_CHAPTER_DRAFT = 3;
+  PAUSE_POINT_CHAPTER_EDIT = 4;
+  PAUSE_POINT_CHAPTER_REVIEW = 5;
+  PAUSE_POINT_STORY_FINALIZE = 6;
+}
+
+// Author can decide whether to negotiate intermediate artifacts or auto-run to Story completion.
+message AutoContinuePolicy {
+  // When enabled, the pipeline will keep going automatically unless it hits a pause point.
+  bool enabled = 1;
+
+  PauseBehavior behavior = 2;
+  repeated PausePoint pause_points = 3;
+}
+
+// ============================================================
+//  Model & Budget (Config Asset)
+// ============================================================
+
+// Model access is configured via API Key. For security, we store a reference, not the raw secret.
+message ModelAccess {
+  // E.g. "openai", "deepseek", "anthropic", "custom".
+  string provider = 1;
+
+  // Optional (for OpenAI-compatible gateways).
+  string base_url = 2;
+
+  // Default model name.
+  string model = 3;
+
+  // Keychain/secret-store reference id (DO NOT store raw key in events).
+  string api_key_ref = 4;
+}
+
+message BudgetPolicy {
+  // V1 default: unlimited=true (author can add limits later).
+  bool unlimited = 1;
+
+  // Optional per-run safety limits (0 = unset).
+  int64 max_tokens_per_run = 2;
+  int64 max_cost_cents_per_run = 3;
+}
+
+message StyleLearningPolicy {
+  bool enabled = 1;
+
+  // If set, the pipeline will apply this style profile by default.
+  string default_style_profile_id = 2;
+}
+
+message ProjectSettings {
+  ModelAccess model_access = 1;
+  BudgetPolicy budget_policy = 2;
+  AutoContinuePolicy auto_continue_policy = 3;
+  StyleLearningPolicy style_learning_policy = 4;
+
+  map<string, string> tags = 100;
+}
+
+// ============================================================
+//  Core Domain Assets
+// ============================================================
+
+message NovelProject {
+  string project_id = 1;
+  string title = 2;
+  string description = 3;
+
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
+
+  ProjectSettings settings = 6;
+
+  repeated Volume volumes = 10;
+
+  map<string, string> tags = 100;
+}
+
+message Volume {
+  string volume_id = 1;
+  string title = 2;
+  string description = 3;
+
+  // Ordering within a NovelProject (1..N).
+  int32 order = 4;
+
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+
+  repeated Story stories = 10;
+
+  map<string, string> tags = 100;
+}
+
+message Story {
+  string story_id = 1;
+  string title = 2;
+  string premise = 3;
+
+  // Ordering within a Volume (1..N).
+  int32 order = 4;
+
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+
+  StoryOutline outline = 10;
+  repeated Chapter chapters = 11;
+
+  // Optional default style profile for this story.
+  string style_profile_id = 12;
+
+  map<string, string> tags = 100;
+}
+
+message StoryOutline {
+  // High-level outline summary.
+  string summary = 1;
+
+  repeated OutlineBeat beats = 2;
+
+  // Optional additional notes (keep it compact).
+  TextPayload notes = 3;
+
+  map<string, string> tags = 100;
+}
+
+message OutlineBeat {
+  string beat_id = 1;
+  string title = 2;
+  string summary = 3;
+
+  // For flexible micro-outline / checklist.
+  repeated string key_points = 4;
+
+  map<string, string> tags = 100;
+}
+
+enum ChapterStatus {
+  CHAPTER_STATUS_UNSPECIFIED = 0;
+  CHAPTER_STATUS_DRAFTING = 1;
+  CHAPTER_STATUS_REVIEWING = 2;
+  CHAPTER_STATUS_FINAL = 3;
+  CHAPTER_STATUS_LOCKED = 4;
+}
+
+message Chapter {
+  string chapter_id = 1;
+  string title = 2;
+
+  // Ordering within a Story (1..N).
+  int32 order = 3;
+
+  ChapterStatus status = 4;
+
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+
+  // Revision history of this chapter.
+  repeated ChapterRevision revisions = 10;
+
+  // Points to revisions.revision (0 = unset).
+  int64 current_revision = 11;
+
+  map<string, string> tags = 100;
+}
+
+message ChapterRevision {
+  int64 revision = 1;
+  google.protobuf.Timestamp created_at = 2;
+
+  // "ai" | "user" | "system" | agent_id...
+  string created_by = 3;
+
+  // Commit message / reason.
+  string summary = 4;
+
+  TextPayload text = 5;
+
+  map<string, string> tags = 100;
+}
+
+// ============================================================
+//  Style Learning Assets (TXT -> StyleProfile)
+// ============================================================
+
+message StyleSourceText {
+  string source_id = 1;
+  string name = 2;
+  google.protobuf.Timestamp imported_at = 3;
+  TextPayload text = 4;
+  // E.g. "txt" (v1). Future: "epub", "pdf", ...
+  string original_file_type = 5;
+  map<string, string> tags = 100;
+}
+
+message StyleProfile {
+  string profile_id = 1;
+  string name = 2;
+  google.protobuf.Timestamp created_at = 3;
+
+  // Which TXT sources contributed to this profile.
+  repeated string source_text_ids = 4;
+
+  // Natural language constraints (do/don't, rhythm, tone, POV, etc).
+  TextPayload content = 5;
+
+  map<string, string> tags = 100;
+}
+
+// ============================================================
+//  Setting Extraction Assets (TXT -> SettingProfile)
+// ============================================================
+
+message SettingSourceText {
+  string source_id = 1;
+  string name = 2;
+  google.protobuf.Timestamp imported_at = 3;
+  TextPayload text = 4;
+  // E.g. "txt" (v1). Future: "epub", "pdf", ...
+  string original_file_type = 5;
+  map<string, string> tags = 100;
+}
+
+// A canon/lore profile extracted from reference texts, optionally conditioned by a prompt.
+// Example:
+// - source: "Harry Potter" -> extract magic-world setting
+// - source: "Zhuangzi" + prompt: "cultivation world" -> extract fused setting
+message SettingProfile {
+  string profile_id = 1;
+  string name = 2;
+  google.protobuf.Timestamp created_at = 3;
+
+  // Which reference TXT sources contributed to this profile.
+  repeated string source_text_ids = 4;
+
+  // Optional conditioning prompt (how to fuse / what to extract).
+  TextPayload conditioning_prompt = 5;
+
+  // Extracted setting content (editable by author).
+  TextPayload content = 6;
+
+  map<string, string> tags = 100;
+}
+
+// ============================================================
+//  Author Deviation (Structured) - 偏离摘要结构化条目
+//
+//  PURPOSE:
+//  - 把“作者改稿的每一次偏离”变成可计算资产，而不仅是自然语言摘要。
+//  - 让 ImpactPlanner 更像编剧助理：能按分类扫描后续影响，而不是泛泛而谈。
+//
+//  NOTE:
+//  - 结构化摘要是派生信息：可重建，不替代文件真相源（正文/大纲）。
+// ============================================================
+
+enum DeviationCategory {
+  DEVIATION_CATEGORY_UNSPECIFIED = 0;
+
+  // 剧情/结构：事件顺序、冲突设计、反转、伏笔/回收
+  DEVIATION_CATEGORY_PLOT = 1;
+
+  // 人设/动机：人物目标、价值观、行为合理性、关系变化
+  DEVIATION_CATEGORY_CHARACTER = 2;
+
+  // 语气/口吻：叙述视角、对白口吻、情绪基调
+  DEVIATION_CATEGORY_TONE = 3;
+
+  // 信息密度：删繁就简/扩写注水、信息揭示节奏
+  DEVIATION_CATEGORY_INFO_DENSITY = 4;
+
+  // 设定/世界观/规则：力量体系、术语、硬设定、限制条件
+  DEVIATION_CATEGORY_CANON_SETTING = 5;
+
+  // 时间线/连续性：因果链、时间顺序、前后自洽
+  DEVIATION_CATEGORY_TIMELINE = 6;
+
+  // 文风：句式、修辞、节奏感（区别于 tone 的“情绪基调”）
+  DEVIATION_CATEGORY_STYLE = 7;
+
+  // 节奏：推进速度、场景切换、信息与动作比例
+  DEVIATION_CATEGORY_PACING = 8;
+}
+
+enum DeviationSeverity {
+  DEVIATION_SEVERITY_UNSPECIFIED = 0;
+  DEVIATION_SEVERITY_MINOR = 1;
+  DEVIATION_SEVERITY_MAJOR = 2;
+  DEVIATION_SEVERITY_CRITICAL = 3;
+}
+
+message DeviationItem {
+  // Unique within the summary.
+  string item_id = 1;
+
+  DeviationCategory category = 2;
+  DeviationSeverity severity = 3;
+
+  // Human-friendly title.
+  string title = 4;
+
+  // What changed and why it matters (compact).
+  string description = 5;
+
+  // Optional small excerpts (avoid huge payloads).
+  TextPayload base_excerpt = 10;
+  TextPayload edited_excerpt = 11;
+
+  map<string, string> tags = 100;
+}
+
+message DeviationSummary {
+  string summary_id = 1;
+  google.protobuf.Timestamp created_at = 2;
+
+  // Scope (duplicated with events for self-contained usage).
+  string project_id = 3;
+  string story_id = 4;
+  string chapter_id = 5;
+
+  // "AI draft revision" -> "author edited revision"
+  int64 base_revision = 6;
+  int64 edited_revision = 7;
+
+  // Compact author intent / instruction distilled from diffs (optional).
+  TextPayload author_intent = 20;
+
+  repeated DeviationItem items = 30;
+
+  map<string, string> labels = 100;
+}
+
+// ============================================================
+//  Narrative Unit Tests - 故事单元测试（规则/约束）
+//
+//  PURPOSE:
+//  - 作者把“对故事的掌控”写成可回归的规则：改一处，立即知道后面哪里拽歪。
+//  - 规则定义建议以文件（.md）为主，这里提供跨边界的结构化契约与结果摘要。
+// ============================================================
+
+enum NarrativeTestSeverity {
+  NARRATIVE_TEST_SEVERITY_UNSPECIFIED = 0;
+  NARRATIVE_TEST_SEVERITY_INFO = 1;
+  NARRATIVE_TEST_SEVERITY_WARNING = 2;
+  NARRATIVE_TEST_SEVERITY_ERROR = 3;
+}
+
+enum NarrativeTestRunStatus {
+  NARRATIVE_TEST_RUN_STATUS_UNSPECIFIED = 0;
+  NARRATIVE_TEST_RUN_STATUS_RUNNING = 1;
+  NARRATIVE_TEST_RUN_STATUS_PASSED = 2;
+  NARRATIVE_TEST_RUN_STATUS_FAILED = 3;
+}
+
+message NarrativeTestCase {
+  string case_id = 1;
+  string title = 2;
+  string description = 3;
+  NarrativeTestSeverity severity = 4;
+
+  // Rule specification (v1): natural language contract, optionally with examples.
+  // Future: typed DSL.
+  TextPayload specification = 10;
+
+  map<string, string> tags = 100;
+}
+
+message NarrativeTestSuite {
+  string suite_id = 1;
+  string name = 2;
+  google.protobuf.Timestamp created_at = 3;
+
+  // Optional scope binding.
+  string project_id = 10;
+  string story_id = 11;
+
+  repeated NarrativeTestCase cases = 20;
+
+  map<string, string> tags = 100;
+}
+
+message NarrativeTestFailure {
+  string case_id = 1;
+  NarrativeTestSeverity severity = 2;
+
+  // What failed and why.
+  string message = 3;
+
+  // Optional: where it failed (chapter/outline/lore/...).
+  ArtifactRef related_artifact = 10;
+
+  // Optional small excerpt for UI.
+  TextPayload excerpt = 11;
+
+  map<string, string> tags = 100;
+}
+
+message NarrativeTestRunSummary {
+  string run_id = 1;
+  NarrativeTestRunStatus status = 2;
+  google.protobuf.Timestamp started_at = 3;
+  google.protobuf.Timestamp ended_at = 4;
+
+  // Failures are expected to be small; full report lives in .md file.
+  repeated NarrativeTestFailure failures = 10;
+
+  map<string, string> labels = 100;
+}
+
+// ============================================================
+//  Writing Session - 写作日志会话（元信息）
+// ============================================================
+
+enum WritingSessionKind {
+  WRITING_SESSION_KIND_UNSPECIFIED = 0;
+  WRITING_SESSION_KIND_AUTO = 1;
+  WRITING_SESSION_KIND_MANUAL = 2;
+}
+
+message WritingSession {
+  string session_id = 1;
+  WritingSessionKind kind = 2;
+
+  google.protobuf.Timestamp started_at = 3;
+  google.protobuf.Timestamp ended_at = 4;
+
+  string project_id = 10;
+  string story_id = 11;
+
+  string title = 20;
+
+  map<string, string> labels = 100;
+}
+
+// ============================================================
+//  Generic Artifact References (for pipeline/events/indexing)
+// ============================================================
+
+enum ArtifactKind {
+  ARTIFACT_KIND_UNSPECIFIED = 0;
+
+  ARTIFACT_KIND_NOVEL_PROJECT = 1;
+  ARTIFACT_KIND_VOLUME = 2;
+  ARTIFACT_KIND_STORY = 3;
+  ARTIFACT_KIND_CHAPTER = 4;
+
+  ARTIFACT_KIND_STORY_OUTLINE = 10;
+  ARTIFACT_KIND_PARAGRAPH_PLAN = 11;
+  ARTIFACT_KIND_CHAPTER_DRAFT = 12;
+  ARTIFACT_KIND_CHAPTER_EDITED = 13;
+  ARTIFACT_KIND_REVIEW_REPORT = 14;
+
+  // Author deviation intelligence (all derived; file is SSOT).
+  // - deviation_report: summarize "AI draft -> author edited" diffs
+  // - deviation_prompt: one-click prompt/instructions to propagate changes
+  // - change_impact_report: analyze future outline/chapters/lore impacts
+  // - backup_options_report: multiple alternative plans for the author
+  ARTIFACT_KIND_DEVIATION_REPORT = 15;
+  ARTIFACT_KIND_DEVIATION_PROMPT = 16;
+  ARTIFACT_KIND_CHANGE_IMPACT_REPORT = 17;
+  ARTIFACT_KIND_BACKUP_OPTIONS_REPORT = 18;
+  ARTIFACT_KIND_AUTHOR_INTENT_PROMPT = 19;
+
+  ARTIFACT_KIND_STYLE_SOURCE_TEXT = 20;
+  ARTIFACT_KIND_STYLE_PROFILE = 21;
+
+  ARTIFACT_KIND_SETTING_SOURCE_TEXT = 22;
+  ARTIFACT_KIND_SETTING_PROFILE = 23;
+
+  ARTIFACT_KIND_NARRATIVE_TEST_SUITE = 24;
+  ARTIFACT_KIND_NARRATIVE_TEST_REPORT = 25;
+  ARTIFACT_KIND_WRITING_SESSION_LOG = 26;
+  ARTIFACT_KIND_SETUP_PAYOFF_LEDGER = 27;
+  ARTIFACT_KIND_SETUP_PAYOFF_REPORT = 28;
+
+  ARTIFACT_KIND_EXECUTION_TRACE = 30;
+
+  ARTIFACT_KIND_CUSTOM = 1000;
+}
+
+message ArtifactRef {
+  string artifact_id = 1;
+  ArtifactKind kind = 2;
+
+  // Optional version (0 = unset).
+  int64 version = 3;
+
+  // Optional for UI.
+  string title = 4;
+
+  // Optional URI for direct fetch.
+  string uri = 5;
+
+  map<string, string> labels = 100;
+}
+
+

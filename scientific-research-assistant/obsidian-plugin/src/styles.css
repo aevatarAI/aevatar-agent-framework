@@ -1,0 +1,338 @@
+/* ============================================================
+ *  Tailwind entry (Obsidian plugin)
+ *
+ *  中文说明：
+ *  - Obsidian 有自己的全局样式与主题系统，不能用 Tailwind preflight 去“重置世界”
+ *  - 我们只生成 utilities/components，并通过 tailwind.config 的 `important` 选项把样式限定在 view 根容器内
+ * ============================================================ */
+
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+ *  Plugin host styles (scoped)
+ *
+ *  中文说明：
+ *  - Obsidian 的主题/字体/配色由宿主决定，我们只做“容器内”的精致 UI
+ *  - Tailwind utilities 通过 tailwind.config 的 `important: ".aevatar-sra"` 进行作用域限定
+ *  - 这里写的都是必要的宿主桥接（高度/滚动/面板基础组件），避免和主题打架
+ * ============================================================ */
+
+.aevatar-sra-host,
+.aevatar-sra-host .aevatar-sra-fill {
+  height: 100%;
+  min-height: 0;
+}
+
+.aevatar-sra-host {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.aevatar-sra-fill {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ============================================================
+ *  Minimal “platform-like” panel UI (no Tailwind runtime required)
+ * ============================================================ */
+
+.aevatar-sra-view {
+  padding: 12px;
+}
+
+.aevatar-sra-panel {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 14px;
+  background: var(--background-primary);
+  overflow: hidden;
+}
+
+.aevatar-sra-panel__header {
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+}
+
+.aevatar-sra-panel__titleText {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text-normal);
+  line-height: 1.2;
+}
+
+.aevatar-sra-panel__subtitle {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.aevatar-sra-panel__badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.aevatar-sra-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-muted);
+}
+
+.aevatar-sra-badge--mono {
+  font-family: var(--font-monospace);
+  color: var(--text-normal);
+}
+
+.aevatar-sra-panel__row {
+  padding: 12px 14px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.aevatar-sra-panel__row:last-child {
+  border-bottom: 0;
+}
+
+.aevatar-sra-field {
+  min-width: 180px;
+}
+
+.aevatar-sra-field--grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.aevatar-sra-field__label {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.aevatar-sra-input,
+.aevatar-sra-select,
+.aevatar-sra-textarea {
+  width: 100%;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.aevatar-sra-textarea {
+  resize: vertical;
+  min-height: 96px;
+  line-height: 1.35;
+}
+
+.aevatar-sra-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.aevatar-sra-actions--stack {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.aevatar-sra-btn {
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+}
+
+.aevatar-sra-btn:hover {
+  background: var(--background-secondary);
+}
+
+.aevatar-sra-btn--primary {
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.aevatar-sra-btn--primary:hover {
+  filter: brightness(0.98);
+}
+
+.aevatar-sra-muted {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding-top: 8px;
+}
+
+.aevatar-sra-error {
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--text-error);
+}
+
+/* ============================================================
+ *  Obsidian theme bridge for shared Workbench (Tailwind classes)
+ *
+ *  中文说明：
+ *  - shared UI（../ui/src）大量使用 Tailwind 的 slate/white palette
+ *  - 在 Obsidian dark theme 下会显得“刺眼/不融合”
+ *  - 这里把常用的中性配色映射到 Obsidian 的 CSS 变量，做到主题自适应
+ * ============================================================ */
+
+.aevatar-sra .bg-white {
+  background-color: var(--background-primary);
+}
+
+.aevatar-sra .bg-slate-50 {
+  background-color: var(--background-secondary);
+}
+
+.aevatar-sra .bg-slate-100 {
+  background-color: var(--background-secondary-alt);
+}
+
+.aevatar-sra .bg-white\/80 {
+  background-color: color-mix(in srgb, var(--background-primary) 85%, transparent);
+}
+
+.aevatar-sra .text-slate-900,
+.aevatar-sra .text-slate-800,
+.aevatar-sra .text-slate-700 {
+  color: var(--text-normal);
+}
+
+.aevatar-sra .text-slate-600,
+.aevatar-sra .text-slate-500 {
+  color: var(--text-muted);
+}
+
+.aevatar-sra .text-slate-400 {
+  color: var(--text-faint);
+}
+
+.aevatar-sra .border-slate-200 {
+  border-color: var(--background-modifier-border);
+}
+
+.aevatar-sra .hover\:bg-slate-50:hover,
+.aevatar-sra .hover\:bg-slate-100:hover {
+  background-color: var(--background-modifier-hover);
+}
+
+.aevatar-sra .bg-indigo-600 {
+  background-color: var(--interactive-accent);
+}
+
+.aevatar-sra .hover\:bg-indigo-500:hover {
+  background-color: var(--interactive-accent-hover);
+}
+
+.aevatar-sra .text-indigo-600,
+.aevatar-sra .text-indigo-700 {
+  color: var(--interactive-accent);
+}
+
+.aevatar-sra .bg-indigo-50 {
+  background-color: color-mix(in srgb, var(--interactive-accent) 12%, var(--background-primary));
+}
+
+.aevatar-sra .border-indigo-200 {
+  border-color: color-mix(in srgb, var(--interactive-accent) 32%, var(--background-modifier-border));
+}
+
+.aevatar-sra .bg-emerald-50 {
+  background-color: color-mix(in srgb, var(--color-green, #10b981) 14%, var(--background-primary));
+}
+
+.aevatar-sra .text-emerald-700,
+.aevatar-sra .text-emerald-800 {
+  color: var(--color-green, #10b981);
+}
+
+.aevatar-sra .border-emerald-200 {
+  border-color: color-mix(in srgb, var(--color-green, #10b981) 28%, var(--background-modifier-border));
+}
+
+.aevatar-sra .bg-rose-50 {
+  background-color: color-mix(in srgb, var(--text-error, #e11d48) 12%, var(--background-primary));
+}
+
+.aevatar-sra .text-rose-700,
+.aevatar-sra .text-rose-600,
+.aevatar-sra .text-rose-800 {
+  color: var(--text-error, #e11d48);
+}
+
+.aevatar-sra .border-rose-200,
+.aevatar-sra .border-rose-600 {
+  border-color: color-mix(in srgb, var(--text-error, #e11d48) 28%, var(--background-modifier-border));
+}
+
+.aevatar-sra .bg-amber-50 {
+  background-color: color-mix(in srgb, var(--color-yellow, #f59e0b) 14%, var(--background-primary));
+}
+
+.aevatar-sra .bg-amber-400,
+.aevatar-sra .bg-amber-600 {
+  background-color: color-mix(in srgb, var(--color-yellow, #f59e0b) 68%, var(--background-primary));
+}
+
+.aevatar-sra .text-amber-700,
+.aevatar-sra .text-amber-900 {
+  color: var(--color-yellow, #f59e0b);
+}
+
+.aevatar-sra .border-amber-200,
+.aevatar-sra .border-amber-600 {
+  border-color: color-mix(in srgb, var(--color-yellow, #f59e0b) 30%, var(--background-modifier-border));
+}
+
+.aevatar-sra .font-sans {
+  font-family: var(--font-interface);
+}
+
+.aevatar-sra .font-mono {
+  font-family: var(--font-monospace);
+}
+
+/* ============================================================
+ *  Obsidian embed sizing fix
+ *
+ *  中文说明：
+ *  - shared UI 里有 h-screen / 100vh 的布局假设（Web host 合理）
+ *  - Obsidian View 不是 100vh 体系，导致滚动/裁切异常
+ *  - 这里把常见的 100vh 相关 class 重新映射到 100% 容器高度
+ * ============================================================ */
+
+.aevatar-sra .h-screen {
+  height: 100%;
+}
+
+.aevatar-sra .h-\[calc\(100vh-56px\)\] {
+  height: calc(100% - 56px);
+}
+
+

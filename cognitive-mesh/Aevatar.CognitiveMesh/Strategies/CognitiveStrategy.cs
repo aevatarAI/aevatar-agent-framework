@@ -544,10 +544,39 @@ public sealed class CognitiveStrategy : IReasoningStrategy
             
             var providerConfig = new LLMProviderConfig();
             providerSection.Bind(providerConfig);
-            
-            if (providerConfig.Embeddings is not { Enabled: true })
+
+            // Global embeddings fallback (LLMProviders:Embeddings) + partial merge (provider overrides global fields).
+            LLMEmbeddingConfig? globalEmbeddings = null;
+            var globalSection = _configuration.GetSection("LLMProviders:Embeddings");
+            if (globalSection.Exists())
             {
-                _logger.LogDebug("Embeddings not enabled in provider config, semantic clustering disabled");
+                globalEmbeddings = new LLMEmbeddingConfig();
+                globalSection.Bind(globalEmbeddings);
+            }
+
+            if (providerConfig.Embeddings == null)
+            {
+                providerConfig.Embeddings = globalEmbeddings;
+            }
+            else if (globalEmbeddings != null)
+            {
+                // Partial-merge missing fields from global.
+                providerConfig.Embeddings.ProviderType ??= globalEmbeddings.ProviderType;
+                providerConfig.Embeddings.Model ??= globalEmbeddings.Model;
+                providerConfig.Embeddings.DeploymentName ??= globalEmbeddings.DeploymentName;
+                providerConfig.Embeddings.Endpoint ??= globalEmbeddings.Endpoint;
+                providerConfig.Embeddings.ApiKey ??= globalEmbeddings.ApiKey;
+                providerConfig.Embeddings.Dimensions ??= globalEmbeddings.Dimensions;
+                foreach (var kv in globalEmbeddings.ProviderSpecificSettings)
+                {
+                    if (!providerConfig.Embeddings.ProviderSpecificSettings.ContainsKey(kv.Key))
+                        providerConfig.Embeddings.ProviderSpecificSettings[kv.Key] = kv.Value;
+                }
+            }
+
+            if (providerConfig.Embeddings == null)
+            {
+                _logger.LogDebug("Embeddings not configured, semantic clustering disabled");
                 _embeddingInitialized = true;
                 return;
             }

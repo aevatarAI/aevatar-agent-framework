@@ -45,6 +45,7 @@
     <ProjectReference Include="..\..\..\..\src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
     <ProjectReference Include="..\..\..\..\src\Aevatar.Agents.Runtime.Orleans\Aevatar.Agents.Runtime.Orleans.csproj" />
     <ProjectReference Include="..\..\..\..\plugins\Aevatar.Agents.Plugins.CQRS\Aevatar.Agents.Plugins.CQRS.csproj" />
+    <ProjectReference Include="..\..\..\..\plugins\Aevatar.Agents.Plugins.MassTransit\Aevatar.Agents.Plugins.MassTransit.csproj" />
   </ItemGroup>
   
   <!-- Orleans (for Orleans runtime option) -->

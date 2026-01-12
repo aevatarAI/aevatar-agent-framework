@@ -1,0 +1,16 @@
+{
+  "id": "snapshot_1767604425132_jud4xxwnt",
+  "approvalId": "approval_1767604425115_xqvfrq8gc",
+  "approvalTitle": "Approve steering product.md (facts/sources + multi-agent research assistant vision)",
+  "version": 1,
+  "timestamp": "2026-01-05T09:13:45.132Z",
+  "trigger": "initial",
+  "status": "pending",
+  "content": "# Product Overview\n\n## Product Purpose\n\nAevatar 的系统在“多智能体 + 可执行工具”层面已经非常强；科研助手平台要解决的是更工程化、更可交付的目标：\n\n- 把研究推进成可执行的循环：提出假设 → 检索/引用 → 推理 → 计算验证 → 产出结论/下一步\n- 把每一步的产物沉淀成可复用的知识（facts）与可追溯的来源（sources），让系统越用越强\n- 让整个过程对人类透明：可审计、可复现、可协作\n\n## Target Users\n\n- 科研人员/学生：需要更快收敛问题空间，并保留可复现的研究记录\n- 工程师/研究工程师：需要把推理与计算验证串成 pipeline（尤其是 Python 验证）\n- 跨学科探索者：物理/数学/生物/历史/文学等，需求差异在 workflow 与工具集，而不是 UI 本身\n\n## Key Features\n\n1. **facts + sources 资料层（NotebookLM 风格）**\n   - `sources/` 存放可引用来源（不要求写进去就为真）\n   - `facts/` 存放已验证结论（希望可以当作事实依赖）\n\n2. **Multi-agent 推理与共识**\n   - 规划/推理/验证等角色分工，输出可读的研究计划与推论\n   - 对“通过共识 + 可执行验证”的结论，支持写回 `facts/`\n\n3. **可执行验证（Compute）**\n   - 面向数学/物理/生物等：Python 执行用于数值/统计/仿真验证（默认安全关闭，显式启用）\n\n4. **可视化与实时性**\n   - AG-UI（snapshot-first SSE）展示 runs/steps/messages/tool usage\n   - Workspace state（facts/sources 计数与预览）随会话更新\n\n## Business Objectives\n\n- 让“vibe researching”从方法论变成可交付系统：默认能跑、能复现、能沉淀\n- 降低研究过程中的上下文管理成本（资料/推论/验证产物结构化落盘）\n- 支持长期演进到跨学科平台（Domain Profile + 可插拔模块）\n\n## Success Metrics\n\n- **Time-to-first-grounded-result**：从提问到首次给出带引用的推论用时\n- **Fact yield**：每次 session 产出可写回 `facts/` 的条目数量\n- **Verification rate**：推论中可执行验证覆盖比例（例如 Python 验证次数/成功率）\n- **Reproducibility**：一次 session 的关键产物是否能被复现（文件目录 + 运行参数齐全）\n\n## Product Principles\n\n1. **Grounded**：任何关键结论必须指向 sources 或 facts（可追溯）\n2. **Verifiable**：能算就算（Compute），能验证就验证；默认不“凭空自信”\n3. **Auditable**：研究过程与产物落盘，允许人类复核与二次利用\n4. **Safe by default**：危险工具默认关闭；显式允许才可执行\n5. **Pluggable**：不同学科差异通过 profile/workflow/tooling 模块化解决\n\n## Monitoring & Visibility (if applicable)\n\n- **Dashboard Type**: Web-based（AG-UI UI）\n- **Real-time Updates**: Server-Sent Events（snapshot-first）\n- **Key Metrics Displayed**: run/step 状态、tool 调用、workspace 变更（facts/sources）\n\n## Future Vision\n\n### Potential Enhancements\n\n- **Notebook-style indexing**：sources/facts → MemoryStore + VectorIndex（高质量检索）\n- **Graph state**：把推理结构投影为 DAG，并以 STATE_DELTA 增量更新\n- **Collaboration**：基于文件目录的共享与审计（版本化、review、merge）\n\n\n",
+  "fileStats": {
+    "size": 3307,
+    "lines": 70,
+    "lastModified": "2026-01-05T09:12:27.526Z"
+  },
+  "comments": []
+}

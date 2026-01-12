@@ -65,9 +65,9 @@ public class MockSubscriptionManager : BaseSubscriptionManager
             return false;
         }
         
-        await Task.Delay(5); // 模拟异步操作
+        await Task.Delay(5); // Simulate async operation
         
-        // 检查是否有对应的mock订阅
+        // Check if there is a corresponding mock subscription
         if (subscription.StreamSubscription is MockStreamSubscription mockSub)
         {
             return mockSub.IsActive && !mockSub.IsUnsubscribed;
@@ -87,9 +87,9 @@ public class MockSubscriptionManager : BaseSubscriptionManager
             throw new InvalidOperationException("Mock failure on reconnect");
         }
         
-        await Task.Delay(10, cancellationToken); // 模拟异步操作
+        await Task.Delay(10, cancellationToken); // Simulate async operation
         
-        // 模拟重连：创建新的订阅
+        // Simulate reconnection: create new subscription
         var newSubscriptionId = Guid.NewGuid();
         var mockSubscription = new MockStreamSubscription(newSubscriptionId, handle.ParentId, handle.ChildId);
         
@@ -101,7 +101,7 @@ public class MockSubscriptionManager : BaseSubscriptionManager
     }
     
     /// <summary>
-    /// 模拟发送事件到订阅者（用于测试）
+    /// Simulate sending event to subscriber (for testing)
     /// </summary>
     public async Task SimulateEventAsync(string childId, EventEnvelope envelope)
     {
@@ -112,7 +112,7 @@ public class MockSubscriptionManager : BaseSubscriptionManager
     }
     
     /// <summary>
-    /// 获取Mock订阅数量（用于验证）
+    /// Get mock subscription count (for verification)
     /// </summary>
     public int GetMockSubscriptionCount()
     {
@@ -120,7 +120,7 @@ public class MockSubscriptionManager : BaseSubscriptionManager
     }
     
     /// <summary>
-    /// 清理所有Mock订阅（用于测试清理）
+    /// Clear all mock subscriptions (for test cleanup)
     /// </summary>
     public void ClearMockSubscriptions()
     {
@@ -130,7 +130,7 @@ public class MockSubscriptionManager : BaseSubscriptionManager
 }
 
 /// <summary>
-/// Mock的流订阅实现
+/// Mock implementation of stream subscription
 /// </summary>
 public class MockStreamSubscription : IMessageStreamSubscription
 {
@@ -143,7 +143,7 @@ public class MockStreamSubscription : IMessageStreamSubscription
     public MockStreamSubscription(Guid subscriptionId, string parentId, string childId)
     {
         SubscriptionId = subscriptionId;
-        StreamId = parentId; // 使用ParentId作为StreamId
+        StreamId = parentId; // Use ParentId as StreamId
     }
 
     public Task ResumeAsync()

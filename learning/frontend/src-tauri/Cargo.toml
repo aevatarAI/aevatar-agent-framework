@@ -1,0 +1,21 @@
+[package]
+name = "aevatar_learning"
+version = "0.1.0"
+description = "Aevatar Learning (Tauri)"
+authors = ["Aevatar"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
+

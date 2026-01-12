@@ -12,6 +12,10 @@ Aevatar Agent Framework is a distributed agent system built on Actor Model princ
 4. **Hierarchical Organization**: Parent-child relationships enable group coordination
 5. **Runtime Agnostic**: Same agent code works across Local, Orleans, and ProtoActor
 
+## 🚫 Port Policy
+
+- **禁止使用 5000 端口**：仓库内任何服务/示例/文档/默认配置都不要绑定或示例化 `:5000`（避免冲突与误导）。如需本地默认端口，优先使用 `:5678`（例如 sidecar）。
+
 ## 📦 Core Concepts
 
 ### GAgent (智能体 / Agent)

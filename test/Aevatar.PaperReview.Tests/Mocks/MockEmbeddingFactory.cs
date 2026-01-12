@@ -30,3 +30,5 @@ public sealed class MockEmbeddingFactory : IAIAgentEmbeddingFactory
         return Task.FromResult<IEmbeddingGenerator<string, Embedding<float>>?>(_generator);
     }
 }
+
+

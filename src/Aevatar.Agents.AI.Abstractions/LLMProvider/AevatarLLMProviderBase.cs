@@ -207,7 +207,7 @@ public abstract class AevatarLLMProviderBase : IAevatarLLMProvider
         return Task.FromResult(new AevatarModelInfo
         {
             Name = ProviderName,
-            MaxTokens = 4096,
+            MaxTokens = AevatarAIDefaults.DefaultMaxTokensExtended,
             SupportsStreaming = true,
             SupportsFunctions = false
         });

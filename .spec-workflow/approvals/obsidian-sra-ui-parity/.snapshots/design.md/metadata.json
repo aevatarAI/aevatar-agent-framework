@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/obsidian-sra-ui-parity/design.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-09T03:14:58.105Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767928498064_3rpfc9td8",
+      "approvalTitle": "Approve design for obsidian-sra-ui-parity (Full SRA Web UI parity inside Obsidian via shared React UI core + transport abstraction)"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-09T03:22:37.520Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767928498064_3rpfc9td8",
+      "approvalTitle": "Approve design for obsidian-sra-ui-parity (Full SRA Web UI parity inside Obsidian via shared React UI core + transport abstraction)"
+    }
+  ]
+}

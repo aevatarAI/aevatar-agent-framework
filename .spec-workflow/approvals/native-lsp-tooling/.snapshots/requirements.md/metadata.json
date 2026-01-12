@@ -1,0 +1,14 @@
+{
+  "filePath": ".spec-workflow/specs/native-lsp-tooling/requirements.md",
+  "currentVersion": 1,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-08T04:48:38.812Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767847718765_2o4uxjjli",
+      "approvalTitle": "Spec approval: native-lsp-tooling requirements.md"
+    }
+  ]
+}

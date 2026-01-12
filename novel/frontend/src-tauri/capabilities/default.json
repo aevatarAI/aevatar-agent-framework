@@ -1,0 +1,23 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-capability",
+  "description": "Capability for NovelOS main window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "dialog:default",
+    "fs:default",
+    {
+      "identifier": "fs:scope",
+      "allow": [{ "path": "$HOME/**/*" }, { "path": "$DOCUMENT/**/*" }],
+      "deny": [{ "path": "$HOME/.ssh/**/*" }]
+    },
+    {
+      "identifier": "fs:allow-write-text-file",
+      "allow": [{ "path": "$HOME/**/*" }, { "path": "$DOCUMENT/**/*" }],
+      "deny": [{ "path": "$HOME/.ssh/**/*" }]
+    }
+  ]
+}
+
+

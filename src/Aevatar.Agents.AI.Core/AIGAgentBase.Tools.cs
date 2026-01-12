@@ -4,32 +4,31 @@ using Aevatar.Agents.Abstractions.CQRS;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core.Utils;
-using Aevatar.Agents.AI.WithTool.Abstractions;
-using Aevatar.Agents.AI.WithTool.Messages;
-using Aevatar.Agents.AI.WithTool.Tools;
-using Aevatar.Agents.AI.WithTool.Tools.BuiltIn;
-using Aevatar.Agents.AI.WithTool.Tools.CustomTools;
-using Aevatar.Agents.AI.WithTool.Tools.CoreTools;
+using Aevatar.Agents.AI.Tool.Abstractions;
+using Aevatar.Agents.AI.Tool.Messages;
+using Aevatar.Agents.AI.Tool.Tools;
+using Aevatar.Agents.AI.Tool.Tools.BuiltIn;
+using Aevatar.Agents.AI.Tool.Tools.CustomTools;
+using Aevatar.Agents.AI.Tool.Tools.CoreTools;
 using Aevatar.Agents.Abstractions.Attributes;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
+using Aevatar.Agents.AI.Core.Messages;
+
 namespace Aevatar.Agents.AI.Core;
 
 // ReSharper disable InconsistentNaming
 public abstract partial class AIGAgentBase
 {
-    private const string ToolAllowlistContextKey = "aevatar.allowed_tools";
-    private const string ToolAllowlistSourceSkillContextKey = "aevatar.allowed_tools.source_skill";
-
     /// <summary>
-    /// Safety switch (default: false):
+    /// Safety switch (default: true):
     /// - When false, tools marked <c>RequiresConfirmation</c> or <c>IsDangerous</c> will not be exposed/executed.
-    /// - Explicitly enable in derived agents when you want side-effect tools (HTTP, publish_event, skills_load, etc).
+    /// - Disable in derived agents if you want to prevent side-effect tools (HTTP, publish_event, dotnet-file/python-file tools, etc).
     /// </summary>
-    public bool AllowDangerousTools { get; set; }
+    public bool AllowDangerousTools { get; set; } = true;
 
     /// <summary>
     /// Safety switch (default: true):
@@ -46,12 +45,14 @@ public abstract partial class AIGAgentBase
     protected IStateQueryService? CqrsStateQueryService { get; set; }
 
     // ============================================================
-    //  Tool system (merged from AIGAgentWithToolBase)
+    //  Tool system (now part of AIGAgentBase)
     // ============================================================
 
     private IAevatarToolManager? _toolManager;
     private IReadOnlyList<ToolDefinition> _registeredToolsCache = Array.Empty<ToolDefinition>();
-    private IReadOnlyList<AevatarFunctionDefinition> _functionDefinitionsCache = Array.Empty<AevatarFunctionDefinition>();
+
+    private IReadOnlyList<AevatarFunctionDefinition> _functionDefinitionsCache =
+        Array.Empty<AevatarFunctionDefinition>();
 
     private readonly SemaphoreSlim _toolInitSemaphore = new(1, 1);
     private bool _toolsInitialized;
@@ -138,8 +139,14 @@ public abstract partial class AIGAgentBase
                 MemoryVectorIndex),
             cancellationToken: cancellationToken);
 
-        // Agent Skills (agentskills.io) - disabled by default via EnableAgentSkills
+        // Built-in: web search (third-party provider; best-effort + opt-in via config/DI)
+        await RegisterWebSearchToolBestEffortAsync(cancellationToken);
+
+        // Agent Skills (agentskills.io) - gated by EnableAgentSkills (enabled by default in this repo)
         await RegisterAgentSkillsToolsAsync(cancellationToken);
+
+        // MCP servers (Cursor-style config: MCP:mcpServers) - best-effort
+        await RegisterMcpServersFromConfigurationBestEffortAsync(isRetry: false, cancellationToken);
     }
 
     /// <summary>
@@ -155,6 +162,137 @@ public abstract partial class AIGAgentBase
             cancellationToken: cancellationToken);
 
         await RegisterToolAsync(tool, Logger, cancellationToken);
+    }
+
+    /// <summary>
+    /// Import a single-file Python "skill" as a tool via <c>python3 -I -u</c>.
+    /// </summary>
+    public async Task RegisterPythonFileSkillAsync(
+        string filePath,
+        CancellationToken cancellationToken = default)
+    {
+        var tool = await PythonFileSkillTool.LoadFromFileAsync(
+            filePath,
+            logger: Logger,
+            cancellationToken: cancellationToken);
+
+        await RegisterToolAsync(tool, Logger, cancellationToken);
+    }
+
+    /// <summary>
+    /// Auto-register file-based tools from a directory.
+    /// <para/>
+    /// By default this registers:
+    /// - dotnet-file tools: <c>*.cs</c> that contain <c>/*aevatar_tool</c> within the first 16KB
+    /// - python-file tools: <c>*.py</c> that contain <c>"""aevatar_tool</c> or <c>'''aevatar_tool</c> within the first 16KB
+    /// <para/>
+    /// This is intended for demo/dev convenience (so agents don't have to list each tool file manually).
+    /// </summary>
+    public async Task RegisterFileSkillsFromDirectoryAsync(
+        string directoryPath,
+        bool includeDotNet = true,
+        bool includePython = true,
+        SearchOption searchOption = SearchOption.TopDirectoryOnly,
+        int maxFilesPerType = 64,
+        bool requireManifestMarker = true,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(directoryPath))
+            return;
+
+        string fullDir;
+        try
+        {
+            fullDir = Path.GetFullPath(directoryPath.Trim());
+        }
+        catch
+        {
+            return;
+        }
+
+        if (!Directory.Exists(fullDir))
+            return;
+
+        EnsureToolManagerInitialized();
+
+        // Build once and reuse (avoid per-file cache refresh cost).
+        var toolContext = BuildToolRegistrationContext();
+        var registeredAny = false;
+
+        if (includeDotNet)
+        {
+            IEnumerable<string> files = Array.Empty<string>();
+            try
+            {
+                files = Directory.EnumerateFiles(fullDir, "*.cs", searchOption);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogDebug(ex, "Failed to enumerate dotnet-file skills under '{Dir}' (best-effort).", fullDir);
+            }
+
+            foreach (var file in files
+                         .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+                         .Take(Math.Clamp(maxFilesPerType, 0, 512)))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (requireManifestMarker && !LooksLikeAevatarDotNetToolFile(file))
+                    continue;
+
+                try
+                {
+                    var tool = await DotNetFileSkillTool.LoadFromFileAsync(file, Logger, cancellationToken);
+                    var def = tool.CreateToolDefinition(toolContext, Logger);
+                    await ToolManager.RegisterToolAsync(def, cancellationToken);
+                    registeredAny = true;
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogWarning(ex, "Failed to register dotnet-file skill '{File}' (best-effort).", file);
+                }
+            }
+        }
+
+        if (includePython)
+        {
+            IEnumerable<string> files = Array.Empty<string>();
+            try
+            {
+                files = Directory.EnumerateFiles(fullDir, "*.py", searchOption);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogDebug(ex, "Failed to enumerate python-file skills under '{Dir}' (best-effort).", fullDir);
+            }
+
+            foreach (var file in files
+                         .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+                         .Take(Math.Clamp(maxFilesPerType, 0, 512)))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (requireManifestMarker && !LooksLikeAevatarPythonToolFile(file))
+                    continue;
+
+                try
+                {
+                    var tool = await PythonFileSkillTool.LoadFromFileAsync(file, Logger, cancellationToken);
+                    var def = tool.CreateToolDefinition(toolContext, Logger);
+                    await ToolManager.RegisterToolAsync(def, cancellationToken);
+                    registeredAny = true;
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogWarning(ex, "Failed to register python-file skill '{File}' (best-effort).", file);
+                }
+            }
+        }
+
+        if (registeredAny)
+        {
+            await RefreshToolCachesAsync(cancellationToken);
+        }
     }
 
     /// <summary>
@@ -193,6 +331,28 @@ public abstract partial class AIGAgentBase
         };
     }
 
+    private static bool LooksLikeAevatarPythonToolFile(string filePath)
+    {
+        try
+        {
+            using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            var max = (int)Math.Min(16 * 1024, fs.Length);
+            if (max <= 0) return false;
+
+            var buf = new byte[max];
+            var read = fs.Read(buf, 0, max);
+            if (read <= 0) return false;
+
+            var head = Encoding.UTF8.GetString(buf, 0, read);
+            return head.Contains("\"\"\"aevatar_tool", StringComparison.OrdinalIgnoreCase) ||
+                   head.Contains("'''aevatar_tool", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private ToolExecutionContext BuildToolExecutionContext(string sessionId, CancellationToken cancellationToken)
     {
         return new ToolExecutionContext
@@ -214,7 +374,12 @@ public abstract partial class AIGAgentBase
         return PublishAsync((dynamic)message, direction, ct);
     }
 
-    private async Task RefreshToolCachesAsync(CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Refresh internal tool caches (definitions + function schema) used for LLM tool calling.
+    /// <para/>
+    /// NOTE: Derived agents may call this after dynamically registering tools (e.g. MCP reconnect).
+    /// </summary>
+    protected async Task RefreshToolCachesAsync(CancellationToken cancellationToken = default)
     {
         if (_toolManager == null)
         {
@@ -242,14 +407,66 @@ public abstract partial class AIGAgentBase
     /// <summary>
     /// Execute a tool by name with parameters.
     /// </summary>
-    protected Task<ToolExecutionResult> ExecuteToolAsync(
+    protected async Task<ToolExecutionResult> ExecuteToolAsync(
         string toolName,
         Dictionary<string, object> parameters,
         ToolExecutionContext? context = null,
         CancellationToken cancellationToken = default)
     {
         EnsureToolManagerInitialized();
-        return ToolManager.ExecuteToolAsync(toolName, parameters, context, cancellationToken);
+
+        var msgId = Guid.NewGuid().ToString("N");
+        var tcId = Guid.NewGuid().ToString("N");
+
+        // Publish START (Protobuf)
+        await PublishAsync(new ToolCallStartEvent
+        {
+            MessageId = msgId,
+            ToolCallId = tcId,
+            ToolName = toolName,
+            ArgumentsJson = JsonSerializer.Serialize(parameters),
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+        }, EventDirection.Down, cancellationToken);
+
+        ToolExecutionResult result;
+        try
+        {
+            result = await ToolManager.ExecuteToolAsync(toolName, parameters, context, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // Publish ERROR result
+            await PublishAsync(new ToolCallResultEvent
+            {
+                MessageId = msgId,
+                ToolCallId = tcId,
+                Result = "",
+                IsSuccess = false,
+                ErrorMessage = ex.Message,
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+            }, EventDirection.Down, cancellationToken);
+            throw;
+        }
+
+        // Publish SUCCESS result
+        await PublishAsync(new ToolCallResultEvent
+        {
+            MessageId = msgId,
+            ToolCallId = tcId,
+            Result = result.Content ?? "",
+            IsSuccess = result.IsSuccess,
+            ErrorMessage = result.ErrorMessage ?? "",
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+        }, EventDirection.Down, cancellationToken);
+
+        await PublishAsync(new ToolCallEndEvent
+        {
+            MessageId = msgId,
+            ToolCallId = tcId,
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+        }, EventDirection.Down, cancellationToken);
+
+        return result;
     }
 
     private string BuildToolInstructionBlock()
@@ -285,7 +502,8 @@ public abstract partial class AIGAgentBase
         if (visibleTools.Any(t => string.Equals(t.Name, "skills_list", StringComparison.OrdinalIgnoreCase)) &&
             visibleTools.Any(t => string.Equals(t.Name, "skills_load", StringComparison.OrdinalIgnoreCase)))
         {
-            sb.AppendLine("- If you need a procedural/domain skill, call 'skills_list' then 'skills_load' before acting.");
+            sb.AppendLine(
+                "- If you need a procedural/domain skill, call 'skills_list' then 'skills_load' before acting.");
         }
 
         return sb.ToString().TrimEnd();
@@ -310,7 +528,7 @@ public abstract partial class AIGAgentBase
 
         // Optional: apply a runtime allowlist (e.g. from Agent Skills front matter `allowed-tools`).
         // This keeps the model from seeing / calling tools outside the allowed set.
-        if (TryGetToolAllowlist(llmRequest, out var allowlist) && allowlist.Count > 0)
+        if (AIGAgentKeys.TryGetToolAllowlist(llmRequest, out var allowlist) && allowlist.Count > 0)
         {
             llmRequest.Functions = _functionDefinitionsCache
                 .Where(d => allowlist.Contains(d.Name) && allowedNames.Contains(d.Name))
@@ -321,333 +539,6 @@ public abstract partial class AIGAgentBase
         llmRequest.Functions = _functionDefinitionsCache
             .Where(d => allowedNames.Contains(d.Name))
             .ToList();
-    }
-
-    private async Task<(AevatarLLMResponse FinalResponse, ToolCallInfo? ToolCall)> ExecuteToolCallLoopAsync(
-        ChatRequest request,
-        AevatarLLMRequest llmRequest,
-        AevatarLLMResponse initialResponse,
-        CancellationToken cancellationToken)
-    {
-        const int MaxRounds = 8;
-
-        var current = initialResponse;
-        ToolCallInfo? lastToolCall = null;
-
-        for (var round = 0; round < MaxRounds && current.AevatarFunctionCall != null; round++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var functionCall = current.AevatarFunctionCall;
-            if (functionCall == null)
-            {
-                break;
-            }
-
-            await InitializeToolsAsync(cancellationToken);
-
-            var args = ParseToolArguments(functionCall.Arguments);
-            var executionContext = BuildToolExecutionContext(request.RequestId, cancellationToken);
-
-            // Hard guard: if a tool allowlist is active, deny executing tools outside it.
-            // This is used by Agent Skills `allowed-tools` to constrain what the model can do.
-            var toolResult = await ExecuteAllowedToolAsync(
-                functionCall.Name,
-                args,
-                executionContext,
-                llmRequest,
-                cancellationToken);
-
-            lastToolCall = new ToolCallInfo
-            {
-                ToolName = functionCall.Name,
-                Result = toolResult.Content ?? string.Empty
-            };
-
-            foreach (var (k, v) in args)
-            {
-                lastToolCall.Arguments[k] = v?.ToString() ?? string.Empty;
-            }
-
-            var toolCallMsg = CreateToolCallMessage(functionCall);
-            var toolResultMsg = CreateToolResultMessage(functionCall.Name, toolResult);
-
-            llmRequest.Messages.Add(toolCallMsg);
-            llmRequest.Messages.Add(toolResultMsg);
-
-            // Optional: persist tool transcript into State.History (only when history switch is on).
-            if (EnableChatHistoryInState)
-            {
-                AddMessageToHistory(toolCallMsg);
-                AddMessageToHistory(toolResultMsg);
-            }
-
-            // Publish tool execution response (useful for UI/telemetry)
-            await PublishAsync(new ToolExecutionResponseEvent
-            {
-                RequestId = request.RequestId,
-                ToolName = functionCall.Name,
-                Success = toolResult.IsSuccess,
-                Result = toolResult.Content ?? string.Empty,
-                Error = toolResult.ErrorMessage ?? string.Empty,
-                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
-            }, ct: cancellationToken);
-
-            // If skills_load was executed, it may update the tool allowlist dynamically.
-            TryApplyToolAllowlistFromSkillsLoadResult(llmRequest, functionCall.Name, toolResult.Content);
-
-            // Tool set might have changed (e.g., skills_load imported new tools) - refresh function defs.
-            await RefreshToolCachesAsync(cancellationToken);
-            AttachToolsToRequest(llmRequest);
-
-            // Call LLM again with tool result appended
-            current = await LLMProvider.GenerateAsync(llmRequest, cancellationToken);
-        }
-
-        if (current.AevatarFunctionCall != null)
-        {
-            throw new InvalidOperationException(
-                $"Tool call loop exceeded max rounds ({MaxRounds}). Potential infinite tool recursion.");
-        }
-
-        return (current, lastToolCall);
-    }
-
-    private async Task<ToolExecutionResult> ExecuteAllowedToolAsync(
-        string toolName,
-        Dictionary<string, object> args,
-        ToolExecutionContext executionContext,
-        AevatarLLMRequest llmRequest,
-        CancellationToken cancellationToken)
-    {
-        // Enforce policy again at execution time (defense in depth).
-        var toolDef = _registeredToolsCache.FirstOrDefault(t => string.Equals(t.Name, toolName, StringComparison.OrdinalIgnoreCase));
-        if (toolDef != null && !IsToolAllowedByPolicy(toolDef))
-        {
-            var content = JsonSerializer.Serialize(new
-            {
-                success = false,
-                error = "Tool execution denied by agent policy.",
-                tool = toolName,
-                deniedReason = BuildToolPolicyDenyReason(toolDef)
-            });
-
-            return new ToolExecutionResult
-            {
-                ToolName = toolName,
-                IsSuccess = false,
-                ErrorMessage = $"Tool '{toolName}' is denied by agent policy.",
-                Content = content,
-                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
-            };
-        }
-
-        if (TryGetToolAllowlist(llmRequest, out var allowlist) &&
-            allowlist.Count > 0 &&
-            !allowlist.Contains(toolName))
-        {
-            // Deny execution (return a tool result the model can read)
-            var content = JsonSerializer.Serialize(new
-            {
-                success = false,
-                error = "Tool is not allowed by current allowlist.",
-                tool = toolName,
-                allowedTools = allowlist.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray()
-            });
-
-            return new ToolExecutionResult
-            {
-                ToolName = toolName,
-                IsSuccess = false,
-                ErrorMessage = $"Tool '{toolName}' is not allowed by current allowlist.",
-                Content = content,
-                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
-            };
-        }
-
-        return await ExecuteToolAsync(toolName, args, executionContext, cancellationToken);
-    }
-
-    private bool IsToolAllowedByPolicy(ToolDefinition tool)
-    {
-        if (!AllowInternalTools && tool.RequiresInternalAccess)
-            return false;
-
-        if (!AllowDangerousTools && (tool.IsDangerous || tool.RequiresConfirmation))
-            return false;
-
-        return true;
-    }
-
-    private string BuildToolPolicyDenyReason(ToolDefinition tool)
-    {
-        if (!AllowInternalTools && tool.RequiresInternalAccess)
-            return "RequiresInternalAccess is disabled (AllowInternalTools=false).";
-
-        if (!AllowDangerousTools && (tool.IsDangerous || tool.RequiresConfirmation))
-            return "Dangerous/confirmation tools are disabled (AllowDangerousTools=false).";
-
-        return "Denied by policy.";
-    }
-
-    private static bool TryGetToolAllowlist(AevatarLLMRequest llmRequest, out HashSet<string> allowlist)
-    {
-        allowlist = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        if (llmRequest.Context == null)
-            return false;
-
-        if (!llmRequest.Context.TryGetValue(ToolAllowlistContextKey, out var v) || v == null)
-            return false;
-
-        switch (v)
-        {
-            case HashSet<string> s:
-                allowlist = s;
-                return true;
-            case string[] arr:
-                allowlist = new HashSet<string>(arr.Where(x => !string.IsNullOrWhiteSpace(x)), StringComparer.OrdinalIgnoreCase);
-                return true;
-            case List<string> list:
-                allowlist = new HashSet<string>(list.Where(x => !string.IsNullOrWhiteSpace(x)), StringComparer.OrdinalIgnoreCase);
-                return true;
-            case string single when !string.IsNullOrWhiteSpace(single):
-                allowlist = new HashSet<string>([single.Trim()], StringComparer.OrdinalIgnoreCase);
-                return true;
-            default:
-                return false;
-        }
-    }
-
-    private void TryApplyToolAllowlistFromSkillsLoadResult(
-        AevatarLLMRequest llmRequest,
-        string toolName,
-        string? toolResultJson)
-    {
-        if (!string.Equals(toolName, "skills_load", StringComparison.OrdinalIgnoreCase))
-            return;
-
-        if (string.IsNullOrWhiteSpace(toolResultJson))
-        {
-            // No payload -> clear allowlist (best-effort).
-            llmRequest.Context?.Remove(ToolAllowlistContextKey);
-            llmRequest.Context?.Remove(ToolAllowlistSourceSkillContextKey);
-            return;
-        }
-
-        try
-        {
-            using var doc = JsonDocument.Parse(toolResultJson);
-            var root = doc.RootElement;
-
-            if (root.TryGetProperty("success", out var ok) && ok.ValueKind == JsonValueKind.False)
-            {
-                // failed load -> do not change allowlist
-                return;
-            }
-
-            if (!root.TryGetProperty("allowedTools", out var allowedEl) || allowedEl.ValueKind != JsonValueKind.Array)
-            {
-                // No allowlist -> clear
-                llmRequest.Context?.Remove(ToolAllowlistContextKey);
-                llmRequest.Context?.Remove(ToolAllowlistSourceSkillContextKey);
-                return;
-            }
-
-            var list = new List<string>();
-            foreach (var el in allowedEl.EnumerateArray())
-            {
-                var s = el.GetString();
-                if (!string.IsNullOrWhiteSpace(s))
-                    list.Add(s.Trim());
-            }
-
-            if (list.Count == 0)
-            {
-                llmRequest.Context?.Remove(ToolAllowlistContextKey);
-                llmRequest.Context?.Remove(ToolAllowlistSourceSkillContextKey);
-                return;
-            }
-
-            llmRequest.Context ??= new Dictionary<string, object>();
-            llmRequest.Context[ToolAllowlistContextKey] = new HashSet<string>(list, StringComparer.OrdinalIgnoreCase);
-
-            if (root.TryGetProperty("name", out var nameEl) && nameEl.ValueKind == JsonValueKind.String)
-            {
-                var skillName = nameEl.GetString();
-                if (!string.IsNullOrWhiteSpace(skillName))
-                {
-                    llmRequest.Context[ToolAllowlistSourceSkillContextKey] = skillName!;
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogDebug(ex, "Failed to parse skills_load result for tool allowlist (best-effort).");
-        }
-    }
-
-    private static Dictionary<string, object> ParseToolArguments(string argumentsJson)
-    {
-        return ToolArgumentsJson.Parse(argumentsJson);
-    }
-
-    private static AevatarChatMessage CreateToolCallMessage(AevatarFunctionCall functionCall)
-    {
-        return new AevatarChatMessage
-        {
-            Role = AevatarChatRole.Assistant,
-            Content = $"Calling tool {functionCall.Name} with arguments: {functionCall.Arguments}",
-            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
-            ToolCalls =
-            {
-                new ToolCall
-                {
-                    ToolName = functionCall.Name,
-                    Arguments = functionCall.Arguments
-                }
-            }
-        };
-    }
-
-    private static AevatarChatMessage CreateToolResultMessage(string toolName, ToolExecutionResult result)
-    {
-        return new AevatarChatMessage
-        {
-            Role = AevatarChatRole.Tool,
-            Content = result.Content,
-            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
-            ToolResult = new ToolExecutionResult
-            {
-                ToolCallId = result.ToolCallId,
-                ToolName = toolName,
-                Content = result.Content,
-                IsSuccess = result.IsSuccess,
-                ErrorMessage = result.ErrorMessage,
-                Timestamp = result.Timestamp,
-                Duration = result.Duration
-            }
-        };
-    }
-
-    [EventHandler]
-    protected virtual async Task HandleToolExecutionRequestEvent(ToolExecutionRequestEvent evt)
-    {
-        await InitializeToolsAsync();
-
-        var parameters = ParseToolArguments(evt.Arguments);
-        var executionContext = BuildToolExecutionContext(evt.RequestId, CancellationToken.None);
-        var result = await ExecuteToolAsync(evt.ToolName, parameters, executionContext, CancellationToken.None);
-
-        await PublishAsync(new ToolExecutionResponseEvent
-        {
-            RequestId = evt.RequestId,
-            ToolName = evt.ToolName,
-            Success = result.IsSuccess,
-            Result = result.Content ?? string.Empty,
-            Error = result.ErrorMessage ?? string.Empty,
-            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
-        });
     }
 
     /// <summary>
@@ -673,4 +564,3 @@ public abstract partial class AIGAgentBase
             => _inner.Log(logLevel, eventId, state, exception, formatter);
     }
 }
-

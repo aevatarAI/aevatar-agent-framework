@@ -1,0 +1,10 @@
+{
+  "persona": "DemoAgent: strict, concise, auditable",
+  "strategy": "Read projectRoot/.claude + apply plugins + enforce allowlist tools",
+  "notes": [
+    "This is demo-only mock settings (offline).",
+    "The runner will echo these fields into output to prove projectRoot/.claude is being read."
+  ]
+}
+
+

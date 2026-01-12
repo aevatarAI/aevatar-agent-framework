@@ -1,0 +1,79 @@
+# Product Overview
+
+## Product Purpose
+
+Aevatar 的系统在“多智能体 + 可执行工具”层面已经非常强；科研助手平台要解决的是更工程化、更可交付的目标：
+
+- 把研究推进成可执行的循环：提出假设 → 检索/引用 → 推理 → 计算验证 → 产出结论/下一步
+- 把每一步的产物沉淀成可复用知识：先进入 `facts_proposed/`，经 multi-agent 共识/验证后再 promote 到 `facts/`
+- 让系统能“协作写论文”：稿件（Markdown）、事实、决策、验证产物全部落盘，可复现、可审计
+- **文件系统是唯一事实来源（SSoT）**：内存状态与 UI 只是投影/缓存，可从文件重建
+
+## Target Users
+
+- 科研人员/学生：需要更快收敛问题空间，并保留可复现的研究记录
+- 工程师/研究工程师：需要把推理与计算验证串成 pipeline（尤其是 Python 验证）
+- 跨学科探索者：物理/数学/生物/历史/文学等，需求差异在 workflow 与工具集，而不是 UI 本身
+
+## Key Features
+
+1. **资料层：facts / facts_proposed（文件即真相）**
+   - `facts_proposed/`：候选事实（未通过共识/验证前不可当作前提依赖）
+   - `facts/`：已通过共识/验证的事实（可当作事实依赖）
+   - `sources/`（可选）：可引用来源/证据库（保留原始摘录用于引用与复核）
+
+2. **Multi-agent 推理、验证与共识**
+   - 规划/推理/验证等角色分工，输出可读的研究计划与推论
+   - 共识可以来自：
+     - Maker system 的多评审/投票流程（软共识）
+     - 可执行验证“最后一锤定音”（硬共识：例如 Python 验证）
+   - 通过后由系统 promote：`facts_proposed/` → `facts/`
+
+3. **可执行验证（Compute）**
+   - 面向数学/物理/生物等：Python 执行用于数值/统计/仿真验证（默认安全关闭，显式启用）
+
+4. **写论文（Markdown）**
+   - `paper/` 目录维护论文结构：`draft.md`、`outline.md`、`citations.json` 等
+   - 多 agent 不直接并发改稿件：通过文件消息提交 patch，由单写者合并（避免冲突）
+
+5. **可视化与实时性**
+   - AG-UI（snapshot-first SSE）展示 runs/steps/messages/tool usage
+   - Workspace state（facts/facts_proposed/sources 计数与预览）随会话更新
+
+## Business Objectives
+
+- 让“vibe researching”从方法论变成可交付系统：默认能跑、能复现、能沉淀
+- 降低研究过程中的上下文管理成本（资料/推论/验证产物结构化落盘）
+- 支持长期演进到跨学科平台（Domain Profile + 可插拔模块）
+
+## Success Metrics
+
+- **Time-to-first-grounded-result**：从提问到首次给出带引用的推论用时
+- **Fact yield**：每次 session 产出可写回 `facts/` 的条目数量
+- **Verification rate**：推论中可执行验证覆盖比例（例如 Python 验证次数/成功率）
+- **Reproducibility**：一次 session 的关键产物是否能被复现（文件目录 + 运行参数齐全）
+
+## Product Principles
+
+1. **File-SSoT**：文件是唯一事实来源；内存与 UI 仅做投影，不可成为真相
+2. **Grounded**：任何关键结论必须指向 `facts/`（或明确标注来自 `facts_proposed/` / `sources/`）
+2. **Verifiable**：能算就算（Compute），能验证就验证；默认不“凭空自信”
+3. **Auditable**：研究过程与产物落盘，允许人类复核与二次利用
+4. **Safe by default**：危险工具默认关闭；显式允许才可执行
+5. **Pluggable**：不同学科差异通过 profile/workflow/tooling 模块化解决
+
+## Monitoring & Visibility (if applicable)
+
+- **Dashboard Type**: Web-based（AG-UI UI）
+- **Real-time Updates**: Server-Sent Events（snapshot-first）
+- **Key Metrics Displayed**: run/step 状态、tool 调用、workspace 变更（facts/facts_proposed/sources）
+
+## Future Vision
+
+### Potential Enhancements
+
+- **Notebook-style indexing**：sources/facts（可选含 facts_proposed）→ MemoryStore + VectorIndex（高质量检索）
+- **Graph state**：把推理结构投影为 DAG，并以 STATE_DELTA 增量更新
+- **Collaboration**：基于文件目录的共享与审计（版本化、review、merge）
+
+

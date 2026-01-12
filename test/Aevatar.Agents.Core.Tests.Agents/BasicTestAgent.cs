@@ -4,7 +4,7 @@ using Google.Protobuf.WellKnownTypes;
 namespace Aevatar.Agents.Core.Tests.Agents;
 
 /// <summary>
-/// 基础测试Agent - 带状态
+/// Basic test agent - with state
 /// </summary>
 public class BasicTestAgent : GAgentBase<TestAgentState>
 {

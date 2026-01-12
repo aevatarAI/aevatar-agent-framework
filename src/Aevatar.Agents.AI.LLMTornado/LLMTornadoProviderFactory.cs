@@ -1,6 +1,7 @@
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
+using Aevatar.Agents.AI.LLMTornado.ClaudeAgentSdk;
 using LlmTornado;
 using LlmTornado.Code;
 using Microsoft.Extensions.DependencyInjection;
@@ -31,6 +32,18 @@ public sealed class LLMTornadoProviderFactory : LLMProviderFactoryBase
         CancellationToken cancellationToken = default)
     {
         var providerTypeStr = providerConfig.ProviderType?.ToLowerInvariant();
+
+        // ------------------------------------------------------------
+        // Claude Agent SDK (NOT Claude model API)
+        // - Implemented as a dedicated IAevatarLLMProvider that executes an external runner process.
+        // - We must branch BEFORE LlmTornado routing and ApiKey checks.
+        // ------------------------------------------------------------
+        if (providerTypeStr is "claude_agent_sdk" or "claude-agent-sdk")
+        {
+            var claudeLogger = _serviceProvider.GetRequiredService<ILogger<ClaudeAgentSdkProvider>>();
+            return new ClaudeAgentSdkProvider(providerConfig, claudeLogger);
+        }
+
         var providerType = ParseProvider(providerTypeStr);
         var endpoint = providerConfig.Endpoint;
         var model = providerConfig.Model;

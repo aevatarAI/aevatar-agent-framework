@@ -289,25 +289,17 @@ public class AgentDemoController : AbpControllerBase
             // Create and register complex state agent
             var actor = await _actorManager.CreateAndRegisterAsync<ComplexStateAgent>(rawId);
 
-            // Get the agent instance to initialize test data
-            // Note: In Local mode, we can get the agent directly
-            // In Orleans mode, we need to call through Actor/Grain RPC
-            var agent = actor.GetAgent() as ComplexStateAgent;
-            if (agent != null)
-            {
-                await agent.InitializeTestDataAsync();
-            }
-            else
-            {
-                _logger.LogWarning(
-                    "Could not get agent instance directly (Orleans mode). " +
-                    "Use /complex-agent/{AgentId}/init to initialize test data.",
-                    actor.Id);
-            }
+            // Initialize test data via EVENT (works in both Local and Orleans modes)
+            // This is the correct pattern: use events for cross-runtime compatibility
+            var initEvent = new ComplexState.Server.InitializeTestDataEvent();
+            await actor.PublishEventAsync(initEvent, EventDirection.Down);
+            
+            // Small delay to allow event processing
+            await Task.Delay(100);
 
             var description = await actor.GetDescriptionAsync();
 
-            _logger.LogInformation("✅ ComplexStateAgent {AgentId} created with test data", actor.Id);
+            _logger.LogInformation("✅ ComplexStateAgent {AgentId} created with test data (via event)", actor.Id);
 
             return Ok(new ComplexAgentCreatedResponse
             {
@@ -315,7 +307,7 @@ public class AgentDemoController : AbpControllerBase
                 Description = description,
                 AgentType = "Aevatar.App.Agents.Agents.ComplexStateAgent",
                 CreatedAt = DateTime.UtcNow,
-                TestDataInitialized = agent != null
+                TestDataInitialized = true
             });
         }
         catch (Exception ex)
@@ -326,7 +318,8 @@ public class AgentDemoController : AbpControllerBase
     }
 
     /// <summary>
-    /// Initialize test data for existing complex agent (for Orleans mode).
+    /// Initialize test data for existing complex agent.
+    /// Uses event-based initialization (works in both Local and Orleans modes).
     /// </summary>
     [HttpPost("complex-agent/{agentId}/init")]
     public async Task<IActionResult> InitComplexAgentTestData([FromRoute] string agentId)
@@ -349,16 +342,11 @@ public class AgentDemoController : AbpControllerBase
                 return NotFound($"Agent {actorId} not found");
             }
 
-            var agent = actor.GetAgent() as ComplexStateAgent;
-            if (agent != null)
-            {
-                await agent.InitializeTestDataAsync();
-                return Ok(new { message = "Test data initialized", agentId = actorId });
-            }
-            else
-            {
-                return BadRequest("Agent is not a ComplexStateAgent or not accessible (Orleans mode)");
-            }
+            // Initialize test data via EVENT (cross-runtime compatible)
+            var initEvent = new ComplexState.Server.InitializeTestDataEvent();
+            await actor.PublishEventAsync(initEvent, EventDirection.Down);
+
+            return Ok(new { message = "Test data initialized via event", agentId = actorId });
         }
         catch (Exception ex)
         {
@@ -369,6 +357,8 @@ public class AgentDemoController : AbpControllerBase
 
     /// <summary>
     /// Get complex agent state (for verification).
+    /// NOTE: In Orleans mode, full state should be queried from Elasticsearch via /api/states endpoint.
+    /// This endpoint returns description only in Orleans mode.
     /// </summary>
     [HttpGet("complex-agent/{agentId}/state")]
     public async Task<ActionResult<object>> GetComplexAgentState([FromRoute] string agentId)
@@ -391,44 +381,16 @@ public class AgentDemoController : AbpControllerBase
                 return NotFound($"Agent {actorId} not found");
             }
 
-            var agent = actor.GetAgent() as ComplexStateAgent;
-            if (agent != null)
+            // In Orleans mode, Agent runs in Silo - use description for basic info
+            // For full state, use CQRS query: GET /api/states/{agentType}/{agentId}
+            var description = await actor.GetDescriptionAsync();
+            
+            return Ok(new
             {
-                var state = await agent.GetStateAsync();
-                return Ok(new
-                {
-                    agentId = state.AgentId,
-                    name = state.Name,
-                    age = state.Age,
-                    balance = state.Balance,
-                    isActive = state.IsActive,
-                    address = state.Address != null ? new
-                    {
-                        street = state.Address.Street,
-                        city = state.Address.City,
-                        country = state.Address.Country,
-                        zipCode = state.Address.ZipCode
-                    } : null,
-                    tags = state.Tags.ToList(),
-                    orders = state.Orders.Select(o => new
-                    {
-                        productId = o.ProductId,
-                        productName = o.ProductName,
-                        quantity = o.Quantity,
-                        price = o.Price
-                    }).ToList(),
-                    metadata = state.Metadata.ToDictionary(x => x.Key, x => x.Value),
-                    scores = state.Scores.ToDictionary(x => x.Key, x => x.Value),
-                    luckyNumbers = state.LuckyNumbers.ToList(),
-                    createdAt = state.CreatedAt?.ToDateTime(),
-                    lastUpdated = state.LastUpdated?.ToDateTime()
-                });
-            }
-            else
-            {
-                var description = await actor.GetDescriptionAsync();
-                return Ok(new { description, message = "Full state not accessible in Orleans mode" });
-            }
+                agentId = actorId,
+                description = description,
+                hint = "For full state in Orleans mode, use CQRS query: GET /api/states/Aevatar.App.Agents.Agents.ComplexStateAgent/{agentId}"
+            });
         }
         catch (Exception ex)
         {

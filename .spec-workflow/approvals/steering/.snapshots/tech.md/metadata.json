@@ -1,0 +1,30 @@
+{
+  "filePath": ".spec-workflow/steering/tech.md",
+  "currentVersion": 3,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-05T09:14:03.642Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767604443637_qz0uy1z39",
+      "approvalTitle": "Approve steering tech.md (facts/sources + file-based blackboard/mailbox tech constraints)"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-05T09:27:59.352Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767605100357_jp4jmmy0z",
+      "approvalTitle": "Approve steering tech.md (v2: file-only agent comm + consensus/verification pipeline)"
+    },
+    {
+      "version": 3,
+      "filename": "snapshot-003.json",
+      "timestamp": "2026-01-06T05:50:17.212Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767678549312_mmk1my0im",
+      "approvalTitle": "Steering: tech.md"
+    }
+  ]
+}

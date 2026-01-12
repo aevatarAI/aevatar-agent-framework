@@ -13,8 +13,8 @@ using Orleans.Streams.Kafka.Config;
 using Serilog;
 using Serilog.Events;
 using Orleans.Serialization;
-using Orleans.Providers.MongoDB.Configuration; // Required for MongoDB options
 using MongoDB.Driver;
+using Orleans.Providers.MongoDB.Configuration;
 
 namespace Aevatar.App.HttpApi.Host;
 
@@ -87,8 +87,8 @@ public class Program
         builder.Host.UseOrleansClient((context, clientBuilder) =>
         {
             var config = context.Configuration;
-            // Use Default connection string for MongoDB
-            var connectionString = config.GetConnectionString("Default") ?? "mongodb://localhost:27017/AevatarBusiness";
+            // Use Orleans connection string for MongoDB clustering
+            var connectionString = config.GetConnectionString("Orleans") ?? "mongodb://localhost:27017/AevatarBusiness";
             var databaseName = "AevatarBusiness"; // Should match Silo config
             
             Log.Information("🌐 Configuring Orleans Client with MongoDB Clustering");
@@ -112,63 +112,8 @@ public class Program
                 options.ClusterId = orleansOptions.ClusterId;
                 options.ServiceId = orleansOptions.ServiceId;
             });
-            
-            // 4. Configure Stream Provider (MUST match Silo configuration!)
-            var streamProvider = config.GetValue<string>("Streaming:Provider") ?? "OrleansStream";
-            Log.Information("🌊 Client Stream Provider: {Provider}", streamProvider);
-            
-            if (string.Equals("Kafka", streamProvider, StringComparison.OrdinalIgnoreCase))
-            {
-                // Kafka Stream (must match Silo Kafka config)
-                var bootstrapServers = config.GetValue<string>("Kafka:BootstrapServers") ?? "localhost:9092";
-                var consumerGroupId = config.GetValue<string>("Kafka:ConsumerGroupId") ?? "aevatar-client-consumers";
-                
-                // Read topics from config (comma-separated list or fallback to DefaultNamespace)
-                var topicsConfig = config.GetValue<string>("Streaming:Topics");
-                if (string.IsNullOrEmpty(topicsConfig))
-                {
-                    topicsConfig = config.GetValue<string>("Streaming:DefaultNamespace") ?? "agent-events";
-                }
-                
-                Log.Information("   Using Kafka Stream");
-                Log.Information("   BootstrapServers: {Servers}", bootstrapServers);
-                Log.Information("   ConsumerGroupId: {GroupId}", consumerGroupId);
-                Log.Information("   Topics: {Topics}", topicsConfig);
-                
-                clientBuilder
-                    .AddKafka(orleansOptions.StreamProviderName)
-                    .WithOptions(options =>
-                    {
-                        options.BrokerList = new List<string> { bootstrapServers };
-                        options.ConsumerGroupId = consumerGroupId;
-                        options.ConsumeMode = ConsumeMode.LastCommittedMessage;
-                        
-                        foreach (var topic in topicsConfig.Split(','))
-                        {
-                            var topicName = topic.Trim();
-                            if (!string.IsNullOrEmpty(topicName))
-                            {
-                                options.AddTopic(topicName, new TopicCreationConfig
-                                {
-                                    AutoCreate = true,
-                                    Partitions = 8,
-                                    ReplicationFactor = 1
-                                });
-                                Log.Information("      ✅ Configured topic: {Topic}", topicName);
-                            }
-                        }
-                    })
-                    .AddJson()
-                    .Build();
-            }
-            else
-            {
-                // Orleans Memory Stream (for development)
-                Log.Information("   Using Memory Stream");
-                clientBuilder.AddMemoryStreams(orleansOptions.StreamProviderName);
-            }
 
-            // 5. Add Protobuf serializer
+            // 4. Add Protobuf serializer
             clientBuilder.ConfigureServices(services =>
             {
                 services.AddSerializer(serializerBuilder =>

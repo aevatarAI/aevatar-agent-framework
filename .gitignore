@@ -499,7 +499,7 @@ scripts/.pids/
 *.pid
 
 memory/
-trace/
+trace/*
 workspace/
 
 # Local skill packs (downloaded/updated at runtime)

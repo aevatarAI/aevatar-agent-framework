@@ -494,6 +494,7 @@ public sealed class DagStore
             {
                 Id = id,
                 Type = MapKnowledgeNodeType(n.NodeType),
+                Kind = MapKnowledgeNodeKind(n.Kind),
                 Label = label,
                 Proof = proof,
                 UpdatedAt = Timestamp.FromDateTime(DateTime.SpecifyKind(ts.UtcDateTime, DateTimeKind.Utc))
@@ -583,6 +584,13 @@ public sealed class DagStore
                 or KnowledgeNodeType.CsDataStructure
                 or KnowledgeNodeType.CsDesignPattern => SraDagNodeType.Theorem,
             _ => SraDagNodeType.Unknown
+        };
+
+    private static SraDagNodeKind MapKnowledgeNodeKind(KnowledgeNodeKind k) =>
+        k switch
+        {
+            KnowledgeNodeKind.Plan => SraDagNodeKind.Plan,
+            _ => SraDagNodeKind.Knowledge
         };
 
     private static string AppendTags(string baseText, MapField<string, string> tags)

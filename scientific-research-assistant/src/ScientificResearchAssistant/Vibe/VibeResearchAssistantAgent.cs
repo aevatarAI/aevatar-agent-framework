@@ -33,8 +33,8 @@ public sealed class VibeResearchAssistantAgent : VibeAgentBase
     // ------------------------------------------------------------
     public static bool IsDagKnowledgeNodeForGrounding(SraDagNode node)
     {
-        _ = node;
-        return true;
+        // Only use asserted knowledge nodes as grounded context.
+        return node.Kind == SraDagNodeKind.Knowledge;
     }
 
     public VibeResearchAssistantAgent()

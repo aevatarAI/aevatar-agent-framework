@@ -282,7 +282,10 @@ export default function AgentCardsChatView(props: {
       .filter(Boolean)
       .map((x) => x.toLowerCase());
     if (arr.length > 0) return arr;
-    return ["research_assistant"];
+    // Fallback roster (MVP):
+    // - If agents_snapshot wasn't received yet (or user opens the page before SSE bootstrap),
+    //   we still want the UI to render all agent cards (WAIT state) instead of only RA.
+    return ["research_assistant", "planner", "reasoner", "librarian", "verifier", "dag_builder", "paper_editor"];
   }, [roster]);
 
   const filteredAgents = useMemo(() => {

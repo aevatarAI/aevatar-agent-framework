@@ -247,12 +247,19 @@ enum SraDagNodeType {
   SRA_DAG_NODE_TYPE_UNKNOWN = 5;
 }
 
+enum SraDagNodeKind {
+  // Default to "knowledge" for backwards compatibility (old snapshots had no kind).
+  SRA_DAG_NODE_KIND_KNOWLEDGE = 0;
+  SRA_DAG_NODE_KIND_PLAN = 1;
+}
+
 message SraDagNode {
   string id = 1;
   SraDagNodeType type = 2;
   string label = 3;                   // short statement
   string proof = 4;                   // bounded; long proofs should be file refs
   google.protobuf.Timestamp updated_at = 5;
+  SraDagNodeKind kind = 6;            // knowledge vs plan (for grounding / filtering)
   map<string, string> tags = 100;     // optional lightweight labels
 }
 

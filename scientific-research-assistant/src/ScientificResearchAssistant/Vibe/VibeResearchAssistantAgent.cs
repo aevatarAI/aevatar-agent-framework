@@ -1,4 +1,5 @@
 using ScientificResearchAssistant.Contracts.Collab;
+using ScientificResearchAssistant.Vibe.Tools;
 
 namespace ScientificResearchAssistant.Vibe;
 
@@ -19,6 +20,8 @@ namespace ScientificResearchAssistant.Vibe;
 
 public sealed class VibeResearchAssistantAgent : VibeAgentBase
 {
+    private readonly IVibeDagPlanAccess? _plans;
+
     // ------------------------------------------------------------
     //  DAG knowledge filter (MVP)
     //
@@ -39,8 +42,10 @@ public sealed class VibeResearchAssistantAgent : VibeAgentBase
                node.Attestations.Count > 0;
     }
 
-    public VibeResearchAssistantAgent()
+    public VibeResearchAssistantAgent(IVibeDagPlanAccess? plans = null)
     {
+        _plans = plans;
+
         SystemPrompt =
             """
             You are the Scientific Research Assistant (single authority).
@@ -53,6 +58,7 @@ public sealed class VibeResearchAssistantAgent : VibeAgentBase
             - Be explicit about assumptions vs evidence.
             - Keep outputs bounded (avoid long essays).
             - NEVER include secrets or tool tokens.
+            - If the user asks to change/adjust the research plan, you MAY call dag_plan_set_milestones (write DAG plan nodes).
 
             Modes (the user message will include a mode marker):
 
@@ -111,6 +117,13 @@ public sealed class VibeResearchAssistantAgent : VibeAgentBase
                - Open questions / next actions
             """;
     }
+
+    protected override async Task RegisterToolsAsync(CancellationToken cancellationToken = default)
+    {
+        await base.RegisterToolsAsync(cancellationToken);
+        if (_plans != null)
+        {
+            await RegisterToolAsync(new DagPlanSetMilestonesTool(_plans), cancellationToken: cancellationToken);
+        }
+    }
 }
-
-

@@ -138,6 +138,7 @@ builder.Services.AddKnowledgeGraph();
 // Vibe: DAG/Graph store (SSoT: KnowledgeGraph + file snapshot mirror)
 builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.Dag.DagStore>();
 builder.Services.AddSingleton<ScientificResearchAssistant.Vibe.Tools.IVibeDagAccess, ScientificResearchAssistant.Api.Vibe.Dag.VibeDagAccess>();
+builder.Services.AddSingleton<ScientificResearchAssistant.Vibe.Tools.IVibeDagPlanAccess, ScientificResearchAssistant.Api.Vibe.Dag.VibeDagPlanAccess>();
 builder.Services.AddSingleton<IDagGroundingPolicy, DefaultDagGroundingPolicy>();
 
 // Vibe: DAG consensus gate (default: verifier-quorum; optional: maker-v2 via CognitiveStrategy)

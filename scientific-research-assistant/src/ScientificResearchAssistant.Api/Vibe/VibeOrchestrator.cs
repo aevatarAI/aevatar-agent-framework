@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Aevatar.Agents.AGUI;
 using Aevatar.Agents.AI;
+using Aevatar.Agents.Core.Secrets;
 using Google.Protobuf.Collections;
 using Google.Protobuf.WellKnownTypes;
 using ScientificResearchAssistant.Api.Materials;
@@ -44,6 +45,7 @@ internal sealed partial class VibeOrchestrator
     private readonly FileMailboxService _mailbox;
     private readonly PaperService _paper;
     private readonly AgentProvidersStore _agentProviders;
+    private readonly IAevatarUserSecretsStore _secrets;
     private readonly ILogger<VibeOrchestrator> _logger;
 
     public VibeOrchestrator(
@@ -58,6 +60,7 @@ internal sealed partial class VibeOrchestrator
         FileMailboxService mailbox,
         PaperService paper,
         AgentProvidersStore agentProviders,
+        IAevatarUserSecretsStore secrets,
         ILogger<VibeOrchestrator> logger)
     {
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
@@ -71,6 +74,7 @@ internal sealed partial class VibeOrchestrator
         _mailbox = mailbox ?? throw new ArgumentNullException(nameof(mailbox));
         _paper = paper ?? throw new ArgumentNullException(nameof(paper));
         _agentProviders = agentProviders ?? throw new ArgumentNullException(nameof(agentProviders));
+        _secrets = secrets ?? throw new ArgumentNullException(nameof(secrets));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -127,6 +131,22 @@ internal sealed partial class VibeOrchestrator
         var verifierProvider = ResolveProvider("verifier");
         var dagBuilderProvider = ResolveProvider("dag_builder");
         var paperEditorProvider = ResolveProvider("paper_editor");
+
+        // ------------------------------------------------------------
+        // Pause gate: if provider is missing apiKey, wait for user to configure then continue.
+        //
+        // 中文说明：
+        // - 只在真正要调用 LLM 之前做 gate（materials/dag/trace 都不需要 key）。
+        // - 这里先 gate research_assistant（BRIEF/PLAN/SUMMARY 都依赖它）。
+        // ------------------------------------------------------------
+        raProvider = await EnsureProviderRunnableOrPauseAsync(
+            session,
+            runId,
+            agent: "research_assistant",
+            stepName: "vibe",
+            resolveProvider: () => ResolveProvider("research_assistant"),
+            emitAssistantDelta: emitAssistantDelta,
+            ct: ct);
 
         // Attach metadata to the main assistant message so UI can show provider per agent card.
         // (Message id scheme matches ResearchRunExecutor: msg:{sessionId}:assistant:{runId})
@@ -300,20 +320,60 @@ internal sealed partial class VibeOrchestrator
             switch (agent)
             {
                 case "planner":
+                    plannerProvider = await EnsureProviderRunnableOrPauseAsync(
+                        session,
+                        runId,
+                        agent: "planner",
+                        stepName: "vibe.planner",
+                        resolveProvider: () => ResolveProvider("planner"),
+                        emitAssistantDelta: emitAssistantDelta,
+                        ct: ct);
                     outputs[agent] = await RunPlannerAsync(session, runId, input, question, materials, dagSnap, plannerProvider, ct);
                     break;
                 case "reasoner":
+                    reasonerProvider = await EnsureProviderRunnableOrPauseAsync(
+                        session,
+                        runId,
+                        agent: "reasoner",
+                        stepName: "vibe.reasoner",
+                        resolveProvider: () => ResolveProvider("reasoner"),
+                        emitAssistantDelta: emitAssistantDelta,
+                        ct: ct);
                     outputs[agent] = await RunReasonerAsync(session, runId, input, question, materials, dagSnap, outputs.TryGetValue("planner", out var p) ? p : null, reasonerProvider, ct);
                     break;
                 case "librarian":
+                    librarianProvider = await EnsureProviderRunnableOrPauseAsync(
+                        session,
+                        runId,
+                        agent: "librarian",
+                        stepName: "vibe.librarian",
+                        resolveProvider: () => ResolveProvider("librarian"),
+                        emitAssistantDelta: emitAssistantDelta,
+                        ct: ct);
                     outputs[agent] = await RunLibrarianAsync(session, runId, input, question, materials, dagSnap, librarianProvider, ct);
                     break;
                 case "verifier":
+                    verifierProvider = await EnsureProviderRunnableOrPauseAsync(
+                        session,
+                        runId,
+                        agent: "verifier",
+                        stepName: "vibe.verifier",
+                        resolveProvider: () => ResolveProvider("verifier"),
+                        emitAssistantDelta: emitAssistantDelta,
+                        ct: ct);
                     outputs[agent] = await RunVerifierAsync(session, runId, input, question, materials, dagSnap, outputs.TryGetValue("reasoner", out var r) ? r : null, verifierProvider, ct);
                     break;
                 case "dag_builder":
                     // Refresh DAG snapshot right before builder (other sessions may have mutated the shared DAG).
                     dagSnap = await _dag.LoadSnapshotAsync(dagId, ct);
+                    dagBuilderProvider = await EnsureProviderRunnableOrPauseAsync(
+                        session,
+                        runId,
+                        agent: "dag_builder",
+                        stepName: "vibe.dag_builder",
+                        resolveProvider: () => ResolveProvider("dag_builder"),
+                        emitAssistantDelta: emitAssistantDelta,
+                        ct: ct);
                     outputs[agent] = await RunDagBuilderAsync(session, runId, input, question, materials, dagSnap, outputs, librarianAxioms, dagBuilderProvider, ct);
                     break;
                 default:
@@ -390,6 +450,14 @@ internal sealed partial class VibeOrchestrator
             // Future: also update lists even when no DAG change occurred.
             if (dagResult.Accepted && dagResult.AcceptedMutation != null)
             {
+                paperEditorProvider = await EnsureProviderRunnableOrPauseAsync(
+                    session,
+                    runId,
+                    agent: "paper_editor",
+                    stepName: "vibe.paper_editor",
+                    resolveProvider: () => ResolveProvider("paper_editor"),
+                    emitAssistantDelta: emitAssistantDelta,
+                    ct: ct);
                 var paperEditorOut = await RunPaperEditorAsync(
                     session,
                     runId,

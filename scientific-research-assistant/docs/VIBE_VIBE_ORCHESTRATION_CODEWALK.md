@@ -37,34 +37,42 @@
    - `DagStore.LoadSnapshotAsync(dagId)`：拿最新 DAG snapshot（可能是跨 session 共享）
    - `TraceStore.LoadLatestAsync(sessionId, max:5)`：拿最近 trace 作为回忆
 
-2. **（可选）生成 Brief：仅当 session 还没有 brief 时**
+2. **（可选）LLM Provider 暂停门控（缺 API Key 时）**
+   - 在真正调用 LLM 之前（例如 `research_assistant` 的 BRIEF/PLAN/SUMMARY，或各 worker）会先检查 provider 是否已配置 `ApiKey`
+   - 若未配置：
+     - 发 `CustomEvent aevatar.vibe.llm_api_key_required`
+     - 在主 assistant 流输出“已暂停，请配置 API Key”
+     - 后台轮询等待用户完成配置，然后**原地继续**本轮（无需重新发起）
+   - 超时：默认最多等待 10 分钟（避免后台任务永久挂起）
+
+3. **（可选）生成 Brief：仅当 session 还没有 brief 时**
    - 条件：`BriefStore.LoadAsync(sessionId).Version <= 0`
    - 调用 `research_assistant` 的 `[MODE:BRIEF]`（输出严格 JSON）
    - 保存到 `deliverables/brief.json`（version=1）
    - 发 `CustomEvent aevatar.vibe.brief_updated`
    - 同时把 brief 里 `milestones[]` **落到 DAG 的 plan nodes**（见第 4 节）
 
-3. **每轮必跑：`research_assistant` 生成本轮 Plan（JSON）**
+4. **每轮必跑：`research_assistant` 生成本轮 Plan（JSON）**
    - 调用 `research_assistant` 的 `[MODE:PLAN]`
    - 将 Plan JSON 的主要内容以小节形式写入主 assistant 流（用于可视化/回放）
    - 把这份 plan **落到 DAG 的 plan node**（见第 4 节）
 
-4. **运行 workers（按确定性顺序）**
+5. **运行 workers（按确定性顺序）**
    - 默认顺序：`planner → reasoner → librarian → verifier(可选) → dag_builder`
    - 每个 worker 会有独立的 AG-UI 消息流（见第 6 节）
    - `librarian` 的输出可能触发副作用：写 facts、提供“可信 axiom 候选”（给 dag_builder 参考）
    - `dag_builder` 运行前会再刷新一次 DAG snapshot（避免共享 DAG 被其他 session 改动导致 id 冲突）
 
-5. **DAG apply（当前实现：no verification / no consensus）**
+6. **DAG apply（当前实现：no verification / no consensus）**
    - 解析 `dag_builder` 输出的 JSON candidate mutation（nodes/edges）
    - 若候选 mutation 引用缺失的 `sources/*.md|txt`，会自动创建 placeholder source 文件
    - 若候选非空：直接 `DagStore.ApplyMutationAsync(...)` 并发 `CustomEvent aevatar.vibe.dag_updated`
 
-6. **（可选）Delivery center / paper_editor**
+7. **（可选）Delivery center / paper_editor**
    - 条件：仅当 DAG apply 成功且有 accepted mutation（MVP）
    - `paper_editor` 产出 patch + delivery lists，写入 deliverables（以及 paper scaffold）
 
-7. **每轮必跑：`research_assistant` Summary（Markdown）→ TraceStore 落盘**
+8. **每轮必跑：`research_assistant` Summary（Markdown）→ TraceStore 落盘**
    - 调用 `research_assistant` 的 `[MODE:SUMMARY]`
    - 写入主 assistant 流
    - `PersistTraceAsync(...)` 把本轮摘要落盘（trace.jsonl + summary.md）

@@ -3,13 +3,18 @@ using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.Tool.Abstractions;
 using Microsoft.Extensions.Logging;
 using ScientificResearchAssistant.Streaming;
+using ScientificResearchAssistant.Vibe.Tools;
 
 namespace ScientificResearchAssistant;
 
 public class ResearchAgent : AIGAgentBase
 {
-    public ResearchAgent()
+    private readonly IVibeDagPlanAccess? _plans;
+
+    public ResearchAgent(IVibeDagPlanAccess? plans = null)
     {
+        _plans = plans;
+
         // Default: keep chat stateful + compacted (bounded) so AG-UI can build snapshots on reconnect.
         EnableChatHistoryInState = true;
         EnableChatHistoryCompaction = true;
@@ -32,7 +37,11 @@ public class ResearchAgent : AIGAgentBase
             "- Always cite your sources when performing literature reviews.\n" +
             "- When analyzing data, explain your methodology clearly.\n" +
             "- If a tool fails, explain why and suggest alternatives.\n" +
-            "- Never fabricate tool results. Prefer executable verification when possible.";
+            "- Never fabricate tool results. Prefer executable verification when possible.\n" +
+            "\n" +
+            "Planning:\n" +
+            "- If the user asks to change/adjust the research plan (milestones), you MAY call dag_plan_set_milestones to update DAG plan nodes.\n" +
+            "- If the user intent is ambiguous, ask a clarification question instead of writing.";
     }
 
     protected override IAevatarToolManager CreateToolManager()
@@ -47,6 +56,12 @@ public class ResearchAgent : AIGAgentBase
 
         // Keep framework built-ins (state query / event publisher / memory / skills tools, etc.)
         await base.RegisterToolsAsync(cancellationToken);
+
+        // Optional: plan editing tool (writes milestone plan nodes).
+        if (_plans != null)
+        {
+            await RegisterToolAsync(new DagPlanSetMilestonesTool(_plans), cancellationToken: cancellationToken);
+        }
         
         // Log available tools
         var tools = await GetRegisteredToolsAsync();

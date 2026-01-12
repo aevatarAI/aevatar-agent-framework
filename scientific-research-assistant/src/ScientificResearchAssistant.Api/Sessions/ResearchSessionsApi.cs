@@ -496,6 +496,32 @@ internal static class ResearchSessionsApi
             return Results.Json(new { ok = true, sessionId = session.Id, dagId, dag = snap });
         });
 
+        app.MapPost("/api/sessions/{sessionId}/dag/plan/edit", async (
+            string sessionId,
+            PlanEditInDto input,
+            ResearchSessionManager sessions,
+            Vibe.VibeOrchestrator vibe,
+            DagStore dag,
+            CancellationToken ct) =>
+        {
+            if (!sessions.TryGet(sessionId, out var session))
+                return Results.NotFound(new { error = "session not found" });
+
+            var dagId = string.IsNullOrWhiteSpace(session.DagId) ? session.Id : session.DagId.Trim();
+            var instruction = (input.Instruction ?? string.Empty).Replace("\r", "").Trim();
+            if (instruction.Length == 0)
+                return Results.BadRequest(new { ok = false, error = "instruction is required" });
+
+            // Use session default provider (or client can override via normal Agents panel mapping later).
+            var (applied, note) = await vibe.EditDagPlanMilestonesAsync(session, dagId, instruction, providerOverride: null, ct);
+            if (applied == null)
+                return Results.BadRequest(new { ok = false, sessionId = session.Id, dagId, error = note });
+
+            // Return the same "list" shape used by DagPanel.
+            var snap = await dag.GetSnapshotForListAsync(dagId, ct);
+            return Results.Json(new { ok = true, sessionId = session.Id, dagId, note, dag = snap });
+        });
+
         app.MapGet("/api/sessions/{sessionId}/dag/{nodeId}/explain", async (
             string sessionId,
             string nodeId,
@@ -662,6 +688,11 @@ internal static class ResearchSessionsApi
             var markdown = await client.GenerateFullPaperAsync(ct);
             return Results.Json(new { ok = true, sessionId = session.Id, dagId, markdown });
         });
+    }
+
+    private sealed record PlanEditInDto
+    {
+        public string? Instruction { get; init; }
     }
 
     private sealed record DagBindingPutInDto

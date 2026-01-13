@@ -22,6 +22,8 @@ using ScientificResearchAssistant.Api.Vibe.Brief;
 using ScientificResearchAssistant.Api.Vibe.Compute;
 using ScientificResearchAssistant.Api.Vibe.Delivery;
 using ScientificResearchAssistant.Api.Vibe.Dag;
+using ScientificResearchAssistant.Vibe.Pivot;
+using ScientificResearchAssistant.Api.Vibe.Pivot;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -69,6 +71,17 @@ var syncOnly = args.Any(a => string.Equals(a, "--sync-skills", StringComparison.
 builder.Services.Configure<LLMProvidersConfig>(builder.Configuration.GetSection("LLMProviders"));
 builder.Services.Configure<MaterialsOptions>(builder.Configuration.GetSection(MaterialsOptions.SectionName));
 builder.Services.Configure<DagGroundingOptions>(builder.Configuration.GetSection(DagGroundingOptions.SectionName));
+
+// Pivot: research direction change detection, DAG operations, and user feedback (US-1 + US-2 + US-3 + US-4)
+builder.Services.Configure<PivotOptions>(builder.Configuration.GetSection(PivotOptions.SectionName));
+builder.Services.AddSingleton<IDirectionChangeDetector, DirectionChangeDetector>();
+builder.Services.AddSingleton<IPivotOrchestrator, PivotOrchestrator>();
+builder.Services.AddSingleton<IPivotEventPublisher, PivotEventPublisher>();
+builder.Services.AddSingleton<IAgentPivotCoordinator, AgentPivotCoordinator>();
+builder.Services.AddSingleton<IPivotFeedbackEmitter, PivotFeedbackEmitter>();
+builder.Services.AddSingleton<IPivotSnapshotManager, PivotSnapshotManager>();
+builder.Services.AddSingleton<IPivotQueue, PivotQueue>();
+builder.Services.AddSingleton<PivotMetrics>();
 
 // User secrets store (encrypted, per-user) for runtime writes (UI/API/CLI).
 builder.Services.AddAevatarUserSecretsStore();
@@ -331,6 +344,9 @@ app.MapSkillsMpApi();
 
 // Sessions API (AG-UI)
 app.MapResearchSessionsApi();
+
+// Pivot API (rollback support for US-5)
+app.MapPivotApi();
 
 app.Run();
 

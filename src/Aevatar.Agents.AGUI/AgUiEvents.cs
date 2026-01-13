@@ -166,3 +166,87 @@ public sealed record ToolCallResultEvent : AgUiEvent
     public required string Result { get; init; }
 }
 
+// ─────────────────────────────────────────────────────────────
+//  Research direction pivot events
+// ─────────────────────────────────────────────────────────────
+
+/// <summary>
+/// Emitted when the system detects a potential research direction change.
+/// </summary>
+public sealed record PivotDetectedEvent : AgUiEvent
+{
+    public override string Type => "PIVOT_DETECTED";
+    public required string SessionId { get; init; }
+    public required string PivotId { get; init; }
+    public required string DetectedIntent { get; init; }
+    public required double Confidence { get; init; }
+    public string? NewTopic { get; init; }
+    public bool NeedsClarification { get; init; }
+    public IReadOnlyList<string> PreserveAspects { get; init; } = [];
+}
+
+/// <summary>
+/// Emitted when a pivot operation begins executing.
+/// </summary>
+public sealed record PivotStartedEvent : AgUiEvent
+{
+    public override string Type => "PIVOT_STARTED";
+    public required string SessionId { get; init; }
+    public required string PivotId { get; init; }
+    public string? OldDirection { get; init; }
+    public string? NewDirection { get; init; }
+}
+
+/// <summary>
+/// Emitted during pivot execution to report progress.
+/// </summary>
+public sealed record PivotProgressEvent : AgUiEvent
+{
+    public override string Type => "PIVOT_PROGRESS";
+    public required string SessionId { get; init; }
+    public required string PivotId { get; init; }
+    public required string Stage { get; init; }
+    public required string Message { get; init; }
+    public double? Progress { get; init; }
+}
+
+/// <summary>
+/// Emitted when a pivot operation completes successfully.
+/// </summary>
+public sealed record PivotCompletedEvent : AgUiEvent
+{
+    public override string Type => "PIVOT_COMPLETED";
+    public required string SessionId { get; init; }
+    public required string PivotId { get; init; }
+    public required int CancelledCount { get; init; }
+    public required int PreservedCount { get; init; }
+    public required int NewCount { get; init; }
+    public long DurationMs { get; init; }
+    public string? Summary { get; init; }
+}
+
+/// <summary>
+/// Emitted when a pivot operation fails.
+/// </summary>
+public sealed record PivotErrorEvent : AgUiEvent
+{
+    public override string Type => "PIVOT_ERROR";
+    public required string SessionId { get; init; }
+    public required string PivotId { get; init; }
+    public required string ErrorMessage { get; init; }
+    public string? ErrorCode { get; init; }
+}
+
+/// <summary>
+/// Emitted to request user clarification for low-confidence direction changes.
+/// </summary>
+public sealed record PivotClarificationRequestEvent : AgUiEvent
+{
+    public override string Type => "PIVOT_CLARIFICATION_REQUEST";
+    public required string SessionId { get; init; }
+    public required string PivotId { get; init; }
+    public required string Question { get; init; }
+    public string? SuggestedTopic { get; init; }
+    public double Confidence { get; init; }
+}
+

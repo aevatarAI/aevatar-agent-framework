@@ -59,4 +59,30 @@ public sealed class KnowledgeNode
 
     /// <summary>IDs of nodes this node depends on (upstream dependencies).</summary>
     public IReadOnlyList<string> DependsOn { get; init; } = [];
+
+    // ========== Pivot-related fields (added for research direction pivot feature) ==========
+
+    /// <summary>
+    /// Status of this node with respect to research direction pivots.
+    /// Default is Active. When a pivot cancels pending nodes, they are marked as Cancelled.
+    /// Completed nodes from a previous direction are marked as Superseded.
+    /// </summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public PivotNodeStatus PivotStatus { get; init; } = PivotNodeStatus.Active;
+
+    /// <summary>
+    /// When this node was cancelled due to a pivot (null if not cancelled).
+    /// </summary>
+    public DateTimeOffset? CancelledAt { get; init; }
+
+    /// <summary>
+    /// The pivot operation ID that cancelled this node (null if not cancelled).
+    /// </summary>
+    public string? CancelledByPivotId { get; init; }
+
+    /// <summary>
+    /// Research direction context when this node was created.
+    /// Used for partial pivot filtering to identify which nodes to preserve.
+    /// </summary>
+    public string? DirectionContext { get; init; }
 }

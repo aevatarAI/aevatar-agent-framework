@@ -138,15 +138,15 @@ public class LocalMessageStream : IMessageStream
             var tasks = _subscriptions.Values
                 .Where(sub => sub.IsActive)
                 .Select(async subscription =>
-                {
-                    try
                     {
-                        await subscription.HandleMessageAsync(envelope);
-                    }
-                    catch (Exception)
-                    {
-                        // Ignore subscriber errors, don't affect other subscribers
-                    }
+                        try
+                        {
+                            await subscription.HandleMessageAsync(envelope);
+                        }
+                        catch (Exception)
+                        {
+                            // Ignore subscriber errors, don't affect other subscribers
+                        }
                 });
 
             await Task.WhenAll(tasks);

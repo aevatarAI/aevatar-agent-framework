@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/interruptible-runs/requirements.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-13T03:11:59.665Z",
+      "trigger": "initial",
+      "approvalId": "approval_1768273919646_tjdf1vxlh",
+      "approvalTitle": "Requirements: Interruptible Runs (framework-level) + SRA integration"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-13T03:23:48.350Z",
+      "trigger": "approved",
+      "approvalId": "approval_1768273919646_tjdf1vxlh",
+      "approvalTitle": "Requirements: Interruptible Runs (framework-level) + SRA integration"
+    }
+  ]
+}

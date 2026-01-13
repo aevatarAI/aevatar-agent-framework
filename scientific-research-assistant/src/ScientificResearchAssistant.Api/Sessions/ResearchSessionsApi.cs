@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Aevatar.Agents.AGUI;
 using Aevatar.Agents.AI.Abstractions.Configuration;
+using Aevatar.Agents.Core.Runtime;
 using Aevatar.Agents.Knowledge.Graph;
 using Aevatar.Agents.Knowledge.Graph.Exceptions;
 using Google.Protobuf.WellKnownTypes;
@@ -13,6 +14,7 @@ using ScientificResearchAssistant.Api.Vibe.Brief;
 using ScientificResearchAssistant.Api.Vibe.Compute;
 using ScientificResearchAssistant.Api.Vibe.Delivery;
 using ScientificResearchAssistant.Api.Vibe.Dag;
+using ScientificResearchAssistant.Api.Vibe.Mesh;
 using ScientificResearchAssistant.Api.Vibe.Trace;
 using ScientificResearchAssistant.Api.Vibe.Uploads;
 using ScientificResearchAssistant.Api.Workspace;
@@ -48,6 +50,7 @@ internal static class ResearchSessionsApi
         MapCompute(app);
         MapUploads(app);
         MapDag(app);
+        MapMesh(app);
         MapStatus(app);
         MapInput(app);
         MapMcpReconnect(app);
@@ -56,6 +59,101 @@ internal static class ResearchSessionsApi
         MapFiles(app);
         MapAgUiEvents(app);
     }
+
+    private static void MapMesh(WebApplication app)
+    {
+        // Mesh DSL API (local-only; session-scoped File-SSoT)
+        app.MapGet("/api/sessions/{sessionId}/mesh", async (
+            string sessionId,
+            ResearchSessionManager sessions,
+            MeshDefinitionStore store,
+            CancellationToken ct,
+            HttpContext http) =>
+        {
+            if (!IsLocal(http))
+                return Results.Forbid();
+
+            if (!sessions.TryGet(sessionId, out var session))
+                return Results.NotFound(new { ok = false, error = "session not found" });
+
+            var (raw, format) = await store.TryLoadRawAsync(session.Id, ct);
+            return Results.Json(new
+            {
+                ok = true,
+                sessionId = session.Id,
+                exists = !string.IsNullOrWhiteSpace(raw),
+                format = format ?? "",
+                raw = raw
+            }, Json);
+        });
+
+        app.MapPut("/api/sessions/{sessionId}/mesh", async (
+            string sessionId,
+            UpdateMeshInDto input,
+            ResearchSessionManager sessions,
+            MeshDefinitionStore store,
+            MeshCompilerService compiler,
+            CancellationToken ct,
+            HttpContext http) =>
+        {
+            if (!IsLocal(http))
+                return Results.Forbid();
+
+            if (!sessions.TryGet(sessionId, out var session))
+                return Results.NotFound(new { ok = false, error = "session not found" });
+
+            var raw = (input.Raw ?? string.Empty).Replace("\r", "").Trim();
+            if (raw.Length == 0)
+                return Results.BadRequest(new { ok = false, error = "raw is required" });
+
+            // Bound payload to prevent abuse.
+            const int maxChars = 500_000;
+            if (raw.Length > maxChars)
+                raw = raw[..maxChars];
+
+            // Validate first (do not execute).
+            var result = compiler.Compile(raw);
+            if (!result.Ok || result.Definition == null)
+            {
+                var errors = (result.Errors ?? [])
+                    .Take(50)
+                    .Select(e => new { code = e.Code, message = e.Message, path = e.Path })
+                    .ToList();
+
+                return Results.BadRequest(new
+                {
+                    ok = false,
+                    sessionId = session.Id,
+                    errors
+                });
+            }
+
+            await store.SaveAsync(session.Id, raw, input.Format, ct);
+
+            // Best-effort: surface compile ok to UI via custom event.
+            try
+            {
+                session.Events.Publish(new CustomEvent
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    Name = "aevatar.vibe.mesh_saved",
+                    Value = new { sessionId = session.Id }
+                });
+            }
+            catch
+            {
+                // best-effort only
+            }
+
+            return Results.Json(new
+            {
+                ok = true,
+                sessionId = session.Id
+            }, Json);
+        });
+    }
+
+    private sealed record UpdateMeshInDto(string Raw, string? Format);
 
     private static void MapStatus(WebApplication app)
     {
@@ -721,7 +819,37 @@ internal static class ResearchSessionsApi
 
             _ = Task.Run(async () =>
             {
-                await executor.ExecuteAsync(session, runId, input, CancellationToken.None);
+                // Latest-wins: new message cancels previous run for this session.
+                var run = session.BeginNewRun(runId, reason: "new_input", out var interruptedRunId);
+
+                if (!string.IsNullOrWhiteSpace(interruptedRunId))
+                {
+                    // Tell UI immediately (even if the old run was still queued on RunLock).
+                    session.Events.Publish(new CustomEvent
+                    {
+                        Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                        Name = "aevatar.scientific.run_interrupted",
+                        Value = new
+                        {
+                            threadId = session.Id,
+                            oldRunId = interruptedRunId,
+                            newRunId = runId,
+                            reason = "new_input"
+                        }
+                    });
+                }
+
+                using var scope = RunContextScope.Begin(run);
+                try
+                {
+                    await executor.ExecuteAsync(session, runId, input, run.Token);
+                }
+                finally
+                {
+                    // Only clear if still active (avoid clearing a newer run).
+                    _ = session.TryClearActiveRun(runId, run);
+                    run.Dispose();
+                }
             }, CancellationToken.None);
 
             return Results.Accepted($"/api/sessions/{session.Id}", new { ok = true, sessionId = session.Id, runId });

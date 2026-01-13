@@ -8,8 +8,8 @@
 
     <ItemGroup>
         <ProjectReference Include="../../../src/Aevatar.Agents.AGUI/Aevatar.Agents.AGUI.csproj" />
+        <ProjectReference Include="../../../src/Aevatar.Agents.AI/Aevatar.Agents.AI.csproj" />
         <ProjectReference Include="../../../src/Aevatar.Agents.AI.Core/Aevatar.Agents.AI.Core.csproj" />
-        <ProjectReference Include="../../../src/Aevatar.Agents.AI.MEAI/Aevatar.Agents.AI.MEAI.csproj" />
         <ProjectReference Include="../../../src/Aevatar.Agents.Knowledge.Graph/Aevatar.Agents.Knowledge.Graph.csproj" />
         <ProjectReference Include="../../../src/Aevatar.Agents.Persistence.InMemory.Graph/Aevatar.Agents.Persistence.InMemory.Graph.csproj" />
         <ProjectReference Include="../../../src/Aevatar.Agents.Runtime.Local/Aevatar.Agents.Runtime.Local.csproj" />
@@ -21,6 +21,7 @@
 
     <ItemGroup>
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+        <PackageReference Include="YamlDotNet" />
     </ItemGroup>
 
     <ItemGroup>

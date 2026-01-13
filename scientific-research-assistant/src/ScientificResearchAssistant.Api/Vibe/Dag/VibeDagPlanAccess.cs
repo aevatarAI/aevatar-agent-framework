@@ -38,8 +38,18 @@ internal sealed class VibeDagPlanAccess : IVibeDagPlanAccess
         if (sessionId.Length == 0)
             return ToStruct(new { ok = false, error = "missing sessionId" });
 
-        if (!_sessions.TryGet(sessionId, out var session))
-            return ToStruct(new { ok = false, error = "session not found", sessionId });
+        ResearchSession session;
+        try
+        {
+            // Sessions are ephemeral (in-memory). If the session isn't currently registered
+            // (e.g., after restart), we re-hydrate a minimal session shell so plan edits
+            // can still apply to File-SSoT workspace + DAG.
+            session = _sessions.GetOrCreate(sessionId);
+        }
+        catch (Exception ex)
+        {
+            return ToStruct(new { ok = false, error = "invalid sessionId", detail = ex.Message, sessionId });
+        }
 
         var dagId = string.IsNullOrWhiteSpace(session.DagId) ? session.Id : session.DagId.Trim();
 

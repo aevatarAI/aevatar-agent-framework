@@ -87,10 +87,16 @@ internal sealed class ResearchRunExecutor
     {
         string? error = null;
         var assistant = new StringBuilder(capacity: 2048);
+        var assistantMessageId = $"msg:{session.Id}:assistant:{runId}";
+        var assistantMessageStarted = false;
+        var assistantMessageEnded = false;
+        var lockHeld = false;
 
-        await session.RunLock.WaitAsync(ct);
         try
         {
+            await session.RunLock.WaitAsync(ct);
+            lockHeld = true;
+
             // NOTE:
             // - Default is per-agent providers (Agents panel config).
             // - Only use ProviderName when the caller explicitly overrides it.
@@ -111,13 +117,13 @@ internal sealed class ResearchRunExecutor
             EmitUserMessage(session, userMessageId, question);
 
             // One assistant message stream; multi-agent outputs are merged with clear section headers.
-            var assistantMessageId = $"msg:{session.Id}:assistant:{runId}";
             session.Events.Publish(new TextMessageStartEvent
             {
                 Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 MessageId = assistantMessageId,
                 Role = "assistant"
             });
+            assistantMessageStarted = true;
 
             // Bind tool progress events to this run (works for planner/reasoner tools as well).
             var prevSink = ResearchStreamEventContext.Current;
@@ -183,6 +189,7 @@ internal sealed class ResearchRunExecutor
                     Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                     MessageId = assistantMessageId
                 });
+                assistantMessageEnded = true;
 
                 session.Events.Publish(new RunFinishedEvent
                 {
@@ -204,9 +211,30 @@ internal sealed class ResearchRunExecutor
                 ResearchStreamEventContext.Current = prevSink;
             }
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            error = "run canceled";
+
+            session.Events.Publish(new CustomEvent
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Name = "aevatar.scientific.run_canceled",
+                Value = new { threadId = session.Id, runId }
+            });
+
+            session.Events.Publish(new RunFinishedEvent
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                ThreadId = session.Id,
+                RunId = runId,
+                Result = new { ok = false, canceled = true, error, mode = "vibe_loop" }
+            });
+
+            _logger.LogInformation("[Scientific] Vibe loop run canceled: {RunId}", runId);
+        }
         catch (Exception ex)
         {
-            error = ex is OperationCanceledException ? "run canceled" : ex.Message;
+            error = ex.Message;
 
             session.Events.Publish(new RunErrorEvent
             {
@@ -227,7 +255,18 @@ internal sealed class ResearchRunExecutor
         }
         finally
         {
+            if (assistantMessageStarted && !assistantMessageEnded)
+            {
+                session.Events.Publish(new TextMessageEndEvent
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    MessageId = assistantMessageId
+                });
+            }
+            if (lockHeld)
+        {
             session.RunLock.Release();
+            }
         }
     }
 
@@ -242,11 +281,17 @@ internal sealed class ResearchRunExecutor
 
         // Streamed content buffer (for run finished result).
         var assistant = new StringBuilder(capacity: 1024);
+        var assistantMessageId = $"msg:{session.Id}:assistant:{runId}";
+        var assistantMessageStarted = false;
+        var assistantMessageEnded = false;
+        var lockHeld = false;
 
         // Serialize runs per session.
-        await session.RunLock.WaitAsync(ct);
         try
         {
+            await session.RunLock.WaitAsync(ct);
+            lockHeld = true;
+
             // NOTE:
             // - Default is per-agent providers (Agents panel config).
             // - Only use ProviderName when the caller explicitly overrides it.
@@ -288,13 +333,13 @@ internal sealed class ResearchRunExecutor
             EmitUserMessage(session, userMessageId, (input.Message ?? string.Empty).Trim());
 
             // Emit assistant message stream
-            var assistantMessageId = $"msg:{session.Id}:assistant:{runId}";
             session.Events.Publish(new TextMessageStartEvent
             {
                 Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 MessageId = assistantMessageId,
                 Role = "assistant"
             });
+            assistantMessageStarted = true;
 
             // Initialize agent AFTER we've notified UI that the run started (avoids "blank" UI when init is slow).
             var (agent, agentId) = await _runtime.GetAgentAsync(session.Id, providerOverride, ct);
@@ -358,6 +403,7 @@ internal sealed class ResearchRunExecutor
                 Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 MessageId = assistantMessageId
             });
+            assistantMessageEnded = true;
 
             session.Events.Publish(new StepFinishedEvent
             {
@@ -377,9 +423,30 @@ internal sealed class ResearchRunExecutor
                 Result = new { ok = true, assistantMessageId, assistant = assistantText }
             });
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            error = "run canceled";
+
+            session.Events.Publish(new CustomEvent
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Name = "aevatar.scientific.run_canceled",
+                Value = new { threadId = session.Id, runId }
+            });
+
+            session.Events.Publish(new RunFinishedEvent
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                ThreadId = session.Id,
+                RunId = runId,
+                Result = new { ok = false, canceled = true, error, mode = "chat" }
+            });
+
+            _logger.LogInformation("[Scientific] Session run canceled: {RunId}", runId);
+        }
         catch (Exception ex)
         {
-            error = ex is OperationCanceledException ? "run canceled" : ex.Message;
+            error = ex.Message;
 
             session.Events.Publish(new RunErrorEvent
             {
@@ -400,7 +467,18 @@ internal sealed class ResearchRunExecutor
         }
         finally
         {
+            if (assistantMessageStarted && !assistantMessageEnded)
+            {
+                session.Events.Publish(new TextMessageEndEvent
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    MessageId = assistantMessageId
+                });
+            }
+            if (lockHeld)
+        {
             session.RunLock.Release();
+            }
         }
     }
 
@@ -412,10 +490,16 @@ internal sealed class ResearchRunExecutor
     {
         string? error = null;
         var assistant = new StringBuilder(capacity: 2048);
+        var assistantMessageId = $"msg:{session.Id}:assistant:{runId}";
+        var assistantMessageStarted = false;
+        var assistantMessageEnded = false;
+        var lockHeld = false;
 
-        await session.RunLock.WaitAsync(ct);
         try
         {
+            await session.RunLock.WaitAsync(ct);
+            lockHeld = true;
+
             var providerOverride = string.IsNullOrWhiteSpace(input.ProviderName)
                 ? session.ProviderName
                 : input.ProviderName.Trim();
@@ -433,13 +517,13 @@ internal sealed class ResearchRunExecutor
             EmitUserMessage(session, userMessageId, question);
 
             // One assistant message stream; multi-agent outputs are merged with clear section headers.
-            var assistantMessageId = $"msg:{session.Id}:assistant:{runId}";
             session.Events.Publish(new TextMessageStartEvent
             {
                 Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 MessageId = assistantMessageId,
                 Role = "assistant"
             });
+            assistantMessageStarted = true;
 
             // Bind tool progress events to this run (works for planner/reasoner tools as well).
             var prevSink = ResearchStreamEventContext.Current;
@@ -505,6 +589,7 @@ internal sealed class ResearchRunExecutor
                     Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                     MessageId = assistantMessageId
                 });
+                assistantMessageEnded = true;
 
                 session.Events.Publish(new RunFinishedEvent
                 {
@@ -525,9 +610,30 @@ internal sealed class ResearchRunExecutor
                 ResearchStreamEventContext.Current = prevSink;
             }
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            error = "run canceled";
+
+            session.Events.Publish(new CustomEvent
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Name = "aevatar.scientific.run_canceled",
+                Value = new { threadId = session.Id, runId }
+            });
+
+            session.Events.Publish(new RunFinishedEvent
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                ThreadId = session.Id,
+                RunId = runId,
+                Result = new { ok = false, canceled = true, error, mode = "vibe" }
+            });
+
+            _logger.LogInformation("[Scientific] Vibe run canceled: {RunId}", runId);
+        }
         catch (Exception ex)
         {
-            error = ex is OperationCanceledException ? "run canceled" : ex.Message;
+            error = ex.Message;
 
             session.Events.Publish(new RunErrorEvent
             {
@@ -548,7 +654,18 @@ internal sealed class ResearchRunExecutor
         }
         finally
         {
+            if (assistantMessageStarted && !assistantMessageEnded)
+            {
+                session.Events.Publish(new TextMessageEndEvent
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    MessageId = assistantMessageId
+                });
+            }
+            if (lockHeld)
+        {
             session.RunLock.Release();
+            }
         }
     }
 

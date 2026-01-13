@@ -9,7 +9,11 @@ public static partial class LlmSecretsApi
             // Popular
             new ProviderProfile("openai", "OpenAI", "popular", "Connect with API key", LlmProviderKind.OpenAiCompatible, "https://api.openai.com", "gpt-4o-mini", Recommended: true),
             new ProviderProfile("anthropic", "Anthropic", "popular", "Connect with Claude API key", LlmProviderKind.Anthropic, "https://api.anthropic.com", "claude-3-5-sonnet-latest"),
+            // Alias: some users think in terms of "Claude" rather than "Anthropic"
+            new ProviderProfile("claude", "Claude (Anthropic)", "popular", "Connect with Claude API key", LlmProviderKind.Anthropic, "https://api.anthropic.com", "claude-3-5-sonnet-latest"),
             new ProviderProfile("google", "Google", "popular", "Connect with Gemini API key", LlmProviderKind.Google, "https://generativelanguage.googleapis.com", "models/gemini-1.5-flash"),
+            // Alias: some users think in terms of "Gemini" rather than "Google"
+            new ProviderProfile("gemini", "Gemini (Google)", "popular", "Connect with Gemini API key", LlmProviderKind.Google, "https://generativelanguage.googleapis.com", "models/gemini-1.5-flash"),
             new ProviderProfile("openrouter", "OpenRouter", "popular", "Bring your own key (OpenAI compatible)", LlmProviderKind.OpenAiCompatible, "https://openrouter.ai/api/v1", "openai/gpt-4o-mini"),
 
             // Other (common in Aevatar demos)

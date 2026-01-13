@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Interruptible Chat Web Demo</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="header">
+        <div class="title">Interruptible Chat Web Demo</div>
+        <div class="sub">Local runtime + SSE streaming + latest-wins interrupt (run_id)</div>
+        <div class="meta">
+          <span id="sessionLabel">session: (loading)</span>
+          <span id="runLabel">activeRun: -</span>
+        </div>
+      </header>
+
+      <section id="chat" class="chat"></section>
+
+      <footer class="composer">
+        <input id="input" class="input" placeholder="输入消息，然后快速再发一条试试打断..." />
+        <button id="send" class="btn">发送</button>
+      </footer>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
+
+

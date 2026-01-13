@@ -7,6 +7,7 @@
 ```
 Vibe/
   VibeOrchestrator.cs                       # 入口：ExecuteOneRoundAsync（骨架/时序）
+  VibeOrchestrator.MeshSeed.cs              # mesh 缺失时自动 seed（从 default_mesh.yaml）（Option B 默认启用）
   VibeOrchestrator.Workers.cs               # planner/reasoner/librarian/verifier/dag_builder/paper_editor 的流式调用
   VibeOrchestrator.DagConsensus.cs          # DAG 写入（MVP：不做共识门控；未来可做“写后验证/标注”）
   VibeOrchestrator.Trace.cs                 # trace 追加写入 + round_summary SSE
@@ -54,5 +55,121 @@ Research Assistant 在启动每一轮时，会把 DAG 的一部分节点摘要�
 语义：
 - `MinAttestations`: 至少多少个签名背书才参与 grounding（例如 `2` 就是 `Attestations.Count > 1`）
 - `RequiredPubKeys`: 如果非空，则要求“至少包含其中一个 pubkey”的背书（常用：放 1 个指定 verifier pubkey）
+
+## Mesh Orchestration（Option B：用 Mesh DSL 描述协作拓扑）
+
+Worker phase（`planner/reasoner/librarian/verifier/dag_builder`）除了默认的“硬编码顺序/计划 workers”外，还支持 **Mesh DSL** 驱动（默认启用）。
+
+### 启用方式
+
+在 `ScientificResearchAssistant.Api` 的配置中开启（当前默认 `Enabled=true`）：
+
+```json
+{
+  "Vibe": {
+    "MeshOrchestration": {
+      "Enabled": true,
+      "OnCompileError": "fallback" // fallback | fail
+    }
+  }
+}
+```
+
+语义：
+- `Enabled`: 为 true 时，`VibeOrchestrator` 会尝试加载 session 的 `mesh.yaml`（优先）或 `mesh.json` 并执行 mesh worker phase；缺失时会自动 seed
+- `OnCompileError`:
+  - `fallback`（默认）：mesh 无效时回退到默认 worker pipeline
+  - `fail`：mesh 无效时 **不回退**，直接跳过 worker phase（本轮仍会走 DAG apply/summary/trace，但通常不会有 DAG candidate）
+
+### 存储位置（File-SSoT）
+
+MeshDefinition 的 raw（YAML/JSON）存放在：
+
+- `workspace/sessions/{sessionId}/decisions/mesh.yaml`（推荐）
+- `workspace/sessions/{sessionId}/decisions/mesh.json`（兼容）
+
+同时会 best-effort 写审计/回放产物到：
+
+- `workspace/sessions/{sessionId}/artifacts/mesh/*.{yaml|json}`
+
+默认模板文件（仓库内）：
+
+- `scientific-research-assistant/src/ScientificResearchAssistant.Api/Vibe/Mesh/default_mesh.yaml`
+
+### Session Mesh API（本地回环限制）
+
+用于开发/调试注入 mesh（不会执行，只保存并校验）：
+
+- `GET /api/sessions/{sessionId}/mesh`
+- `PUT /api/sessions/{sessionId}/mesh`（body: `{ "raw": "...", "format": "yaml|json" }`；保存前会 compile/validate）
+
+### Sample：等价默认 pipeline 的 mesh.yaml（推荐 YAML）
+
+```yaml
+dsl_version: "0.1"
+goal:
+  name: "vibe default pipeline"
+strategy: "cot"
+budget:
+  max_steps: 30
+  token_limit: 20000
+nodes:
+  - id: planner
+    type: planner
+  - id: reasoner
+    type: reasoner
+  - id: librarian
+    type: librarian
+  - id: verifier
+    type: verifier
+  - id: dag_builder
+    type: dag_builder
+edges:
+  - from: planner
+    to: reasoner
+    channel: upstream_output
+  - from: reasoner
+    to: librarian
+    channel: upstream_output
+  - from: reasoner
+    to: verifier
+    channel: upstream_output
+  - from: librarian
+    to: dag_builder
+    channel: upstream_output
+  - from: verifier
+    to: dag_builder
+    channel: upstream_output
+  - from: planner
+    to: reasoner
+    channel: dag_snapshot
+  - from: planner
+    to: librarian
+    channel: dag_snapshot
+  - from: planner
+    to: verifier
+    channel: dag_snapshot
+  - from: planner
+    to: dag_builder
+    channel: dag_snapshot
+  - from: planner
+    to: reasoner
+    channel: planner_output
+  - from: planner
+    to: librarian
+    channel: planner_output
+  - from: planner
+    to: verifier
+    channel: planner_output
+  - from: planner
+    to: dag_builder
+    channel: planner_output
+constraints: []
+```
+
+说明：
+- `type` 与 `channel` 有 allowlist（见 `SraMeshMappings`），不在 allowlist 内会被拒绝
+- `dag_snapshot` 会把 DAG 的 bounded 摘要作为 Inputs（材料 `materials_context` 仍由 system prompt 注入）
+ - MeshExecutionPlanner 禁止 cycles，因此不要使用回边构造环
 
 

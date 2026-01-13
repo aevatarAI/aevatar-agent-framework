@@ -29,6 +29,8 @@
    - apply 成功后发 `aevatar.vibe.dag_updated`
 5. **research_assistant（summary）**：生成本轮总结（Markdown），并落盘为 Derivation Trace
 
+> 可选：worker phase 支持 **Mesh DSL（Option B）** 驱动（默认关闭）。开启后会从 `workspace/sessions/{sessionId}/decisions/mesh.json` 读取拓扑并执行，失败可配置回退/FailFast（见下文“Mesh Orchestration”）。
+
 补充：更细的“谁在什么时候更新 brief / plan nodes / trace / UI message_meta”等，见：
 - `docs/VIBE_VIBE_ORCHESTRATION_CODEWALK.md`
 
@@ -45,6 +47,7 @@ paper/
 
 decisions/
   goals.json                         # Protobuf-JSON: SraGoalsSnapshot
+  mesh.json                          # Raw JSON: MeshDefinition（Option B：mesh-driven worker phase）
 
 deliverables/
   brief.json                         # Protobuf-JSON: SraResearchBriefSnapshot（1-page brief）
@@ -64,6 +67,7 @@ artifacts/
     snapshot.json                    # Protobuf-JSON: SraDagSnapshot
     staged/                          # 未通过共识的 candidate (json)
     consensus/                       # DAG 共识 artifacts (json)
+  mesh/                              # mesh.json / plan.json / outputs.json（best-effort，用于调试/回放）
   trace/
     trace.jsonl                      # 逐行 Protobuf-JSON: SraRoundSummary
 
@@ -128,6 +132,10 @@ SSE endpoint：`GET /api/sessions/{sessionId}/agui/events`
     - 支持 `mode=vibe`
     - 支持可选 `toAgents` / `attachmentPaths`（作为路由 hint 与附件引用）
 
+- **Mesh（Option B，开发/调试）**
+  - `GET /api/sessions/{id}/mesh`（local-only）
+  - `PUT /api/sessions/{id}/mesh`（local-only；保存前会 compile/validate，不会执行）
+
 ### 6) DAG 共识门控（自动，无人工审批）
 
 默认采用 **verifier-quorum**（轻量）：几个 `verifier` 同意即可落盘。
@@ -168,5 +176,77 @@ Vibe__DagConsensus__Mode=maker-v2 dotnet run --project scientific-research-assis
 ### 8) 端口约束
 
 仓库内示例/文档/默认配置 **不要使用 `:5000`**。如需本地默认端口，优先 `:5678`。
+
+---
+
+### 9) Mesh Orchestration（Option B：Mesh DSL 驱动协作拓扑）
+
+该模式用于把“agent 协作拓扑”从硬编码/plan workers 提升为 **声明式 MeshDefinition**（JSON）。
+
+#### 9.1 配置
+
+`scientific-research-assistant/src/ScientificResearchAssistant.Api/appsettings.json`：
+
+```json
+{
+  "Vibe": {
+    "MeshOrchestration": {
+      "Enabled": true,
+      "OnCompileError": "fallback" // fallback | fail
+    }
+  }
+}
+```
+
+语义：
+- `Enabled=true`：默认启用 mesh worker phase（优先尝试加载 `decisions/mesh.yaml`，其次 `decisions/mesh.json`；缺失时会自动 seed）
+- `OnCompileError`：
+  - `fallback`：mesh 无效 → 回退到默认 worker pipeline（更适合生产）
+  - `fail`：mesh 无效 → 不回退，跳过 worker phase（更适合调试“必须用 mesh”）
+
+#### 9.2 Sample mesh.yaml（等价默认 pipeline，推荐 YAML）
+
+```yaml
+dsl_version: "0.1"
+goal:
+  name: "vibe default pipeline"
+strategy: "cot"
+budget:
+  max_steps: 30
+  token_limit: 20000
+nodes:
+  - id: planner
+    type: planner
+  - id: reasoner
+    type: reasoner
+  - id: librarian
+    type: librarian
+  - id: dag_builder
+    type: dag_builder
+edges:
+  - from: planner
+    to: reasoner
+    channel: upstream_output
+  - from: reasoner
+    to: librarian
+    channel: upstream_output
+  - from: librarian
+    to: dag_builder
+    channel: upstream_output
+  - from: planner
+    to: dag_builder
+    channel: dag_snapshot
+constraints: []
+```
+
+> 注意：MeshExecutionPlanner 禁止 cycles，因此不要用 `dag_builder -> planner` 这种回边（会形成环）。
+
+#### 9.3 可观测性事件（best-effort）
+
+- `aevatar.vibe.mesh_saved`：mesh（YAML/JSON）通过校验并保存
+- `aevatar.vibe.mesh_seeded`：启用 mesh 且 session 缺失 mesh → 自动 seed
+- `aevatar.vibe.mesh_missing`：启用 mesh 但 session 没有 mesh（且 seed 失败）
+- `aevatar.vibe.mesh_error`：mesh compile/plan/exception（包含 `kind` 与 `onCompileError`）
+- `aevatar.vibe.mesh_*`：执行期事件（started/node_started/node_finished/finished）
 
 

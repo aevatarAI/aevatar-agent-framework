@@ -201,6 +201,32 @@ message AgentInitializedEvent {
 }
 
 // ============================================================
+// Interruptible Runs (cross-boundary control)
+//
+// 中文说明：
+// - 用于“可打断”的 run 控制信号（取消/被新 run 替换）。
+// - 该消息是跨边界（stream/actor/rpc）控制面，必须保持 Protobuf-first。
+// - 推荐在 EventEnvelope.context_metadata 里携带以下键（可选）：
+//   - "run_id": 当前执行链路的 runId（字符串）
+//   - "run_scope_id": run 作用域（sessionId/agentId 等）
+// ============================================================
+
+enum RunControlAction {
+  RUN_CONTROL_ACTION_UNSPECIFIED = 0;
+  RUN_CONTROL_ACTION_CANCEL = 1;     // cancel target_run_id
+  RUN_CONTROL_ACTION_SUPERSEDE = 2;  // cancel target_run_id, superseded_by_run_id set
+}
+
+message RunControlEvent {
+  string scope_id = 1;               // sessionId/agentId (best-effort, for routing/observability)
+  string target_run_id = 2;          // the run to cancel/supersede
+  string superseded_by_run_id = 3;   // optional: the new run that replaced it
+  RunControlAction action = 4;
+  string reason = 5;                // bounded; user/system reason
+  google.protobuf.Timestamp timestamp = 6;
+}
+
+// ============================================================
 // CQRS State Projection Messages
 // ============================================================
 

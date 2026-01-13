@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using Aevatar.Agents.AI.Abstractions.Configuration;
-using Aevatar.Agents.AI.MEAI.DependencyInjection;
+using Aevatar.Agents.AI.DependencyInjection;
 using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Runtime.Local;
 using Aevatar.Agents.AI.Tool.MCP.Configuration;
@@ -97,14 +97,16 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 });
 
 builder.Services.AddAevatarAgentSystem(b => b.UseLocalRuntime());
-builder.Services.AddMEAI();
+
+// Default: enable both MEAI + LLMTornado providers (framework will composite-inject factories).
+builder.Services.AddAevatarLLMProviders();
 
 builder.Services.AddSingleton<ResearchRuntime>();
 builder.Services.AddSingleton<MaterialsService>();
 builder.Services.AddSingleton<ResearchSessionManager>();
 builder.Services.AddSingleton<SessionUiSnapshotStore>();
 builder.Services.AddSingleton<SessionUiTraceRecorder>();
-builder.Services.AddSingleton<ScientificResearchAssistant.Api.Sessions.AgentProvidersStore>();
+builder.Services.AddSingleton<AgentProvidersStore>();
 builder.Services.AddSingleton<ResearchRunExecutor>();
 
 // File-SSoT collaboration primitives (paper + facts_proposed + mailbox)
@@ -140,6 +142,14 @@ builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.Dag.DagStore>
 builder.Services.AddSingleton<ScientificResearchAssistant.Vibe.Tools.IVibeDagAccess, ScientificResearchAssistant.Api.Vibe.Dag.VibeDagAccess>();
 builder.Services.AddSingleton<ScientificResearchAssistant.Vibe.Tools.IVibeDagPlanAccess, ScientificResearchAssistant.Api.Vibe.Dag.VibeDagPlanAccess>();
 builder.Services.AddSingleton<IDagGroundingPolicy, DefaultDagGroundingPolicy>();
+
+// Vibe: Mesh-driven orchestration (Option B; feature-flagged)
+builder.Services.Configure<ScientificResearchAssistant.Api.Vibe.Mesh.MeshOrchestrationOptions>(
+    builder.Configuration.GetSection(ScientificResearchAssistant.Api.Vibe.Mesh.MeshOrchestrationOptions.SectionName));
+builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.Mesh.MeshDefinitionStore>();
+builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.Mesh.MeshCompilerService>();
+builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.Mesh.MeshExecutionPlanner>();
+builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.Mesh.MeshExecutionRunner>();
 
 // Vibe: DAG consensus gate (default: verifier-quorum; optional: maker-v2 via CognitiveStrategy)
 builder.Services.AddSingleton<Aevatar.CognitiveMesh.Strategies.CognitiveStrategy>();

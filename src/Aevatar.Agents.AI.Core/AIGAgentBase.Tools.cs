@@ -415,6 +415,8 @@ public abstract partial class AIGAgentBase
     {
         EnsureToolManagerInitialized();
 
+        cancellationToken.ThrowIfCancellationRequested();
+
         var msgId = Guid.NewGuid().ToString("N");
         var tcId = Guid.NewGuid().ToString("N");
 
@@ -433,6 +435,12 @@ public abstract partial class AIGAgentBase
         {
             result = await ToolManager.ExecuteToolAsync(toolName, parameters, context, cancellationToken);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Expected: cooperative cancellation. Do NOT publish "error" events on cancel,
+            // and do not try to publish extra events using an already-canceled token.
+            throw;
+        }
         catch (Exception ex)
         {
             // Publish ERROR result
@@ -447,6 +455,8 @@ public abstract partial class AIGAgentBase
             }, EventDirection.Down, cancellationToken);
             throw;
         }
+
+        cancellationToken.ThrowIfCancellationRequested();
 
         // Publish SUCCESS result
         await PublishAsync(new ToolCallResultEvent

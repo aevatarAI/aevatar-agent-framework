@@ -201,6 +201,8 @@ internal sealed partial class VibeOrchestrator
         }
         catch (Exception ex)
         {
+            if (ex is OperationCanceledException && ct.IsCancellationRequested)
+                throw;
             return (null, ex.Message);
         }
     }

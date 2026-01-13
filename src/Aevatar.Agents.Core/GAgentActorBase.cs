@@ -8,6 +8,8 @@ using Aevatar.Agents.Core.Helpers;
 using Aevatar.Agents.Core.Internal;
 using Aevatar.Agents.Core.Observability;
 using Aevatar.Agents.Core.Rpc;
+using Aevatar.Agents.Core.Runtime;
+using Aevatar.Agents.Rpc;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -25,6 +27,16 @@ public abstract class GAgentActorBase : IGAgentActor, IActorHierarchyOperations
     protected readonly IGAgent Agent;
     private ILogger _logger = NullLogger.Instance;
     protected EventRouter EventRouter;
+
+    // ============================================================
+    //  Interruptible Runs (Latest-wins, opt-in by metadata)
+    //
+    //  中文说明：
+    //  - 默认不改变任何行为；仅当 envelope.context_metadata / rpc metadata 带 run_id 时启用。
+    //  - 运行时需保证同一 actor 的消息串行处理（Local/Orleans/ProtoActor），
+    //    这里仅做 run 绑定 + control message（RunControlEvent）处理。
+    // ============================================================
+    private readonly IRunManager _runManager = new RunManager();
 
     // Improved event deduplication mechanism
     protected IEventDeduplicator EventDeduplicator { get; set; }
@@ -434,6 +446,50 @@ public abstract class GAgentActorBase : IGAgentActor, IActorHierarchyOperations
     /// </summary>
     protected virtual async Task ProcessEventAsync(EventEnvelope envelope, CancellationToken ct)
     {
+        // 0) Control plane: RunControlEvent (cancel/supersede)
+        if (TryUnpackRunControl(envelope, out var control))
+        {
+            HandleRunControl(control);
+            return;
+        }
+
+        // 1) Data plane: bind run context from context_metadata if present
+        if (TryGetRunBinding(envelope, out var scopeId, out var runId))
+        {
+            if (_runManager.TryGetActive(scopeId, out var active) && active != null)
+            {
+                // Latest-wins guarantee: drop outputs from inactive runs.
+                if (!string.Equals(active.RunId, runId, StringComparison.Ordinal))
+                {
+                    Logger.LogDebug(
+                        "Skipping event {EventId} for inactive run {RunId} (active: {ActiveRunId}) in scope {ScopeId}",
+                        envelope.Id, runId, active.RunId, scopeId);
+                    return;
+                }
+
+                if (active.IsCancellationRequested)
+                {
+                    Logger.LogDebug(
+                        "Skipping event {EventId} because active run {RunId} is canceled in scope {ScopeId}",
+                        envelope.Id, runId, scopeId);
+                    return;
+                }
+
+                using var runScope = RunContextScope.Begin(active);
+                using var linked = LinkedToken.Begin(ct, active.Token);
+                ct = linked.Token;
+            }
+            else
+            {
+                // Adopt run if none exists (best-effort). This keeps default behavior unchanged
+                // unless run_id metadata is explicitly present.
+                var adopted = _runManager.StartOrReplace(scopeId, runId, reason: "adopt_run_from_event");
+                using var runScope = RunContextScope.Begin(adopted);
+                using var linked = LinkedToken.Begin(ct, adopted.Token);
+                ct = linked.Token;
+            }
+        }
+
         try
         {
             // Directly call Agent's HandleEventAsync method (no reflection needed)
@@ -510,6 +566,116 @@ public abstract class GAgentActorBase : IGAgentActor, IActorHierarchyOperations
     /// <returns>RpcResponse serialized bytes</returns>
     public virtual Task<byte[]> InvokeRpcAsync(byte[] requestBytes)
     {
-        return RpcInvoker.InvokeAsync(Agent, requestBytes, Logger);
+        // Bind run context if run_id is provided via RpcRequest.metadata.
+        // This makes RPC entrypoints cancelable via RunContextScope + token injection in RpcInvoker.
+        var request = RpcRequest.Parser.ParseFrom(requestBytes);
+        if (TryGetRpcRunBinding(request, out var scopeId, out var runId))
+        {
+            if (string.IsNullOrWhiteSpace(scopeId))
+            {
+                scopeId = Id.ToString();
+            }
+
+            var ctx = _runManager.StartOrReplace(scopeId, runId, reason: "rpc_start");
+            using var runScope = RunContextScope.Begin(ctx);
+            return RpcInvoker.InvokeAsync(Agent, requestBytes, Logger, ctx.Token);
+        }
+
+        return RpcInvoker.InvokeAsync(Agent, requestBytes, Logger, CancellationToken.None);
+    }
+
+    private bool TryGetRunBinding(EventEnvelope envelope, out string scopeId, out string runId)
+    {
+        scopeId = string.Empty;
+        runId = string.Empty;
+
+        if (!TryGetContextMetadataString(envelope, RunContextScope.MetadataKeys.RunId, out runId))
+            return false;
+
+        // Prefer explicit scope id; otherwise keep scope local to this actor.
+        TryGetContextMetadataString(envelope, RunContextScope.MetadataKeys.RunScopeId, out scopeId);
+        scopeId = string.IsNullOrWhiteSpace(scopeId) ? Id.ToString() : scopeId.Trim();
+        runId = runId.Trim();
+
+        return scopeId.Length > 0 && runId.Length > 0;
+    }
+
+    private static bool TryGetContextMetadataString(EventEnvelope envelope, string key, out string value)
+    {
+        value = string.Empty;
+        if (envelope.ContextMetadata == null) return false;
+        if (!envelope.ContextMetadata.TryGetValue(key, out var ctxVal)) return false;
+        if (ctxVal.ValueCase != ContextValue.ValueOneofCase.StringValue) return false;
+        value = ctxVal.StringValue ?? string.Empty;
+        return value.Length > 0;
+    }
+
+    private static bool TryUnpackRunControl(EventEnvelope envelope, out RunControlEvent control)
+    {
+        control = new RunControlEvent();
+        if (envelope.Payload == null) return false;
+        if (!envelope.Payload.Is(RunControlEvent.Descriptor)) return false;
+        control = envelope.Payload.Unpack<RunControlEvent>();
+        return true;
+    }
+
+    private void HandleRunControl(RunControlEvent control)
+    {
+        var scopeId = string.IsNullOrWhiteSpace(control.ScopeId) ? Id.ToString() : control.ScopeId.Trim();
+        var targetRunId = (control.TargetRunId ?? string.Empty).Trim();
+        if (targetRunId.Length == 0) return;
+
+        if (!_runManager.TryGetActive(scopeId, out var active) || active == null)
+            return;
+
+        // Idempotent: do not cancel a newer run.
+        if (!string.Equals(active.RunId, targetRunId, StringComparison.Ordinal))
+            return;
+
+        active.MarkSuperseded(control.SupersededByRunId, control.Reason);
+        active.Cancel();
+
+        Logger.LogInformation(
+            "Run control: {Action} scope={ScopeId} target={TargetRunId} superseded_by={SupersededBy}",
+            control.Action, scopeId, targetRunId, control.SupersededByRunId);
+    }
+
+    private static bool TryGetRpcRunBinding(RpcRequest request, out string scopeId, out string runId)
+    {
+        scopeId = string.Empty;
+        runId = string.Empty;
+
+        if (request.Metadata == null) return false;
+        if (!request.Metadata.TryGetValue(RunContextScope.MetadataKeys.RunId, out runId)) return false;
+        request.Metadata.TryGetValue(RunContextScope.MetadataKeys.RunScopeId, out scopeId);
+
+        scopeId = (scopeId ?? string.Empty).Trim();
+        runId = (runId ?? string.Empty).Trim();
+        return runId.Length > 0;
+    }
+
+    private sealed class LinkedToken : IDisposable
+    {
+        private readonly CancellationTokenSource? _cts;
+        public CancellationToken Token { get; }
+
+        private LinkedToken(CancellationTokenSource? cts, CancellationToken token)
+        {
+            _cts = cts;
+            Token = token;
+        }
+
+        public static LinkedToken Begin(CancellationToken outer, CancellationToken inner)
+        {
+            if (!outer.CanBeCanceled) return new LinkedToken(null, inner);
+            if (!inner.CanBeCanceled) return new LinkedToken(null, outer);
+            var cts = CancellationTokenSource.CreateLinkedTokenSource(outer, inner);
+            return new LinkedToken(cts, cts.Token);
+        }
+
+        public void Dispose()
+        {
+            _cts?.Dispose();
+        }
     }
 }

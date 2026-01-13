@@ -109,6 +109,10 @@ internal sealed partial class VibeOrchestrator
             session.Events.Publish(new StepFinishedEvent { Timestamp = NowMs(), StepName = "vibe.planner" });
             return Bound(sb.ToString(), 20_000);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             var msg = $"[planner error] {ex.Message}\n\n";
@@ -177,6 +181,10 @@ internal sealed partial class VibeOrchestrator
             session.Events.Publish(new StepFinishedEvent { Timestamp = NowMs(), StepName = "vibe.reasoner" });
             return Bound(sb.ToString(), 40_000);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             var msg = $"[reasoner error] {ex.Message}\n\n";
@@ -238,6 +246,10 @@ internal sealed partial class VibeOrchestrator
 
             session.Events.Publish(new StepFinishedEvent { Timestamp = NowMs(), StepName = "vibe.librarian" });
             return Bound(sb.ToString(), 20_000);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -302,6 +314,10 @@ internal sealed partial class VibeOrchestrator
 
             session.Events.Publish(new StepFinishedEvent { Timestamp = NowMs(), StepName = "vibe.verifier" });
             return Bound(sb.ToString(), 20_000);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -382,6 +398,10 @@ internal sealed partial class VibeOrchestrator
             session.Events.Publish(new StepFinishedEvent { Timestamp = NowMs(), StepName = "vibe.dag_builder" });
             return Bound(sb.ToString().Trim(), 30_000);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             var msg = $"[dag_builder error] {ex.Message}\n\n";
@@ -451,6 +471,10 @@ internal sealed partial class VibeOrchestrator
 
             session.Events.Publish(new StepFinishedEvent { Timestamp = NowMs(), StepName = "vibe.paper_editor" });
             return Bound(sb.ToString().Trim(), 40_000);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {

@@ -335,6 +335,10 @@ public abstract partial class AIGAgentBase
         {
             while (true)
             {
+                // Fast cancel path: even if provider is slow to observe the token,
+                // we still stop yielding as soon as cancellation is requested.
+                cancellationToken.ThrowIfCancellationRequested();
+
                 AevatarLLMToken token;
                 try
                 {
@@ -358,6 +362,8 @@ public abstract partial class AIGAgentBase
                 //   emit the final answer as a single chunk (best-effort).
                 if (token.AevatarFunctionCall != null)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
+
                     var toolCallResponse = new AevatarLLMResponse
                     {
                         AevatarFunctionCall = token.AevatarFunctionCall,
@@ -381,6 +387,7 @@ public abstract partial class AIGAgentBase
                     var finalText = finalResponse.Content ?? string.Empty;
                     if (!string.IsNullOrEmpty(finalText))
                     {
+                        cancellationToken.ThrowIfCancellationRequested();
                         assistantBuffer?.Append(finalText);
                         yield return finalText;
                     }
@@ -400,6 +407,7 @@ public abstract partial class AIGAgentBase
 
                 if (!string.IsNullOrEmpty(content))
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     assistantBuffer?.Append(content);
                     yield return content;
                 }

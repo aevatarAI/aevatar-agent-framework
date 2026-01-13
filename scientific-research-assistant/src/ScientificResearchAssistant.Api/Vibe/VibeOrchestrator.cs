@@ -5,6 +5,8 @@ using Aevatar.Agents.AI;
 using Aevatar.Agents.Core.Secrets;
 using Google.Protobuf.Collections;
 using Google.Protobuf.WellKnownTypes;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using ScientificResearchAssistant.Api.Materials;
 using ScientificResearchAssistant.Api.Paper;
 using ScientificResearchAssistant.Api.Sessions;
@@ -12,6 +14,7 @@ using ScientificResearchAssistant.Api.Vibe.Brief;
 using ScientificResearchAssistant.Api.Vibe.Delivery;
 using ScientificResearchAssistant.Api.Vibe.Dag;
 using ScientificResearchAssistant.Api.Vibe.Goals;
+using ScientificResearchAssistant.Api.Vibe.Mesh;
 using ScientificResearchAssistant.Api.Vibe.Trace;
 using ScientificResearchAssistant.Api.Workspace;
 using ScientificResearchAssistant.Contracts.Collab;
@@ -46,6 +49,12 @@ internal sealed partial class VibeOrchestrator
     private readonly PaperService _paper;
     private readonly AgentProvidersStore _agentProviders;
     private readonly IAevatarUserSecretsStore _secrets;
+    private readonly IOptions<MeshOrchestrationOptions> _meshOptions;
+    private readonly MeshDefinitionStore _meshStore;
+    private readonly MeshCompilerService _meshCompiler;
+    private readonly MeshExecutionPlanner _meshPlanner;
+    private readonly MeshExecutionRunner _meshRunner;
+    private readonly IHostEnvironment _env;
     private readonly ILogger<VibeOrchestrator> _logger;
 
     public VibeOrchestrator(
@@ -61,6 +70,12 @@ internal sealed partial class VibeOrchestrator
         PaperService paper,
         AgentProvidersStore agentProviders,
         IAevatarUserSecretsStore secrets,
+        IOptions<MeshOrchestrationOptions> meshOptions,
+        MeshDefinitionStore meshStore,
+        MeshCompilerService meshCompiler,
+        MeshExecutionPlanner meshPlanner,
+        MeshExecutionRunner meshRunner,
+        IHostEnvironment env,
         ILogger<VibeOrchestrator> logger)
     {
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
@@ -75,6 +90,12 @@ internal sealed partial class VibeOrchestrator
         _paper = paper ?? throw new ArgumentNullException(nameof(paper));
         _agentProviders = agentProviders ?? throw new ArgumentNullException(nameof(agentProviders));
         _secrets = secrets ?? throw new ArgumentNullException(nameof(secrets));
+        _meshOptions = meshOptions ?? throw new ArgumentNullException(nameof(meshOptions));
+        _meshStore = meshStore ?? throw new ArgumentNullException(nameof(meshStore));
+        _meshCompiler = meshCompiler ?? throw new ArgumentNullException(nameof(meshCompiler));
+        _meshPlanner = meshPlanner ?? throw new ArgumentNullException(nameof(meshPlanner));
+        _meshRunner = meshRunner ?? throw new ArgumentNullException(nameof(meshRunner));
+        _env = env ?? throw new ArgumentNullException(nameof(env));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -291,130 +312,268 @@ internal sealed partial class VibeOrchestrator
             StepName = "vibe.ra_plan"
         });
 
-        // Worker roster (fallback-first).
-        var workers = plan.Workers?.Where(w => !string.IsNullOrWhiteSpace(w.Agent)).ToList()
-                      ?? new List<PlanWorker>
-                      {
-                          new() { Agent = "planner", Task = "Produce an executable plan and unknowns" },
-                          new() { Agent = "reasoner", Task = "Provide grounded reasoning with explicit hypotheses" },
-                          new() { Agent = "librarian", Task = "List key evidence and missing sources" },
-                          new() { Agent = "dag_builder", Task = "Propose a DAG mutation candidate in strict JSON" }
-                      };
-
-        // Deterministic ordering (helps librarian->dag_builder handoff).
-        workers = workers
-            .OrderBy(w => WorkerOrder((w.Agent ?? string.Empty).Trim().ToLowerInvariant()))
-            .ToList();
-
-        // Run workers (best-effort; keep outputs bounded).
+        // ------------------------------------------------------------
+        // Worker phase: mesh-driven (Option B) OR fallback (current hardcoded/plan workers)
+        // ------------------------------------------------------------
         var outputs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var w in workers)
+
+        var meshUsed = false;
+        var meshOpt = _meshOptions.Value;
+        if (meshOpt.Enabled)
         {
-            ct.ThrowIfCancellationRequested();
-            var agent = (w.Agent ?? string.Empty).Trim().ToLowerInvariant();
-            if (agent.Length == 0) continue;
-
-            if (outputs.ContainsKey(agent))
-                continue;
-
-            switch (agent)
+            try
             {
-                case "planner":
-                    plannerProvider = await EnsureProviderRunnableOrPauseAsync(
-                        session,
-                        runId,
-                        agent: "planner",
-                        stepName: "vibe.planner",
-                        resolveProvider: () => ResolveProvider("planner"),
-                        emitAssistantDelta: emitAssistantDelta,
-                        ct: ct);
-                    outputs[agent] = await RunPlannerAsync(session, runId, input, question, materials, dagSnap, plannerProvider, ct);
-                    break;
-                case "reasoner":
-                    reasonerProvider = await EnsureProviderRunnableOrPauseAsync(
-                        session,
-                        runId,
-                        agent: "reasoner",
-                        stepName: "vibe.reasoner",
-                        resolveProvider: () => ResolveProvider("reasoner"),
-                        emitAssistantDelta: emitAssistantDelta,
-                        ct: ct);
-                    outputs[agent] = await RunReasonerAsync(session, runId, input, question, materials, dagSnap, outputs.TryGetValue("planner", out var p) ? p : null, reasonerProvider, ct);
-                    break;
-                case "librarian":
-                    librarianProvider = await EnsureProviderRunnableOrPauseAsync(
-                        session,
-                        runId,
-                        agent: "librarian",
-                        stepName: "vibe.librarian",
-                        resolveProvider: () => ResolveProvider("librarian"),
-                        emitAssistantDelta: emitAssistantDelta,
-                        ct: ct);
-                    outputs[agent] = await RunLibrarianAsync(session, runId, input, question, materials, dagSnap, librarianProvider, ct);
-                    break;
-                case "verifier":
-                    verifierProvider = await EnsureProviderRunnableOrPauseAsync(
-                        session,
-                        runId,
-                        agent: "verifier",
-                        stepName: "vibe.verifier",
-                        resolveProvider: () => ResolveProvider("verifier"),
-                        emitAssistantDelta: emitAssistantDelta,
-                        ct: ct);
-                    outputs[agent] = await RunVerifierAsync(session, runId, input, question, materials, dagSnap, outputs.TryGetValue("reasoner", out var r) ? r : null, verifierProvider, ct);
-                    break;
-                case "dag_builder":
-                    // Refresh DAG snapshot right before builder (other sessions may have mutated the shared DAG).
-                    dagSnap = await _dag.LoadSnapshotAsync(dagId, ct);
-                    dagBuilderProvider = await EnsureProviderRunnableOrPauseAsync(
-                        session,
-                        runId,
-                        agent: "dag_builder",
-                        stepName: "vibe.dag_builder",
-                        resolveProvider: () => ResolveProvider("dag_builder"),
-                        emitAssistantDelta: emitAssistantDelta,
-                        ct: ct);
-                    outputs[agent] = await RunDagBuilderAsync(session, runId, input, question, materials, dagSnap, outputs, librarianAxioms, dagBuilderProvider, ct);
-                    break;
-                default:
-                    // Unknown agent name in plan: ignore (MVP).
-                    break;
-            }
-
-            // Post-hook: librarian may propose side effects (facts/goals/axioms).
-            if (string.Equals(agent, "librarian", StringComparison.OrdinalIgnoreCase) &&
-                outputs.TryGetValue("librarian", out var libOut))
-            {
-                try
+                var raw = await TryLoadOrSeedMeshAsync(session, runId, ct);
+                if (!string.IsNullOrWhiteSpace(raw))
                 {
-                    var actions = TryParseLibrarianActions(libOut);
-                    if (actions != null)
+                    var compile = _meshCompiler.Compile(raw!);
+                    if (compile.Ok && compile.Definition != null)
                     {
-                        if (actions.AxiomsForDag is { Count: > 0 })
+                        var planRes = _meshPlanner.Plan(session.Id, runId, compile.Definition);
+                        if (planRes.Ok && planRes.Plan != null)
                         {
-                            librarianAxioms.Clear();
-                            librarianAxioms.AddRange(actions.AxiomsForDag);
-                        }
+                            var meshProviderMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                            var requiredRoles = planRes.Plan.Nodes
+                                .Select(n => (n.Type ?? string.Empty).Trim().ToLowerInvariant())
+                                .Where(x => x.Length > 0)
+                                .Distinct(StringComparer.OrdinalIgnoreCase)
+                                .ToList();
 
-                        if (actions.FactsWrite is { Count: > 0 })
-                        {
-                            var written = await TryWriteFactsAsync(session.Id, actions.FactsWrite, ct);
-                            if (written.Count > 0)
+                            // Provider gate per role (same UX as non-mesh path).
+                            foreach (var role in requiredRoles)
                             {
-                                factsWritten.AddRange(written);
+                                var p = await EnsureProviderRunnableOrPauseAsync(
+                                    session,
+                                    runId,
+                                    agent: role,
+                                    stepName: $"vibe.mesh.{role}",
+                                    resolveProvider: () => ResolveProvider(role),
+                                    emitAssistantDelta: emitAssistantDelta,
+                                    ct: ct);
 
-                                // Surface the write as an explicit system-style delta in the main assistant stream.
-                                EmitSection(emitAssistantDelta, "### Librarian wrote facts\n");
-                                foreach (var p in written)
-                                    emitAssistantDelta($"- {p}\n");
-                                emitAssistantDelta("\n");
+                                if (!string.IsNullOrWhiteSpace(p))
+                                    meshProviderMap[role] = p!;
+                            }
+
+                            string? ResolveProviderForMesh(string role) =>
+                                meshProviderMap.TryGetValue(role, out var p) ? p : ResolveProvider(role);
+
+                            // Keep DAG snapshot fresh at the beginning of mesh execution.
+                            dagSnap = await _dag.LoadSnapshotAsync(dagId, ct);
+
+                            var run = await _meshRunner.ExecuteAsync(
+                                session,
+                                input,
+                                materials,
+                                dagSnap,
+                                planRes.Plan,
+                                question,
+                                ResolveProviderForMesh,
+                                ct);
+
+                            // Map node outputs -> existing outputs dictionary (by role).
+                            // This preserves downstream expectations: outputs["planner"], outputs["dag_builder"], ...
+                            var nodeById = planRes.Plan.Nodes.ToDictionary(n => n.Id, StringComparer.Ordinal);
+                            foreach (var nodeId in planRes.Plan.TopoOrder)
+                            {
+                                if (!run.OutputsByNodeId.TryGetValue(nodeId, out var text))
+                                    continue;
+                                if (!nodeById.TryGetValue(nodeId, out var node))
+                                    continue;
+
+                                var role = (node.Type ?? string.Empty).Trim().ToLowerInvariant();
+                                if (role.Length == 0) continue;
+
+                                // First occurrence wins (stable via topo order).
+                                if (!outputs.ContainsKey(role))
+                                    outputs[role] = text;
+                            }
+
+                            if (run.Errors.Count > 0)
+                                outputs["mesh_errors"] = Bound(string.Join("\n", run.Errors.Take(20)), 4000);
+
+                            outputs["mesh_used"] = "true";
+                            meshUsed = true;
+
+                            // Best-effort artifacts for debugging/replay.
+                            TryWriteMeshRunArtifacts(session.Id, runId, raw!, planRes.Plan, run);
+                        }
+                        else
+                        {
+                            HandleMeshErrorsOrFallback(
+                                session,
+                                emitAssistantDelta,
+                                kind: "mesh.plan_failed",
+                                errors: planRes.Errors,
+                                options: meshOpt,
+                                outputs: outputs,
+                                out meshUsed);
+                        }
+                    }
+                    else
+                    {
+                        HandleMeshErrorsOrFallback(
+                            session,
+                            emitAssistantDelta,
+                            kind: "mesh.compile_failed",
+                            errors: compile.Errors,
+                            options: meshOpt,
+                            outputs: outputs,
+                            out meshUsed);
+                    }
+                }
+                else
+                {
+                    // Mesh enabled but mesh.{yaml|json} absent AND cannot seed → fall back silently (best-effort event only).
+                    session.Events.Publish(new CustomEvent
+                    {
+                        Timestamp = NowMs(),
+                        Name = "aevatar.vibe.mesh_missing",
+                        Value = new { sessionId = session.Id, runId }
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                if (ex is OperationCanceledException && ct.IsCancellationRequested)
+                    throw;
+                HandleMeshErrorsOrFallback(
+                    session,
+                    emitAssistantDelta,
+                    kind: "mesh.exception",
+                    errors: [new Aevatar.CognitiveMesh.Dsl.Validation.DslValidationError("mesh.exception", ex.Message, null)],
+                    options: meshOpt,
+                    outputs: outputs,
+                    out meshUsed);
+            }
+        }
+
+        if (!meshUsed)
+        {
+            // Worker roster (fallback-first).
+            var workers = plan.Workers?.Where(w => !string.IsNullOrWhiteSpace(w.Agent)).ToList()
+                          ?? new List<PlanWorker>
+                          {
+                              new() { Agent = "planner", Task = "Produce an executable plan and unknowns" },
+                              new() { Agent = "reasoner", Task = "Provide grounded reasoning with explicit hypotheses" },
+                              new() { Agent = "librarian", Task = "List key evidence and missing sources" },
+                              new() { Agent = "dag_builder", Task = "Propose a DAG mutation candidate in strict JSON" }
+                          };
+
+            // Deterministic ordering (helps librarian->dag_builder handoff).
+            workers = workers
+                .OrderBy(w => WorkerOrder((w.Agent ?? string.Empty).Trim().ToLowerInvariant()))
+                .ToList();
+
+            // Run workers (best-effort; keep outputs bounded).
+            foreach (var w in workers)
+            {
+                ct.ThrowIfCancellationRequested();
+                var agent = (w.Agent ?? string.Empty).Trim().ToLowerInvariant();
+                if (agent.Length == 0) continue;
+
+                if (outputs.ContainsKey(agent))
+                    continue;
+
+                switch (agent)
+                {
+                    case "planner":
+                        plannerProvider = await EnsureProviderRunnableOrPauseAsync(
+                            session,
+                            runId,
+                            agent: "planner",
+                            stepName: "vibe.planner",
+                            resolveProvider: () => ResolveProvider("planner"),
+                            emitAssistantDelta: emitAssistantDelta,
+                            ct: ct);
+                        outputs[agent] = await RunPlannerAsync(session, runId, input, question, materials, dagSnap, plannerProvider, ct);
+                        break;
+                    case "reasoner":
+                        reasonerProvider = await EnsureProviderRunnableOrPauseAsync(
+                            session,
+                            runId,
+                            agent: "reasoner",
+                            stepName: "vibe.reasoner",
+                            resolveProvider: () => ResolveProvider("reasoner"),
+                            emitAssistantDelta: emitAssistantDelta,
+                            ct: ct);
+                        outputs[agent] = await RunReasonerAsync(session, runId, input, question, materials, dagSnap, outputs.TryGetValue("planner", out var p) ? p : null, reasonerProvider, ct);
+                        break;
+                    case "librarian":
+                        librarianProvider = await EnsureProviderRunnableOrPauseAsync(
+                            session,
+                            runId,
+                            agent: "librarian",
+                            stepName: "vibe.librarian",
+                            resolveProvider: () => ResolveProvider("librarian"),
+                            emitAssistantDelta: emitAssistantDelta,
+                            ct: ct);
+                        outputs[agent] = await RunLibrarianAsync(session, runId, input, question, materials, dagSnap, librarianProvider, ct);
+                        break;
+                    case "verifier":
+                        verifierProvider = await EnsureProviderRunnableOrPauseAsync(
+                            session,
+                            runId,
+                            agent: "verifier",
+                            stepName: "vibe.verifier",
+                            resolveProvider: () => ResolveProvider("verifier"),
+                            emitAssistantDelta: emitAssistantDelta,
+                            ct: ct);
+                        outputs[agent] = await RunVerifierAsync(session, runId, input, question, materials, dagSnap, outputs.TryGetValue("reasoner", out var r) ? r : null, verifierProvider, ct);
+                        break;
+                    case "dag_builder":
+                        // Refresh DAG snapshot right before builder (other sessions may have mutated the shared DAG).
+                        dagSnap = await _dag.LoadSnapshotAsync(dagId, ct);
+                        dagBuilderProvider = await EnsureProviderRunnableOrPauseAsync(
+                            session,
+                            runId,
+                            agent: "dag_builder",
+                            stepName: "vibe.dag_builder",
+                            resolveProvider: () => ResolveProvider("dag_builder"),
+                            emitAssistantDelta: emitAssistantDelta,
+                            ct: ct);
+                        outputs[agent] = await RunDagBuilderAsync(session, runId, input, question, materials, dagSnap, outputs, librarianAxioms, dagBuilderProvider, ct);
+                        break;
+                    default:
+                        // Unknown agent name in plan: ignore (MVP).
+                        break;
+                }
+
+                // Post-hook: librarian may propose side effects (facts/goals/axioms).
+                if (string.Equals(agent, "librarian", StringComparison.OrdinalIgnoreCase) &&
+                    outputs.TryGetValue("librarian", out var libOut))
+                {
+                    try
+                    {
+                        var actions = TryParseLibrarianActions(libOut);
+                        if (actions != null)
+                        {
+                            if (actions.AxiomsForDag is { Count: > 0 })
+                            {
+                                librarianAxioms.Clear();
+                                librarianAxioms.AddRange(actions.AxiomsForDag);
+                            }
+
+                            if (actions.FactsWrite is { Count: > 0 })
+                            {
+                                var written = await TryWriteFactsAsync(session.Id, actions.FactsWrite, ct);
+                                if (written.Count > 0)
+                                {
+                                    factsWritten.AddRange(written);
+
+                                    // Surface the write as an explicit system-style delta in the main assistant stream.
+                                    EmitSection(emitAssistantDelta, "### Librarian wrote facts\n");
+                                    foreach (var p in written)
+                                        emitAssistantDelta($"- {p}\n");
+                                    emitAssistantDelta("\n");
+                                }
                             }
                         }
                     }
-                }
-                catch
-                {
-                    // best-effort only
+                    catch
+                    {
+                        // best-effort only
+                    }
                 }
             }
         }
@@ -515,6 +674,120 @@ internal sealed partial class VibeOrchestrator
             Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             StepName = "vibe.summary"
         });
+    }
+
+    // ============================================================
+    //  Mesh integration helpers (Option B)
+    // ============================================================
+
+    private void HandleMeshErrorsOrFallback(
+        ResearchSession session,
+        Action<string> emit,
+        string kind,
+        IReadOnlyList<Aevatar.CognitiveMesh.Dsl.Validation.DslValidationError> errors,
+        MeshOrchestrationOptions options,
+        IDictionary<string, string> outputs,
+        out bool meshUsed)
+    {
+        meshUsed = false;
+        errors ??= Array.Empty<Aevatar.CognitiveMesh.Dsl.Validation.DslValidationError>();
+
+        var onErr = (options.OnCompileError ?? string.Empty).Trim().ToLowerInvariant();
+        var failFast = onErr is "fail" or "failfast";
+
+        // Publish a best-effort event for observability.
+        try
+        {
+            session.Events.Publish(new CustomEvent
+            {
+                Timestamp = NowMs(),
+                Name = "aevatar.vibe.mesh_error",
+                Value = new
+                {
+                    sessionId = session.Id,
+                    kind,
+                    count = errors.Count,
+                    onCompileError = onErr
+                }
+            });
+        }
+        catch
+        {
+            // best-effort only
+        }
+
+        var rendered = RenderMeshErrors(errors);
+        outputs["mesh_error_kind"] = kind;
+        outputs["mesh_error"] = rendered;
+
+        if (failFast)
+        {
+            // Fail-fast means: do NOT run fallback workers; continue the round safely with empty outputs.
+            meshUsed = true;
+            EmitSection(emit, "### Mesh orchestration failed (fail-fast)\n");
+            emit(rendered + "\n\n");
+        }
+        else
+        {
+            // Fallback mode: announce once (human-friendly), then proceed with existing worker pipeline.
+            EmitSection(emit, "### Mesh orchestration invalid → fallback to default pipeline\n");
+            emit(Bound(rendered, 2500) + "\n\n");
+        }
+    }
+
+    private static string RenderMeshErrors(IReadOnlyList<Aevatar.CognitiveMesh.Dsl.Validation.DslValidationError> errors)
+    {
+        if (errors is not { Count: > 0 })
+            return "_(no errors)_";
+
+        var sb = new StringBuilder(1024);
+        sb.AppendLine("Errors:");
+        foreach (var e in errors.Take(20))
+        {
+            var code = (e.Code ?? string.Empty).Trim();
+            var path = (e.Path ?? string.Empty).Trim();
+            var msg = (e.Message ?? string.Empty).Trim();
+            if (code.Length == 0) code = "error";
+            if (path.Length > 0)
+                sb.Append("- ").Append(code).Append(" @ ").Append(path).Append(": ").AppendLine(msg);
+            else
+                sb.Append("- ").Append(code).Append(": ").AppendLine(msg);
+        }
+
+        if (errors.Count > 20)
+            sb.AppendLine($"... ({errors.Count - 20} more)");
+
+        return Bound(sb.ToString().Trim(), 8000);
+    }
+
+    private void TryWriteMeshRunArtifacts(
+        string sessionId,
+        string runId,
+        string rawMeshJson,
+        MeshExecutionPlan plan,
+        MeshRunResult run)
+    {
+        try
+        {
+            var ws = _workspace.EnsureSessionWorkspace(sessionId);
+            var dir = Path.Combine(ws.ArtifactsDir, "mesh");
+            Directory.CreateDirectory(dir);
+
+            var stamp = DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss");
+
+            var meshPath = Path.Combine(dir, $"{runId}_{stamp}.mesh.json");
+            File.WriteAllText(meshPath, rawMeshJson, Encoding.UTF8);
+
+            var planPath = Path.Combine(dir, $"{runId}_{stamp}.plan.json");
+            File.WriteAllText(planPath, JsonSerializer.Serialize(plan, Json), Encoding.UTF8);
+
+            var outputsPath = Path.Combine(dir, $"{runId}_{stamp}.outputs.json");
+            File.WriteAllText(outputsPath, JsonSerializer.Serialize(run, Json), Encoding.UTF8);
+        }
+        catch
+        {
+            // best-effort only
+        }
     }
 
     private static SraDagMutation? BuildPlanDagMutation(

@@ -151,6 +151,8 @@ internal sealed partial class VibeOrchestrator
         }
         catch (Exception ex)
         {
+            if (ex is OperationCanceledException && ct.IsCancellationRequested)
+                throw;
             _logger.LogDebug(ex, "[VibeOrchestrator] research_assistant brief failed (best-effort).");
             return null;
         }
@@ -210,6 +212,8 @@ internal sealed partial class VibeOrchestrator
         }
         catch (Exception ex)
         {
+            if (ex is OperationCanceledException && ct.IsCancellationRequested)
+                throw;
             _logger.LogDebug(ex, "[VibeOrchestrator] research_assistant plan failed (best-effort).");
             return new PlanResult(null, null, null);
         }
@@ -244,6 +248,8 @@ internal sealed partial class VibeOrchestrator
         }
         catch (Exception ex)
         {
+            if (ex is OperationCanceledException && ct.IsCancellationRequested)
+                throw;
             _logger.LogDebug(ex, "[VibeOrchestrator] research_assistant summary failed (best-effort).");
             return null;
         }

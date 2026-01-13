@@ -907,7 +907,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
         if (_agent == null)
             throw new InvalidOperationException("Agent not initialized");
 
-        return RpcInvoker.InvokeAsync(_agent, requestBytes, _logger);
+        return RpcInvoker.InvokeAsync(_agent, requestBytes, _logger, CancellationToken.None);
     }
 
     #endregion

@@ -223,7 +223,7 @@ public class LocalGAgentActor : GAgentActorBase
                     await _eventGate.WaitAsync(ct);
                     try
                     {
-                        await HandleEventAsync(envelope, ct);
+                    await HandleEventAsync(envelope, ct);
                     }
                     finally
                     {

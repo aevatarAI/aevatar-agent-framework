@@ -485,6 +485,22 @@ export function useWorkbenchController(args: { transport: SraTransport }) {
         const name = evt?.name;
         const v = evt?.value ?? {};
 
+        if (name === "aevatar.scientific.run_interrupted") {
+          const oldRunId = String(v?.oldRunId ?? "").trim();
+          const newRunId = String(v?.newRunId ?? "").trim();
+          if (oldRunId && newRunId) pushSystem(`⏭ Run interrupted: ${oldRunId} → ${newRunId}`);
+          else pushSystem("⏭ Run interrupted");
+          setRunStatus("");
+          return;
+        }
+
+        if (name === "aevatar.scientific.run_canceled") {
+          const runId = String(v?.runId ?? "").trim();
+          pushSystem(runId ? `■ Run canceled: ${runId}` : "■ Run canceled");
+          setRunStatus("");
+          return;
+        }
+
         if (name === "aevatar.scientific.mcp_reconnect_started") {
           setRunStatus("Reconnecting MCP…");
           return;

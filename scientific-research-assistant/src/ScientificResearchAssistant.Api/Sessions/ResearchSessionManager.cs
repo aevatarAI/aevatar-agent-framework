@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Aevatar.Agents.AGUI;
+using Aevatar.Agents.Core.Runtime;
 using ScientificResearchAssistant.Api.Infrastructure;
 
 namespace ScientificResearchAssistant.Api.Sessions;
@@ -40,14 +41,9 @@ public sealed class ResearchSessionManager
 
     public ResearchSession Create(string? providerName)
     {
-        var id = Guid.NewGuid().ToString("N")[..12];
-        var session = new ResearchSession(id)
-        {
-            ProviderName = string.IsNullOrWhiteSpace(providerName) ? null : providerName.Trim()
-        };
-        _sessions[id] = session;
-        _uiTrace.Attach(session);
-        return session;
+        // Use full GUID (N) to avoid collisions and match other File-SSoT ids.
+        var id = Guid.NewGuid().ToString("N");
+        return GetOrCreate(id, providerName);
     }
 
     public bool TryGet(string sessionId, out ResearchSession session)
@@ -60,6 +56,42 @@ public sealed class ResearchSessionManager
         }
 
         return _sessions.TryGetValue(sessionId, out session!);
+    }
+
+    /// <summary>
+    /// Get an existing session or create a new in-memory session with the specified id.
+    ///
+    /// Why:
+    /// - Sessions are ephemeral in this MVP (in-memory only).
+    /// - Tool calls may arrive after restart, or from UI that only persisted File-SSoT workspace.
+    /// - We still want to allow edits (DAG/plan/mesh) for an existing sessionId.
+    /// </summary>
+    public ResearchSession GetOrCreate(string sessionId, string? providerName = null)
+    {
+        sessionId = (sessionId ?? string.Empty).Trim();
+        if (sessionId.Length == 0)
+            throw new ArgumentException("sessionId is required", nameof(sessionId));
+
+        // Keep ids filesystem-safe and stable.
+        if (sessionId.Length > 64)
+            sessionId = sessionId[..64];
+
+        // Normalize to lowercase and strip non-alnum (reject if unsafe).
+        var normalized = sessionId.ToLowerInvariant();
+        foreach (var ch in normalized)
+        {
+            if (!char.IsLetterOrDigit(ch))
+                throw new ArgumentException("sessionId must be alphanumeric", nameof(sessionId));
+        }
+
+        var p = string.IsNullOrWhiteSpace(providerName) ? null : providerName.Trim();
+
+        return _sessions.GetOrAdd(normalized, id =>
+        {
+            var s = new ResearchSession(id) { ProviderName = p };
+            _uiTrace.Attach(s);
+            return s;
+        });
     }
 }
 
@@ -104,6 +136,62 @@ public sealed class ResearchSession(string id)
     private int _runSeq;
 
     public int NextRunSeq() => Interlocked.Increment(ref _runSeq);
+
+    // ------------------------------------------------------------
+    // Interruptible runs (Latest-wins, session scope)
+    //
+    // 中文说明：
+    // - 新输入到来时，取消当前 active run（协作式），并立即开始新 run。
+    // - 不做 hard kill；仅依赖 CancellationToken + 下游检查。
+    // - 不在 cancel 时 Dispose old RunContext（避免 CTS 过早释放导致回调异常）。
+    //   old run 在其 Task 结束时自行 Dispose。
+    // ------------------------------------------------------------
+    private readonly object _runGate = new();
+    public RunContext? ActiveRun { get; private set; }
+
+    public RunContext BeginNewRun(string runId, string? reason, out string? interruptedRunId)
+    {
+        runId = (runId ?? string.Empty).Trim();
+        if (runId.Length == 0) throw new ArgumentException("runId is required", nameof(runId));
+
+        RunContext? old;
+        var next = new RunContext(scopeId: Id, runId: runId);
+
+        lock (_runGate)
+        {
+            old = ActiveRun;
+            ActiveRun = next;
+        }
+
+        if (old != null)
+        {
+            interruptedRunId = old.RunId;
+            old.MarkSuperseded(runId, reason);
+            old.Cancel();
+        }
+        else
+        {
+            interruptedRunId = null;
+        }
+
+        return next;
+    }
+
+    public bool TryClearActiveRun(string runId, RunContext context)
+    {
+        runId = (runId ?? string.Empty).Trim();
+        if (runId.Length == 0) return false;
+
+        lock (_runGate)
+        {
+            if (ActiveRun == null) return false;
+            if (!ReferenceEquals(ActiveRun, context)) return false;
+            if (!string.Equals(ActiveRun.RunId, runId, StringComparison.Ordinal)) return false;
+
+            ActiveRun = null;
+            return true;
+        }
+    }
 
     public List<AgUiMessage> GetMessagesSnapshot(int maxMessages)
     {

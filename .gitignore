@@ -499,8 +499,29 @@ scripts/.pids/
 *.pid
 
 memory/
-trace/*
-workspace/
+
+# ------------------------------------------------------------
+# Runtime-generated workspaces / traces / outputs
+#
+# IMPORTANT (macOS default is case-insensitive):
+# Avoid broad patterns like `workspace/` or `trace/` (or `**/workspace/`)
+# because they may accidentally ignore real source folders such as:
+# - `src/**/Workspace/*.cs`
+# - `src/**/Trace/TraceStore.cs`
+#
+# Use anchored paths to scope the ignore to known generated directories.
+# ------------------------------------------------------------
+
+# Repo-root generated folders (safe: anchored to repo root)
+/workspace/
+/traces/
+/outputs/
+/trace/
+
+# Scientific Research Assistant runtime workspace (safe: anchored)
+/scientific-research-assistant/workspace/
+/scientific-research-assistant/traces/
+/scientific-research-assistant/outputs/
 
 # Local skill packs (downloaded/updated at runtime)
 scientific-research-assistant/.skillpacks/

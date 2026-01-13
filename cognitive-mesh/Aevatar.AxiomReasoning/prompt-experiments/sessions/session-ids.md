@@ -76,3 +76,4 @@ For any two proteins with identical native structures (global minima per O1), th
 | `88420025b1ba` | 2026-01-13 01:56:34 UTC | Completed | hypothesis_promotion_loop_hpa |
 | `311da2ee8f6c` | 2026-01-13 02:24:42 UTC | Completed | hypothesis_promotion_loop_hpa |
 | `f33ce77da495` | 2026-01-13 03:27:02 UTC | Failed | hypothesis_promotion_loop |
+| `d5ee9b32fb50` | 2026-01-13 03:44:50 UTC | Failed | hypothesis_promotion_loop |

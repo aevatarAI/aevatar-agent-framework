@@ -170,6 +170,11 @@ public partial class JsonOutputParser : IOutputParser<object>
         // Try extracting JSON (may be wrapped in code block)
         var json = ExtractJson(content);
         
+        // Ensure JSON is cleaned (remove trailing extra braces, non-JSON chars, and duplicate fragments)
+        json = RemoveTrailingExtraBraces(json);
+        json = RemoveTrailingNonJsonChars(json);
+        json = RemoveDuplicateJsonFragments(json);
+        
         try
         {
             var element = JsonSerializer.Deserialize<JsonElement>(json, Options);
@@ -184,6 +189,9 @@ public partial class JsonOutputParser : IOutputParser<object>
             var repaired = TryRepairJson(json);
             if (repaired != null)
             {
+                // Also clean the repaired JSON
+                repaired = RemoveTrailingExtraBraces(repaired);
+                repaired = RemoveTrailingNonJsonChars(repaired);
                 try
                 {
                     var element2 = JsonSerializer.Deserialize<JsonElement>(repaired, Options);
@@ -316,18 +324,303 @@ public partial class JsonOutputParser : IOutputParser<object>
         if (codeBlockMatch.Success)
             return codeBlockMatch.Groups[1].Value.Trim();
         
-        // Try finding JSON object boundaries
+        // Try extracting JSON from <json>...</json> tags
+        var jsonTagMatch = JsonTagPattern().Match(content);
+        if (jsonTagMatch.Success)
+            return jsonTagMatch.Groups[1].Value.Trim();
+        
+        // Try finding JSON object boundaries with proper bracket matching
         var start = content.IndexOf('{');
-        var end = content.LastIndexOf('}');
+        if (start < 0)
+            return content.Trim();
         
-        if (start >= 0 && end > start)
-            return content[start..(end + 1)];
+        // Find the matching closing brace by counting brackets
+        var depth = 0;
+        var inString = false;
+        var escaped = false;
+        var end = -1;
         
-        return content.Trim();
+        for (var i = start; i < content.Length; i++)
+        {
+            var c = content[i];
+            
+            if (escaped)
+            {
+                escaped = false;
+                continue;
+            }
+            
+            if (c == '\\')
+            {
+                escaped = true;
+                continue;
+            }
+            
+            if (c == '"')
+            {
+                inString = !inString;
+                continue;
+            }
+            
+            if (inString)
+                continue;
+            
+            if (c == '{')
+            {
+                depth++;
+            }
+            else if (c == '}')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    end = i;
+                    break;
+                }
+            }
+        }
+        
+        if (end > start)
+        {
+            // Bracket matching succeeded, extract and validate
+            var extracted = content[start..(end + 1)].Trim();
+            // Final cleanup: remove any trailing extra closing braces
+            extracted = RemoveTrailingExtraBraces(extracted);
+            // Additional cleanup: remove any trailing non-JSON characters (e.g., "0}", "}", numbers, etc.)
+            extracted = RemoveTrailingNonJsonChars(extracted);
+            // Remove any duplicate JSON fragments that might appear after the first valid JSON object
+            extracted = RemoveDuplicateJsonFragments(extracted);
+            return extracted;
+        }
+        
+        // Fallback: use LastIndexOf if bracket matching fails
+        end = content.LastIndexOf('}');
+        if (end > start)
+        {
+            var extracted = content[start..(end + 1)].Trim();
+            // Remove trailing extra closing braces (common LLM mistake: }} instead of })
+            extracted = RemoveTrailingExtraBraces(extracted);
+            // Additional cleanup: remove any trailing non-JSON characters
+            extracted = RemoveTrailingNonJsonChars(extracted);
+            return extracted;
+        }
+        
+        var trimmed = content.Trim();
+        // Even if bracket matching failed, try to clean trailing non-JSON chars
+        trimmed = RemoveTrailingNonJsonChars(trimmed);
+        return trimmed;
+    }
+    
+    /// <summary>
+    /// Remove trailing extra closing braces from JSON string.
+    /// Ensures the JSON has balanced braces.
+    /// </summary>
+    private static string RemoveTrailingExtraBraces(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return json;
+        
+        var trimmed = json.Trim();
+        if (!trimmed.StartsWith('{'))
+            return trimmed;
+        
+        // Count braces (ignoring those inside strings)
+        var openCount = 0;
+        var closeCount = 0;
+        var inString = false;
+        var escaped = false;
+        
+        for (var i = 0; i < trimmed.Length; i++)
+        {
+            var c = trimmed[i];
+            
+            if (escaped)
+            {
+                escaped = false;
+                continue;
+            }
+            
+            if (c == '\\')
+            {
+                escaped = true;
+                continue;
+            }
+            
+            if (c == '"')
+            {
+                inString = !inString;
+                continue;
+            }
+            
+            if (inString)
+                continue;
+            
+            if (c == '{')
+                openCount++;
+            else if (c == '}')
+                closeCount++;
+        }
+        
+        // Remove trailing extra closing braces
+        while (closeCount > openCount && trimmed.EndsWith("}"))
+        {
+            trimmed = trimmed[..^1].TrimEnd();
+            closeCount--;
+        }
+        
+        return trimmed;
+    }
+    
+    /// <summary>
+    /// Remove duplicate JSON fragments that appear after a valid JSON object.
+    /// Handles cases like: {"all_proven": true}all_proven": true} or {"key": "value"}{"key": "value"}
+    /// </summary>
+    private static string RemoveDuplicateJsonFragments(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return json;
+        
+        var trimmed = json.Trim();
+        if (!trimmed.StartsWith('{'))
+            return trimmed;
+        
+        // Find the first complete JSON object
+        var depth = 0;
+        var inString = false;
+        var escaped = false;
+        var firstObjectEnd = -1;
+        
+        for (var i = 0; i < trimmed.Length; i++)
+        {
+            var c = trimmed[i];
+            
+            if (escaped)
+            {
+                escaped = false;
+                continue;
+            }
+            
+            if (c == '\\')
+            {
+                escaped = true;
+                continue;
+            }
+            
+            if (c == '"')
+            {
+                inString = !inString;
+                continue;
+            }
+            
+            if (inString)
+                continue;
+            
+            if (c == '{')
+            {
+                depth++;
+            }
+            else if (c == '}')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    firstObjectEnd = i;
+                    break;
+                }
+            }
+        }
+        
+        // If we found a complete JSON object and there's content after it, check for duplicates
+        if (firstObjectEnd >= 0 && firstObjectEnd < trimmed.Length - 1)
+        {
+            var firstObject = trimmed[..(firstObjectEnd + 1)];
+            var remaining = trimmed[(firstObjectEnd + 1)..].Trim();
+            
+            // Check if remaining content looks like a duplicate JSON fragment
+            // Common patterns: }key": value} or {"key": value}
+            if (remaining.StartsWith('}') || remaining.StartsWith('{'))
+            {
+                // Likely a duplicate fragment, return only the first complete object
+                return firstObject;
+            }
+        }
+        
+        return trimmed;
+    }
+    
+    /// <summary>
+    /// Remove trailing non-JSON characters after a valid JSON object.
+    /// Handles cases like: {"key": "value"}0} or {"key": "value"}abc
+    /// </summary>
+    private static string RemoveTrailingNonJsonChars(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return json;
+        
+        var trimmed = json.Trim();
+        if (!trimmed.StartsWith('{'))
+            return trimmed;
+        
+        // Find the last valid closing brace position
+        var depth = 0;
+        var inString = false;
+        var escaped = false;
+        var lastValidClose = -1;
+        
+        for (var i = 0; i < trimmed.Length; i++)
+        {
+            var c = trimmed[i];
+            
+            if (escaped)
+            {
+                escaped = false;
+                continue;
+            }
+            
+            if (c == '\\')
+            {
+                escaped = true;
+                continue;
+            }
+            
+            if (c == '"')
+            {
+                inString = !inString;
+                continue;
+            }
+            
+            if (inString)
+                continue;
+            
+            if (c == '{')
+            {
+                depth++;
+            }
+            else if (c == '}')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    lastValidClose = i;
+                    break;
+                }
+            }
+        }
+        
+        // If we found a valid closing brace, return only up to that point
+        if (lastValidClose >= 0 && lastValidClose < trimmed.Length - 1)
+        {
+            return trimmed[..(lastValidClose + 1)];
+        }
+        
+        return trimmed;
     }
     
     [GeneratedRegex(@"```(?:json)?\s*([\s\S]*?)```", RegexOptions.Multiline)]
     private static partial Regex JsonCodeBlockPattern();
+    
+    [GeneratedRegex(@"<json>\s*([\s\S]*?)\s*</json>", RegexOptions.Multiline | RegexOptions.IgnoreCase)]
+    private static partial Regex JsonTagPattern();
 }
 
 /// <summary>

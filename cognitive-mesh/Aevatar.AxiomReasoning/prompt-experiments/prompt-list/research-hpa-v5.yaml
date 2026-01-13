@@ -229,7 +229,7 @@ steps:
             - If state.seed_hypothesis is also non-empty, prefer selecting a hypothesis from existing_hypothesis that aligns with seed_hypothesis.
             - If state.existing_hypothesis is empty, fall back to state.seed_hypothesis (if provided) or leave current_hypothesis as null.
             - The selected hypothesis MUST include depends_on and factor_sequence. If missing, infer them from the statement and available axioms/theorems.
-          - If no ExistingHypothesis is provided, seed an initial hypothesis (current_hypothesis) that is plausibly derivable.
+          - The seed hypothesis MUST NOT rely on any extra premise/lemma.
             - Avoid conditional premises like "if G is finite / if boundary area is finite / assume ...".
             - If you notice a missing lemma in motivation, that means the hypothesis is NOT suitable as the seed.
           - Return ONLY JSON (no markdown).
@@ -1494,28 +1494,108 @@ steps:
           Proved theorems (each has id, statement, proof, depends_on, factor_sequence):
           {{ state.theorems | json }}
 
+          Instructions:
+          1. Parse existing_hypothesis to extract individual hypothesis statements.
+             - If multi-line text, each non-empty line is a hypothesis.
+             - If JSON array, extract "statement" field from each item.
+             - If single line, treat as one hypothesis.
+          2. COUNT the total number of hypotheses extracted from existing_hypothesis. This count MUST be stored as "existing_hypothesis_count" in your output.
+             - Example: If existing_hypothesis contains 3 lines (3 hypotheses), then existing_hypothesis_count = 3.
+             - Example: If existing_hypothesis is a JSON array with 5 items, then existing_hypothesis_count = 5.
+             - Example: If existing_hypothesis is a single line, then existing_hypothesis_count = 1.
+          3. For each hypothesis statement, normalize it (lowercase, trim, remove punctuation).
+          4. For each theorem in state.theorems, normalize its statement field.
+          5. Check if each normalized hypothesis statement matches normalized theorem statements.
+             - For each hypothesis, find ALL matching theorems in state.theorems.
+             - A hypothesis is considered "proven" if its normalized statement matches at least one normalized theorem statement.
+             - If a hypothesis matches multiple theorems, it is still counted as ONE proven hypothesis.
+          6. COUNT how many hypotheses from existing_hypothesis have been proven (i.e., have at least one matching theorem).
+             - This count represents the number of hypotheses that have been successfully proven as theorems.
+             - This count MUST be stored as "proven_theorem_count" in your output.
+             - CRITICAL: proven_theorem_count = the number of hypotheses that have matching theorems, NOT the total number of theorems in state.theorems.
+             - Example: If 2 out of 4 hypotheses have matching theorems, then proven_theorem_count = 2.
+          7. Collect the IDs of all theorems that match hypotheses from existing_hypothesis.
+             - These IDs MUST be stored as "proven_theorem_ids" (array of strings) in your output.
+             - For each proven hypothesis, include the ID of ONE matching theorem (prefer the first match if multiple exist).
+             - CRITICAL: The length of proven_theorem_ids MUST equal proven_theorem_count.
+             - If a hypothesis matches multiple theorems, choose only ONE theorem ID to include (the first match).
+             - Do NOT include duplicate theorem IDs.
+             - The order of IDs in proven_theorem_ids should correspond to the order of proven hypotheses.
+          8. If existing_hypothesis_count == proven_theorem_count AND existing_hypothesis_count > 0, set "all_proven" as true, else set "all_proven" as false.
           
-          CRITICAL OUTPUT REQUIREMENTS:
-          - Output ONLY a single valid JSON object, nothing else.
-          - Do NOT include any explanatory text, markdown, or code blocks.
-          - Do NOT repeat the JSON output. Output it exactly ONCE.
-          - Do NOT add any prefix or suffix text.
-          - Do NOT add extra closing braces. The JSON must end with exactly ONE closing brace: }
-          - Do NOT add any characters after the closing brace (no numbers, no extra braces, no text, no repeated JSON).
-          - Your output must start with { and end with } (exactly one of each).
-          - After the closing brace }, there must be NOTHING else. No characters, no numbers, no text, no repeated JSON fragments.
-          - Example of CORRECT output: {"all_proven": true}
-          - Example of WRONG output: {"all_proven": true}all_proven": true} (has repeated JSON)
-          - Example of WRONG output: {"all_proven": true}{"all_proven": true} (has duplicate JSON objects)
-          - Example of WRONG output: {"all_proven": true}0} (has extra characters after JSON)
+
+        
+
+          Output your response as a single valid JSON object only. Do not include any markdown, code blocks, or explanatory text.
 
           Required JSON schema:
           {
-            "all_proven": boolean
+            "all_proven": boolean,
+            "proven_theorem_ids": [string],
+            "existing_hypothesis_count": integer,
+            "proven_theorem_count": integer
           }
 
+          CRITICAL OUTPUT REQUIREMENTS:
+          - Output ONLY a single valid JSON object, nothing else.
+          - Do NOT include any explanatory text, markdown, or code blocks.
+          - Do NOT repeat the JSON output.
+          - Do NOT add any prefix or suffix text.
+          - Do NOT add extra closing braces. The JSON must end with exactly ONE closing brace: }
+          - Do NOT add any characters after the closing brace (no numbers, no extra braces, no text).
+          - Your output must start with { and end with } (exactly one of each).
+          - After the closing brace }, there must be NOTHING else. No characters, no numbers, no text.
+          - Example of CORRECT output: {"all_proven": false, "existing_hypothesis_count": 3, "proven_theorem_count": 1, "proven_theorem_ids": ["T1"]}
+          - Example of WRONG output: {"all_proven": false, ...}} (has two closing braces)
+          - Example of WRONG output: {"all_proven": false, ...}0} (has extra characters after JSON)
+          - Example of WRONG output: {"all_proven": false, ...}0 (has extra number after JSON)
+          - Example of WRONG output: {"all_proven": false, ...}abc (has extra text after JSON)
+
+
+          CRITICAL DEFINITIONS:
+          - existing_hypothesis_count: MUST equal the actual number of hypotheses you extracted from existing_hypothesis. Do NOT guess or estimate.
+          - proven_theorem_count: MUST equal the number of hypotheses from existing_hypothesis that have been proven (i.e., have at least one matching theorem in state.theorems).
+            * This is NOT the total number of theorems in state.theorems.
+            * This is the count of how many hypotheses from the pool have been successfully proven.
+            * Example: If existing_hypothesis has 5 hypotheses, but only 2 of them match theorems, then proven_theorem_count = 2.
+          - proven_theorem_ids: MUST be an array containing exactly proven_theorem_count theorem IDs.
+            * Each proven hypothesis should contribute exactly ONE theorem ID to this array.
+            * If a hypothesis matches multiple theorems, choose only the first matching theorem ID.
+            * The length of proven_theorem_ids MUST equal proven_theorem_count.
+            * Do NOT include duplicate IDs.
+
+          EXAMPLE SCENARIO 1: 
+          - existing_hypothesis contains 4 lines (4 hypotheses: H1, H2, H3, H4)
+          - state.theorems contains 10 theorems total
+          - Only H1 matches one theorem (T1)
+          - proven_theorem_count = 1 (only 1 hypothesis has been proven, even though there are 10 theorems total)
+          - Output: {"all_proven": false, "existing_hypothesis_count": 4, "proven_theorem_count": 1, "proven_theorem_ids": ["T1"]}
+
+          EXAMPLE SCENARIO 2:
+          - existing_hypothesis is a JSON array with 3 items (H1, H2, H3)
+          - state.theorems contains 5 theorems total
+          - All 3 hypotheses have matching theorems (H1→T1, H2→T2, H3→T3)
+          - proven_theorem_count = 3 (all 3 hypotheses have been proven)
+          - Output: {"all_proven": true, "existing_hypothesis_count": 3, "proven_theorem_count": 3, "proven_theorem_ids": ["T1", "T2", "T3"]}
+
+          EXAMPLE SCENARIO 3:
+          - existing_hypothesis contains 5 lines (5 hypotheses: H1, H2, H3, H4, H5)
+          - state.theorems contains 20 theorems total
+          - H1, H2, and H3 have matching theorems (H1→T1, H2→T2, H3→T3)
+          - H4 and H5 do NOT have matching theorems
+          - proven_theorem_count = 3 (only 3 out of 5 hypotheses have been proven)
+          - proven_theorem_ids = ["T1", "T2", "T3"] (exactly 3 IDs, one for each proven hypothesis)
+          - Output: {"all_proven": false, "existing_hypothesis_count": 5, "proven_theorem_count": 3, "proven_theorem_ids": ["T1", "T2", "T3"]}
+
+          EXAMPLE SCENARIO 4 (handling multiple matches):
+          - existing_hypothesis contains 2 lines (2 hypotheses: H1, H2)
+          - H1 matches both T1 and T2 (multiple matches)
+          - H2 matches T3
+          - proven_theorem_count = 2 (2 hypotheses have been proven)
+          - proven_theorem_ids = ["T1", "T3"] (choose T1 for H1, T3 for H2; length = 2, equals proven_theorem_count)
+          - Output: {"all_proven": true, "existing_hypothesis_count": 2, "proven_theorem_count": 2, "proven_theorem_ids": ["T1", "T3"]}
+
           Language: {{language}}
-          
         output: json
         store: proven_check_raw
 

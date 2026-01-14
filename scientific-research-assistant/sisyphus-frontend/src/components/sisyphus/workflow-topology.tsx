@@ -39,11 +39,17 @@ interface WorkflowTopologyProps {
 // ─────────────────────────────────────────────────────────────
 
 // Plan nodes = Blue/Cyan, Knowledge nodes = Green, Other session nodes = Dimmed
+// Active milestone = Orange (highly visible)
 const NODE_STYLES = {
   Plan: {
     bg: '#3b82f6',      // Blue-500
     border: '#60a5fa',  // Blue-400
     glow: 'rgba(59, 130, 246, 0.6)',
+  },
+  PlanActive: {
+    bg: '#f97316',      // Orange-500
+    border: '#fb923c',  // Orange-400
+    glow: 'rgba(249, 115, 22, 0.8)',
   },
   Knowledge: {
     bg: '#22c55e',      // Green-500
@@ -94,22 +100,24 @@ interface CyberNodeData {
 function CyberNode({ data }: { data: CyberNodeData }) {
   const [showTooltip, setShowTooltip] = useState(false)
 
-  // Get style based on node kind and session ownership
+  // Check if this is an active plan node (pulsing) - determines style
+  const isPulsing = data.kind === 'Plan' && data.planStatus === 'Active'
+
+  // Get style based on node kind, session ownership, and active state
   const nodeStyle = data.isOtherSession
     ? (data.kind === 'Plan' ? NODE_STYLES.PlanOther : NODE_STYLES.KnowledgeOther)
-    : data.kind === 'Plan'
-      ? NODE_STYLES.Plan
-      : data.kind === 'Knowledge'
-        ? NODE_STYLES.Knowledge
-        : NODE_STYLES.Default
+    : isPulsing
+      ? NODE_STYLES.PlanActive  // Orange for active milestone
+      : data.kind === 'Plan'
+        ? NODE_STYLES.Plan
+        : data.kind === 'Knowledge'
+          ? NODE_STYLES.Knowledge
+          : NODE_STYLES.Default
 
   // Calculate opacity based on various states
   let opacity = STATUS_OPACITY[data.status] || 1
   if (data.dimmed) opacity = 0.3
   if (data.highlighted || data.selected) opacity = 1
-
-  // Check if this is an active plan node (pulsing)
-  const isPulsing = data.kind === 'Plan' && data.planStatus === 'Active'
 
   return (
     <>
@@ -437,7 +445,7 @@ function NodeDetailsPanel({ sessionId }: NodeDetailsPanelProps) {
 // ─────────────────────────────────────────────────────────────
 
 function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: WorkflowTopologyProps) {
-  const { dag, selectedNodeId, setDag, setSelectedNode, isConnected } = useSisyphusStore()
+  const { dag, selectedNodeId, setDag, setSelectedNode, isConnected, activeMilestoneNodeId } = useSisyphusStore()
   const { setHighlight, clearHighlight, highlightMode, highlightedNodeIds, dagStats } = useDagInteractions()
   const reactFlowInstance = useRef<ReturnType<typeof import('@xyflow/react').useReactFlow> | null>(null)
   const [refreshing, setRefreshing] = useState(false)
@@ -449,9 +457,22 @@ function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: Workflo
     return dag.nodes.find(n => n.id === selectedNodeId) || null
   }, [dag, selectedNodeId])
 
+  // Track if a refresh is in progress to prevent request piling
+  const refreshInProgress = useRef(false)
+
   // Silent refresh DAG from API (no loading indicator)
+  // Uses a guard to prevent concurrent requests from piling up
   const silentRefresh = useCallback(async () => {
     if (!sessionId || !isConnected) return
+    if (refreshInProgress.current) {
+      console.log('[DAG] Skipping refresh - previous request still in progress')
+      return
+    }
+
+    refreshInProgress.current = true
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 8000) // 8s timeout
+
     try {
       const snapshot = await getDagSnapshot(sessionId)
       if (snapshot) {
@@ -475,7 +496,12 @@ function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: Workflo
         setDag({ nodes, edges })
       }
     } catch (e) {
-      console.error("Failed to refresh DAG:", e)
+      if ((e as Error)?.name !== 'AbortError') {
+        console.error("Failed to refresh DAG:", e)
+      }
+    } finally {
+      clearTimeout(timeoutId)
+      refreshInProgress.current = false
     }
   }, [sessionId, isConnected, setDag])
 
@@ -486,16 +512,17 @@ function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: Workflo
     setRefreshing(false)
   }, [silentRefresh])
 
-  // Auto-refresh DAG every 3 seconds when connected
+  // Auto-refresh DAG every 5 seconds when connected
+  // Increased from 3s to reduce request load and prevent connection piling
   useEffect(() => {
     if (!sessionId || !isConnected) return
-    
+
     // Initial fetch
     silentRefresh()
-    
-    // Set up polling interval
-    const intervalId = setInterval(silentRefresh, 3000)
-    
+
+    // Set up polling interval (5 seconds)
+    const intervalId = setInterval(silentRefresh, 5000)
+
     return () => clearInterval(intervalId)
   }, [sessionId, isConnected, silentRefresh])
 
@@ -512,12 +539,26 @@ function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: Workflo
       console.log('[DAG] First node sessionId:', dag.nodes[0].sessionId, 'current sessionId:', sessionId)
     }
 
+    // Debug: log activeMilestoneNodeId matching
+    if (activeMilestoneNodeId) {
+      const matchingNode = dag.nodes.find(n => n.id === activeMilestoneNodeId)
+      console.log('[DAG] activeMilestoneNodeId:', activeMilestoneNodeId, 'matching node:', matchingNode?.id || 'NOT FOUND')
+      if (!matchingNode) {
+        console.log('[DAG] Available Plan node IDs:', dag.nodes.filter(n => n.kind === 'Plan').map(n => n.id))
+      }
+    }
+
     const nodes: Node[] = dag.nodes.slice(0, 200).map((node) => {
       const isSelected = node.id === selectedNodeId
       const isHighlighted = highlightedNodeIds.includes(node.id)
       const isDimmed = isHighlighting && !isSelected && !isHighlighted && node.id !== selectedNodeId
       // Check if node belongs to a different session
       const isOtherSession = node.sessionId ? node.sessionId !== sessionId : false
+      // Determine plan status: Active if this is the currently executing milestone
+      const isActiveMilestone = node.id === activeMilestoneNodeId
+      const planStatus = isActiveMilestone
+        ? 'Active'
+        : (node.planStatus as 'Pending' | 'Active' | 'Completed' | undefined)
 
       return {
         id: node.id,
@@ -528,7 +569,7 @@ function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: Workflo
           status: node.status || 'pending',
           selected: isSelected,
           kind: node.kind as 'Plan' | 'Knowledge' | undefined,
-          planStatus: node.planStatus as 'Pending' | 'Active' | 'Completed' | undefined,
+          planStatus,
           highlighted: isHighlighted,
           dimmed: isDimmed,
           isOtherSession,
@@ -564,7 +605,7 @@ function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: Workflo
     })
 
     return getLayoutedElements(nodes, edges, 'TB')
-  }, [dag, selectedNodeId, highlightMode, highlightedNodeIds, sessionId])
+  }, [dag, selectedNodeId, highlightMode, highlightedNodeIds, sessionId, activeMilestoneNodeId])
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
@@ -606,12 +647,13 @@ function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: Workflo
   if (!dag?.nodes || dag.nodes.length === 0) {
     return (
       <div className={cn("card flex flex-col", fullHeight && "h-full")}>
-        <TopologyHeader 
-          onLayout={onLayout} 
+        <TopologyHeader
+          onLayout={onLayout}
           onRefresh={handleRefresh}
           refreshing={refreshing}
           nodeCount={0}
           edgeCount={0}
+          activeMilestone={activeMilestoneNodeId}
         />
         <div className="flex-1 flex flex-col items-center justify-center py-8 text-center min-h-[300px]">
           <div className="relative">
@@ -652,6 +694,7 @@ function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: Workflo
         edgeCount={edgeCount}
         planCount={dagStats.planCount}
         knowledgeCount={dagStats.knowledgeCount}
+        activeMilestone={activeMilestoneNodeId}
       />
 
       <div className="flex-1 flex min-h-[350px]">
@@ -804,9 +847,10 @@ interface TopologyHeaderProps {
   edgeCount: number
   planCount?: number
   knowledgeCount?: number
+  activeMilestone?: string | null
 }
 
-function TopologyHeader({ onLayout, onRefresh, onCollapse, onSummary, refreshing, nodeCount, edgeCount, planCount = 0, knowledgeCount = 0 }: TopologyHeaderProps) {
+function TopologyHeader({ onLayout, onRefresh, onCollapse, onSummary, refreshing, nodeCount, edgeCount, planCount = 0, knowledgeCount = 0, activeMilestone }: TopologyHeaderProps) {
   return (
     <div className="flex-shrink-0 flex items-center justify-between p-4 border-b border-accent-emerald/30 bg-gradient-to-r from-accent-emerald/10 to-transparent">
       <div className="flex items-center gap-3">
@@ -833,6 +877,12 @@ function TopologyHeader({ onLayout, onRefresh, onCollapse, onSummary, refreshing
               </span>
             ) : 'Workflow Dependency Graph'}
           </p>
+          {/* Debug: Show active milestone */}
+          {activeMilestone && (
+            <p className="text-[9px] text-orange-400 font-mono truncate max-w-[200px]">
+              🔥 Active: {activeMilestone}
+            </p>
+          )}
         </div>
       </div>
 

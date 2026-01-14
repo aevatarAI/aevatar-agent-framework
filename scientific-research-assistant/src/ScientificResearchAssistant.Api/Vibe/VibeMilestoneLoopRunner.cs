@@ -181,6 +181,7 @@ internal sealed class VibeMilestoneLoopRunner
                     {
                         sessionId = session.Id,
                         dagId,
+                        milestoneNodeId,  // For UI to highlight the active plan node
                         milestoneIndex = i + 1,
                         totalMilestones,
                         roundIndex = milestone.RoundIndex,
@@ -314,6 +315,7 @@ internal sealed class VibeMilestoneLoopRunner
                     {
                         sessionId = session.Id,
                         dagId,
+                        milestoneNodeId,  // For UI to clear the active highlight
                         milestoneIndex = i + 1,
                         totalMilestones,
                         roundIndex = milestone.RoundIndex,

@@ -82,14 +82,10 @@ internal sealed partial class VibeOrchestrator
                 var nid = (n?.Id ?? string.Empty).Trim();
                 if (nid.Length == 0) continue;
 
-                // Parse kind: default to Knowledge for dag_builder output
-                var kindStr = (n!.Kind ?? string.Empty).Trim().ToLowerInvariant();
-                var kind = kindStr switch
-                {
-                    "plan" => SraDagNodeKind.Plan,
-                    "knowledge" => SraDagNodeKind.Knowledge,
-                    _ => SraDagNodeKind.Knowledge  // Default: dag_builder produces knowledge
-                };
+                // IMPORTANT: dag_builder can ONLY create Knowledge nodes.
+                // Plan nodes are created exclusively by VibeOrchestrator during plan generation.
+                // Ignore any "kind" field from LLM output to prevent unauthorized Plan node creation.
+                const SraDagNodeKind kind = SraDagNodeKind.Knowledge;
 
                 var node = new SraDagNode
                 {

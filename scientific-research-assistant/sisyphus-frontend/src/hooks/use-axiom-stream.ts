@@ -699,7 +699,7 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     stream.onCustom("aevatar.vibe.dag_updated", async (event) => {
       addRawEvent(event)
       console.log("[AxiomStream] DAG updated notification received, fetching latest DAG...")
-      
+
       // Fetch updated DAG from API
       if (sessionId) {
         try {
@@ -730,6 +730,27 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
           console.error("[AxiomStream] Failed to refresh DAG:", err)
         }
       }
+    })
+
+    // Milestone Started - Highlight the active plan node
+    stream.onCustom("aevatar.vibe.milestone_started", (event) => {
+      addRawEvent(event)
+      const data = event.value as { milestoneNodeId?: string; milestoneIndex?: number; totalMilestones?: number }
+      console.log("[AxiomStream] Milestone started:", data)
+      if (data.milestoneNodeId) {
+        const { setActiveMilestoneNodeId } = useSisyphusStore.getState()
+        setActiveMilestoneNodeId(data.milestoneNodeId)
+      }
+    })
+
+    // Milestone Finished - Clear the active highlight
+    stream.onCustom("aevatar.vibe.milestone_finished", (event) => {
+      addRawEvent(event)
+      const data = event.value as { milestoneNodeId?: string; milestoneIndex?: number }
+      console.log("[AxiomStream] Milestone finished:", data)
+      // Clear the active milestone highlight
+      const { setActiveMilestoneNodeId } = useSisyphusStore.getState()
+      setActiveMilestoneNodeId(null)
     })
 
     // Catch-all handler - extract worker data from ProgressEvent

@@ -573,27 +573,27 @@
   .stagger-2 { animation-delay: 0.2s; }
   .stagger-3 { animation-delay: 0.3s; }
 
-  /* === Enhanced Glow Pulse for Active Plan Nodes === */
+  /* === Enhanced Glow Pulse for Active Plan Nodes (Orange) === */
   @keyframes glow-pulse {
     0%, 100% {
       box-shadow:
-        0 0 20px rgba(59, 130, 246, 0.6),
-        0 0 40px rgba(59, 130, 246, 0.3),
-        inset 0 0 10px rgba(255, 255, 255, 0.2);
+        0 0 25px rgba(249, 115, 22, 0.7),
+        0 0 50px rgba(249, 115, 22, 0.4),
+        inset 0 0 12px rgba(255, 255, 255, 0.25);
       transform: scale(1);
     }
     50% {
       box-shadow:
-        0 0 40px rgba(59, 130, 246, 0.9),
-        0 0 80px rgba(59, 130, 246, 0.5),
-        0 0 120px rgba(59, 130, 246, 0.2),
-        inset 0 0 15px rgba(255, 255, 255, 0.3);
-      transform: scale(1.08);
+        0 0 50px rgba(249, 115, 22, 1),
+        0 0 100px rgba(249, 115, 22, 0.6),
+        0 0 150px rgba(249, 115, 22, 0.3),
+        inset 0 0 20px rgba(255, 255, 255, 0.4);
+      transform: scale(1.12);
     }
   }
 
   .animate-glow-pulse {
-    animation: glow-pulse 1.5s ease-in-out infinite;
+    animation: glow-pulse 1.2s ease-in-out infinite;
   }
 
   /* Ring animation for active plan nodes */

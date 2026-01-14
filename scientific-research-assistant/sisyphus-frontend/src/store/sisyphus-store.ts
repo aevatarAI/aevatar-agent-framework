@@ -163,6 +163,10 @@ interface SisyphusState {
   setHighlightedNodeIds: (ids: string[]) => void
   setHighlightMode: (mode: HighlightMode) => void
 
+  // Active Milestone (currently executing plan node)
+  activeMilestoneNodeId: string | null
+  setActiveMilestoneNodeId: (nodeId: string | null) => void
+
   // Chat Messages
   messages: ChatMessage[]
   addMessage: (message: Omit<ChatMessage, "id" | "timestamp">) => void
@@ -374,6 +378,10 @@ export const useSisyphusStore = create<SisyphusState>((set) => ({
   setHighlightedNodeIds: (ids) => set({ highlightedNodeIds: ids }),
   setHighlightMode: (mode) => set({ highlightMode: mode }),
 
+  // Active Milestone
+  activeMilestoneNodeId: null,
+  setActiveMilestoneNodeId: (nodeId) => set({ activeMilestoneNodeId: nodeId }),
+
   // === Chat Messages ===
   messages: [],
   addMessage: (message) =>
@@ -425,6 +433,7 @@ export const useSisyphusStore = create<SisyphusState>((set) => ({
       dagError: "",
       highlightedNodeIds: [],
       highlightMode: "none",
+      activeMilestoneNodeId: null,
       messages: [],
       researchBrief: null,
       rawEvents: [],

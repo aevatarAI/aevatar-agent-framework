@@ -1,3 +1,6 @@
+using System;
+using System.IO;
+using System.Linq;
 using Aevatar.Agents.Cognitive.Primitives;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
@@ -56,8 +59,15 @@ public class WorkflowParser
             {
                 workflow = ParseFile(file);
             }
-            catch
+            catch (Exception ex)
             {
+                // Log parsing errors for debugging
+                Console.Error.WriteLine($"[WorkflowParser] Failed to parse workflow file: {Path.GetFileName(file)}");
+                Console.Error.WriteLine($"[WorkflowParser] Error: {ex.Message}");
+                if (ex.InnerException != null)
+                {
+                    Console.Error.WriteLine($"[WorkflowParser] Inner exception: {ex.InnerException.Message}");
+                }
                 // Skip invalid files
             }
             

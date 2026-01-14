@@ -160,3 +160,4 @@ $$
 | `82697e59ff0a` | 2026-01-14 07:06:00 UTC | Failed | hypothesis_promotion_loop_hpa |
 | `60654b5177c4` | 2026-01-14 07:15:25 UTC | Failed | hypothesis_promotion_loop_hpa |
 | `3b953d3b1332` | 2026-01-14 08:45:22 UTC | Failed | hypothesis_promotion_loop_hpa |
+| `8f732e29e24b` | 2026-01-14 09:40:24 UTC | Failed | hypothesis_promotion_loop |

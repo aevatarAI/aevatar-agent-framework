@@ -986,12 +986,12 @@ steps:
         # ===== No verification: vote next hypothesis from B pool =====
         if_false:
           - id: clear_current_hypothesis_no_verify
-                type: transform
-                ops:
-                  - op: set_path
-                    target: state
-                    path: current_hypothesis
-                    value: null
+            type: transform
+            ops:
+              - op: set_path
+                target: state
+                path: current_hypothesis
+                value: null
  
   # --------------------------------------------------------
   # Step 5: stop or recurse

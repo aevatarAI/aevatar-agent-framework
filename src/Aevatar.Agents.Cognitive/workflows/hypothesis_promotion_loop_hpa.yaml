@@ -276,7 +276,7 @@ steps:
           {
             "focus": string,
             "seed_hypothesis": string,
-            "existing_hypothesis": string,
+            "existing_hypothesis": [string],
             "axioms": [string],
             "assumptions": [
               { "id": string, "statement": string, "motivation": string }
@@ -426,7 +426,7 @@ steps:
           {{ state.seed_hypothesis | default: "" }}
 
           Existing hypotheses pool (MUST select from here):
-          {{ state.existing_hypothesis | default: "" }}
+          {{ state.existing_hypothesis | json  }}
 
           IMPORTANT: If the above "Existing hypotheses pool" appears empty or is just "", this means state.existing_hypothesis was not properly extracted during init_state.
           You should report this as an error in your response, as you cannot select from an empty pool.
@@ -634,7 +634,7 @@ steps:
               {{ state.seed_hypothesis | default: "" }}
 
               Existing hypotheses pool (MUST select from here):
-              {{ state.existing_hypothesis | default: "" }}
+              {{ state.existing_hypothesis | json  }}
 
               RelevantFacts:
               {{ relevant_facts | json }}
@@ -826,7 +826,7 @@ steps:
             {{ state.seed_hypothesis | default: "" }}
 
             Existing hypotheses pool (MUST select from here):
-              {{ state.existing_hypothesis | default: "" }}
+              {{ state.existing_hypothesis | json  }}
 
             RelevantFacts:
             {{ relevant_facts | json }}
@@ -1170,7 +1170,7 @@ steps:
                       {{ state.seed_hypothesis | default: "" }}
 
                       Existing hypotheses pool (MUST select from here):
-                      {{ state.existing_hypothesis | default: "" }}
+                      {{ state.existing_hypothesis | json  }}
 
                       RelevantFacts:
                       {{ relevant_facts | json }}
@@ -1332,7 +1332,7 @@ steps:
                   {{ state.seed_hypothesis | default: "" }}
 
                   Existing hypotheses pool (MUST select from here):
-                  {{ state.existing_hypothesis | default: "" }}
+                  {{ state.existing_hypothesis | json  }}
 
                   RelevantFacts:
                   {{ relevant_facts | json }}

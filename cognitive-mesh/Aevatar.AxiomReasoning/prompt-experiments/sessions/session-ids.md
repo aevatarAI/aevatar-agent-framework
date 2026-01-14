@@ -154,3 +154,6 @@ $$
 | `d2e7466d48db` | 2026-01-14 02:38:44 UTC | Failed | hypothesis_promotion_loop_hpa |
 | `0f51454bacae` | 2026-01-14 03:00:24 UTC | Failed | hypothesis_promotion_loop_hpa |
 | `da7b5bfac1b2` | 2026-01-14 03:30:18 UTC | Failed | hypothesis_promotion_loop_hpa |
+| `322a8b61f025` | 2026-01-14 05:06:48 UTC | Failed | hypothesis_promotion_loop_hpa |
+| `e769b5ee0e0d` | 2026-01-14 06:50:26 UTC | Failed | hypothesis_promotion_loop_hpa |
+| `f9f00546d1c6` | 2026-01-14 06:57:02 UTC | Failed | hypothesis_promotion_loop_hpa |

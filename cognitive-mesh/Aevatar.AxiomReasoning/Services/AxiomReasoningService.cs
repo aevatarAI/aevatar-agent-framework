@@ -2,8 +2,10 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AGUI;
@@ -381,7 +383,9 @@ public sealed class AxiomReasoningService
                                 (string.IsNullOrWhiteSpace(currentExistingHyp) || 
                                  !currentExistingHyp.Equals(session.ExistingHypothesis.Trim(), StringComparison.Ordinal)))
                             {
-                                stateObj["existing_hypothesis"] = session.ExistingHypothesis.Trim();
+                                // Normalize existing_hypothesis to JSON format (like axioms)
+                                var normalizedExistingHyp = NormalizeExistingHypothesisToJson(session.ExistingHypothesis.Trim());
+                                stateObj["existing_hypothesis"] = normalizedExistingHyp;
                                 
                                 var syncOptions = new JsonSerializerOptions
                                 {
@@ -389,7 +393,7 @@ public sealed class AxiomReasoningService
                                     Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
                                 };
                                 stateJson = JsonSerializer.Serialize(stateObj, syncOptions);
-                                _logger.LogInformation("[{Id}] Synced session.ExistingHypothesis to state.existing_hypothesis", session.Id);
+                                _logger.LogInformation("[{Id}] Synced session.ExistingHypothesis to state.existing_hypothesis (as JSON)", session.Id);
                             }
                         }
                     }
@@ -948,6 +952,111 @@ public sealed class AxiomReasoningService
     }
 
     // ============================================================
+    //  规范化 existing_hypothesis 为 JSON 格式（与 axioms 一致）
+    // ============================================================
+    /// <summary>
+    /// 将 existing_hypothesis 字符串转换为 JSON 格式，确保每行都有 H1:, H2: 等 ID 前缀（与 axioms 格式一致）。
+    /// 如果已经是 JSON 数组，检查并添加缺失的 ID 前缀；如果是多行文本，为每行添加 ID 前缀。
+    /// </summary>
+    private static object NormalizeExistingHypothesisToJson(string existingHypothesis)
+    {
+        if (string.IsNullOrWhiteSpace(existingHypothesis))
+            return Array.Empty<string>();
+
+        var trimmed = existingHypothesis.Trim();
+        var result = new List<string>();
+
+        // 检查是否已经是有效的 JSON 数组
+        try
+        {
+            using var doc = JsonDocument.Parse(trimmed);
+            if (doc.RootElement.ValueKind == JsonValueKind.Array)
+            {
+                // 已经是 JSON 数组，处理每个元素
+                var index = 1;
+                foreach (var element in doc.RootElement.EnumerateArray())
+                {
+                    var value = element.ValueKind == JsonValueKind.String 
+                        ? element.GetString() ?? "" 
+                        : element.GetRawText();
+                    
+                    if (string.IsNullOrWhiteSpace(value)) continue;
+                    
+                    var line = value.Trim();
+                    // 检查是否已有 H1:, H2: 等前缀
+                    if (!Regex.IsMatch(line, @"^H\d+\s*:", RegexOptions.IgnoreCase))
+                    {
+                        // 如果没有前缀，添加 H{index}:
+                        line = $"H{index}: {line}";
+                    }
+                    result.Add(line);
+                    index++;
+                }
+                
+                if (result.Count > 0)
+                    return result.ToArray();
+            }
+        }
+        catch
+        {
+            // 不是有效的 JSON，继续处理为文本格式
+        }
+
+        // 处理多行文本：每行作为一个假设，添加 H1:, H2: 等前缀
+        var lines = trimmed.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.Trim())
+            .Where(line => !string.IsNullOrWhiteSpace(line))
+            .ToList();
+
+        if (lines.Count == 0)
+            return Array.Empty<string>();
+
+        // 如果只有一行，检查是否可能是 JSON 对象（单个假设对象）
+        if (lines.Count == 1)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(trimmed);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object)
+                {
+                    // 单个 JSON 对象，提取 statement 字段或整个对象作为字符串
+                    var statement = doc.RootElement.TryGetProperty("statement", out var stmt) 
+                        ? stmt.GetString() ?? trimmed 
+                        : trimmed;
+                    
+                    // 确保有 H1: 前缀
+                    if (!System.Text.RegularExpressions.Regex.IsMatch(statement, @"^H\d+\s*:", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                    {
+                        statement = $"H1: {statement}";
+                    }
+                    return new[] { statement };
+                }
+            }
+            catch
+            {
+                // 不是 JSON 对象，作为普通字符串处理
+            }
+        }
+
+        // 为每行添加 H1:, H2: 等前缀（如果还没有）
+        var formattedLines = new List<string>();
+        for (int i = 0; i < lines.Count; i++)
+        {
+            var line = lines[i];
+            // 检查是否已有 H1:, H2: 等前缀
+            if (!System.Text.RegularExpressions.Regex.IsMatch(line, @"^H\d+\s*:", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            {
+                // 如果没有前缀，添加 H{index}:
+                line = $"H{i + 1}: {line}";
+            }
+            formattedLines.Add(line);
+        }
+
+        // 返回字符串数组（与 axioms 格式一致：["H1: ...", "H2: ..."]）
+        return formattedLines.ToArray();
+    }
+
+    // ============================================================
     //  更新 state.json 中的 existing_hypothesis
     // ============================================================
     public object UpdateExistingHypothesis(string sessionId, string existingHypothesis)
@@ -971,8 +1080,9 @@ public sealed class AxiomReasoningService
                     var stateObj = JsonSerializer.Deserialize<Dictionary<string, object>>(root.GetRawText());
                     if (stateObj != null)
                     {
-                        // Update existing_hypothesis
-                        stateObj["existing_hypothesis"] = existingHypothesis ?? "";
+                        // Update existing_hypothesis - normalize to JSON format (like axioms)
+                        var normalizedExistingHyp = NormalizeExistingHypothesisToJson(existingHypothesis ?? "");
+                        stateObj["existing_hypothesis"] = normalizedExistingHyp;
 
                         // Serialize back
                         var options = new JsonSerializerOptions

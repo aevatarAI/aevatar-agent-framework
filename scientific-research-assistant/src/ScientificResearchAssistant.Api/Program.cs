@@ -160,6 +160,7 @@ builder.Services.AddSingleton<IDagGroundingPolicy, DefaultDagGroundingPolicy>();
 builder.Services.Configure<ScientificResearchAssistant.Api.Vibe.Mesh.MeshOrchestrationOptions>(
     builder.Configuration.GetSection(ScientificResearchAssistant.Api.Vibe.Mesh.MeshOrchestrationOptions.SectionName));
 builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.Mesh.MeshDefinitionStore>();
+builder.Services.AddSingleton<Aevatar.Agents.AI.Core.Configuration.GlobalAgentYamlRegistry>();
 builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.Mesh.MeshCompilerService>();
 builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.Mesh.MeshExecutionPlanner>();
 builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.Mesh.MeshExecutionRunner>();
@@ -175,6 +176,10 @@ builder.Services.AddSingleton<DeliveryCenterStore>();
 builder.Services.AddSingleton<ComputeDecisionStore>();
 
 // Vibe: single-round orchestrator (multi-agent + DAG + trace)
+builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.VibeCore>(ScientificResearchAssistant.Api.Vibe.VibeCore.Create);
+builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.VibePivot>(ScientificResearchAssistant.Api.Vibe.VibePivot.Create);
+builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.VibeMesh>(ScientificResearchAssistant.Api.Vibe.VibeMesh.Create);
+builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.VibeHost>(ScientificResearchAssistant.Api.Vibe.VibeHost.Create);
 builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.VibeOrchestrator>();
 
 // Vibe: outer loop runner (repeat rounds until goal verifier passes / budgets exhausted)

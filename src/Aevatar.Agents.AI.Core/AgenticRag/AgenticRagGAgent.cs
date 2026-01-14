@@ -79,9 +79,7 @@ public abstract class AgenticRagGAgent : AIGAgentBase<AgenticRagState, AgenticRa
         AgenticRagRequest request,
         CancellationToken cancellationToken = default)
     {
-        if (!_isInitialized)
-            throw new InvalidOperationException(
-                "AI Agent must be initialized before use. Call InitializeAsync() first.");
+        EnsureInitialized();
 
         if (request == null) throw new ArgumentNullException(nameof(request));
 

@@ -33,11 +33,11 @@ internal sealed partial class VibeOrchestrator
         {
             var messageId = $"msg:{session.Id}:user:{runId}";
 
-            _logger.LogDebug(
+            _host.Logger.LogDebug(
                 "Starting direction change detection for session {SessionId}, message {MessageId}",
                 session.Id, messageId);
 
-            var intent = await _directionDetector.DetectAsync(
+            var intent = await _pivot.DirectionDetector.DetectAsync(
                 session.Id,
                 messageId,
                 question,
@@ -46,13 +46,13 @@ internal sealed partial class VibeOrchestrator
 
             if (!intent.IsDirectionChange)
             {
-                _logger.LogDebug(
+                _host.Logger.LogDebug(
                     "No direction change detected for session {SessionId} (confidence: {Confidence:F2})",
                     session.Id, intent.Confidence);
                 return intent;
             }
 
-            _logger.LogInformation(
+            _host.Logger.LogInformation(
                 "Direction change detected for session {SessionId}: NewTopic={NewTopic}, Confidence={Confidence:F2}, NeedsClarification={NeedsClarification}",
                 session.Id, intent.NewTopic, intent.Confidence, intent.NeedsClarification);
 
@@ -75,13 +75,13 @@ internal sealed partial class VibeOrchestrator
 
             // Handle based on confidence thresholds
             if (intent.NeedsClarification ||
-                (intent.Confidence >= _pivotOptions.ClarificationThreshold &&
-                 intent.Confidence < _pivotOptions.ConfidenceThreshold))
+                (intent.Confidence >= _pivot.Options.ClarificationThreshold &&
+                 intent.Confidence < _pivot.Options.ConfidenceThreshold))
             {
                 // Request user clarification
                 EmitPivotClarificationRequest(session, intent, emitAssistantDelta);
             }
-            else if (intent.Confidence >= _pivotOptions.ConfidenceThreshold)
+            else if (intent.Confidence >= _pivot.Options.ConfidenceThreshold)
             {
                 // High confidence - will trigger pivot in later phases
                 EmitPivotNotification(session, intent, emitAssistantDelta);
@@ -91,7 +91,7 @@ internal sealed partial class VibeOrchestrator
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex,
+            _host.Logger.LogError(ex,
                 "Direction change detection failed for session {SessionId}",
                 session.Id);
             return null;
@@ -187,7 +187,7 @@ internal sealed partial class VibeOrchestrator
     {
         try
         {
-            var brief = await _brief.LoadAsync(sessionId, ct);
+            var brief = await _core.Brief.LoadAsync(sessionId, ct);
             if (brief?.Version > 0 && !string.IsNullOrWhiteSpace(brief.RewrittenQuestion))
             {
                 return brief.RewrittenQuestion;

@@ -31,6 +31,8 @@
 
 支持两种配置路径（推荐用 namespaced）：
 
+> 实现位置：配置解析与 provider 物化在 `Tool/Tools/BuiltIn/WebSearch/WebSearchProviderFactory.cs`（best-effort, 返回 null 表示不开启）。
+
 ### 1) `Aevatar:Tools:WebSearch`
 
 ```json

@@ -59,7 +59,7 @@ internal sealed partial class VibeOrchestrator
     {
         try
         {
-            var (ra, raId) = await _runtime.GetResearchAssistantAgentAsync(sessionId, providerOverride, ct);
+            var (ra, raId) = await _core.Runtime.GetResearchAssistantAgentAsync(sessionId, providerOverride, ct);
             var msg = BuildBriefMessage(question, dag, recentTrace, input.ToAgents, input.AttachmentPaths);
 
             var req = new ChatRequest
@@ -153,7 +153,7 @@ internal sealed partial class VibeOrchestrator
         {
             if (ex is OperationCanceledException && ct.IsCancellationRequested)
                 throw;
-            _logger.LogDebug(ex, "[VibeOrchestrator] research_assistant brief failed (best-effort).");
+            _host.Logger.LogDebug(ex, "[VibeOrchestrator] research_assistant brief failed (best-effort).");
             return null;
         }
     }
@@ -186,7 +186,7 @@ internal sealed partial class VibeOrchestrator
     {
         try
         {
-            var (ra, raId) = await _runtime.GetResearchAssistantAgentAsync(sessionId, providerOverride, ct);
+            var (ra, raId) = await _core.Runtime.GetResearchAssistantAgentAsync(sessionId, providerOverride, ct);
             var msg = BuildPlanMessage(question, dag, recentTrace, input.ToAgents, input.AttachmentPaths);
 
             var req = new ChatRequest
@@ -214,7 +214,7 @@ internal sealed partial class VibeOrchestrator
         {
             if (ex is OperationCanceledException && ct.IsCancellationRequested)
                 throw;
-            _logger.LogDebug(ex, "[VibeOrchestrator] research_assistant plan failed (best-effort).");
+            _host.Logger.LogDebug(ex, "[VibeOrchestrator] research_assistant plan failed (best-effort).");
             return new PlanResult(null, null, null);
         }
     }
@@ -231,7 +231,7 @@ internal sealed partial class VibeOrchestrator
     {
         try
         {
-            var (ra, raId) = await _runtime.GetResearchAssistantAgentAsync(sessionId, providerOverride, ct);
+            var (ra, raId) = await _core.Runtime.GetResearchAssistantAgentAsync(sessionId, providerOverride, ct);
             var msg = BuildSummaryMessage(question, dagResult, outputs, factsWritten);
 
             var req = new ChatRequest
@@ -250,7 +250,7 @@ internal sealed partial class VibeOrchestrator
         {
             if (ex is OperationCanceledException && ct.IsCancellationRequested)
                 throw;
-            _logger.LogDebug(ex, "[VibeOrchestrator] research_assistant summary failed (best-effort).");
+            _host.Logger.LogDebug(ex, "[VibeOrchestrator] research_assistant summary failed (best-effort).");
             return null;
         }
     }
@@ -278,7 +278,7 @@ internal sealed partial class VibeOrchestrator
         const int maxChars = 6000;
 
         var nodes = dag.Nodes
-            .Where(n => n != null && _dagGrounding.ShouldIncludeForGrounding(n))
+            .Where(n => n != null && _core.DagGrounding.ShouldIncludeForGrounding(n))
             .OrderBy(n => n!.Type)
             .ThenBy(n => n!.Id, StringComparer.Ordinal)
             .Take(maxNodes)

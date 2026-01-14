@@ -87,7 +87,7 @@ internal sealed partial class VibeOrchestrator
 
         try
         {
-            var (planner, plannerId) = await _runtime.GetPlannerAgentAsync(session.Id, providerName, ct);
+            var (planner, plannerId) = await _core.Runtime.GetPlannerAgentAsync(session.Id, providerName, ct);
             var req = new ChatRequest
             {
                 Message = BuildWorkerMessage("planner", question, dag, attachments: input.AttachmentPaths),
@@ -143,10 +143,10 @@ internal sealed partial class VibeOrchestrator
 
         try
         {
-            var (reasoner, reasonerId) = await _runtime.GetReasonerAgentAsync(session.Id, providerName, ct);
+            var (reasoner, reasonerId) = await _core.Runtime.GetReasonerAgentAsync(session.Id, providerName, ct);
 
             // Best-effort: include python tool if enabled.
-            _ = await _runtime.RefreshToolsSnapshotAsync(session.Id, providerName, ct);
+            _ = await _core.Runtime.RefreshToolsSnapshotAsync(session.Id, providerName, ct);
 
             var req = new ChatRequest
             {
@@ -214,7 +214,7 @@ internal sealed partial class VibeOrchestrator
 
         try
         {
-            var (lib, libId) = await _runtime.GetLibrarianAgentAsync(session.Id, providerName, ct);
+            var (lib, libId) = await _core.Runtime.GetLibrarianAgentAsync(session.Id, providerName, ct);
             var req = new ChatRequest
             {
                 Message = BuildWorkerMessage("librarian", question, dag, attachments: input.AttachmentPaths),
@@ -281,7 +281,7 @@ internal sealed partial class VibeOrchestrator
 
         try
         {
-            var (ver, verId) = await _runtime.GetVerifierAgentAsync(session.Id, providerName, ct);
+            var (ver, verId) = await _core.Runtime.GetVerifierAgentAsync(session.Id, providerName, ct);
             var req = new ChatRequest
             {
                 Message = BuildWorkerMessage("verifier", question, dag, attachments: input.AttachmentPaths,
@@ -350,7 +350,7 @@ internal sealed partial class VibeOrchestrator
 
         try
         {
-            var (db, dbId) = await _runtime.GetDagBuilderAgentAsync(session.Id, providerName, ct);
+            var (db, dbId) = await _core.Runtime.GetDagBuilderAgentAsync(session.Id, providerName, ct);
             var req = new ChatRequest
             {
                 Message = BuildDagBuilderMessage(question, dag, outputs, librarianAxioms, input.AttachmentPaths),
@@ -433,11 +433,11 @@ internal sealed partial class VibeOrchestrator
         try
         {
             // Ensure paper scaffold exists; we will include bounded excerpts for context.
-            var ws = await _paper.EnsurePaperFilesAsync(session.Id, ct);
+            var ws = await _core.Paper.EnsurePaperFilesAsync(session.Id, ct);
             var outline = await SafeReadTextAsync(ws.PaperOutlinePath, maxChars: 8000, ct);
             var draft = await SafeReadTextAsync(ws.PaperDraftPath, maxChars: 12_000, ct);
 
-            var (pe, peId) = await _runtime.GetPaperEditorAgentAsync(session.Id, providerName, ct);
+            var (pe, peId) = await _core.Runtime.GetPaperEditorAgentAsync(session.Id, providerName, ct);
             var req = new ChatRequest
             {
                 Message = BuildPaperEditorMessage(question, dagResult, outputs, outline, draft, input.AttachmentPaths),

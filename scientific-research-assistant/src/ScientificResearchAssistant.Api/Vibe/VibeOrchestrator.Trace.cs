@@ -37,7 +37,7 @@ internal sealed partial class VibeOrchestrator
         var now = Timestamp.FromDateTime(DateTime.UtcNow);
 
         // Best-effort monotonic round index
-        var prev = await _trace.LoadLatestAsync(sessionId, max: 1, ct);
+        var prev = await _core.Trace.LoadLatestAsync(sessionId, max: 1, ct);
         var roundIdx = prev.Count == 0 ? 0 : prev[^1].RoundIndex + 1;
 
         var round = new SraRoundSummary
@@ -85,12 +85,12 @@ internal sealed partial class VibeOrchestrator
         round.Metrics["question_len"] = question.Length.ToString();
         round.Metrics["agents"] = outputs.Count.ToString();
 
-        await _trace.AppendAsync(sessionId, round, summaryMarkdown, ct);
+        await _core.Trace.AppendAsync(sessionId, round, summaryMarkdown, ct);
 
         // Emit a compact event for UI to extend timeline.
         try
         {
-            var ws = _workspace.EnsureSessionWorkspace(sessionId);
+            var ws = _core.Workspace.EnsureSessionWorkspace(sessionId);
             var summaryAbs = Path.Combine(ws.RunsDir, runId, "summary.md");
             var summaryRel = Path.GetRelativePath(ws.SessionRoot, summaryAbs).Replace('\\', '/').Trim('/');
 

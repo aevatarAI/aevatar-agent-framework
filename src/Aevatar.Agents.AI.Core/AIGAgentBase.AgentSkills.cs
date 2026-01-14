@@ -18,31 +18,12 @@ public abstract partial class AIGAgentBase
     //  - Optional: Automatically import dotnet-file tools in skill directory on load (C# single file + /*aevatar_tool*/ manifest)
     // ============================================================
 
-    private const string DefaultSkillEntryFileName = "SKILL.md";
-    private const string AgentSkillsRootsEnv = "AEVATAR_AGENT_SKILLS_DIRS";
+    private AgentSkillsRuntime? _agentSkillsRuntime;
 
-    private readonly object _agentSkillsLock = new();
-    private readonly List<string> _agentSkillsRoots = [];
-
-    private readonly object _agentSkillsLogLock = new();
-    private readonly HashSet<string> _agentSkillsLogOnce = new(StringComparer.OrdinalIgnoreCase);
+    private AgentSkillsRuntime AgentSkillsRuntime => _agentSkillsRuntime ??= new AgentSkillsRuntime(this);
 
     private void LogAgentSkillsDebugOnce(string key, Exception ex, string message, params object[] args)
-    {
-        if (string.IsNullOrWhiteSpace(key))
-        {
-            Logger.LogDebug(ex, message, args);
-            return;
-        }
-
-        lock (_agentSkillsLogLock)
-        {
-            if (!_agentSkillsLogOnce.Add(key))
-                return;
-        }
-
-        Logger.LogDebug(ex, message, args);
-    }
+        => AgentSkillsRuntime.LogDebugOnce(key, ex, message, args);
 
     /// <summary>
     /// Enable Agent Skills tools (<c>skills_list</c>/<c>skills_load</c>).
@@ -61,13 +42,7 @@ public abstract partial class AIGAgentBase
     /// </summary>
     public void AddAgentSkillsRoot(string rootDirectory)
     {
-        if (string.IsNullOrWhiteSpace(rootDirectory))
-            return;
-
-        lock (_agentSkillsLock)
-        {
-            _agentSkillsRoots.Add(rootDirectory.Trim());
-        }
+        AgentSkillsRuntime.AddRoot(rootDirectory);
     }
 
     /// <summary>
@@ -78,17 +53,7 @@ public abstract partial class AIGAgentBase
         bool enable = true,
         CancellationToken cancellationToken = default)
     {
-        lock (_agentSkillsLock)
-        {
-            _agentSkillsRoots.Clear();
-            foreach (var r in roots)
-            {
-                if (!string.IsNullOrWhiteSpace(r))
-                {
-                    _agentSkillsRoots.Add(r.Trim());
-                }
-            }
-        }
+        AgentSkillsRuntime.ReplaceRoots(roots);
 
         EnableAgentSkills = enable;
 
@@ -99,51 +64,7 @@ public abstract partial class AIGAgentBase
 
     private IReadOnlyList<string> GetEffectiveAgentSkillsRoots()
     {
-        var roots = new List<string>();
-
-        lock (_agentSkillsLock)
-        {
-            roots.AddRange(_agentSkillsRoots);
-        }
-
-        var env = Environment.GetEnvironmentVariable(AgentSkillsRootsEnv);
-        if (!string.IsNullOrWhiteSpace(env))
-        {
-            // Support both ';' and ':' for convenience across shells.
-            foreach (var part in env.Split([';', ':'],
-                         StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-            {
-                if (!string.IsNullOrWhiteSpace(part))
-                {
-                    roots.Add(part.Trim());
-                }
-            }
-        }
-
-        // Normalize + dedupe
-        var unique = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var result = new List<string>();
-        foreach (var r in roots)
-        {
-            try
-            {
-                var full = Path.GetFullPath(r);
-                if (Directory.Exists(full) && unique.Add(full))
-                {
-                    result.Add(full);
-                }
-            }
-            catch (Exception ex)
-            {
-                LogAgentSkillsDebugOnce(
-                    $"invalid_root::{r}",
-                    ex,
-                    "Invalid agent skills root '{Root}' ignored (best-effort).",
-                    r);
-            }
-        }
-
-        return result;
+        return AgentSkillsRuntime.GetEffectiveRoots();
     }
 
     private async Task RegisterAgentSkillsToolsAsync(CancellationToken cancellationToken = default)
@@ -180,7 +101,7 @@ public abstract partial class AIGAgentBase
             },
             RequiresInternalAccess = true,
             // NOTE:
-            // - Skill discovery is gated by EnableAgentSkills (default false).
+            // - Skill discovery is gated by EnableAgentSkills (default true).
             // - Keep it as an internal tool, but not "dangerous" so users don't need to flip AllowDangerousTools just to list skills.
             IsDangerous = false,
             CanBeOverridden = true,
@@ -199,7 +120,7 @@ public abstract partial class AIGAgentBase
             Tags = new List<string> { "skills", "agent-skills", "filesystem", "prompt", "import" },
             RequiresInternalAccess = true,
             // NOTE:
-            // - Loading SKILL.md is gated by EnableAgentSkills (default false).
+            // - Loading SKILL.md is gated by EnableAgentSkills (default true).
             // - Dotnet-file tool import remains guarded by AllowDangerousTools at execution time.
             IsDangerous = false,
             CanBeOverridden = true,
@@ -245,39 +166,12 @@ public abstract partial class AIGAgentBase
         ToolExecutionContext? executionContext,
         CancellationToken cancellationToken)
     {
-        await Task.CompletedTask;
-
-        var roots = GetEffectiveAgentSkillsRoots();
-        var skills = DiscoverAgentSkills(roots, cancellationToken);
-        var maxResults = ClampInt(parameters.GetValueOrDefault("max_results"), fallback: 30, min: 1, max: 200);
-
-        var returned = skills
-            .Take(maxResults)
-            .Select(s => new
-            {
-                name = s.Name,
-                description = s.Description,
-                allowedTools = s.AllowedTools,
-                path = s.DirectoryPath,
-                hasDotNetTools = s.DotNetToolFiles.Count > 0
-            })
-            .ToList();
-
-        var result = new
-        {
-            success = true,
-            enabled = EnableAgentSkills,
-            roots,
-            count = skills.Count,
-            returned = returned.Count,
-            truncated = returned.Count < skills.Count,
-            skills = returned,
-            note = returned.Count < skills.Count
-                ? "Output truncated. Prefer find_helpful_skills for task-driven work, or use list_skills for full inventory (debug)."
-                : null
-        };
-
-        return JsonParser.Default.Parse<Struct>(JsonSerializer.Serialize(result));
+        return await AgentSkillsRuntime.ExecuteSkillsListToolAsync(
+            EnableAgentSkills,
+            agentType,
+            parameters,
+            executionContext,
+            cancellationToken);
     }
 
     private async Task<IMessage> ExecuteSkillsLoadToolAsync(
@@ -286,130 +180,12 @@ public abstract partial class AIGAgentBase
         ToolExecutionContext? executionContext,
         CancellationToken cancellationToken)
     {
-        var name = parameters.TryGetValue("name", out var nameObj)
-            ? nameObj?.ToString()
-            : null;
-
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            var bad = new { success = false, error = "Parameter 'name' is required." };
-            return JsonParser.Default.Parse<Struct>(JsonSerializer.Serialize(bad));
-        }
-
-        if (executionContext?.ToolManager == null)
-        {
-            var bad = new { success = false, error = "ToolExecutionContext.ToolManager not provided." };
-            return JsonParser.Default.Parse<Struct>(JsonSerializer.Serialize(bad));
-        }
-
-        var registerTools = AgentSkillsAutoRegisterDotNetFileTools;
-        if (parameters.TryGetValue("register_tools", out var rt))
-        {
-            if (rt is bool b) registerTools = b;
-            else if (bool.TryParse(rt?.ToString(), out var parsed)) registerTools = parsed;
-        }
-
-        // Default: align with Hook/Harness tool output budget to avoid duplicated "max chars" knobs.
-        // NOTE: callers can still override per-call via tool parameter `max_chars`.
-        var maxChars = HookOptions.MaxToolOutputChars;
-        if (parameters.TryGetValue("max_chars", out var mc))
-        {
-            if (mc is int i) maxChars = i;
-            else if (int.TryParse(mc?.ToString(), out var parsed)) maxChars = parsed;
-        }
-
-        maxChars = Math.Clamp(maxChars, 1_000, 128_000);
-
-        var roots = GetEffectiveAgentSkillsRoots();
-        var skills = DiscoverAgentSkills(roots, cancellationToken);
-        var match = skills.FirstOrDefault(s => s.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
-                    ?? skills.FirstOrDefault(s => s.FolderName.Equals(name, StringComparison.OrdinalIgnoreCase));
-
-        if (match == null)
-        {
-            var notFound = new
-            {
-                success = false,
-                error = $"Skill '{name}' not found.",
-                availableCount = skills.Count,
-                available = skills.Select(s => s.Name).Take(50).ToArray(),
-                hint = "Use find_helpful_skills to search, or list_skills for full inventory (debug)."
-            };
-            return JsonParser.Default.Parse<Struct>(JsonSerializer.Serialize(notFound));
-        }
-
-        var skillMarkdown = await ReadAllTextWithLimitAsync(match.SkillFilePath, maxChars, cancellationToken);
-        var parsedSkill = ParseSkillMarkdown(skillMarkdown);
-
-        var registered = new List<string>();
-        var skipped = new List<object>();
-
-        if (registerTools && match.DotNetToolFiles.Count > 0)
-        {
-            // Dotnet-file tool import == local code execution. Guard it explicitly.
-            // We keep skills_load non-dangerous for usability, but importing executable tools still requires opt-in.
-            if (executionContext.AllowDangerousTools == false)
-            {
-                foreach (var toolFile in match.DotNetToolFiles)
-                {
-                    skipped.Add(new
-                    {
-                        file = toolFile,
-                        error =
-                            "Dotnet-file tool import is disabled by policy (AllowDangerousTools=false). Set AllowDangerousTools=true to enable register_tools."
-                    });
-                }
-
-                registerTools = false;
-            }
-        }
-
-        if (registerTools && match.DotNetToolFiles.Count > 0)
-        {
-            var baseToolContext = new ToolContext
-            {
-                AgentId = executionContext.AgentId,
-                AgentType = agentType,
-                PublishEventCallback = executionContext.PublishEventCallback,
-                PublishEventWithDirectionCallback = executionContext.PublishEventWithDirectionCallback,
-                GetSessionIdCallback = executionContext.GetSessionId != null
-                    ? () => executionContext.GetSessionId()
-                    : null,
-                Logger = executionContext.Logger
-            };
-
-            foreach (var toolFile in match.DotNetToolFiles)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                try
-                {
-                    var tool = await DotNetFileSkillTool.LoadFromFileAsync(toolFile, executionContext.Logger,
-                        cancellationToken);
-                    var def = tool.CreateToolDefinition(baseToolContext, executionContext.Logger);
-                    await executionContext.ToolManager.RegisterToolAsync(def, cancellationToken);
-                    registered.Add(tool.Name);
-                }
-                catch (Exception ex)
-                {
-                    skipped.Add(new { file = toolFile, error = ex.Message });
-                }
-            }
-        }
-
-        var result = new
-        {
-            success = true,
-            name = match.Name,
-            description = match.Description,
-            allowedTools = match.AllowedTools,
-            path = match.DirectoryPath,
-            markdown = parsedSkill.Body.Length > maxChars ? parsedSkill.Body[..maxChars] : parsedSkill.Body,
-            dotnetToolFiles = match.DotNetToolFiles,
-            registeredTools = registered,
-            skipped
-        };
-
-        return JsonParser.Default.Parse<Struct>(JsonSerializer.Serialize(result));
+        return await AgentSkillsRuntime.ExecuteSkillsLoadToolAsync(
+            agentType,
+            parameters,
+            executionContext,
+            HookOptions.MaxToolOutputChars,
+            AgentSkillsAutoRegisterDotNetFileTools,
+            cancellationToken);
     }
 }

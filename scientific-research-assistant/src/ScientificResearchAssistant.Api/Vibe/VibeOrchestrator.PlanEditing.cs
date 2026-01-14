@@ -38,7 +38,7 @@ internal sealed partial class VibeOrchestrator
         try
         {
             // Load current plan context from DAG (milestones + current round plan).
-            var cur = await _dag.LoadSnapshotAsync(dagId, ct);
+            var cur = await _core.Dag.LoadSnapshotAsync(dagId, ct);
 
             static bool IsDeleted(SraDagNode n)
             {
@@ -83,7 +83,7 @@ internal sealed partial class VibeOrchestrator
             }
 
             // Ask research_assistant to output a revised milestones list.
-            var (ra, raId) = await _runtime.GetResearchAssistantAgentAsync(session.Id, providerOverride, ct);
+            var (ra, raId) = await _core.Runtime.GetResearchAssistantAgentAsync(session.Id, providerOverride, ct);
             var req = new ChatRequest
             {
                 Message =
@@ -185,7 +185,7 @@ internal sealed partial class VibeOrchestrator
                 m.UpsertNodes.Add(old);
             }
 
-            var applied = await _dag.ApplyMutationAsync(dagId, m, ct);
+            var applied = await _core.Dag.ApplyMutationAsync(dagId, m, ct);
 
             // Notify UI to refresh dag snapshot (same pattern as other dag writes).
             session.Events.Publish(new CustomEvent

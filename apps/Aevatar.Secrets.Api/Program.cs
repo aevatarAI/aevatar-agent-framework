@@ -965,6 +965,353 @@ app.MapPost("/api/secrets/remove", (
     return Results.Json(new { ok = true, key, removed });
 });
 
+// ------------------------------------------------------------
+// Raw JSON Editor
+// GET  /api/secrets/raw - Returns all secrets as nested JSON
+// PUT  /api/secrets/raw - Replaces all secrets from nested JSON
+// ------------------------------------------------------------
+
+app.MapGet("/api/secrets/raw", (IAevatarUserSecretsStore secrets, HttpContext http) =>
+{
+    if (!IsLocal(http))
+        return Results.Forbid();
+
+    var all = secrets.GetAll();
+    var nested = FlatToNested(all);
+    var json = JsonSerializer.Serialize(nested, new JsonSerializerOptions { WriteIndented = true });
+
+    return Results.Json(new { ok = true, json, keyCount = all.Count });
+});
+
+app.MapPut("/api/secrets/raw", async (HttpContext http, IAevatarUserSecretsStore secrets) =>
+{
+    if (!IsLocal(http))
+        return Results.Forbid();
+
+    RawSecretsRequest? req;
+    try
+    {
+        req = await http.Request.ReadFromJsonAsync<RawSecretsRequest>();
+    }
+    catch (Exception ex)
+    {
+        return Results.BadRequest(new { ok = false, error = $"Invalid JSON request: {ex.Message}" });
+    }
+
+    if (req == null || string.IsNullOrWhiteSpace(req.Json))
+        return Results.BadRequest(new { ok = false, error = "json field is required" });
+
+    Dictionary<string, string> newFlat;
+    try
+    {
+        using var doc = JsonDocument.Parse(req.Json);
+        newFlat = NestedToFlat(doc.RootElement);
+    }
+    catch (Exception ex)
+    {
+        return Results.BadRequest(new { ok = false, error = $"Invalid JSON: {ex.Message}" });
+    }
+
+    var oldAll = secrets.GetAll();
+    var removed = new List<string>();
+    var added = new List<string>();
+    var updated = new List<string>();
+
+    foreach (var oldKey in oldAll.Keys)
+    {
+        if (!newFlat.ContainsKey(oldKey))
+        {
+            secrets.Remove(oldKey);
+            removed.Add(oldKey);
+        }
+    }
+
+    foreach (var kv in newFlat)
+    {
+        if (oldAll.TryGetValue(kv.Key, out var oldVal))
+        {
+            if (!string.Equals(oldVal, kv.Value, StringComparison.Ordinal))
+            {
+                secrets.Set(kv.Key, kv.Value);
+                updated.Add(kv.Key);
+            }
+        }
+        else
+        {
+            secrets.Set(kv.Key, kv.Value);
+            added.Add(kv.Key);
+        }
+    }
+
+    EnsureDefaultProviderKeyBestEffort(secrets, preferredProvider: null);
+
+    return Results.Json(new
+    {
+        ok = true,
+        keyCount = newFlat.Count,
+        changes = new { removed = removed.Count, added = added.Count, updated = updated.Count }
+    });
+});
+
+// ------------------------------------------------------------
+// Config (plain JSON, not encrypted)
+// GET  /api/config/raw - Returns config.json as nested JSON
+// PUT  /api/config/raw - Writes config.json from nested JSON
+// ------------------------------------------------------------
+
+app.MapGet("/api/config/raw", (HttpContext http) =>
+{
+    if (!IsLocal(http))
+        return Results.Forbid();
+
+    var configPath = GetConfigPath();
+    if (!File.Exists(configPath))
+    {
+        return Results.Json(new { ok = true, json = "{}", keyCount = 0, exists = false });
+    }
+
+    try
+    {
+        var content = File.ReadAllText(configPath);
+        using var doc = JsonDocument.Parse(content);
+        var flat = NestedToFlat(doc.RootElement);
+        var nested = FlatToNested(flat);
+        var json = JsonSerializer.Serialize(nested, new JsonSerializerOptions { WriteIndented = true });
+        return Results.Json(new { ok = true, json, keyCount = flat.Count, exists = true });
+    }
+    catch (Exception ex)
+    {
+        return Results.Json(new { ok = false, error = $"Failed to read config.json: {ex.Message}" });
+    }
+});
+
+app.MapPut("/api/config/raw", async (HttpContext http) =>
+{
+    if (!IsLocal(http))
+        return Results.Forbid();
+
+    RawSecretsRequest? req;
+    try
+    {
+        req = await http.Request.ReadFromJsonAsync<RawSecretsRequest>();
+    }
+    catch (Exception ex)
+    {
+        return Results.BadRequest(new { ok = false, error = $"Invalid JSON request: {ex.Message}" });
+    }
+
+    if (req == null || string.IsNullOrWhiteSpace(req.Json))
+        return Results.BadRequest(new { ok = false, error = "json field is required" });
+
+    // Validate JSON
+    try
+    {
+        using var doc = JsonDocument.Parse(req.Json);
+    }
+    catch (Exception ex)
+    {
+        return Results.BadRequest(new { ok = false, error = $"Invalid JSON: {ex.Message}" });
+    }
+
+    var configPath = GetConfigPath();
+    var configDir = Path.GetDirectoryName(configPath)!;
+
+    try
+    {
+        // Ensure directory exists
+        if (!Directory.Exists(configDir))
+        {
+            Directory.CreateDirectory(configDir);
+        }
+
+        // Pretty-print before writing
+        using var doc = JsonDocument.Parse(req.Json);
+        var prettyJson = JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions { WriteIndented = true });
+        await File.WriteAllTextAsync(configPath, prettyJson);
+
+        return Results.Json(new { ok = true, path = configPath });
+    }
+    catch (Exception ex)
+    {
+        return Results.Json(new { ok = false, error = $"Failed to write config.json: {ex.Message}" });
+    }
+});
+
+// ------------------------------------------------------------
+// Agents (YAML files)
+// GET    /api/agents            - List all .yaml files in agents/ directory
+// GET    /api/agents/{filename} - Read a specific agent YAML file
+// PUT    /api/agents/{filename} - Write a specific agent YAML file
+// DELETE /api/agents/{filename} - Delete a specific agent YAML file
+// ------------------------------------------------------------
+
+app.MapGet("/api/agents", (HttpContext http) =>
+{
+    if (!IsLocal(http))
+        return Results.Forbid();
+
+    var agentsDir = GetAgentsDir();
+    if (!Directory.Exists(agentsDir))
+    {
+        return Results.Json(new { ok = true, agents = Array.Empty<object>(), exists = false });
+    }
+
+    try
+    {
+        var files = Directory.GetFiles(agentsDir, "*.yaml")
+            .Concat(Directory.GetFiles(agentsDir, "*.yml"))
+            .Select(f => new FileInfo(f))
+            .OrderBy(f => f.Name)
+            .Select(f => new
+            {
+                filename = f.Name,
+                path = f.FullName,
+                sizeBytes = f.Length,
+                lastModified = f.LastWriteTimeUtc.ToString("o")
+            })
+            .ToList();
+
+        return Results.Json(new { ok = true, agents = files, exists = true, directory = agentsDir });
+    }
+    catch (Exception ex)
+    {
+        return Results.Json(new { ok = false, error = $"Failed to list agents: {ex.Message}" });
+    }
+});
+
+app.MapGet("/api/agents/{filename}", (string filename, HttpContext http) =>
+{
+    if (!IsLocal(http))
+        return Results.Forbid();
+
+    // Sanitize filename to prevent directory traversal
+    var sanitized = Path.GetFileName(filename);
+    if (string.IsNullOrWhiteSpace(sanitized) || sanitized != filename)
+    {
+        return Results.BadRequest(new { ok = false, error = "Invalid filename" });
+    }
+
+    // Ensure .yaml or .yml extension
+    if (!sanitized.EndsWith(".yaml", StringComparison.OrdinalIgnoreCase) &&
+        !sanitized.EndsWith(".yml", StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.BadRequest(new { ok = false, error = "Filename must have .yaml or .yml extension" });
+    }
+
+    var agentsDir = GetAgentsDir();
+    var filePath = Path.Combine(agentsDir, sanitized);
+
+    if (!File.Exists(filePath))
+    {
+        return Results.NotFound(new { ok = false, error = "Agent file not found", filename = sanitized });
+    }
+
+    try
+    {
+        var content = File.ReadAllText(filePath);
+        var fileInfo = new FileInfo(filePath);
+        return Results.Json(new
+        {
+            ok = true,
+            filename = sanitized,
+            content,
+            sizeBytes = fileInfo.Length,
+            lastModified = fileInfo.LastWriteTimeUtc.ToString("o")
+        });
+    }
+    catch (Exception ex)
+    {
+        return Results.Json(new { ok = false, error = $"Failed to read agent file: {ex.Message}" });
+    }
+});
+
+app.MapPut("/api/agents/{filename}", async (string filename, HttpContext http) =>
+{
+    if (!IsLocal(http))
+        return Results.Forbid();
+
+    // Sanitize filename to prevent directory traversal
+    var sanitized = Path.GetFileName(filename);
+    if (string.IsNullOrWhiteSpace(sanitized) || sanitized != filename)
+    {
+        return Results.BadRequest(new { ok = false, error = "Invalid filename" });
+    }
+
+    // Ensure .yaml or .yml extension
+    if (!sanitized.EndsWith(".yaml", StringComparison.OrdinalIgnoreCase) &&
+        !sanitized.EndsWith(".yml", StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.BadRequest(new { ok = false, error = "Filename must have .yaml or .yml extension" });
+    }
+
+    AgentFileRequest? req;
+    try
+    {
+        req = await http.Request.ReadFromJsonAsync<AgentFileRequest>();
+    }
+    catch (Exception ex)
+    {
+        return Results.BadRequest(new { ok = false, error = $"Invalid request: {ex.Message}" });
+    }
+
+    if (req == null || req.Content == null)
+    {
+        return Results.BadRequest(new { ok = false, error = "content field is required" });
+    }
+
+    var agentsDir = GetAgentsDir();
+    var filePath = Path.Combine(agentsDir, sanitized);
+
+    try
+    {
+        // Ensure directory exists
+        if (!Directory.Exists(agentsDir))
+        {
+            Directory.CreateDirectory(agentsDir);
+        }
+
+        var isNew = !File.Exists(filePath);
+        await File.WriteAllTextAsync(filePath, req.Content);
+
+        return Results.Json(new { ok = true, filename = sanitized, path = filePath, created = isNew });
+    }
+    catch (Exception ex)
+    {
+        return Results.Json(new { ok = false, error = $"Failed to write agent file: {ex.Message}" });
+    }
+});
+
+app.MapDelete("/api/agents/{filename}", (string filename, HttpContext http) =>
+{
+    if (!IsLocal(http))
+        return Results.Forbid();
+
+    // Sanitize filename to prevent directory traversal
+    var sanitized = Path.GetFileName(filename);
+    if (string.IsNullOrWhiteSpace(sanitized) || sanitized != filename)
+    {
+        return Results.BadRequest(new { ok = false, error = "Invalid filename" });
+    }
+
+    var agentsDir = GetAgentsDir();
+    var filePath = Path.Combine(agentsDir, sanitized);
+
+    if (!File.Exists(filePath))
+    {
+        return Results.NotFound(new { ok = false, error = "Agent file not found", filename = sanitized });
+    }
+
+    try
+    {
+        File.Delete(filePath);
+        return Results.Json(new { ok = true, filename = sanitized, deleted = true });
+    }
+    catch (Exception ex)
+    {
+        return Results.Json(new { ok = false, error = $"Failed to delete agent file: {ex.Message}" });
+    }
+});
+
 // Fallback for non-file routes (optional, keeps UX consistent if linked with extra path).
 app.MapFallbackToFile("index.html");
 
@@ -1049,3 +1396,119 @@ static void EnsureDefaultProviderKeyBestEffort(IAevatarUserSecretsStore secrets,
     if (!string.IsNullOrWhiteSpace(current))
         secrets.Remove("LLMProviders:Default");
 }
+
+static object FlatToNested(IReadOnlyDictionary<string, string> flat)
+{
+    var root = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+
+    foreach (var kv in flat)
+    {
+        var parts = kv.Key.Split(':');
+        var current = root;
+
+        for (var i = 0; i < parts.Length - 1; i++)
+        {
+            var part = parts[i];
+            if (!current.TryGetValue(part, out var next))
+            {
+                next = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+                current[part] = next;
+            }
+
+            if (next is Dictionary<string, object> dict)
+            {
+                current = dict;
+            }
+            else
+            {
+                var newDict = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["$value"] = next
+                };
+                current[part] = newDict;
+                current = newDict;
+            }
+        }
+
+        var lastPart = parts[^1];
+        if (current.TryGetValue(lastPart, out var existing) && existing is Dictionary<string, object> existingDict)
+        {
+            existingDict["$value"] = kv.Value;
+        }
+        else
+        {
+            current[lastPart] = kv.Value;
+        }
+    }
+
+    return root;
+}
+
+static Dictionary<string, string> NestedToFlat(JsonElement element, string prefix = "")
+{
+    var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    NestedToFlatRecursive(element, prefix, result);
+    return result;
+}
+
+static void NestedToFlatRecursive(JsonElement element, string prefix, Dictionary<string, string> result)
+{
+    switch (element.ValueKind)
+    {
+        case JsonValueKind.Object:
+            foreach (var prop in element.EnumerateObject())
+            {
+                var key = string.IsNullOrEmpty(prefix) ? prop.Name : $"{prefix}:{prop.Name}";
+                NestedToFlatRecursive(prop.Value, key, result);
+            }
+            break;
+        case JsonValueKind.Array:
+            var idx = 0;
+            foreach (var item in element.EnumerateArray())
+            {
+                var key = $"{prefix}:{idx}";
+                NestedToFlatRecursive(item, key, result);
+                idx++;
+            }
+            break;
+        default:
+            if (!string.IsNullOrEmpty(prefix))
+            {
+                result[prefix] = element.ToString();
+            }
+            break;
+    }
+}
+
+static string GetAevatarDir()
+{
+    var envPath = Environment.GetEnvironmentVariable("AEVATAR_DIR");
+    if (!string.IsNullOrWhiteSpace(envPath))
+        return envPath;
+
+    var envSecretsDir = Environment.GetEnvironmentVariable("AEVATAR_SECRETS_DIR");
+    if (!string.IsNullOrWhiteSpace(envSecretsDir))
+        return envSecretsDir;
+
+    return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".aevatar");
+}
+
+static string GetConfigPath()
+{
+    var envPath = Environment.GetEnvironmentVariable("AEVATAR_CONFIG_PATH");
+    if (!string.IsNullOrWhiteSpace(envPath))
+        return envPath;
+
+    return Path.Combine(GetAevatarDir(), "config.json");
+}
+
+static string GetAgentsDir()
+{
+    var envPath = Environment.GetEnvironmentVariable("AEVATAR_AGENTS_DIR");
+    if (!string.IsNullOrWhiteSpace(envPath))
+        return envPath;
+
+    return Path.Combine(GetAevatarDir(), "agents");
+}
+
+record AgentFileRequest(string? Content);

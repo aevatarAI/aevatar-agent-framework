@@ -161,7 +161,13 @@ internal sealed class MeshExecutionRunner
                         break;
                     }
                     default:
-                        throw new InvalidOperationException($"unsupported node type: {role}");
+                    {
+                        // Dynamic role path (role defined by ~/.aevatar/agents/{role}.yaml).
+                        var (agent, agentId) = await _runtime.GetRoleAgentAsync(session.Id, providerName, role, ct);
+                        req.Context["agent_id"] = agentId;
+                        text = await RunAgentAsync(agent, req, session, messageId, maxChars: 20_000, fencedJson: false, ct);
+                        break;
+                    }
                 }
 
                 outputs[node.Id] = text;

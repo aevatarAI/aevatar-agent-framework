@@ -335,12 +335,12 @@ internal sealed partial class VibeOrchestrator
                     }
                 }
 
-                var saved = await _materials.SaveFactAsync(f.Title, content, rel, ct);
+                var saved = await _core.Materials.SaveFactAsync(f.Title, content, rel, ct);
                 written.Add(saved.Id);
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[VibeOrchestrator] librarian fact write failed (best-effort).");
+                _host.Logger.LogDebug(ex, "[VibeOrchestrator] librarian fact write failed (best-effort).");
             }
         }
 

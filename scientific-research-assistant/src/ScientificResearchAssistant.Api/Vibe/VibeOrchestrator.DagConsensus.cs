@@ -68,7 +68,7 @@ internal sealed partial class VibeOrchestrator
         try
         {
             var dagId = string.IsNullOrWhiteSpace(session.DagId) ? session.Id : session.DagId.Trim();
-            var applied = await _dag.ApplyMutationAsync(dagId, candidate, ct);
+            var applied = await _core.Dag.ApplyMutationAsync(dagId, candidate, ct);
 
             session.Events.Publish(new CustomEvent
             {
@@ -134,7 +134,7 @@ internal sealed partial class VibeOrchestrator
                 var content = BuildPlaceholderSource(rel);
                 try
                 {
-                    await _materials.SaveSourceAsync(
+                    await _core.Materials.SaveSourceAsync(
                         title: InferTitleForPlaceholder(rel),
                         content: content,
                         relativePath: rel,
@@ -155,7 +155,7 @@ internal sealed partial class VibeOrchestrator
                 emit("\n");
 
                 // Refresh materials so verifiers see the newly created sources in the MATERIAL INDEX.
-                return await _materials.LoadAsync(sessionId, query: question, ct);
+                return await _core.Materials.LoadAsync(sessionId, query: question, ct);
             }
 
             return materials;
@@ -239,7 +239,7 @@ internal sealed partial class VibeOrchestrator
     {
         try
         {
-            var prev = await _trace.LoadLatestAsync(sessionId, max: 1, ct);
+            var prev = await _core.Trace.LoadLatestAsync(sessionId, max: 1, ct);
             return prev.Count == 0 ? 0 : prev[^1].RoundIndex + 1;
         }
         catch

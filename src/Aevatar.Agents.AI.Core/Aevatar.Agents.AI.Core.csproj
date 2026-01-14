@@ -34,6 +34,8 @@
         <PackageReference Include="Google.Protobuf" />
         <!-- MCP (Model Context Protocol) tool integration -->
         <PackageReference Include="ModelContextProtocol.Core" />
+        <!-- YAML parsing for agent configuration -->
+        <PackageReference Include="YamlDotNet" />
         <PackageReference Include="Grpc.Tools">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

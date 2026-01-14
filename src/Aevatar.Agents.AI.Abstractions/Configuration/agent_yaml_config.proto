@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package Aevatar.Agents.AI;
+
+option csharp_namespace = "Aevatar.Agents.AI.Abstractions.Configuration.Proto";
+
+message AgentYamlConfigProto {
+  string id = 1;
+  string name = 2;
+  string version = 3;
+  AgentPersonaProto persona = 4;
+  AgentModelConfigProto model = 5;
+  repeated string tools = 6;
+  string system_prompt = 7;
+  AgentCapabilitiesProto capabilities = 8;
+  map<string, string> extensions = 9;
+}
+
+message AgentPersonaProto {
+  string role = 1;
+  repeated string expertise = 2;
+  string style = 3;
+  repeated string traits = 4;
+}
+
+message AgentModelConfigProto {
+  string provider = 1;
+  string name = 2;
+  double temperature = 3;
+  int32 max_tokens = 4;
+  optional double top_p = 5;
+  optional double frequency_penalty = 6;
+  optional double presence_penalty = 7;
+  repeated string stop_sequences = 8;
+  map<string, string> provider_settings = 9;
+}
+
+message AgentCapabilitiesProto {
+  int32 max_tool_calls_per_turn = 1;
+  int32 max_history_length = 2;
+  bool can_spawn_children = 3;
+  bool supports_streaming = 4;
+  int32 operation_timeout_seconds = 5;
+  bool record_tool_executions = 6;
+}

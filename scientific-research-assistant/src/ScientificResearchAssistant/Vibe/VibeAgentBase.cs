@@ -1,6 +1,7 @@
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core;
+using Aevatar.Agents.AI.Core.Utils;
 using Aevatar.Agents.AI.Tool.Abstractions;
 using ScientificResearchAssistant.Streaming;
 
@@ -20,6 +21,18 @@ namespace ScientificResearchAssistant.Vibe;
 public abstract class VibeAgentBase : AIGAgentBase
 {
     public const string MaterialsContextKey = "materials_context";
+
+    // ------------------------------------------------------------
+    //  YAML-driven tool allowlist (baseline policy)
+    //
+    //  WHY:
+    //  - We want roles to be configurable via ~/.aevatar/agents/{role}.yaml.
+    //  - AIGAgentBase already supports per-request tool allowlist via AIGAgentKeys.ToolAllowlist.
+    //
+    //  NOTE:
+    //  - This is a "baseline" allowlist injected into every LLM request.
+    //  - In-request allowlists (e.g. skills_load returning allowedTools) can still override it.
+    // ------------------------------------------------------------
 
     protected VibeAgentBase()
     {

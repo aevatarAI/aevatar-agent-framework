@@ -24,7 +24,7 @@ internal sealed partial class VibeOrchestrator
         var name = (providerName ?? string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(name) || string.Equals(name, "default", StringComparison.OrdinalIgnoreCase))
         {
-            if (_secrets.TryGet(DefaultProviderKey, out var def) && !string.IsNullOrWhiteSpace(def))
+            if (_core.UserSecrets.TryGet(DefaultProviderKey, out var def) && !string.IsNullOrWhiteSpace(def))
                 name = def.Trim();
             else
                 name = "default";
@@ -46,7 +46,7 @@ internal sealed partial class VibeOrchestrator
         var name = (providerName ?? string.Empty).Trim();
         if (name.Length == 0) return false;
         var keyPath = $"LLMProviders:Providers:{name}:ApiKey";
-        return _secrets.TryGet(keyPath, out var v) && !string.IsNullOrWhiteSpace(v);
+        return _core.UserSecrets.TryGet(keyPath, out var v) && !string.IsNullOrWhiteSpace(v);
     }
 
     private string PickFirstRunnableProviderName()
@@ -56,7 +56,7 @@ internal sealed partial class VibeOrchestrator
 
         try
         {
-            var all = _secrets.GetAll();
+            var all = _core.UserSecrets.GetAll();
             var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var kv in all)
             {

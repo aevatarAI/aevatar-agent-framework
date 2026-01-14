@@ -8,6 +8,11 @@
 Vibe/
   VibeOrchestrator.cs                       # 入口：ExecuteOneRoundAsync（骨架/时序）
   VibeOrchestrator.MeshSeed.cs              # mesh 缺失时自动 seed（从 default_mesh.yaml）（Option B 默认启用）
+  VibeOrchestrator.MeshIntegration.cs       # mesh 执行：错误渲染、fail-fast/fallback、mesh 运行产物落盘（best-effort）
+  VibeOrchestrator.PlanDag.cs               # plan/brief milestones -> DAG mutation 构建（plan nodes）
+  VibeOrchestrator.Steps.cs                 # step 事件模板封装（StepStarted/Finished best-effort）
+  VibeOrchestrator.ExecuteOneRound.Parts.cs # ExecuteOneRoundAsync 的拆分实现（pivot/plan/workers），主文件只保留骨架
+  VibeModules.cs                            # Vibe 子域模块：VibeCore/VibePivot/VibeMesh/VibeHost（见名知意的依赖分组）
   VibeOrchestrator.Workers.cs               # planner/reasoner/librarian/verifier/dag_builder/paper_editor 的流式调用
   VibeOrchestrator.DagConsensus.cs          # DAG 写入（MVP：不做共识门控；未来可做“写后验证/标注”）
   VibeOrchestrator.Trace.cs                 # trace 追加写入 + round_summary SSE
@@ -171,5 +176,55 @@ constraints: []
 - `type` 与 `channel` 有 allowlist（见 `SraMeshMappings`），不在 allowlist 内会被拒绝
 - `dag_snapshot` 会把 DAG 的 bounded 摘要作为 Inputs（材料 `materials_context` 仍由 system prompt 注入）
  - MeshExecutionPlanner 禁止 cycles，因此不要使用回边构造环
+
+### Dynamic Roles（长期形态：mesh 节点引用 role）
+
+除了内置的 `planner/reasoner/librarian/verifier/dag_builder` 外，Mesh 也支持 **动态 role**：
+
+- **role 定义位置（全局，可复用）**：`~/.aevatar/agents/{role}.yaml`
+- **mesh 里引用方式**：`nodes[*].type: {role}`
+- **运行时行为**：
+  - 编译/计划阶段会扫描 `~/.aevatar/agents/*.yaml`，将文件名作为可用 role
+  - 执行阶段会用通用 `VibeRoleAgent` 跑该节点，并应用 YAML 的模型参数与 `system_prompt`
+  - provider 解析优先级：request override > `~/.aevatar/agents/{role}.yaml` > `agent_providers.json` > session.ProviderName
+
+#### Built-in Roles 也可用 YAML 覆盖（并保持 fallback）
+
+内置的 `planner/reasoner/librarian/verifier/dag_builder/paper_editor` 也会尝试读取同名 YAML：
+
+- `~/.aevatar/agents/planner.yaml`
+- `~/.aevatar/agents/reasoner.yaml`
+- ...
+
+语义：
+- **没有 YAML**：完全使用当前硬编码行为（提示词、默认 temperature/max_tokens、工具注册逻辑不变）
+- **有 YAML**：
+  - `provider/model/temperature/max_tokens/system_prompt` 等会按 YAML 覆盖（未填字段继续走原默认值）
+  - `tools:` 会作为 baseline tool allowlist（每次 LLM request 都会注入；空则不限制）
+  - `skills:` 非空时会自动启用 skills roots（默认 `~/.aevatar/skills`）并自动把 skills 相关工具加入 allowlist
+
+最小示例：
+
+1) 创建 `~/.aevatar/agents/citation_checker.yaml`
+
+```yaml
+id: "citation_checker"
+name: "Citation Checker"
+provider: "openai"   # 可选：也可以不写，走 session/provider mapping
+model: "gpt-4.1-mini"
+temperature: 0.1
+system_prompt: |
+  You are a strict citation checker.
+  - Flag missing citations
+  - Output a checklist
+```
+
+2) 在 session 的 `mesh.yaml` 里引用：
+
+```yaml
+nodes:
+  - id: checker
+    type: citation_checker
+```
 
 

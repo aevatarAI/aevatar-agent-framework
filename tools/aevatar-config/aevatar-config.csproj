@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <OutputType>Exe</OutputType>
+
+    <!-- Dotnet Tool Configuration -->
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>aevatar-config</ToolCommandName>
+    <PackageId>aevatar-config</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Aevatar</Authors>
+    <Description>A local CLI tool to configure Aevatar user secrets (LLM providers, API keys, etc.) via a web UI.</Description>
+    <PackageProjectUrl>https://github.com/aevatar/aevatar-agent-framework</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/aevatar/aevatar-agent-framework</RepositoryUrl>
+    <PackageTags>aevatar;config;secrets;llm;cli</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AElf.Cryptography" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>

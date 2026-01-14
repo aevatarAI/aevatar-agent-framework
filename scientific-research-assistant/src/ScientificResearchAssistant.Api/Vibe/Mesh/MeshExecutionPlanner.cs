@@ -1,3 +1,4 @@
+using Aevatar.Agents.AI.Core.Configuration;
 using Aevatar.CognitiveMesh.Dsl.Models;
 using Aevatar.CognitiveMesh.Dsl.Validation;
 
@@ -27,6 +28,13 @@ public sealed record MeshPlanResult(bool Ok, MeshExecutionPlan? Plan, IReadOnlyL
 
 public sealed class MeshExecutionPlanner
 {
+    private readonly GlobalAgentYamlRegistry _roles;
+
+    public MeshExecutionPlanner(GlobalAgentYamlRegistry roles)
+    {
+        _roles = roles ?? throw new ArgumentNullException(nameof(roles));
+    }
+
     public MeshPlanResult Plan(string sessionId, string runId, MeshDefinition definition)
     {
         sessionId = (sessionId ?? string.Empty).Trim();
@@ -57,11 +65,21 @@ public sealed class MeshExecutionPlanner
                 continue;
             }
 
-            if (!SraMeshMappings.IsSupportedNodeType(type))
+            // Built-in types are always allowed; otherwise require role YAML in ~/.aevatar/agents.
+            if (!SraMeshMappings.IsSupportedNodeType(type) && !_roles.HasRole(type))
             {
+                var known = new List<string>();
+                known.AddRange(SraMeshMappings.AllowedNodeTypes);
+                known.AddRange(_roles.GetKnownRoles());
+                known = known
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+                    .Take(30)
+                    .ToList();
+
                 errors.Add(new DslValidationError(
                     "node.unsupported_type",
-                    $"节点 '{id}' 使用了不支持的 type '{type}'. 允许: [{string.Join(", ", SraMeshMappings.AllowedNodeTypes)}].",
+                    $"节点 '{id}' 使用了不支持的 type '{type}'. 允许: [{string.Join(", ", known)}]（以及 ~/.aevatar/agents/*.yaml 中的 role）.",
                     $"nodes[{i}].type"));
                 continue;
             }

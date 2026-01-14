@@ -1,7 +1,4 @@
-using Aevatar.Agents.AI.Tool.MCP;
-using Aevatar.Agents.AI.Tool.MCP.Configuration;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.AI.Core;
 
@@ -35,11 +32,10 @@ public abstract partial class AIGAgentBase
     /// </summary>
     protected IConfiguration? HostConfiguration { get; set; }
 
-    private readonly SemaphoreSlim _mcpConnectLock = new(1, 1);
-    private readonly Dictionary<string, IAsyncDisposable> _mcpClients =
-        new(StringComparer.OrdinalIgnoreCase);
+    internal IConfiguration? InternalHostConfiguration => HostConfiguration;
 
-    private DateTimeOffset _mcpLastAttemptUtc = DateTimeOffset.MinValue;
+    private McpRuntime? _mcpRuntime;
+    private McpRuntime McpRuntime => _mcpRuntime ??= new McpRuntime(this);
 
     /// <summary>
     /// Auto-connect MCP servers from configuration and register their tools.
@@ -52,94 +48,7 @@ public abstract partial class AIGAgentBase
         bool isRetry,
         CancellationToken cancellationToken = default)
     {
-        if (!EnableMcpServers)
-            return false;
-
-        if (HostConfiguration == null)
-            return false;
-
-        var resolved = MCPServersConfigReader.Resolve(HostConfiguration);
-        if (!resolved.AutoConnect || resolved.Servers.Count == 0)
-            return false;
-
-        // On retries, avoid spamming connection attempts.
-        if (isRetry && McpRetryOnEachChat)
-        {
-            // Effective min-interval: config (MCP:retryMinIntervalSeconds) overrides code defaults.
-            var effectiveMinInterval = McpRetryMinInterval;
-            if (resolved.RetryMinIntervalSeconds.HasValue)
-            {
-                var seconds = Math.Clamp(resolved.RetryMinIntervalSeconds.Value, 0, 3600);
-                effectiveMinInterval = TimeSpan.FromSeconds(seconds);
-            }
-
-            var now = DateTimeOffset.UtcNow;
-            if (_mcpLastAttemptUtc != DateTimeOffset.MinValue &&
-                now - _mcpLastAttemptUtc < effectiveMinInterval)
-            {
-                return false;
-            }
-        }
-
-        await _mcpConnectLock.WaitAsync(cancellationToken);
-        try
-        {
-            _mcpLastAttemptUtc = DateTimeOffset.UtcNow;
-
-            var ok = 0;
-            var failed = 0;
-            var registeredAny = false;
-
-            foreach (var s in resolved.Servers)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                if (!s.Enabled)
-                    continue;
-
-                // Avoid duplicate connections in the same agent lifetime.
-                if (_mcpClients.ContainsKey(s.Key))
-                    continue;
-
-                try
-                {
-                    Logger.LogInformation("[MCP] Connecting server '{Key}' ({Transport}) from {Source}...",
-                        s.Key, s.Config.TransportType, resolved.Source);
-
-                    var client = await MCPClientWrapper.CreateAsync(s.Config, Logger, cancellationToken);
-
-                    await ToolManager.RegisterMCPServerWithPrefixAsync(
-                        serverUrl: s.Key,
-                        mcpClient: client,
-                        toolNamePrefix: s.ToolNamePrefix,
-                        config: s.Config,
-                        logger: Logger,
-                        cancellationToken: cancellationToken);
-
-                    _mcpClients[s.Key] = client;
-                    ok++;
-                    registeredAny = true;
-                }
-                catch (Exception ex)
-                {
-                    failed++;
-                    Logger.LogWarning(ex,
-                        "[MCP] Failed to connect/register server '{Key}' (best-effort).", s.Key);
-                }
-            }
-
-            if (ok > 0 || failed > 0)
-            {
-                Logger.LogInformation("[MCP] Auto-connect finished. ok={Ok} failed={Failed} source={Source}",
-                    ok, failed, resolved.Source);
-            }
-
-            return registeredAny;
-        }
-        finally
-        {
-            _mcpConnectLock.Release();
-        }
+        return await McpRuntime.RegisterFromConfigurationBestEffortAsync(isRetry, cancellationToken);
     }
 
     /// <summary>
@@ -147,27 +56,7 @@ public abstract partial class AIGAgentBase
     /// </summary>
     protected async Task TryReconnectMcpOnChatAsync(CancellationToken ct)
     {
-        if (!EnableMcpServers || !McpRetryOnEachChat)
-            return;
-
-        // Only retry when there are configured servers that are not connected yet.
-        if (HostConfiguration == null)
-            return;
-
-        var resolved = MCPServersConfigReader.Resolve(HostConfiguration);
-        if (!resolved.AutoConnect || resolved.Servers.Count == 0)
-            return;
-
-        var hasMissing = resolved.Servers.Any(s => s.Enabled && !_mcpClients.ContainsKey(s.Key));
-        if (!hasMissing)
-            return;
-
-        var registered = await RegisterMcpServersFromConfigurationBestEffortAsync(isRetry: true, ct);
-        if (registered)
-        {
-            // New tools become visible to LLM only after refreshing caches.
-            await RefreshToolCachesAsync(ct);
-        }
+        await McpRuntime.TryReconnectOnChatAsync(ct);
     }
 
     /// <summary>
@@ -179,45 +68,14 @@ public abstract partial class AIGAgentBase
     /// </summary>
     public async Task<(bool Ok, string? Error)> ReconnectMcpAsync(CancellationToken ct = default)
     {
-        try
-        {
-            await InitializeToolsAsync(ct);
-            var registered = await RegisterMcpServersFromConfigurationBestEffortAsync(isRetry: false, ct);
-            await RefreshToolCachesAsync(ct);
-            return (true, null);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "MCP reconnect failed: {Message}", ex.Message);
-            return (false, ex.Message);
-        }
+        return await McpRuntime.ReconnectAsync(ct);
     }
 
     protected override async Task OnDeactivateAsync(CancellationToken ct = default)
     {
         // Cleanup first, then base last.
-        await DisposeMcpClientsBestEffortAsync();
+        await McpRuntime.DisposeBestEffortAsync();
         await base.OnDeactivateAsync(ct);
-    }
-
-    private async Task DisposeMcpClientsBestEffortAsync()
-    {
-        if (_mcpClients.Count == 0)
-            return;
-
-        foreach (var (_, client) in _mcpClients.ToList())
-        {
-            try
-            {
-                await client.DisposeAsync();
-            }
-            catch
-            {
-                // best-effort only
-            }
-        }
-
-        _mcpClients.Clear();
     }
 }
 

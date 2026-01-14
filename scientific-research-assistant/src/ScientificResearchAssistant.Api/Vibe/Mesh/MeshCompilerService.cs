@@ -1,3 +1,4 @@
+using Aevatar.Agents.AI.Core.Configuration;
 using Aevatar.CognitiveMesh.Dsl;
 using Aevatar.CognitiveMesh.Dsl.Models;
 using Aevatar.CognitiveMesh.Dsl.Options;
@@ -25,14 +26,16 @@ public sealed record MeshCompileResult(bool Ok, MeshDefinition? Definition, IRea
 public sealed class MeshCompilerService
 {
     private readonly ILogger<MeshCompilerService> _logger;
+    private readonly GlobalAgentYamlRegistry _roles;
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = false };
     private static readonly IDeserializer Yaml = new DeserializerBuilder()
         .IgnoreUnmatchedProperties()
         .Build();
 
-    public MeshCompilerService(ILogger<MeshCompilerService> logger)
+    public MeshCompilerService(ILogger<MeshCompilerService> logger, GlobalAgentYamlRegistry roles)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _roles = roles ?? throw new ArgumentNullException(nameof(roles));
     }
 
     public MeshCompileResult Compile(string raw)
@@ -47,8 +50,11 @@ public sealed class MeshCompilerService
         }
 
         // Configure compiler guardrails for SRA mesh orchestration.
+        // NOTE:
+        // - CognitiveDslCompiler enforces allowedAgentTypes. We extend it with user-defined roles discovered
+        //   from ~/.aevatar/agents/*.yaml (cross-app convention).
         var options = CognitiveDslOptions.Default.With(
-            allowedAgentTypes: SraMeshMappings.AllowedNodeTypes,
+            allowedAgentTypes: MergeAllowedNodeTypesWithGlobalYamlRoles(),
             allowedConstraintTypes: SraMeshMappings.AllowedConstraintTypes,
             metaAgentTypeName: "meta"); // unused for SRA; keep placeholder stable
 
@@ -97,6 +103,22 @@ public sealed class MeshCompilerService
                 Message: ex.Message,
                 Path: null));
         }
+    }
+
+    private IReadOnlySet<string> MergeAllowedNodeTypesWithGlobalYamlRoles()
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var x in SraMeshMappings.AllowedNodeTypes)
+            set.Add(x);
+
+        foreach (var x in _roles.GetKnownRoles())
+            set.Add(x);
+
+        // Keep placeholder stable for DSL option (even if unused by SRA).
+        set.Add("meta");
+
+        return set;
     }
 
     private static string CoerceToJson(string raw)

@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
         <TargetFramework>net10.0</TargetFramework>
@@ -21,6 +21,7 @@
 
     <ItemGroup>
         <Protobuf Include="ai_abstractions_messages.proto" GrpcServices="None" />
+        <Protobuf Include="Configuration/agent_yaml_config.proto" GrpcServices="None" />
     </ItemGroup>
 
     <ItemGroup>

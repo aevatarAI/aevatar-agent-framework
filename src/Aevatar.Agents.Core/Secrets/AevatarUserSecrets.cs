@@ -28,12 +28,18 @@ public sealed class AevatarUserSecretsOptions
 {
     public const string DefaultRootDirectoryName = ".aevatar";
     public const string DefaultSecretsFileName = "secrets.json";
+    public const string DefaultConfigFileName = "config.json";
     public const string DefaultMasterKeyFileName = "masterkey.bin";
 
     /// <summary>
     /// Full path to secrets file. If set, overrides <see cref="SecretsDirectory"/>.
     /// </summary>
     public string? SecretsPath { get; set; }
+
+    /// <summary>
+    /// Full path to config file. If set, overrides <see cref="SecretsDirectory"/>.
+    /// </summary>
+    public string? ConfigPath { get; set; }
 
     /// <summary>
     /// Directory where secrets file is placed. Defaults to "~/.aevatar".
@@ -44,6 +50,11 @@ public sealed class AevatarUserSecretsOptions
     /// Secrets file name under <see cref="SecretsDirectory"/>.
     /// </summary>
     public string SecretsFileName { get; set; } = DefaultSecretsFileName;
+
+    /// <summary>
+    /// Config file name under <see cref="SecretsDirectory"/>.
+    /// </summary>
+    public string ConfigFileName { get; set; } = DefaultConfigFileName;
 
     /// <summary>
     /// Master key file name under <see cref="SecretsDirectory"/> (fallback when OS key store is unavailable).
@@ -73,11 +84,9 @@ public sealed class AevatarUserSecretsOptions
 
     internal string ResolveSecretsPath()
     {
-        // Highest priority: explicit SecretsPath
         if (!string.IsNullOrWhiteSpace(SecretsPath))
             return Path.GetFullPath(SecretsPath.Trim());
 
-        // Env override: full path
         var envPath = Environment.GetEnvironmentVariable(AevatarAgentsConstants.SecretsPathEnv);
         if (!string.IsNullOrWhiteSpace(envPath))
         {
@@ -91,7 +100,31 @@ public sealed class AevatarUserSecretsOptions
             }
         }
 
-        // Env override: directory
+        var dir = ResolveDirectory();
+        return Path.Combine(dir, string.IsNullOrWhiteSpace(SecretsFileName) ? DefaultSecretsFileName : SecretsFileName.Trim());
+    }
+
+    internal string ResolveConfigPath()
+    {
+        if (!string.IsNullOrWhiteSpace(ConfigPath))
+            return Path.GetFullPath(ConfigPath.Trim());
+
+        var dir = ResolveDirectory();
+        return Path.Combine(dir, string.IsNullOrWhiteSpace(ConfigFileName) ? DefaultConfigFileName : ConfigFileName.Trim());
+    }
+
+    internal string ResolveMasterKeyPath(string secretsPath)
+    {
+        var dir = Path.GetDirectoryName(secretsPath);
+        if (string.IsNullOrWhiteSpace(dir))
+            dir = Path.GetTempPath();
+
+        var file = string.IsNullOrWhiteSpace(MasterKeyFileName) ? DefaultMasterKeyFileName : MasterKeyFileName.Trim();
+        return Path.Combine(dir, file);
+    }
+
+    private string ResolveDirectory()
+    {
         var dir = SecretsDirectory;
         if (string.IsNullOrWhiteSpace(dir))
         {
@@ -107,18 +140,90 @@ public sealed class AevatarUserSecretsOptions
             dir = Path.Combine(home, DefaultRootDirectoryName);
         }
 
-        var fullDir = Path.GetFullPath(dir.Trim());
-        return Path.Combine(fullDir, string.IsNullOrWhiteSpace(SecretsFileName) ? DefaultSecretsFileName : SecretsFileName.Trim());
+        return Path.GetFullPath(dir.Trim());
     }
 
-    internal string ResolveMasterKeyPath(string secretsPath)
+    /// <summary>
+    /// Initialize the ~/.aevatar directory with default structure and CONFIG.md.
+    /// Safe to call multiple times (idempotent).
+    /// </summary>
+    public void EnsureDirectoryInitialized()
     {
-        var dir = Path.GetDirectoryName(secretsPath);
-        if (string.IsNullOrWhiteSpace(dir))
-            dir = Path.GetTempPath();
+        var dir = ResolveDirectory();
+        
+        if (!Directory.Exists(dir))
+        {
+            Directory.CreateDirectory(dir);
+            TrySetDirectoryPermissions(dir);
+        }
 
-        var file = string.IsNullOrWhiteSpace(MasterKeyFileName) ? DefaultMasterKeyFileName : MasterKeyFileName.Trim();
-        return Path.Combine(dir, file);
+        var subdirs = new[] { "agents", "skills", "workflows", "mcp", "logs" };
+        foreach (var subdir in subdirs)
+        {
+            var path = Path.Combine(dir, subdir);
+            if (!Directory.Exists(path))
+            {
+                Directory.CreateDirectory(path);
+            }
+        }
+
+        var configMdPath = Path.Combine(dir, "CONFIG.md");
+        if (!File.Exists(configMdPath))
+        {
+            TryWriteConfigMd(configMdPath);
+        }
+    }
+
+    private static void TrySetDirectoryPermissions(string dir)
+    {
+        try
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                File.SetUnixFileMode(dir,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
+        }
+        catch
+        {
+            // best-effort only
+        }
+    }
+
+    private static void TryWriteConfigMd(string path)
+    {
+        try
+        {
+            var content = GetEmbeddedConfigMd();
+            if (!string.IsNullOrEmpty(content))
+            {
+                File.WriteAllText(path, content);
+            }
+        }
+        catch
+        {
+            // best-effort only
+        }
+    }
+
+    private static string? GetEmbeddedConfigMd()
+    {
+        var assembly = typeof(AevatarUserSecretsOptions).Assembly;
+        var resourceName = "Aevatar.Agents.Core.Resources.CONFIG.md";
+        
+        try
+        {
+            using var stream = assembly.GetManifestResourceStream(resourceName);
+            if (stream == null)
+                return null;
+
+            using var reader = new StreamReader(stream);
+            return reader.ReadToEnd();
+        }
+        catch
+        {
+            return null;
+        }
     }
 }
 

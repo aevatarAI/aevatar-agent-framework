@@ -143,12 +143,12 @@ internal sealed partial class VibeOrchestrator
 
                 try
                 {
-                    await _paper.ApplyPatchAsync(session.Id, runId, proposal, ct);
+                    await _core.Paper.ApplyPatchAsync(session.Id, runId, proposal, ct);
                     patchesApplied++;
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogDebug(ex, "[VibeOrchestrator] paper patch apply failed (best-effort).");
+                    _host.Logger.LogDebug(ex, "[VibeOrchestrator] paper patch apply failed (best-effort).");
                 }
             }
         }
@@ -158,7 +158,7 @@ internal sealed partial class VibeOrchestrator
         var changedSummary = delivery?.ChangedSummary?.Replace("\r", "").Trim();
         if (delivery != null)
         {
-            var existing = await _delivery.LoadDeliverySnapshotAsync(session.Id, ct);
+            var existing = await _core.Delivery.LoadDeliverySnapshotAsync(session.Id, ct);
             var version = existing.Version + 1;
             if (version <= 0) version = 1;
 
@@ -188,7 +188,7 @@ internal sealed partial class VibeOrchestrator
                     AddRefs(snap.Items[^1].RelatedDagNodeIds, c.RelatedDagNodeIds, 30, 120);
                 }
 
-                await _delivery.SaveConclusionsAsync(session.Id, snap, ct);
+                await _core.Delivery.SaveConclusionsAsync(session.Id, snap, ct);
                 listsWritten++;
             }
 
@@ -213,7 +213,7 @@ internal sealed partial class VibeOrchestrator
                     });
                 }
 
-                await _delivery.SaveEvidenceAsync(session.Id, snap, ct);
+                await _core.Delivery.SaveEvidenceAsync(session.Id, snap, ct);
                 listsWritten++;
             }
 
@@ -239,7 +239,7 @@ internal sealed partial class VibeOrchestrator
                     snap.Items.Add(item);
                 }
 
-                await _delivery.SaveTasksAsync(session.Id, snap, ct);
+                await _core.Delivery.SaveTasksAsync(session.Id, snap, ct);
                 listsWritten++;
             }
 
@@ -257,7 +257,7 @@ internal sealed partial class VibeOrchestrator
                 UpdatedAt = now
             };
 
-            await _delivery.SaveDeliverySnapshotAsync(session.Id, deliverySnap, ct);
+            await _core.Delivery.SaveDeliverySnapshotAsync(session.Id, deliverySnap, ct);
             listsWritten++;
 
             // UI: notify delivery updated (best-effort)

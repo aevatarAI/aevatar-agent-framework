@@ -353,6 +353,27 @@ public abstract partial class AIGAgentBase
         }
     }
 
+    private static bool LooksLikeAevatarDotNetToolFile(string filePath)
+    {
+        try
+        {
+            using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            var max = (int)Math.Min(16 * 1024, fs.Length);
+            if (max <= 0) return false;
+
+            var buf = new byte[max];
+            var read = fs.Read(buf, 0, max);
+            if (read <= 0) return false;
+
+            var head = Encoding.UTF8.GetString(buf, 0, read);
+            return head.Contains("/*aevatar_tool", StringComparison.Ordinal);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private ToolExecutionContext BuildToolExecutionContext(string sessionId, CancellationToken cancellationToken)
     {
         return new ToolExecutionContext

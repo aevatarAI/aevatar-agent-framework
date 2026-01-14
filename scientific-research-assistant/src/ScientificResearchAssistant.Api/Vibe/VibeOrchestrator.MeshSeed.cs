@@ -26,7 +26,7 @@ internal sealed partial class VibeOrchestrator
         string runId,
         CancellationToken ct)
     {
-        var (raw, _) = await _meshStore.TryLoadRawAsync(session.Id, ct);
+        var (raw, _) = await _mesh.Store.TryLoadRawAsync(session.Id, ct);
         if (!string.IsNullOrWhiteSpace(raw))
             return raw;
 
@@ -34,7 +34,7 @@ internal sealed partial class VibeOrchestrator
         var seeded = TryReadDefaultMeshTemplateYaml() ?? BuildDefaultSeedMeshYamlFallback();
         try
         {
-            await _meshStore.SaveAsync(session.Id, seeded, format: "yaml", ct);
+            await _mesh.Store.SaveAsync(session.Id, seeded, format: "yaml", ct);
 
             session.Events.Publish(new CustomEvent
             {
@@ -57,7 +57,7 @@ internal sealed partial class VibeOrchestrator
     {
         try
         {
-            var path = Path.Combine(_env.ContentRootPath, "Vibe", "Mesh", "default_mesh.yaml");
+            var path = Path.Combine(_host.Env.ContentRootPath, "Vibe", "Mesh", "default_mesh.yaml");
             if (!File.Exists(path))
                 return null;
             return (File.ReadAllText(path) ?? string.Empty).Replace("\r", "").Trim();

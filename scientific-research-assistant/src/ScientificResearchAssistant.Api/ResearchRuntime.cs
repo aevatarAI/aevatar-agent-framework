@@ -3,10 +3,12 @@ using Aevatar.Agents.Abstractions.Extensions;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Core;
+using Aevatar.Agents.AI.Core.Configuration;
 using Microsoft.Extensions.Options;
 using Aevatar.Agents.AI.Tool.Abstractions;
 using ScientificResearchAssistant.Vibe;
 using ScientificResearchAssistant.Api.Infrastructure;
+using ScientificResearchAssistant.Api.Vibe.Mesh;
 
 namespace ScientificResearchAssistant.Api;
 
@@ -25,6 +27,7 @@ public sealed class ResearchRuntime
     private readonly IOptionsMonitor<LLMProvidersConfig> _llm;
     private readonly SkillPacksSyncService _skillPacksSync;
     private readonly TimeSpan _skillPacksRetryMinInterval;
+    private readonly GlobalAgentYamlRegistry _roles;
 
     // Per-process retry throttle (best-effort). We don't want to run `git pull` on every request.
     private DateTimeOffset _lastSkillPacksRetryKickoffUtc = DateTimeOffset.MinValue;
@@ -37,17 +40,64 @@ public sealed class ResearchRuntime
         ILogger<ResearchRuntime> logger,
         IOptionsMonitor<LLMProvidersConfig> llm,
         SkillPacksSyncService skillPacksSync,
-        IOptions<SkillPacksOptions> skillPacksOptions)
+        IOptions<SkillPacksOptions> skillPacksOptions,
+        GlobalAgentYamlRegistry roles)
     {
         _actorFactory = actorFactory;
         _logger = logger;
         _llm = llm;
         _skillPacksSync = skillPacksSync;
+        _roles = roles ?? throw new ArgumentNullException(nameof(roles));
 
         var seconds = skillPacksOptions?.Value?.RetryMinIntervalSeconds ?? 60;
         // Keep it sane: prevent accidental zero/negative or extremely spammy values.
         seconds = Math.Clamp(seconds, 5, 3600);
         _skillPacksRetryMinInterval = TimeSpan.FromSeconds(seconds);
+    }
+
+    // ============================================================
+    //  YAML role overrides (global, cross-app)
+    //
+    //  Convention:
+    //  - ~/.aevatar/agents/{role}.yaml
+    //
+    //  Scope:
+    //  - Provider/model/prompt/tools/skills for both:
+    //    - built-in roles (planner/reasoner/...)
+    //    - dynamic roles (VibeRoleAgent)
+    //
+    //  Philosophy:
+    //  - No YAML => preserve current hard-coded behavior (fallback).
+    //  - YAML exists => override only what is explicitly provided.
+    // ============================================================
+
+    // NOTE: YAML application logic moved to framework-level AgentYamlConfigApplier.
+
+    private static string ResolveProviderNamePreferYaml(
+        string? requestedProviderName,
+        string currentProviderName,
+        string role,
+        GlobalAgentYamlRegistry roles)
+    {
+        var requested = (requestedProviderName ?? string.Empty).Trim();
+        if (string.Equals(requested, "default", StringComparison.OrdinalIgnoreCase))
+            requested = string.Empty;
+
+        // 1) Request-level explicit provider wins (matches orchestrator semantics).
+        if (!string.IsNullOrWhiteSpace(requested))
+            return requested;
+
+        // 2) YAML provider for role (if any).
+        var yamlProvider = roles.TryGetProvider(role);
+        if (!string.IsNullOrWhiteSpace(yamlProvider))
+            return yamlProvider!;
+
+        // 3) Keep current if set.
+        var cur = (currentProviderName ?? string.Empty).Trim();
+        if (!string.IsNullOrWhiteSpace(cur))
+            return cur;
+
+        return string.Empty;
     }
 
     public async Task<(ResearchAgent Agent, string AgentId)> GetAgentAsync(
@@ -152,6 +202,26 @@ public sealed class ResearchRuntime
         if (entry.DagBuilderAgent == null || entry.DagBuilderActor == null)
             throw new InvalidOperationException(entry.DagBuilderLastError ?? "dag_builder not initialized");
         return (entry.DagBuilderAgent, entry.DagBuilderAgentId);
+    }
+
+    public async Task<(AIGAgentBase Agent, string AgentId)> GetRoleAgentAsync(
+        string sessionId,
+        string? providerName,
+        string role,
+        CancellationToken ct)
+    {
+        role = (role ?? string.Empty).Trim();
+        if (role.Length == 0)
+            throw new ArgumentException("role is required", nameof(role));
+
+        var entry = await GetOrCreateEntryAsync(sessionId, ct);
+        await EnsureRoleInstanceInitializedAsync(entry, providerName, role, ct);
+
+        var key = $"{SanitizeToken(role)}__{SanitizeProviderKey(ResolveProviderName(providerName, string.Empty))}";
+        if (!entry.RoleInstances.TryGetValue(key, out var inst) || inst.Agent == null || inst.Actor == null)
+            throw new InvalidOperationException(inst?.LastError ?? "role agent not initialized");
+
+        return (inst.Agent, inst.AgentId);
     }
 
     public async Task<(VibePaperEditorAgent Agent, string AgentId)> GetPaperEditorAgentAsync(
@@ -441,7 +511,10 @@ public sealed class ResearchRuntime
 
     private async Task EnsurePlannerInitializedAsync(SessionEntry entry, string? providerName, CancellationToken ct)
     {
-        var resolvedProvider = ResolveProviderName(providerName, entry.PlannerProviderName);
+        var role = "planner";
+        var yaml = _roles.TryLoad(role);
+        var resolvedProvider = ResolveProviderNamePreferYaml(providerName, entry.PlannerProviderName, role, _roles);
+        resolvedProvider = ResolveProviderName(resolvedProvider, entry.PlannerProviderName);
         if (entry.PlannerIsReady &&
             entry.PlannerActor != null &&
             entry.PlannerAgent != null &&
@@ -453,7 +526,9 @@ public sealed class ResearchRuntime
         await entry.Lock.WaitAsync(ct);
         try
         {
-            resolvedProvider = ResolveProviderName(providerName, entry.PlannerProviderName);
+            yaml = _roles.TryLoad(role);
+            resolvedProvider = ResolveProviderNamePreferYaml(providerName, entry.PlannerProviderName, role, _roles);
+            resolvedProvider = ResolveProviderName(resolvedProvider, entry.PlannerProviderName);
             if (entry.PlannerIsReady &&
                 entry.PlannerActor != null &&
                 entry.PlannerAgent != null &&
@@ -474,9 +549,21 @@ public sealed class ResearchRuntime
             var providerCfg = BuildProviderConfigOrThrow(entry.PlannerProviderName);
             await entry.PlannerAgent.InitializeAsync(providerCfg, cfg =>
             {
-                cfg.Temperature = 0.2f;
-                cfg.MaxOutputTokens = 1000;
+                if (yaml != null)
+                    ApplyYamlToAIAgentConfig(yaml, cfg);
+
+                // Fallback defaults (preserve existing behavior).
+                if (yaml?.Temperature is null)
+                    cfg.Temperature = 0.2f;
+                if (yaml?.MaxTokens is null)
+                    cfg.MaxOutputTokens = 1000;
             }, ct);
+
+            if (yaml != null)
+            {
+                ApplyYamlToAgentPrompt(yaml, entry.PlannerAgent, role);
+                await AgentYamlConfigApplier.ApplyAsync(entry.PlannerAgent, yaml, role, ct);
+            }
 
             entry.PlannerIsReady = true;
         }
@@ -494,7 +581,10 @@ public sealed class ResearchRuntime
 
     private async Task EnsureReasonerInitializedAsync(SessionEntry entry, string? providerName, CancellationToken ct)
     {
-        var resolvedProvider = ResolveProviderName(providerName, entry.ReasonerProviderName);
+        var role = "reasoner";
+        var yaml = _roles.TryLoad(role);
+        var resolvedProvider = ResolveProviderNamePreferYaml(providerName, entry.ReasonerProviderName, role, _roles);
+        resolvedProvider = ResolveProviderName(resolvedProvider, entry.ReasonerProviderName);
         if (entry.ReasonerIsReady &&
             entry.ReasonerActor != null &&
             entry.ReasonerAgent != null &&
@@ -506,7 +596,9 @@ public sealed class ResearchRuntime
         await entry.Lock.WaitAsync(ct);
         try
         {
-            resolvedProvider = ResolveProviderName(providerName, entry.ReasonerProviderName);
+            yaml = _roles.TryLoad(role);
+            resolvedProvider = ResolveProviderNamePreferYaml(providerName, entry.ReasonerProviderName, role, _roles);
+            resolvedProvider = ResolveProviderName(resolvedProvider, entry.ReasonerProviderName);
             if (entry.ReasonerIsReady &&
                 entry.ReasonerActor != null &&
                 entry.ReasonerAgent != null &&
@@ -527,9 +619,20 @@ public sealed class ResearchRuntime
             var providerCfg = BuildProviderConfigOrThrow(entry.ReasonerProviderName);
             await entry.ReasonerAgent.InitializeAsync(providerCfg, cfg =>
             {
-                cfg.Temperature = 0.1f;
-                cfg.MaxOutputTokens = 1600;
+                if (yaml != null)
+                    ApplyYamlToAIAgentConfig(yaml, cfg);
+
+                if (yaml?.Temperature is null)
+                    cfg.Temperature = 0.1f;
+                if (yaml?.MaxTokens is null)
+                    cfg.MaxOutputTokens = 1600;
             }, ct);
+
+            if (yaml != null)
+            {
+                ApplyYamlToAgentPrompt(yaml, entry.ReasonerAgent, role);
+                await AgentYamlConfigApplier.ApplyAsync(entry.ReasonerAgent, yaml, role, ct);
+            }
 
             entry.ReasonerIsReady = true;
         }
@@ -600,7 +703,10 @@ public sealed class ResearchRuntime
 
     private async Task EnsureLibrarianInitializedAsync(SessionEntry entry, string? providerName, CancellationToken ct)
     {
-        var resolvedProvider = ResolveProviderName(providerName, entry.LibrarianProviderName);
+        var role = "librarian";
+        var yaml = _roles.TryLoad(role);
+        var resolvedProvider = ResolveProviderNamePreferYaml(providerName, entry.LibrarianProviderName, role, _roles);
+        resolvedProvider = ResolveProviderName(resolvedProvider, entry.LibrarianProviderName);
         if (entry.LibrarianIsReady &&
             entry.LibrarianActor != null &&
             entry.LibrarianAgent != null &&
@@ -612,7 +718,9 @@ public sealed class ResearchRuntime
         await entry.Lock.WaitAsync(ct);
         try
         {
-            resolvedProvider = ResolveProviderName(providerName, entry.LibrarianProviderName);
+            yaml = _roles.TryLoad(role);
+            resolvedProvider = ResolveProviderNamePreferYaml(providerName, entry.LibrarianProviderName, role, _roles);
+            resolvedProvider = ResolveProviderName(resolvedProvider, entry.LibrarianProviderName);
             if (entry.LibrarianIsReady &&
                 entry.LibrarianActor != null &&
                 entry.LibrarianAgent != null &&
@@ -633,9 +741,20 @@ public sealed class ResearchRuntime
             var providerCfg = BuildProviderConfigOrThrow(entry.LibrarianProviderName);
             await entry.LibrarianAgent.InitializeAsync(providerCfg, cfg =>
             {
-                cfg.Temperature = 0.1f;
-                cfg.MaxOutputTokens = 1200;
+                if (yaml != null)
+                    ApplyYamlToAIAgentConfig(yaml, cfg);
+
+                if (yaml?.Temperature is null)
+                    cfg.Temperature = 0.1f;
+                if (yaml?.MaxTokens is null)
+                    cfg.MaxOutputTokens = 1200;
             }, ct);
+
+            if (yaml != null)
+            {
+                ApplyYamlToAgentPrompt(yaml, entry.LibrarianAgent, role);
+                await AgentYamlConfigApplier.ApplyAsync(entry.LibrarianAgent, yaml, role, ct);
+            }
 
             entry.LibrarianIsReady = true;
         }
@@ -653,7 +772,10 @@ public sealed class ResearchRuntime
 
     private async Task EnsureVerifierInitializedAsync(SessionEntry entry, string? providerName, CancellationToken ct)
     {
-        var resolvedProvider = ResolveProviderName(providerName, entry.VerifierProviderName);
+        var role = "verifier";
+        var yaml = _roles.TryLoad(role);
+        var resolvedProvider = ResolveProviderNamePreferYaml(providerName, entry.VerifierProviderName, role, _roles);
+        resolvedProvider = ResolveProviderName(resolvedProvider, entry.VerifierProviderName);
         if (entry.VerifierIsReady &&
             entry.VerifierActor != null &&
             entry.VerifierAgent != null &&
@@ -665,7 +787,9 @@ public sealed class ResearchRuntime
         await entry.Lock.WaitAsync(ct);
         try
         {
-            resolvedProvider = ResolveProviderName(providerName, entry.VerifierProviderName);
+            yaml = _roles.TryLoad(role);
+            resolvedProvider = ResolveProviderNamePreferYaml(providerName, entry.VerifierProviderName, role, _roles);
+            resolvedProvider = ResolveProviderName(resolvedProvider, entry.VerifierProviderName);
             if (entry.VerifierIsReady &&
                 entry.VerifierActor != null &&
                 entry.VerifierAgent != null &&
@@ -686,9 +810,20 @@ public sealed class ResearchRuntime
             var providerCfg = BuildProviderConfigOrThrow(entry.VerifierProviderName);
             await entry.VerifierAgent.InitializeAsync(providerCfg, cfg =>
             {
-                cfg.Temperature = 0.0f;
-                cfg.MaxOutputTokens = 1400;
+                if (yaml != null)
+                    ApplyYamlToAIAgentConfig(yaml, cfg);
+
+                if (yaml?.Temperature is null)
+                    cfg.Temperature = 0.0f;
+                if (yaml?.MaxTokens is null)
+                    cfg.MaxOutputTokens = 1400;
             }, ct);
+
+            if (yaml != null)
+            {
+                ApplyYamlToAgentPrompt(yaml, entry.VerifierAgent, role);
+                await AgentYamlConfigApplier.ApplyAsync(entry.VerifierAgent, yaml, role, ct);
+            }
 
             entry.VerifierIsReady = true;
         }
@@ -785,7 +920,10 @@ public sealed class ResearchRuntime
 
     private async Task EnsureDagBuilderInitializedAsync(SessionEntry entry, string? providerName, CancellationToken ct)
     {
-        var resolvedProvider = ResolveProviderName(providerName, entry.DagBuilderProviderName);
+        var role = "dag_builder";
+        var yaml = _roles.TryLoad(role);
+        var resolvedProvider = ResolveProviderNamePreferYaml(providerName, entry.DagBuilderProviderName, role, _roles);
+        resolvedProvider = ResolveProviderName(resolvedProvider, entry.DagBuilderProviderName);
         if (entry.DagBuilderIsReady &&
             entry.DagBuilderActor != null &&
             entry.DagBuilderAgent != null &&
@@ -797,7 +935,9 @@ public sealed class ResearchRuntime
         await entry.Lock.WaitAsync(ct);
         try
         {
-            resolvedProvider = ResolveProviderName(providerName, entry.DagBuilderProviderName);
+            yaml = _roles.TryLoad(role);
+            resolvedProvider = ResolveProviderNamePreferYaml(providerName, entry.DagBuilderProviderName, role, _roles);
+            resolvedProvider = ResolveProviderName(resolvedProvider, entry.DagBuilderProviderName);
             if (entry.DagBuilderIsReady &&
                 entry.DagBuilderActor != null &&
                 entry.DagBuilderAgent != null &&
@@ -818,9 +958,20 @@ public sealed class ResearchRuntime
             var providerCfg = BuildProviderConfigOrThrow(entry.DagBuilderProviderName);
             await entry.DagBuilderAgent.InitializeAsync(providerCfg, cfg =>
             {
-                cfg.Temperature = 0.1f;
-                cfg.MaxOutputTokens = 2000;
+                if (yaml != null)
+                    ApplyYamlToAIAgentConfig(yaml, cfg);
+
+                if (yaml?.Temperature is null)
+                    cfg.Temperature = 0.1f;
+                if (yaml?.MaxTokens is null)
+                    cfg.MaxOutputTokens = 2000;
             }, ct);
+
+            if (yaml != null)
+            {
+                ApplyYamlToAgentPrompt(yaml, entry.DagBuilderAgent, role);
+                await AgentYamlConfigApplier.ApplyAsync(entry.DagBuilderAgent, yaml, role, ct);
+            }
 
             entry.DagBuilderIsReady = true;
         }
@@ -838,7 +989,10 @@ public sealed class ResearchRuntime
 
     private async Task EnsurePaperEditorInitializedAsync(SessionEntry entry, string? providerName, CancellationToken ct)
     {
-        var resolvedProvider = ResolveProviderName(providerName, entry.PaperEditorProviderName);
+        var role = "paper_editor";
+        var yaml = _roles.TryLoad(role);
+        var resolvedProvider = ResolveProviderNamePreferYaml(providerName, entry.PaperEditorProviderName, role, _roles);
+        resolvedProvider = ResolveProviderName(resolvedProvider, entry.PaperEditorProviderName);
         if (entry.PaperEditorIsReady &&
             entry.PaperEditorActor != null &&
             entry.PaperEditorAgent != null &&
@@ -850,7 +1004,9 @@ public sealed class ResearchRuntime
         await entry.Lock.WaitAsync(ct);
         try
         {
-            resolvedProvider = ResolveProviderName(providerName, entry.PaperEditorProviderName);
+            yaml = _roles.TryLoad(role);
+            resolvedProvider = ResolveProviderNamePreferYaml(providerName, entry.PaperEditorProviderName, role, _roles);
+            resolvedProvider = ResolveProviderName(resolvedProvider, entry.PaperEditorProviderName);
             if (entry.PaperEditorIsReady &&
                 entry.PaperEditorActor != null &&
                 entry.PaperEditorAgent != null &&
@@ -871,9 +1027,20 @@ public sealed class ResearchRuntime
             var providerCfg = BuildProviderConfigOrThrow(entry.PaperEditorProviderName);
             await entry.PaperEditorAgent.InitializeAsync(providerCfg, cfg =>
             {
-                cfg.Temperature = 0.2f;
-                cfg.MaxOutputTokens = 2200;
+                if (yaml != null)
+                    ApplyYamlToAIAgentConfig(yaml, cfg);
+
+                if (yaml?.Temperature is null)
+                    cfg.Temperature = 0.2f;
+                if (yaml?.MaxTokens is null)
+                    cfg.MaxOutputTokens = 2200;
             }, ct);
+
+            if (yaml != null)
+            {
+                ApplyYamlToAgentPrompt(yaml, entry.PaperEditorAgent, role);
+                await AgentYamlConfigApplier.ApplyAsync(entry.PaperEditorAgent, yaml, role, ct);
+            }
 
             entry.PaperEditorIsReady = true;
         }
@@ -886,6 +1053,177 @@ public sealed class ResearchRuntime
         finally
         {
             entry.Lock.Release();
+        }
+    }
+
+    private async Task EnsureRoleInstanceInitializedAsync(
+        SessionEntry entry,
+        string? providerName,
+        string role,
+        CancellationToken ct)
+    {
+        role = SanitizeToken(role);
+        if (role.Length == 0)
+            throw new ArgumentException("role is empty", nameof(role));
+
+        await entry.Lock.WaitAsync(ct);
+        try
+        {
+            var resolvedProvider = ResolveProviderName(providerName, string.Empty);
+            var providerKey = SanitizeProviderKey(resolvedProvider);
+            var instKey = $"{role}__{providerKey}";
+
+            if (!entry.RoleInstances.TryGetValue(instKey, out var inst))
+            {
+                inst = new RoleInstance
+                {
+                    Role = role,
+                    ProviderName = resolvedProvider,
+                    AgentId = $"{entry.AgentId}-role-{role}-{providerKey}"
+                };
+                entry.RoleInstances[instKey] = inst;
+            }
+
+            if (inst.IsReady &&
+                inst.Actor != null &&
+                inst.Agent != null &&
+                string.Equals(inst.ProviderName, resolvedProvider, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            inst.LastError = null;
+            inst.ProviderName = resolvedProvider;
+
+            _logger.LogInformation("[ResearchRuntime] Creating role agent actor: {AgentId} (role={Role}, session={SessionId})",
+                inst.AgentId, role, entry.SessionId);
+
+            inst.Actor = await _actorFactory.CreateGAgentActorAsync<VibeRoleAgent>(inst.AgentId, ct);
+            inst.Agent = (VibeRoleAgent)inst.Actor.GetAgent();
+
+            var yaml = _roles.TryLoad(role);
+            var yamlProvider = yaml != null ? (yaml.Provider ?? string.Empty).Trim() : string.Empty;
+            if (!string.IsNullOrWhiteSpace(yamlProvider) && !string.Equals(yamlProvider, "default", StringComparison.OrdinalIgnoreCase))
+            {
+                // Provider defined by role yaml wins over caller request.
+                inst.ProviderName = yamlProvider;
+                resolvedProvider = yamlProvider;
+            }
+
+            var providerCfg = BuildProviderConfigOrThrow(resolvedProvider);
+            await inst.Agent.InitializeAsync(providerCfg, cfg =>
+            {
+                // Apply YAML model/runtime knobs (if any). Keep it best-effort and explicit.
+                if (yaml != null)
+                    ApplyYamlToAIAgentConfig(yaml, cfg);
+            }, ct);
+
+            // System prompt: use YAML when present; otherwise keep the default role framing.
+            if (yaml != null)
+                ApplyYamlToAgentPrompt(yaml, inst.Agent, role);
+
+            // Tools / Skills: enable based on YAML (best-effort).
+            if (yaml != null)
+                await AgentYamlConfigApplier.ApplyAsync(inst.Agent, yaml, role, ct);
+
+            inst.IsReady = true;
+        }
+        catch (Exception ex)
+        {
+            var resolvedProvider = ResolveProviderName(providerName, string.Empty);
+            var providerKey = SanitizeProviderKey(resolvedProvider);
+            var instKey = $"{role}__{providerKey}";
+
+            if (!entry.RoleInstances.TryGetValue(instKey, out var inst))
+            {
+                inst = new RoleInstance
+                {
+                    Role = role,
+                    ProviderName = resolvedProvider,
+                    AgentId = $"{entry.AgentId}-role-{role}-{providerKey}"
+                };
+                entry.RoleInstances[instKey] = inst;
+            }
+
+            inst.LastError = ex.Message;
+            inst.IsReady = false;
+            _logger.LogError(ex, "[ResearchRuntime] Role({Role}) init failed: {Message}", role, ex.Message);
+        }
+        finally
+        {
+            entry.Lock.Release();
+        }
+    }
+
+    private static void ApplyYamlToAIAgentConfig(AgentYamlConfig yaml, AevatarAIAgentConfig cfg)
+    {
+        if (yaml == null || cfg == null) return;
+
+        if (!string.IsNullOrWhiteSpace(yaml.Model))
+            cfg.Model = yaml.Model!.Trim();
+
+        if (yaml.Temperature.HasValue)
+            cfg.Temperature = (float)yaml.Temperature.Value;
+
+        if (yaml.MaxTokens.HasValue)
+            cfg.MaxOutputTokens = yaml.MaxTokens.Value;
+
+        if (yaml.TopP.HasValue)
+            cfg.TopP = (float)yaml.TopP.Value;
+
+        if (yaml.FrequencyPenalty.HasValue)
+            cfg.FrequencyPenalty = (float)yaml.FrequencyPenalty.Value;
+
+        if (yaml.PresencePenalty.HasValue)
+            cfg.PresencePenalty = (float)yaml.PresencePenalty.Value;
+
+        if (yaml.StopSequences is { Count: > 0 })
+        {
+            cfg.StopSequences.Clear();
+            foreach (var s in yaml.StopSequences)
+            {
+                var t = (s ?? string.Empty).Trim();
+                if (t.Length > 0)
+                    cfg.StopSequences.Add(t);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(yaml.SystemPrompt))
+            cfg.SystemPrompt = yaml.SystemPrompt!;
+    }
+
+    private static void ApplyYamlToAgentPrompt(AgentYamlConfig yaml, AIGAgentBase agent, string role)
+    {
+        if (yaml == null || agent == null) return;
+
+        role = (role ?? string.Empty).Trim();
+        var roleLine = role.Length == 0 ? "You are a role-driven agent." : $"You are the '{role}' role in a mesh-driven workflow.";
+
+        if (!string.IsNullOrWhiteSpace(yaml.SystemPrompt))
+        {
+            var pinned = yaml.Skills is { Count: > 0 }
+                ? $"\n\nPinned skills (recommended to load early via skills_load):\n- {string.Join("\n- ", yaml.Skills.Select(s => (s ?? string.Empty).Trim()).Where(s => s.Length > 0))}"
+                : string.Empty;
+
+            agent.SystemPrompt = $"{roleLine}\n\n{yaml.SystemPrompt!.Trim()}{pinned}";
+            return;
+        }
+
+        // Persona-only fallback (if provided).
+        if (yaml.Persona != null)
+        {
+            var p = yaml.Persona;
+            var parts = new List<string> { roleLine };
+            if (!string.IsNullOrWhiteSpace(p.Role))
+                parts.Add($"You are {p.Role!.Trim()}.");
+            if (p.Expertise is { Count: > 0 })
+                parts.Add($"Your expertise includes: {string.Join(", ", p.Expertise)}.");
+            if (!string.IsNullOrWhiteSpace(p.Style))
+                parts.Add($"Communication style: {p.Style!.Trim()}.");
+            if (p.Traits is { Count: > 0 })
+                parts.Add($"Key traits: {string.Join(", ", p.Traits)}.");
+
+            agent.SystemPrompt = string.Join("\n\n", parts);
         }
     }
 
@@ -1111,6 +1449,10 @@ public sealed class ResearchRuntime
         // Used by lightweight quorum-based DAG consensus.
         public Dictionary<string, VerifierInstance> VerifierInstances { get; } = new(StringComparer.Ordinal);
 
+        // Dynamic roles keyed by role + provider.
+        // Used by Mesh DSL (Option B) for user-defined roles in ~/.aevatar/agents/*.yaml.
+        public Dictionary<string, RoleInstance> RoleInstances { get; } = new(StringComparer.Ordinal);
+
         public IGAgentActor? DagBuilderActor { get; set; }
         public VibeDagBuilderAgent? DagBuilderAgent { get; set; }
         public bool DagBuilderIsReady { get; set; }
@@ -1133,6 +1475,17 @@ public sealed class ResearchRuntime
         public string ProviderName { get; set; } = string.Empty;
         public IGAgentActor? Actor { get; set; }
         public VibeVerifierAgent? Agent { get; set; }
+        public bool IsReady { get; set; }
+        public string? LastError { get; set; }
+    }
+
+    private sealed class RoleInstance
+    {
+        public required string AgentId { get; init; }
+        public required string Role { get; init; }
+        public string ProviderName { get; set; } = string.Empty;
+        public IGAgentActor? Actor { get; set; }
+        public VibeRoleAgent? Agent { get; set; }
         public bool IsReady { get; set; }
         public string? LastError { get; set; }
     }

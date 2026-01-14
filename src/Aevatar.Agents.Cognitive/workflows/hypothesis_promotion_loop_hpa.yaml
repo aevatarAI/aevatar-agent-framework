@@ -209,9 +209,7 @@ steps:
             - Existing hypothesis (optional): the text under the header "ExistingHypothesis (optional):" (can be multi-line).
               This is a hypothesis pool that already exists and MUST be stored in state.existing_hypothesis for reference.
               CRITICAL: Extract ALL text after "ExistingHypothesis (optional):" until the next header (or end of raw_task).
-              Preserve the exact format (multi-line, JSON array, or single line) as provided by the user.
             - Store these into state.focus, state.seed_hypothesis, and state.existing_hypothesis for later rounds.
-              IMPORTANT: state.existing_hypothesis MUST contain the exact text extracted from "ExistingHypothesis (optional):" header.
             - If a user seed hypothesis includes extra premises not represented by allowed IDs, do NOT smuggle them in:
               either weaken the statement to be unconditional, or move the extra premise into motivation as a gap δ.
           - Propose EXACTLY ONE additional assumption (S1) as a "quantum-structure setup".
@@ -268,7 +266,7 @@ steps:
           ```
 
           Then state.existing_hypothesis should be:
-          "Hypothesis 1: The native structure corresponds to the global minimum.\nHypothesis 2: TM-score is length-independent."
+          ["H1: The native structure corresponds to the global minimum.“, "H2: TM-score is length-independent."]
 
           (Note: The text "ContinueOnFailure:" is NOT included because it's the next header)
 
@@ -316,13 +314,7 @@ steps:
           - assumptions MUST contain exactly 1 item with id="S1".
           - focus MUST be a string (use "" if not provided).
           - seed_hypothesis MUST be a string (use "" if not provided).
-          - existing_hypothesis MUST be a string field in your JSON output.
-            * If "ExistingHypothesis (optional):" exists in raw_task: extract the text after it and store in existing_hypothesis.
-            * If "ExistingHypothesis (optional):" does NOT exist: set existing_hypothesis to "" (empty string).
-            * DO NOT omit the existing_hypothesis field from your JSON output.
-            * DO NOT modify, reformat, or interpret the content. Preserve it exactly as provided, including line breaks and formatting.
-            * The field name MUST be exactly "existing_hypothesis" (lowercase with underscore).
-
+       
           Language: {{language}}
         output: json
         store: state
@@ -595,174 +587,15 @@ steps:
     type: conditional
     condition: "{{ scout_has_strong_refutation == true }}"
 
-    # ===== Early stop: strong refutation => go to B pool vote =====
+    # ===== Early stop: strong refutation => clear current_hypothesis =====
     if_true:
-      - id: ensure_b_pool_scout
-        type: conditional
-        condition: "{{ (scout_b_candidates | size) > 0 }}"
-        if_true:
-          - id: set_b_pool_from_scout
-            type: assign
-            from: "scout_b_candidates"
-            store: b_pool
-        if_false:
-          - id: propose_fallback_b_scout
-            type: llm_call
-            prompt: |
-              Scouts reported a strong refutation.
-              In HPA terms: the projection/readout failed with a non-zero gap δ (counterexample or fatal inconsistency).
-
-              CRITICAL: You MUST select 1 alternative hypotheses (B candidates) from state.existing_hypothesis that is NOT already proven. Do NOT generate new hypotheses.
-
-              Selection rules:
-              - Select hypotheses from state.existing_hypothesis.
-              - Each B MUST include depends_on + factor_sequence (ordered generators).
-              - If a selected hypothesis lacks depends_on or factor_sequence, infer them from the statement and available axioms/theorems.
-              - Do NOT invent IDs. Use only axiom IDs, assumption IDs, and theorem IDs present in RelevantFacts.
-              - If existing_hypothesis is empty or all hypotheses are already seen, return an empty array.
-
-              Axioms:
-              {{ state.axioms | json }}
-
-              Assumptions:
-              {{ state.assumptions | json }}
-
-              User focus / explore direction (optional):
-              {{ state.focus | default: "" }}
-
-              User-provided seed hypothesis (optional, for context only):
-              {{ state.seed_hypothesis | default: "" }}
-
-              Existing hypotheses pool (MUST select from here):
-              {{ state.existing_hypothesis | json  }}
-
-              RelevantFacts:
-              {{ relevant_facts | json }}
-
-              ScanTarget (Θ):
-              {{ scan | json }}
-
-              Refuted Hypothesis A:
-              {{ candidate | json }}
-
-              Scout verdicts:
-              {{ scout_verdicts | json }}
-
-              Seen hypotheses (normalized strings):
-              {{ state.seen_hypotheses | json }}
-
-              Output JSON schema (array):
-              [
-                { "statement": string, "motivation": string, "depends_on": [string], "factor_sequence": [string] }
-              ]
-
-              Language: {{language}}
-            output: json_array
-            store: b_pool
-
-      - id: vote_next_hypothesis_scout
-        type: vote
-        k: "{{k}}"
-        max_rounds: "{{max_rounds}}"
-        similarity: "{{similarity}}"
-        generator:
-          type: llm_call
-          prompt: |
-            Choose the EASIEST next hypothesis from the candidate pool.
-
-            HPA selection rules:
-            - Return ONLY JSON.
-            - You MUST pick ONE candidate from B pool and copy these fields EXACTLY (no edits):
-              statement, motivation, depends_on, factor_sequence
-            - Use "reason" to explain why it likely reduces the gap δ found by scouts and is easiest to verify.
-            - Prefer: fewer dependencies, minimal repair, shortest proof path, low ordering fragility.
-            - If user focus is non-empty, prefer a candidate aligned with that direction (unless it fails to repair the gap δ).
-
-            User focus / explore direction (optional):
-            {{ state.focus | default: "" }}
-
-            B pool:
-            {{ b_pool | json }}
-
-            Output JSON schema:
-            {
-              "statement": string,
-              "motivation": string,
-              "depends_on": [string],
-              "factor_sequence": [string],
-              "reason": string
-            }
-
-            Language: {{language}}
-          output: json
-        store: next_hypothesis
-
-      - id: set_next_hypothesis_after_scout
+      - id: clear_current_hypothesis_after_scout
         type: transform
         ops:
-          - op: normalize
-            value: "{{ candidate.statement }}"
-            store: candidate_norm
-
-          - op: inc_path
-            target: state
-            path: iteration
-            by: 1
-
-          - op: set_path
-            target: state
-            path: last_candidate
-            value: "{{ candidate }}"
-
-          - op: set_path
-            target: state
-            path: last_worker_verdicts
-            value: "{{ scout_verdicts }}"
-
-          - op: set_path
-            target: state
-            path: last_b_pool
-            value: "{{ b_pool }}"
-
-          - op: set_path
-            target: state
-            path: last_judgement
-            value: null
-
-          - op: append_unique_path
-            target: state
-            path: seen_hypotheses
-            value: "{{ candidate_norm }}"
-
           - op: set_path
             target: state
             path: current_hypothesis
-            value:
-              id: "H{{ state.iteration }}"
-              statement: "{{ next_hypothesis.statement }}"
-              motivation: "{{ next_hypothesis.motivation }}"
-              depends_on: "{{ next_hypothesis.depends_on }}"
-              factor_sequence: "{{ next_hypothesis.factor_sequence }}"
-
-          - op: eval
-            expr: "state.iteration >= max_depth"
-            store: reach_limit
-
-          - op: set_path
-            target: state
-            path: done
-            value: "{{ reach_limit }}"
-
-          - op: set_path
-            target: state
-            path: status
-            value: running
-
-          - op: set_path_if
-            if: "{{ reach_limit }}"
-            target: state
-            path: status
-            value: limit
+            value: null
 
     # ===== No strong refutation: full exploration =====
     if_false:

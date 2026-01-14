@@ -22,26 +22,43 @@ export type NodeStatus =
   | "scraping" 
   | "error"
 
+// === Node Kind (FR-007/008) ===
+export type NodeKind = "Plan" | "Knowledge"
+
+// === Plan Node Status (FR-007) ===
+export type PlanNodeStatus = "Pending" | "Active" | "Completed"
+
 // === Workflow DAG Types ===
 export interface DAGNode {
   id: string
   label: string
-  type: string  // axiom | theorem | lemma | hypothesis | task | agent
+  type: string  // Generic | MathAxiom | MathTheorem | MathLemma | BiologyExperiment | CodeModule
   status: string  // pending | running | completed | error
   description?: string
   progress?: number
   position?: { x: number; y: number }
   // Extended fields from API
-  kind?: string
+  kind?: NodeKind
   owner?: string
   proof?: string
   attestations?: { pubkey?: string; signature?: string }[]
   attestationsCount?: number
+  // FR-007 Plan Node fields
+  planStatus?: PlanNodeStatus
+  methodology?: string
+  sequentialOrder?: number
+  progressText?: string
+  // FR-008 Knowledge Node fields
+  derivationProcess?: string
+  references?: string[]
+  // Cross-session identification
+  sessionId?: string
 }
 
 export interface DAGEdge {
   source: string
   target: string
+  type?: string  // "depends_on" | "motivated_by" | etc.
 }
 
 export interface DAGGraph {

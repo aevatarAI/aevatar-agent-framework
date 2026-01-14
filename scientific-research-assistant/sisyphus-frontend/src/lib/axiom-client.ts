@@ -209,6 +209,7 @@ export interface DagNode {
   attestations?: Array<{ pubkey?: string; signature?: string }>
   updatedAt?: string
   tags?: Record<string, string>
+  sessionId?: string  // Source session ID for cross-session rendering
 }
 
 /**
@@ -820,6 +821,162 @@ export async function setAgentProvider(sessionId: string | null | undefined, age
     method: "PUT",
     body: JSON.stringify({ agent, providerName }),
   })
+}
+
+// ============================================================================
+//  Knowledge Graph Enhanced APIs (FR-007/008, US4-US7)
+// ============================================================================
+
+/**
+ * Node Explanation result
+ */
+export interface NodeExplanation {
+  nodeId: string
+  title: string
+  kind: "Plan" | "Knowledge"
+  markdownContent: string
+  directDependencies: string[]
+  fullChainNodeIds: string[]
+  dependents: string[]
+}
+
+/**
+ * Get detailed node explanation (US4)
+ */
+export async function getNodeExplanation(
+  sessionId: string | null | undefined,
+  nodeId: string
+): Promise<NodeExplanation | null> {
+  if (!sessionId || !nodeId) {
+    console.warn('[axiom-client] getNodeExplanation called with invalid params:', { sessionId, nodeId });
+    return null;
+  }
+  try {
+    const result = await fetchJson<{ explanation?: NodeExplanation }>(
+      `/api/sessions/${encodeURIComponent(sessionId)}/graph/${encodeURIComponent(nodeId)}/explain`
+    )
+    return result?.explanation ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Session Summary result
+ */
+export interface SessionSummary {
+  sessionId: string
+  status: string
+  markdownContent: string
+  planNodeCount: number
+  knowledgeNodeCount: number
+  progressPercentage: number
+}
+
+/**
+ * DAG Summary result
+ */
+export interface DagSummary {
+  sessionId: string
+  markdownContent: string
+  totalNodes: number
+  totalEdges: number
+  maxDepth: number
+}
+
+/**
+ * Get session summary (US7)
+ */
+export async function getSessionSummary(
+  sessionId: string | null | undefined
+): Promise<SessionSummary | null> {
+  if (!sessionId) {
+    console.warn('[axiom-client] getSessionSummary called with invalid sessionId:', sessionId);
+    return null;
+  }
+  try {
+    const result = await fetchJson<{ summary?: SessionSummary }>(
+      `/api/sessions/${encodeURIComponent(sessionId)}/graph/summary`
+    )
+    return result?.summary ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Get full DAG summary (US7)
+ */
+export async function getFullDagSummary(
+  sessionId: string | null | undefined
+): Promise<DagSummary | null> {
+  if (!sessionId) {
+    console.warn('[axiom-client] getFullDagSummary called with invalid sessionId:', sessionId);
+    return null;
+  }
+  try {
+    const result = await fetchJson<{ summary?: DagSummary }>(
+      `/api/sessions/${encodeURIComponent(sessionId)}/graph/dag-summary`
+    )
+    return result?.summary ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Pivot Snapshot result
+ */
+export interface PivotSnapshot {
+  id: string
+  createdAt: string
+  reason: string
+  nodeCount: number
+  edgeCount: number
+}
+
+/**
+ * Create pivot snapshot (US6)
+ */
+export async function createPivotSnapshot(
+  sessionId: string | null | undefined,
+  reason: string
+): Promise<{ snapshotId?: string; error?: string }> {
+  if (!sessionId) {
+    console.warn('[axiom-client] createPivotSnapshot called with invalid sessionId:', sessionId);
+    return { error: 'Invalid sessionId' };
+  }
+  try {
+    return await fetchJson<{ snapshotId?: string; error?: string }>(
+      `/api/sessions/${encodeURIComponent(sessionId)}/graph/pivot`,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      }
+    )
+  } catch (e) {
+    return { error: (e as Error)?.message || 'Unknown error' }
+  }
+}
+
+/**
+ * Get pivot snapshots (US6)
+ */
+export async function getPivotSnapshots(
+  sessionId: string | null | undefined
+): Promise<PivotSnapshot[]> {
+  if (!sessionId) {
+    console.warn('[axiom-client] getPivotSnapshots called with invalid sessionId:', sessionId);
+    return [];
+  }
+  try {
+    const result = await fetchJson<{ snapshots?: PivotSnapshot[] }>(
+      `/api/sessions/${encodeURIComponent(sessionId)}/graph/pivots`
+    )
+    return result?.snapshots ?? []
+  } catch {
+    return []
+  }
 }
 
 // === Export API Base for Vite proxy configuration ===

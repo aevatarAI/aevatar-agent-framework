@@ -218,11 +218,22 @@ const App: React.FC = () => {
           createdAt: s.createdAt || "",
         }));
         setSessions(mapped);
-        
+
         // Reset state and connect to new session
         resetForNewSession();
         setCurrentSession(result.sessionId);
-        
+
+        // Fetch global DAG data (shared across all sessions)
+        try {
+          const rawDag = await getDagSnapshot(result.sessionId);
+          const dagData = transformDagData(rawDag);
+          if (dagData) {
+            setDag(dagData);
+          }
+        } catch (err) {
+          console.warn('[App] Failed to fetch DAG for new session:', result.sessionId, err);
+        }
+
         // Switch to chat view
         setView('chat');
       } else {
@@ -231,7 +242,7 @@ const App: React.FC = () => {
     } catch (error) {
       console.error("Error creating session:", error);
     }
-  }, [setSessions, setCurrentSession, resetForNewSession, setView]);
+  }, [setSessions, setCurrentSession, resetForNewSession, setView, setDag]);
 
   const handleRefreshSessions = useCallback(async () => {
     try {

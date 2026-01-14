@@ -941,11 +941,6 @@ const AgentsTab: React.FC<AgentsTabProps> = ({ sessionId, connected, agentRoster
                       </div>
                       <div>
                         <div className="text-sm font-mono text-text-primary">{agent}</div>
-                        {item.agentId && (
-                          <div className="text-[10px] font-mono text-text-dimmed truncate max-w-[200px]">
-                            {item.agentId}
-                          </div>
-                        )}
                       </div>
                     </div>
                   </div>

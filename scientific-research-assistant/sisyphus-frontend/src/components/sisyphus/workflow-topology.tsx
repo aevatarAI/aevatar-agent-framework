@@ -13,14 +13,15 @@ import {
   type Edge,
 } from '@xyflow/react'
 import dagre from 'dagre'
-import { Network, GitBranch, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { Network, GitBranch, RefreshCw, FileText, ArrowUpCircle, ArrowDownCircle, Link2 } from 'lucide-react'
 import { useSisyphusStore } from '@/store/sisyphus-store'
-import type { DAGNode } from '@/types'
-import { getDagSnapshot, getDagNodeExplain, getKnowledgeChain } from '@/lib/axiom-client'
+import { useDagInteractions } from '@/hooks/use-dag-interactions'
+import type { DAGNode, NodeKind } from '@/types'
+import { getDagSnapshot, getNodeExplanation } from '@/lib/axiom-client'
+import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { cn } from '@/lib/utils'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogCloseButton } from '@/components/ui/dialog'
+import { SummaryModal } from './summary-modal'
 import '@xyflow/react/dist/style.css'
 
 // ============================================================
@@ -34,13 +35,37 @@ interface WorkflowTopologyProps {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Node Style (Unified)
+// Node Style (Kind-Based: US3/FR-007/FR-008)
 // ─────────────────────────────────────────────────────────────
 
-const NODE_STYLE = { 
-  bg: '#00f0ff', 
-  border: '#33f4ff', 
-  glow: 'rgba(0, 240, 255, 0.6)' 
+// Plan nodes = Blue/Cyan, Knowledge nodes = Green, Other session nodes = Dimmed
+const NODE_STYLES = {
+  Plan: {
+    bg: '#3b82f6',      // Blue-500
+    border: '#60a5fa',  // Blue-400
+    glow: 'rgba(59, 130, 246, 0.6)',
+  },
+  Knowledge: {
+    bg: '#22c55e',      // Green-500
+    border: '#4ade80',  // Green-400
+    glow: 'rgba(34, 197, 94, 0.6)',
+  },
+  // Other session nodes - dimmed purple/gray
+  KnowledgeOther: {
+    bg: '#6b7280',      // Gray-500
+    border: '#9ca3af',  // Gray-400
+    glow: 'rgba(107, 114, 128, 0.4)',
+  },
+  PlanOther: {
+    bg: '#4b5563',      // Gray-600
+    border: '#6b7280',  // Gray-500
+    glow: 'rgba(75, 85, 99, 0.4)',
+  },
+  Default: {
+    bg: '#00f0ff',
+    border: '#33f4ff',
+    glow: 'rgba(0, 240, 255, 0.6)',
+  },
 }
 
 const STATUS_OPACITY: Record<string, number> = {
@@ -59,11 +84,32 @@ interface CyberNodeData {
   label: string
   status: string
   selected?: boolean
+  kind?: 'Plan' | 'Knowledge'
+  planStatus?: 'Pending' | 'Active' | 'Completed'
+  highlighted?: boolean
+  dimmed?: boolean
+  isOtherSession?: boolean  // Node from a different session
 }
 
 function CyberNode({ data }: { data: CyberNodeData }) {
   const [showTooltip, setShowTooltip] = useState(false)
-  const opacity = STATUS_OPACITY[data.status] || 1
+
+  // Get style based on node kind and session ownership
+  const nodeStyle = data.isOtherSession
+    ? (data.kind === 'Plan' ? NODE_STYLES.PlanOther : NODE_STYLES.KnowledgeOther)
+    : data.kind === 'Plan'
+      ? NODE_STYLES.Plan
+      : data.kind === 'Knowledge'
+        ? NODE_STYLES.Knowledge
+        : NODE_STYLES.Default
+
+  // Calculate opacity based on various states
+  let opacity = STATUS_OPACITY[data.status] || 1
+  if (data.dimmed) opacity = 0.3
+  if (data.highlighted || data.selected) opacity = 1
+
+  // Check if this is an active plan node (pulsing)
+  const isPulsing = data.kind === 'Plan' && data.planStatus === 'Active'
 
   return (
     <>
@@ -72,34 +118,47 @@ function CyberNode({ data }: { data: CyberNodeData }) {
         position={Position.Top}
         className="!w-2 !h-2 !bg-transparent !border-0"
       />
-      
+
       <div
         className={cn(
           "relative flex items-center justify-center rounded-full transition-all duration-300 hover:scale-110 cursor-pointer",
-          data.selected && "ring-2 ring-neon-gold ring-offset-2 ring-offset-bg-base"
+          data.selected && "ring-2 ring-neon-gold ring-offset-2 ring-offset-bg-base",
+          data.highlighted && !data.selected && "ring-2 ring-white/50 ring-offset-1 ring-offset-bg-base",
+          isPulsing && "animate-glow-pulse"
         )}
         style={{
           width: 48,
           height: 48,
-          background: `radial-gradient(circle, ${NODE_STYLE.bg} 0%, ${NODE_STYLE.border} 100%)`,
-          border: `2px solid ${data.selected ? '#ffd700' : NODE_STYLE.border}`,
-          boxShadow: data.selected 
+          background: `radial-gradient(circle, ${nodeStyle.bg} 0%, ${nodeStyle.border} 100%)`,
+          border: `2px solid ${data.selected ? '#ffd700' : nodeStyle.border}`,
+          boxShadow: data.selected
             ? `0 0 24px rgba(255,215,0,0.5), inset 0 0 10px rgba(255,255,255,0.2)`
-            : `0 0 20px ${NODE_STYLE.glow}, inset 0 0 10px rgba(255,255,255,0.2)`,
+            : isPulsing
+              ? `0 0 30px ${nodeStyle.glow}, 0 0 60px ${nodeStyle.glow}, inset 0 0 10px rgba(255,255,255,0.2)`
+              : `0 0 20px ${nodeStyle.glow}, inset 0 0 10px rgba(255,255,255,0.2)`,
           opacity,
         }}
         onMouseEnter={() => setShowTooltip(true)}
         onMouseLeave={() => setShowTooltip(false)}
       >
-        <span
-          className="font-mono font-extrabold text-[10px] tracking-wider"
-          style={{ 
-            color: '#0a0f19',
-            textShadow: `0 0 2px ${NODE_STYLE.bg}` 
-          }}
-        >
-          {data.id.slice(0, 4)}
-        </span>
+        {/* Kind indicator icon */}
+        {data.kind === 'Plan' && (
+          <span className="text-[10px]" style={{ color: '#0a0f19' }}>📋</span>
+        )}
+        {data.kind === 'Knowledge' && (
+          <span className="text-[10px]" style={{ color: '#0a0f19' }}>💡</span>
+        )}
+        {!data.kind && (
+          <span
+            className="font-mono font-extrabold text-[10px] tracking-wider"
+            style={{
+              color: '#0a0f19',
+              textShadow: `0 0 2px ${nodeStyle.bg}`
+            }}
+          >
+            {data.id.slice(0, 4)}
+          </span>
+        )}
       </div>
 
       {/* Hover Tooltip */}
@@ -118,15 +177,40 @@ function CyberNode({ data }: { data: CyberNodeData }) {
             style={{
               width: '280px',
               background: 'rgba(10, 15, 25, 0.98)',
-              border: `2px solid ${NODE_STYLE.border}`,
-              boxShadow: `0 0 30px ${NODE_STYLE.glow}, 0 4px 20px rgba(0,0,0,0.5)`,
+              border: `2px solid ${nodeStyle.border}`,
+              boxShadow: `0 0 30px ${nodeStyle.glow}, 0 4px 20px rgba(0,0,0,0.5)`,
             }}
           >
-            <div 
-              className="font-bold mb-2 pb-2 border-b border-slate-600/50"
-              style={{ color: NODE_STYLE.bg }}
-            >
-              {data.id}
+            <div className="flex items-center gap-2 mb-2 pb-2 border-b border-slate-600/50">
+              <span
+                className="font-bold"
+                style={{ color: nodeStyle.bg }}
+              >
+                {data.id}
+              </span>
+              {data.kind && (
+                <span className={cn(
+                  "text-[9px] px-1.5 py-0.5 rounded",
+                  data.kind === 'Plan' ? "bg-blue-500/20 text-blue-400" : "bg-green-500/20 text-green-400"
+                )}>
+                  {data.kind}
+                </span>
+              )}
+              {data.isOtherSession && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-gray-500/20 text-gray-400">
+                  Other Session
+                </span>
+              )}
+              {data.planStatus && (
+                <span className={cn(
+                  "text-[9px] px-1.5 py-0.5 rounded",
+                  data.planStatus === 'Pending' && "bg-yellow-500/20 text-yellow-400",
+                  data.planStatus === 'Active' && "bg-blue-500/20 text-blue-400",
+                  data.planStatus === 'Completed' && "bg-green-500/20 text-green-400"
+                )}>
+                  {data.planStatus}
+                </span>
+              )}
             </div>
             <div className="text-slate-200 leading-relaxed text-[11px]">{data.label}</div>
           </div>
@@ -138,12 +222,12 @@ function CyberNode({ data }: { data: CyberNodeData }) {
               height: 0,
               borderLeft: '8px solid transparent',
               borderRight: '8px solid transparent',
-              borderTop: `8px solid ${NODE_STYLE.border}`,
+              borderTop: `8px solid ${nodeStyle.border}`,
             }}
           />
         </div>
       )}
-      
+
       <Handle
         type="source"
         position={Position.Bottom}
@@ -198,7 +282,8 @@ function getLayoutedElements(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Node Details Panel
+// Node Details Panel (Simplified - US4)
+// Only shows: Node ID, Type, and Markdown Explanation from IGraphNode.Explain()
 // ─────────────────────────────────────────────────────────────
 
 interface NodeDetailsPanelProps {
@@ -206,15 +291,13 @@ interface NodeDetailsPanelProps {
 }
 
 function NodeDetailsPanel({ sessionId }: NodeDetailsPanelProps) {
-  const { 
-    dag, 
-    selectedNodeId, 
-    dagNodeExplain, 
-    dagKnowledgeChain, 
-    dagLoading, 
+  const {
+    dag,
+    selectedNodeId,
+    nodeExplanation,
+    dagLoading,
     dagError,
-    setDagNodeExplain,
-    setDagKnowledgeChain,
+    setNodeExplanation,
     setDagLoading,
     setDagError,
   } = useSisyphusStore()
@@ -224,30 +307,29 @@ function NodeDetailsPanel({ sessionId }: NodeDetailsPanelProps) {
     return dag.nodes.find(n => n.id === selectedNodeId)
   }, [dag, selectedNodeId])
 
-  // Load explain when node selected
+  // Load node explanation when node selected
   useEffect(() => {
     if (!selectedNodeId || !sessionId) return
-    
+
     let cancelled = false
     setDagLoading(true)
     setDagError("")
-    
-    Promise.all([
-      getDagNodeExplain(sessionId, selectedNodeId),
-      getKnowledgeChain(sessionId, selectedNodeId),
-    ]).then(([explain, chain]) => {
-      if (cancelled) return
-      setDagNodeExplain(explain)
-      setDagKnowledgeChain(chain)
-    }).catch((e) => {
-      if (cancelled) return
-      setDagError(e?.message || "Failed to load node details")
-    }).finally(() => {
-      if (!cancelled) setDagLoading(false)
-    })
+
+    getNodeExplanation(sessionId, selectedNodeId)
+      .then((explain) => {
+        if (cancelled) return
+        setNodeExplanation(explain)
+      })
+      .catch((e) => {
+        if (cancelled) return
+        setDagError(e?.message || "Failed to load node details")
+      })
+      .finally(() => {
+        if (!cancelled) setDagLoading(false)
+      })
 
     return () => { cancelled = true }
-  }, [selectedNodeId, sessionId, setDagNodeExplain, setDagKnowledgeChain, setDagLoading, setDagError])
+  }, [selectedNodeId, sessionId, setNodeExplanation, setDagLoading, setDagError])
 
   if (!selectedNode) {
     return (
@@ -257,145 +339,93 @@ function NodeDetailsPanel({ sessionId }: NodeDetailsPanelProps) {
     )
   }
 
-  const shortKey = (s: string, head = 10, tail = 8) => {
-    const t = (s || "").trim()
-    if (!t || t.length <= head + tail + 3) return t
-    return `${t.slice(0, head)}…${t.slice(-tail)}`
-  }
-
   return (
-    <div className="space-y-3">
-      {/* Node ID & Type */}
+    <div className="space-y-4">
+      {/* Node Header */}
       <div>
         <div className="text-xs font-mono text-neon-cyan break-all">{selectedNode.id}</div>
-        <div className="mt-1 flex items-center gap-2 flex-wrap">
-          {selectedNode.type && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-elevated border border-border-subtle text-text-muted">
-              {selectedNode.type}
-            </span>
-          )}
-          {selectedNode.kind && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-elevated border border-border-subtle text-text-muted">
-              kind:{selectedNode.kind}
-            </span>
-          )}
-          {dagNodeExplain && (
+        <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+          {/* Node Kind Badge */}
+          {(nodeExplanation?.kind || selectedNode.kind) && (
             <span className={cn(
-              "text-[10px] px-1.5 py-0.5 rounded border",
-              dagNodeExplain.hasCycle 
-                ? "bg-neon-rose/20 border-neon-rose/30 text-neon-rose"
-                : dagNodeExplain.provable 
-                  ? "bg-neon-green/20 border-neon-green/30 text-neon-green"
-                  : "bg-neon-gold/20 border-neon-gold/30 text-neon-gold"
+              "text-[10px] px-2 py-0.5 rounded-full font-medium",
+              (nodeExplanation?.kind || selectedNode.kind) === 'Plan'
+                ? "bg-blue-500/20 border border-blue-500/30 text-blue-400"
+                : "bg-green-500/20 border border-green-500/30 text-green-400"
             )}>
-              {dagNodeExplain.hasCycle ? "cycle" : dagNodeExplain.provable ? "provable" : "incomplete"}
+              {nodeExplanation?.kind || selectedNode.kind}
+            </span>
+          )}
+          {/* Title (short label) */}
+          {nodeExplanation?.title && (
+            <span className="text-[11px] text-text-secondary truncate max-w-[200px]">
+              {nodeExplanation.title}
             </span>
           )}
         </div>
       </div>
 
-      {/* Owner */}
-      {selectedNode.owner && (
-        <div className="text-[11px]">
-          <span className="text-text-muted">owner:</span>{" "}
-          <span className="font-mono text-text-secondary">{shortKey(selectedNode.owner)}</span>
+      {/* Loading State */}
+      {dagLoading && (
+        <div className="text-[11px] text-text-muted animate-pulse py-4 text-center">
+          Loading explanation...
         </div>
       )}
 
-      {/* Label */}
-      {selectedNode.label && (
-        <div className="text-xs text-text-secondary leading-relaxed">{selectedNode.label}</div>
-      )}
-
-      {dagLoading && (
-        <div className="text-[11px] text-text-muted animate-pulse">Loading details...</div>
-      )}
-
+      {/* Error State */}
       {dagError && (
-        <div className="text-[11px] text-neon-rose">{dagError}</div>
+        <div className="text-[11px] text-neon-rose py-2">{dagError}</div>
       )}
 
-      {/* Explain Details */}
-      {dagNodeExplain && (
-        <DetailsSection title="Explain">
-          <div className="space-y-1 text-[11px]">
-            <div>
-              <span className="text-text-muted">directDeps:</span>{" "}
-              <span className="text-text-secondary">{dagNodeExplain.directDeps?.length ?? 0}</span>
-            </div>
-            <div>
-              <span className="text-text-muted">missing:</span>{" "}
-              <span className="text-text-secondary">{dagNodeExplain.missing?.length ?? 0}</span>
-            </div>
-            {dagNodeExplain.missing && dagNodeExplain.missing.length > 0 && (
-              <div className="mt-2 space-y-1">
-                {dagNodeExplain.missing.slice(0, 8).map((m, idx) => (
-                  <div key={`${m.id}-${idx}`} className="text-neon-rose break-all">
-                    - {m.id} {m.type ? `(${m.type})` : ""}
-                  </div>
+      {/* Markdown Explanation Content */}
+      {nodeExplanation?.markdownContent && (
+        <MarkdownPreview
+          content={nodeExplanation.markdownContent}
+          title={nodeExplanation.title || selectedNode.id}
+          maxHeight="max-h-[50vh]"
+        />
+      )}
+
+      {/* Dependencies Summary */}
+      {nodeExplanation && (nodeExplanation.directDependencies.length > 0 || nodeExplanation.dependents.length > 0) && (
+        <div className="space-y-2 pt-2 border-t border-border-subtle">
+          {nodeExplanation.directDependencies.length > 0 && (
+            <div className="text-[11px]">
+              <span className="text-text-muted">Dependencies:</span>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {nodeExplanation.directDependencies.slice(0, 8).map((dep) => (
+                  <span key={dep} className="px-1.5 py-0.5 rounded bg-bg-elevated border border-border-subtle text-[10px] font-mono text-text-secondary">
+                    {dep.length > 16 ? `${dep.slice(0, 8)}…${dep.slice(-6)}` : dep}
+                  </span>
                 ))}
-                {dagNodeExplain.missing.length > 8 && (
-                  <div className="text-text-dimmed">...and {dagNodeExplain.missing.length - 8} more</div>
+                {nodeExplanation.directDependencies.length > 8 && (
+                  <span className="text-[10px] text-text-dimmed">+{nodeExplanation.directDependencies.length - 8} more</span>
                 )}
               </div>
-            )}
-          </div>
-        </DetailsSection>
-      )}
-
-      {/* Attestations */}
-      {selectedNode.attestations && selectedNode.attestations.length > 0 && (
-        <DetailsSection title={`Attestations (${selectedNode.attestations.length})`}>
-          <div className="space-y-2">
-            {selectedNode.attestations.slice(0, 5).map((a, idx) => (
-              <div key={`${a.pubkey || ''}-${idx}`} className="text-[10px] font-mono">
-                <div className="text-text-secondary break-all">pk: {shortKey(a.pubkey || '')}</div>
-                <div className="text-text-dimmed break-all">sig: {shortKey(a.signature || '')}</div>
+            </div>
+          )}
+          {nodeExplanation.dependents.length > 0 && (
+            <div className="text-[11px]">
+              <span className="text-text-muted">Dependents:</span>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {nodeExplanation.dependents.slice(0, 8).map((dep) => (
+                  <span key={dep} className="px-1.5 py-0.5 rounded bg-bg-elevated border border-border-subtle text-[10px] font-mono text-text-secondary">
+                    {dep.length > 16 ? `${dep.slice(0, 8)}…${dep.slice(-6)}` : dep}
+                  </span>
+                ))}
+                {nodeExplanation.dependents.length > 8 && (
+                  <span className="text-[10px] text-text-dimmed">+{nodeExplanation.dependents.length - 8} more</span>
+                )}
               </div>
-            ))}
-          </div>
-        </DetailsSection>
+            </div>
+          )}
+        </div>
       )}
 
-      {/* Proof */}
-      {selectedNode.proof && (
-        <DetailsSection title="Proof">
-          <pre className="text-[10px] text-text-secondary whitespace-pre-wrap break-words max-h-32 overflow-auto">
-            {selectedNode.proof}
-          </pre>
-        </DetailsSection>
-      )}
-
-      {/* Knowledge Chain */}
-      {dagKnowledgeChain && (
-        <DetailsSection title="Knowledge Chain">
-          <div className="prose prose-sm prose-invert max-w-none text-[11px] leading-relaxed
-            prose-headings:text-neon-cyan prose-headings:text-xs
-            prose-a:text-neon-cyan prose-code:text-neon-gold prose-code:text-[10px]
-          ">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{dagKnowledgeChain}</ReactMarkdown>
-          </div>
-        </DetailsSection>
-      )}
-    </div>
-  )
-}
-
-// Collapsible Details Section
-function DetailsSection({ title, children }: { title: string; children: React.ReactNode }) {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="rounded-lg border border-border-subtle bg-bg-elevated/50 overflow-hidden">
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full px-3 py-2 flex items-center justify-between text-[11px] text-text-muted hover:text-text-secondary transition-colors"
-      >
-        <span>{title}</span>
-        {open ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
-      </button>
-      {open && (
-        <div className="px-3 pb-3 pt-1 border-t border-border-subtle">
-          {children}
+      {/* Fallback: show label if no explanation available */}
+      {!dagLoading && !nodeExplanation && selectedNode.label && (
+        <div className="text-xs text-text-secondary leading-relaxed p-3 rounded-lg border border-border-subtle bg-bg-elevated/50">
+          {selectedNode.label}
         </div>
       )}
     </div>
@@ -408,9 +438,11 @@ function DetailsSection({ title, children }: { title: string; children: React.Re
 
 function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: WorkflowTopologyProps) {
   const { dag, selectedNodeId, setDag, setSelectedNode, isConnected } = useSisyphusStore()
+  const { setHighlight, clearHighlight, highlightMode, highlightedNodeIds, dagStats } = useDagInteractions()
   const reactFlowInstance = useRef<ReturnType<typeof import('@xyflow/react').useReactFlow> | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(false)
+  const [summaryOpen, setSummaryOpen] = useState(false)
 
   const selectedNodeForDialog = useMemo(() => {
     if (!selectedNodeId || !dag?.nodes) return null
@@ -428,11 +460,12 @@ function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: Workflo
           label: n.label || n.id,
           status: 'completed',
           type: n.type || 'node',
-          kind: n.kind,
+          kind: n.kind as NodeKind | undefined,
           owner: n.owner,
           proof: n.proof,
           attestations: n.attestations,
           attestationsCount: n.attestationsCount,
+          sessionId: n.sessionId,  // Include sessionId for cross-session rendering
         }))
         const edges = (snapshot.edges || []).map(e => ({
           source: e.fromId,
@@ -472,34 +505,66 @@ function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: Workflo
       return { nodes: [] as Node[], edges: [] as Edge[] }
     }
 
-    const nodes: Node[] = dag.nodes.slice(0, 200).map((node) => ({
-      id: node.id,
-      type: 'cyber',
-      data: { 
-        id: node.id,
-        label: node.label || node.id,
-        status: node.status || 'pending',
-        selected: node.id === selectedNodeId,
-      },
-      position: { x: 0, y: 0 },
-    }))
+    const isHighlighting = highlightMode !== 'none'
 
-    const edges: Edge[] = (dag.edges || []).slice(0, 400).map((edge, i) => ({
-      id: `e-${edge.source}-${edge.target}-${i}`,
-      source: edge.source,
-      target: edge.target,
-      animated: true,
-      style: { stroke: '#00f0ff', strokeWidth: 2 },
-      markerEnd: {
-        type: MarkerType.ArrowClosed,
-        color: '#00f0ff',
-        width: 20,
-        height: 20,
-      },
-    }))
+    // Debug: log first node's sessionId to verify data flow
+    if (dag.nodes.length > 0) {
+      console.log('[DAG] First node sessionId:', dag.nodes[0].sessionId, 'current sessionId:', sessionId)
+    }
+
+    const nodes: Node[] = dag.nodes.slice(0, 200).map((node) => {
+      const isSelected = node.id === selectedNodeId
+      const isHighlighted = highlightedNodeIds.includes(node.id)
+      const isDimmed = isHighlighting && !isSelected && !isHighlighted && node.id !== selectedNodeId
+      // Check if node belongs to a different session
+      const isOtherSession = node.sessionId ? node.sessionId !== sessionId : false
+
+      return {
+        id: node.id,
+        type: 'cyber',
+        data: {
+          id: node.id,
+          label: node.label || node.id,
+          status: node.status || 'pending',
+          selected: isSelected,
+          kind: node.kind as 'Plan' | 'Knowledge' | undefined,
+          planStatus: node.planStatus as 'Pending' | 'Active' | 'Completed' | undefined,
+          highlighted: isHighlighted,
+          dimmed: isDimmed,
+          isOtherSession,
+        },
+        position: { x: 0, y: 0 },
+      }
+    })
+
+    const edges: Edge[] = (dag.edges || []).slice(0, 400).map((edge, i) => {
+      // Different styles for different edge types
+      const isMotivatedBy = edge.type === 'motivated_by'
+      const edgeColor = isMotivatedBy ? '#f59e0b' : '#00f0ff'  // Orange for motivated_by, Cyan for depends_on
+
+      return {
+        id: `e-${edge.source}-${edge.target}-${i}`,
+        source: edge.source,
+        target: edge.target,
+        animated: true,
+        style: {
+          stroke: edgeColor,
+          strokeWidth: isMotivatedBy ? 1.5 : 2,
+          strokeDasharray: isMotivatedBy ? '5 3' : undefined,  // Dashed line for motivated_by
+        },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: edgeColor,
+          width: isMotivatedBy ? 16 : 20,
+          height: isMotivatedBy ? 16 : 20,
+        },
+        label: isMotivatedBy ? '✨' : undefined,  // Small indicator for motivated_by
+        labelStyle: isMotivatedBy ? { fontSize: 10 } : undefined,
+      }
+    })
 
     return getLayoutedElements(nodes, edges, 'TB')
-  }, [dag, selectedNodeId])
+  }, [dag, selectedNodeId, highlightMode, highlightedNodeIds, sessionId])
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
@@ -530,8 +595,9 @@ function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: Workflo
   // Handle node click
   const onNodeClick = useCallback((_: unknown, node: Node) => {
     setSelectedNode(node.id)
+    clearHighlight() // Clear any existing highlights when selecting a new node
     setDetailsOpen(true)
-  }, [setSelectedNode])
+  }, [setSelectedNode, clearHighlight])
 
   const nodeCount = dag?.nodes?.length ?? 0
   const edgeCount = dag?.edges?.length ?? 0
@@ -576,13 +642,16 @@ function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: Workflo
 
   return (
     <div className={cn("card flex flex-col overflow-hidden", fullHeight && "h-full")}>
-      <TopologyHeader 
+      <TopologyHeader
         onLayout={onLayout}
         onRefresh={handleRefresh}
         onCollapse={onCollapse}
+        onSummary={() => setSummaryOpen(true)}
         refreshing={refreshing}
         nodeCount={nodeCount}
         edgeCount={edgeCount}
+        planCount={dagStats.planCount}
+        knowledgeCount={dagStats.knowledgeCount}
       />
 
       <div className="flex-1 flex min-h-[350px]">
@@ -626,7 +695,10 @@ function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: Workflo
         open={detailsOpen}
         onOpenChange={(open) => {
           setDetailsOpen(open)
-          if (!open) setSelectedNode(null)
+          if (!open) {
+            setSelectedNode(null)
+            clearHighlight()
+          }
         }}
       >
         <DialogContent className="bg-bg-surface/95 backdrop-blur-md border border-border-default rounded-xl shadow-lg text-text-primary overflow-hidden">
@@ -646,9 +718,74 @@ function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: Workflo
 
           <div className="p-4 overflow-y-auto max-h-[60vh]">
             <NodeDetailsPanel sessionId={sessionId} />
+
+            {/* Highlight controls */}
+            {selectedNodeId && (
+              <div className="mt-4 pt-4 border-t border-border-subtle">
+                <div className="text-xs text-text-muted mb-2">Highlight related nodes:</div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => setHighlight(selectedNodeId, 'upstream')}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded-md border transition-all",
+                      highlightMode === 'upstream'
+                        ? "bg-neon-cyan/20 border-neon-cyan/40 text-neon-cyan"
+                        : "border-border-subtle text-text-muted hover:text-text-secondary hover:border-border-default"
+                    )}
+                  >
+                    <ArrowUpCircle className="size-3" />
+                    Upstream
+                  </button>
+                  <button
+                    onClick={() => setHighlight(selectedNodeId, 'downstream')}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded-md border transition-all",
+                      highlightMode === 'downstream'
+                        ? "bg-neon-gold/20 border-neon-gold/40 text-neon-gold"
+                        : "border-border-subtle text-text-muted hover:text-text-secondary hover:border-border-default"
+                    )}
+                  >
+                    <ArrowDownCircle className="size-3" />
+                    Downstream
+                  </button>
+                  <button
+                    onClick={() => setHighlight(selectedNodeId, 'chain')}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded-md border transition-all",
+                      highlightMode === 'chain'
+                        ? "bg-neon-green/20 border-neon-green/40 text-neon-green"
+                        : "border-border-subtle text-text-muted hover:text-text-secondary hover:border-border-default"
+                    )}
+                  >
+                    <Link2 className="size-3" />
+                    Full Chain
+                  </button>
+                  {highlightMode !== 'none' && (
+                    <button
+                      onClick={clearHighlight}
+                      className="px-3 py-1.5 text-xs font-mono rounded-md border border-border-subtle text-text-muted hover:text-neon-rose hover:border-neon-rose/40 transition-all"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                {highlightMode !== 'none' && (
+                  <div className="mt-2 text-[10px] text-text-dimmed">
+                    Highlighting {highlightedNodeIds.length} {highlightMode} node(s)
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Summary Modal (US7) */}
+      <SummaryModal
+        open={summaryOpen}
+        onOpenChange={setSummaryOpen}
+        sessionId={sessionId}
+      />
     </div>
   )
 }
@@ -661,12 +798,15 @@ interface TopologyHeaderProps {
   onLayout: (direction: 'TB' | 'LR') => void
   onRefresh: () => void
   onCollapse?: () => void
+  onSummary?: () => void
   refreshing: boolean
   nodeCount: number
   edgeCount: number
+  planCount?: number
+  knowledgeCount?: number
 }
 
-function TopologyHeader({ onLayout, onRefresh, onCollapse, refreshing, nodeCount, edgeCount }: TopologyHeaderProps) {
+function TopologyHeader({ onLayout, onRefresh, onCollapse, onSummary, refreshing, nodeCount, edgeCount, planCount = 0, knowledgeCount = 0 }: TopologyHeaderProps) {
   return (
     <div className="flex-shrink-0 flex items-center justify-between p-4 border-b border-accent-emerald/30 bg-gradient-to-r from-accent-emerald/10 to-transparent">
       <div className="flex items-center gap-3">
@@ -681,12 +821,34 @@ function TopologyHeader({ onLayout, onRefresh, onCollapse, refreshing, nodeCount
             TOPOLOGY MAP
           </h3>
           <p className="text-[10px] text-text-muted font-mono tracking-wide text-pretty">
-            {nodeCount > 0 ? `n=${nodeCount} e=${edgeCount}` : 'Workflow Dependency Graph'}
+            {nodeCount > 0 ? (
+              <span>
+                n={nodeCount} e={edgeCount}
+                {(planCount > 0 || knowledgeCount > 0) && (
+                  <span className="ml-2">
+                    (<span className="text-blue-400">P:{planCount}</span>{' '}
+                    <span className="text-green-400">K:{knowledgeCount}</span>)
+                  </span>
+                )}
+              </span>
+            ) : 'Workflow Dependency Graph'}
           </p>
         </div>
       </div>
-      
+
       <div className="flex items-center gap-2">
+        {/* Summary Button */}
+        {onSummary && nodeCount > 0 && (
+          <button
+            onClick={onSummary}
+            aria-label="Generate Summary"
+            className="p-1.5 rounded-md border border-border-subtle text-text-muted hover:text-neon-green hover:border-neon-green/40 transition-all"
+            title="Generate Summary"
+          >
+            <FileText className="size-3.5" />
+          </button>
+        )}
+
         {/* Collapse */}
         {onCollapse && (
           <button

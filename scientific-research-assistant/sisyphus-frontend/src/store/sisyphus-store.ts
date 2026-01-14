@@ -33,6 +33,15 @@ export interface AgentRosterItem {
   agentId?: string
 }
 
+// Agent status report (from AGENT_STATUS_REPORT events)
+export interface AgentStatusReport {
+  agentId: string
+  agentName: string
+  statusText: string
+  progress?: number
+  timestamp: number
+}
+
 // Per-agent message during a vibe run
 export interface AgentMessage {
   agent: string
@@ -45,13 +54,27 @@ export interface AgentMessage {
   toolOutputs?: unknown[]
 }
 
-// DAG Node Explain data
+// DAG Node Explain data (legacy)
 export interface DagNodeExplainData {
   provable?: boolean
   hasCycle?: boolean
   directDeps?: string[]
   missing?: Array<{ id: string; type?: string }>
 }
+
+// Node Explanation from IGraphNode.Explain() (new simplified format)
+export interface NodeExplanationData {
+  nodeId: string
+  title: string
+  kind: "Plan" | "Knowledge"
+  markdownContent: string
+  directDependencies: string[]
+  fullChainNodeIds: string[]
+  dependents: string[]
+}
+
+// Highlight mode for US5
+export type HighlightMode = "none" | "upstream" | "downstream" | "chain"
 
 // Agent message metadata (from aevatar.vibe.message_meta)
 export interface AgentMessageMeta {
@@ -77,6 +100,11 @@ interface SisyphusState {
   // Agent Roster (available agents from vibe)
   agentRoster: AgentRosterItem[]
   setAgentRoster: (roster: AgentRosterItem[]) => void
+
+  // Agent Status Reports (real-time work status from agents)
+  agentStatusReports: Record<string, AgentStatusReport>  // keyed by agentName
+  updateAgentStatusReport: (report: AgentStatusReport) => void
+  clearAgentStatusReports: () => void
 
   // Input Mode
   inputMode: InputMode
@@ -116,16 +144,24 @@ interface SisyphusState {
   // DAG
   dag: DAGGraph | null
   selectedNodeId: string | null
-  dagNodeExplain: DagNodeExplainData | null
-  dagKnowledgeChain: string
+  nodeExplanation: NodeExplanationData | null  // New simplified explanation
+  dagNodeExplain: DagNodeExplainData | null    // Legacy (deprecated)
+  dagKnowledgeChain: string                    // Legacy (deprecated)
   dagLoading: boolean
   dagError: string
   setDag: (dag: DAGGraph | null) => void
   setSelectedNode: (nodeId: string | null) => void
+  setNodeExplanation: (explain: NodeExplanationData | null) => void
   setDagNodeExplain: (explain: DagNodeExplainData | null) => void
   setDagKnowledgeChain: (chain: string) => void
   setDagLoading: (loading: boolean) => void
   setDagError: (error: string) => void
+
+  // DAG Highlighting (US5)
+  highlightedNodeIds: string[]
+  highlightMode: HighlightMode
+  setHighlightedNodeIds: (ids: string[]) => void
+  setHighlightMode: (mode: HighlightMode) => void
 
   // Chat Messages
   messages: ChatMessage[]
@@ -164,6 +200,16 @@ export const useSisyphusStore = create<SisyphusState>((set) => ({
   // === Agent Roster ===
   agentRoster: [],
   setAgentRoster: (roster) => set({ agentRoster: roster }),
+
+  // === Agent Status Reports ===
+  agentStatusReports: {},
+  updateAgentStatusReport: (report) => set((state) => ({
+    agentStatusReports: {
+      ...state.agentStatusReports,
+      [report.agentName]: report,
+    },
+  })),
+  clearAgentStatusReports: () => set({ agentStatusReports: {} }),
 
   // === Input Mode ===
   inputMode: "vibe",
@@ -309,16 +355,24 @@ export const useSisyphusStore = create<SisyphusState>((set) => ({
   // === DAG ===
   dag: null,
   selectedNodeId: null,
+  nodeExplanation: null,
   dagNodeExplain: null,
   dagKnowledgeChain: "",
   dagLoading: false,
   dagError: "",
   setDag: (dag) => set({ dag }),
-  setSelectedNode: (nodeId) => set({ selectedNodeId: nodeId, dagNodeExplain: null, dagKnowledgeChain: "" }),
+  setSelectedNode: (nodeId) => set({ selectedNodeId: nodeId, nodeExplanation: null, dagNodeExplain: null, dagKnowledgeChain: "" }),
+  setNodeExplanation: (explain) => set({ nodeExplanation: explain }),
   setDagNodeExplain: (explain) => set({ dagNodeExplain: explain }),
   setDagKnowledgeChain: (chain) => set({ dagKnowledgeChain: chain }),
   setDagLoading: (loading) => set({ dagLoading: loading }),
   setDagError: (error) => set({ dagError: error }),
+
+  // === DAG Highlighting (US5) ===
+  highlightedNodeIds: [],
+  highlightMode: "none",
+  setHighlightedNodeIds: (ids) => set({ highlightedNodeIds: ids }),
+  setHighlightMode: (mode) => set({ highlightMode: mode }),
 
   // === Chat Messages ===
   messages: [],
@@ -364,15 +418,19 @@ export const useSisyphusStore = create<SisyphusState>((set) => ({
       workers: {},
       dag: null,
       selectedNodeId: null,
+      nodeExplanation: null,
       dagNodeExplain: null,
       dagKnowledgeChain: "",
       dagLoading: false,
       dagError: "",
+      highlightedNodeIds: [],
+      highlightMode: "none",
       messages: [],
       researchBrief: null,
       rawEvents: [],
       agentProviders: {},
       agentRoster: [],
+      agentStatusReports: {},
       agentMessages: {},
       agentMessageMeta: {},
       currentRunId: null,

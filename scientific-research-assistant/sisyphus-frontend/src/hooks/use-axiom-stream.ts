@@ -1,9 +1,10 @@
 import { useEffect, useRef, useCallback } from "react"
+import { flushSync } from "react-dom"
 import { useSisyphusStore } from "@/store/sisyphus-store"
 import { createAxiomEventStream, getToolsSnapshot, getDagSnapshot } from "@/lib/axiom-client"
 import type { EventStream } from "@aevatar/kit-protocol"
 import { parseMessageId } from "@aevatar/kit-protocol"
-import type { ToolOutput } from "@/types"
+import type { ToolOutput, NodeKind } from "@/types"
 
 // ============================================================================
 //  Axiom Event Stream Hook
@@ -32,6 +33,7 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     updateAgentMessage,
     setAgentRoster,
     setAgentProviders,
+    updateAgentStatusReport,
   } = useSisyphusStore()
 
   // Tool outputs state (per-message)
@@ -47,20 +49,33 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     msgTools.set(tool.toolCallId, { ...existing, ...tool })
   }, [])
 
-  // Handle worker streaming content
+  // Handle worker streaming content - use flushSync for immediate render
   const appendWorkerStream = useCallback((workerId: string, delta: string) => {
-    useSisyphusStore.setState((state) => {
-      const worker = state.workers[workerId]
-      if (!worker) return state
-      return {
-        workers: {
-          ...state.workers,
-          [workerId]: {
-            ...worker,
-            streamContent: (worker.streamContent || "") + delta,
+    flushSync(() => {
+      useSisyphusStore.setState((state) => {
+        const worker = state.workers[workerId]
+        // Auto-create worker if not exists (for real-time streaming)
+        const baseWorker = worker || {
+          id: workerId,
+          name: workerId,
+          status: "running" as const,
+          streaming: true,
+          streamContent: "",
+          lastResponse: "",
+          tokenIndex: 0,
+          history: [],
+        }
+        return {
+          workers: {
+            ...state.workers,
+            [workerId]: {
+              ...baseWorker,
+              streaming: true,
+              streamContent: (baseWorker.streamContent || "") + delta,
+            },
           },
-        },
-      }
+        }
+      })
     })
   }, [])
 
@@ -196,17 +211,22 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
       addRawEvent(event)
       const parsed = parseMessageId(event.messageId)
       appendWorkerStream(parsed.workerId, event.delta)
-      
-      // Also update agent message
+
+      // Debug: log streaming events
+      console.log(`[SSE] TEXT_MESSAGE_CONTENT: workerId=${parsed.workerId}, delta.length=${event.delta?.length}`)
+
+      // Also update agent message - use flushSync for immediate render
       const parts = event.messageId.split(":")
       if (parts.length >= 4) {
         const agent = parts[2]
         if (agent && agent !== "user" && !agent.startsWith("worker")) {
           const agentName = agent === "assistant" ? "research_assistant" : agent
-          updateAgentMessage(agentName, {
-            agent: agentName,
-            isStreaming: true,
-            content: event.delta, // Will be accumulated by store
+          flushSync(() => {
+            updateAgentMessage(agentName, {
+              agent: agentName,
+              isStreaming: true,
+              content: event.delta, // Will be accumulated by store
+            })
           })
         }
       }
@@ -575,6 +595,26 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
       }
     })
 
+    // Agent Status Report (real-time work status from agents)
+    stream.onCustom("aevatar.vibe.agent_status_report", (event) => {
+      addRawEvent(event)
+      const data = event.value as {
+        agentId?: string
+        agentName?: string
+        statusText?: string
+        progress?: number
+      }
+      if (data?.agentName && data?.statusText) {
+        updateAgentStatusReport({
+          agentId: data.agentId || data.agentName,
+          agentName: data.agentName,
+          statusText: data.statusText,
+          progress: data.progress,
+          timestamp: Date.now(),
+        })
+      }
+    })
+
     // Agent Message Meta (per-agent card labels: agent/stepName/providerName)
     stream.onCustom("aevatar.vibe.message_meta", (event) => {
       addRawEvent(event)
@@ -635,10 +675,10 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
           label: String(node.label || node.id || ''),
           status: String(node.status || 'pending'),
           type: String(node.type || ''),
-          kind: node.kind as string | undefined,
+          kind: node.kind as NodeKind | undefined,
           owner: node.owner as string | undefined,
           proof: node.proof as string | undefined,
-          attestations: node.attestations as unknown[] | undefined,
+          attestations: node.attestations as { pubkey?: string; signature?: string }[] | undefined,
           attestationsCount: node.attestationsCount as number | undefined,
         }
       })
@@ -648,7 +688,7 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
         return {
           source: String(edge.fromId || edge.source || ''),
           target: String(edge.toId || edge.target || ''),
-          type: edge.type,
+          type: edge.type as string | undefined,
         }
       })
       console.log("[AxiomStream] Setting DAG:", { nodes: nodes.length, edges: edges.length })
@@ -672,7 +712,7 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
               label: n.label || n.id,
               status: 'pending', // Default status - backend DagNode doesn't have status
               type: n.type || '',
-              kind: n.kind,
+              kind: n.kind as NodeKind | undefined,
               owner: n.owner,
               proof: n.proof,
               attestations: n.attestations,

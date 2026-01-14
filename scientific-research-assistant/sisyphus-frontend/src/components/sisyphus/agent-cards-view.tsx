@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn } from '@/lib/utils'
-import { useSisyphusStore, type AgentMessage, type AgentRosterItem } from '@/store/sisyphus-store'
+import { useSisyphusStore, type AgentMessage, type AgentRosterItem, type AgentStatusReport } from '@/store/sisyphus-store'
 
 // ============================================================
 //  Agent Cards View - Displays all agent outputs during a vibe run
@@ -30,14 +30,16 @@ interface AgentCardProps {
   agent: string
   message?: AgentMessage
   providerName?: string
+  statusReport?: AgentStatusReport
   onOpenHistory?: () => void
 }
 
-const AgentCard: React.FC<AgentCardProps> = ({ 
-  agent, 
-  message, 
+const AgentCard: React.FC<AgentCardProps> = ({
+  agent,
+  message,
   providerName,
-  onOpenHistory 
+  statusReport,
+  onOpenHistory
 }) => {
   const [collapsed, setCollapsed] = useState(false)
   const hasContent = Boolean(message?.content)
@@ -158,6 +160,26 @@ const AgentCard: React.FC<AgentCardProps> = ({
         </div>
       </div>
 
+      {/* Status Report (real-time work status) */}
+      {statusReport?.statusText && (
+        <div className={cn(
+          "px-4 py-2 text-xs border-b",
+          isStreaming
+            ? "bg-neon-cyan/5 border-neon-cyan/20 text-neon-cyan"
+            : "bg-surface-elevated/30 border-border-subtle text-text-muted"
+        )}>
+          <div className="flex items-center gap-2">
+            <span className="size-1.5 rounded-full bg-current animate-pulse" />
+            <span className="italic truncate">{statusReport.statusText}</span>
+            {statusReport.progress !== undefined && statusReport.progress > 0 && (
+              <span className="text-[10px] font-mono ml-auto">
+                {Math.round(statusReport.progress * 100)}%
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Content */}
       <div className="p-4">
         {!hasContent ? (
@@ -216,17 +238,18 @@ interface AgentCardsViewProps {
   onOpenAgentHistory?: (agent: string) => void
 }
 
-const AgentCardsView: React.FC<AgentCardsViewProps> = ({ 
-  sessionId,
-  onOpenAgentHistory 
+const AgentCardsView: React.FC<AgentCardsViewProps> = ({
+  sessionId: _sessionId,  // Reserved for future use
+  onOpenAgentHistory
 }) => {
-  const { 
-    currentRunId, 
-    userPrompt, 
-    agentMessages, 
-    agentRoster, 
+  const {
+    currentRunId,
+    userPrompt,
+    agentMessages,
+    agentRoster,
     agentProviders,
-    apiInfo 
+    agentStatusReports,
+    apiInfo
   } = useSisyphusStore()
 
   // Build agent list from roster or defaults
@@ -296,12 +319,14 @@ const AgentCardsView: React.FC<AgentCardsViewProps> = ({
         {agents.map((agent) => {
           const msg = agentMessages[agent]
           const provider = agentProviders[agent] || defaultProvider
+          const statusReport = agentStatusReports[agent]
           return (
             <AgentCard
               key={agent}
               agent={agent}
               message={msg}
               providerName={provider}
+              statusReport={statusReport}
               onOpenHistory={onOpenAgentHistory ? () => onOpenAgentHistory(agent) : undefined}
             />
           )

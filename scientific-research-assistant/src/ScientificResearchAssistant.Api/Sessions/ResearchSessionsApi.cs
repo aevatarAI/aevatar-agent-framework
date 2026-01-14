@@ -590,7 +590,7 @@ internal static class ResearchSessionsApi
                 return Results.NotFound(new { error = "session not found" });
 
             var dagId = session.EffectiveDagId;
-            var snap = await dag.GetSnapshotForListAsync(dagId, ct);
+            var snap = await dag.GetSnapshotForListAsync(dagId, ct, currentSessionId: session.Id);
             return Results.Json(new { ok = true, sessionId = session.Id, dagId, dag = snap });
         });
 
@@ -616,7 +616,7 @@ internal static class ResearchSessionsApi
                 return Results.BadRequest(new { ok = false, sessionId = session.Id, dagId, error = note });
 
             // Return the same "list" shape used by DagPanel.
-            var snap = await dag.GetSnapshotForListAsync(dagId, ct);
+            var snap = await dag.GetSnapshotForListAsync(dagId, ct, currentSessionId: session.Id);
             return Results.Json(new { ok = true, sessionId = session.Id, dagId, note, dag = snap });
         });
 
@@ -1411,7 +1411,7 @@ internal static class ResearchSessionsApi
 
             try
             {
-                var snap = await dag.GetSnapshotForListAsync(session.Id, ct);
+                var snap = await dag.GetSnapshotForListAsync(session.EffectiveDagId, ct, currentSessionId: session.Id);
                 await WriteSseAsync(new CustomEvent
                 {
                     Timestamp = Ts(DateTimeOffset.UtcNow),

@@ -116,7 +116,11 @@ public sealed class DagStore
         try
         {
             await EnsureHydratedAsync(ws, ct);
-            var client = _graphFactory.CreateClient(ws.DagId);
+
+            // Use the actual session ID from mutation for writing nodes (preserves cross-session identity).
+            // For global DAG, dagId="global" but mutation.SessionId contains the real session ID.
+            var writeSessionId = string.IsNullOrWhiteSpace(mutation.SessionId) ? ws.DagId : mutation.SessionId;
+            var client = _graphFactory.CreateClient(writeSessionId);
             var localOwner = TryGetLocalDagOwnerPubKey();
 
             // ============================================================
@@ -203,15 +207,28 @@ public sealed class DagStore
                     var existing = await client.GetNodeAsync(id, ct);
                     if (existing != null) continue;
 
-                    await client.UpsertNodeAsync(
-                        nodeId: id,
-                        nodeType: KnowledgeNodeType.Generic,
-                        owner: localOwner,
-                        coreDescription: id,
-                        detailedDescription: id,
-                        proof: null,
-                        resourceFolderPath: null,
-                        cancellationToken: ct);
+                    // For plan nodes, create as PlanNode; for others, create as KnowledgeNode
+                    if (id.StartsWith("plan_", StringComparison.OrdinalIgnoreCase))
+                    {
+                        await client.CreatePlanNodeAsync(
+                            nodeId: id,
+                            coreDescription: id,
+                            detailedDescription: $"Placeholder for plan node: {id}",
+                            methodology: null,
+                            cancellationToken: ct);
+                    }
+                    else
+                    {
+                        await client.UpsertNodeAsync(
+                            nodeId: id,
+                            nodeType: KnowledgeNodeType.Generic,
+                            owner: localOwner,
+                            coreDescription: id,
+                            detailedDescription: id,
+                            proof: null,
+                            resourceFolderPath: null,
+                            cancellationToken: ct);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -325,9 +342,51 @@ public sealed class DagStore
         }).ToList();
     }
 
-    public async Task<object> GetSnapshotForListAsync(string dagId, CancellationToken ct)
+    public async Task<object> GetSnapshotForListAsync(string dagId, CancellationToken ct, string? currentSessionId = null)
     {
         var snap = await LoadSnapshotAsync(dagId, ct);
+
+        // For global DAG, also include current session's PlanNodes
+        if (dagId == ResearchSession.GlobalDagId && !string.IsNullOrWhiteSpace(currentSessionId))
+        {
+            try
+            {
+                var sessionClient = _graphFactory.CreateClient(currentSessionId);
+                var sessionGraph = await sessionClient.GetGraphSnapshotAsync(ct);
+                var planNodes = sessionGraph.PlanNodes;
+
+                if (planNodes.Count > 0)
+                {
+                    var now = Timestamp.FromDateTime(DateTime.UtcNow);
+                    foreach (var pn in planNodes)
+                    {
+                        if (pn == null) continue;
+                        var id = (pn.Id ?? string.Empty).Trim();
+                        if (id.Length == 0) continue;
+
+                        var label = Bound((pn.CoreDescription ?? string.Empty).Trim(), 200);
+                        var proof = Bound((pn.DetailedDescription ?? "").Trim(), 1200);
+                        var ts = pn.UpdatedAt;
+
+                        snap.Nodes.Add(new SraDagNode
+                        {
+                            Id = id,
+                            Type = SraDagNodeType.Assumption,
+                            Kind = SraDagNodeKind.Plan,
+                            Owner = pn.Owner ?? "",
+                            Label = label,
+                            Proof = proof,
+                            SessionId = currentSessionId,
+                            UpdatedAt = Timestamp.FromDateTime(DateTime.SpecifyKind(ts.UtcDateTime, DateTimeKind.Utc))
+                        });
+                    }
+                }
+            }
+            catch
+            {
+                // best-effort: session plan nodes are optional enhancement
+            }
+        }
 
         var nodes = snap.Nodes.Take(MaxNodesForList).Select(n => new
         {

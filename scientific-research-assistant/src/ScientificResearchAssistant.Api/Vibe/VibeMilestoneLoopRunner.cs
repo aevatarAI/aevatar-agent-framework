@@ -229,7 +229,8 @@ internal sealed class VibeMilestoneLoopRunner
                             i + 1,
                             totalMilestones,
                             iterationCount,
-                            maxIterationsPerMilestone);
+                            maxIterationsPerMilestone,
+                            milestoneNodeId);
 
                         // Execute research round
                         await _vibe.ExecuteOneRoundAsync(
@@ -355,7 +356,23 @@ internal sealed class VibeMilestoneLoopRunner
     private static string GetMilestoneNodeId(string sessionId, int roundIndex, int index)
     {
         var suffix = roundIndex > 0 ? $"r{roundIndex}" : $"i{index}";
-        return $"plan_{sessionId}_ms_{suffix}".Replace("-", "_").Replace(":", "_");
+        // IMPORTANT: Must match SanitizeId logic in VibeOrchestrator.cs exactly
+        // - Replace ALL non-alphanumeric chars with '_'
+        // - Convert to lowercase
+        // - Max 64 chars
+        return SanitizeId($"plan_{sessionId}_ms_{suffix}");
+    }
+
+    private static string SanitizeId(string s)
+    {
+        var t = (s ?? string.Empty).Trim();
+        if (t.Length == 0) return string.Empty;
+        var sb = new System.Text.StringBuilder(t.Length);
+        foreach (var ch in t)
+            sb.Append(char.IsLetterOrDigit(ch) ? char.ToLowerInvariant(ch) : '_');
+        // keep it bounded to avoid huge ids
+        var outId = sb.ToString().Trim('_');
+        return outId.Length <= 64 ? outId : outId[..64];
     }
 
     private async Task TryUpdateMilestoneStatusAsync(
@@ -387,7 +404,8 @@ internal sealed class VibeMilestoneLoopRunner
         int milestoneIndex,
         int totalMilestones,
         int iterationCount,
-        int maxIterations)
+        int maxIterations,
+        string milestoneNodeId)
     {
         var iterationGuidance = iterationCount switch
         {
@@ -420,6 +438,10 @@ internal sealed class VibeMilestoneLoopRunner
 
             # Current Milestone ({milestoneIndex}/{totalMilestones})
             **Goal**: {milestoneGoal}
+            **Milestone Node ID**: {milestoneNodeId}
+
+            IMPORTANT: When creating knowledge nodes, use "{milestoneNodeId}" as the motivatedByPlanNodeId value.
+            This links the knowledge to this specific milestone in the research DAG.
 
             # Research Instructions
             You are conducting deep, autonomous research on this milestone.

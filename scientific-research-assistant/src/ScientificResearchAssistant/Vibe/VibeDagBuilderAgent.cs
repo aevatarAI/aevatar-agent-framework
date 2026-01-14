@@ -61,7 +61,8 @@ public sealed class VibeDagBuilderAgent : VibeAgentBase
 
             IMPORTANT - Provenance tracking:
             - Each knowledge node MUST specify "motivatedByPlanNodeId" to link it to the plan step that motivated its creation.
-            - The plan node IDs follow the pattern: plan_{sessionId}_ms_r{roundIndex} (e.g., plan_abc123_ms_r1 for Round 1).
+            - CRITICAL: Use the EXACT plan node ID from the "Plan:" section in the context (e.g., "plan_abc_123_ms_r1").
+              Do NOT construct the ID yourself - copy it exactly as shown in the plan context.
             - Look at the current round context to determine which milestone/plan node is being executed.
 
             Schema (updated):

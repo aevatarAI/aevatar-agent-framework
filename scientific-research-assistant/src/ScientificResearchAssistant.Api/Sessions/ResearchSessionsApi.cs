@@ -589,7 +589,7 @@ internal static class ResearchSessionsApi
             if (!sessions.TryGet(sessionId, out var session))
                 return Results.NotFound(new { error = "session not found" });
 
-            var dagId = string.IsNullOrWhiteSpace(session.DagId) ? session.Id : session.DagId.Trim();
+            var dagId = session.EffectiveDagId;
             var snap = await dag.GetSnapshotForListAsync(dagId, ct);
             return Results.Json(new { ok = true, sessionId = session.Id, dagId, dag = snap });
         });
@@ -605,7 +605,7 @@ internal static class ResearchSessionsApi
             if (!sessions.TryGet(sessionId, out var session))
                 return Results.NotFound(new { error = "session not found" });
 
-            var dagId = string.IsNullOrWhiteSpace(session.DagId) ? session.Id : session.DagId.Trim();
+            var dagId = session.EffectiveDagId;
             var instruction = (input.Instruction ?? string.Empty).Replace("\r", "").Trim();
             if (instruction.Length == 0)
                 return Results.BadRequest(new { ok = false, error = "instruction is required" });
@@ -630,7 +630,7 @@ internal static class ResearchSessionsApi
             if (!sessions.TryGet(sessionId, out var session))
                 return Results.NotFound(new { error = "session not found" });
 
-            var dagId = string.IsNullOrWhiteSpace(session.DagId) ? session.Id : session.DagId.Trim();
+            var dagId = session.EffectiveDagId;
             var snap = await dag.LoadSnapshotAsync(dagId, ct);
             var explain = DagExplain.Explain(snap, nodeId);
 
@@ -661,7 +661,7 @@ internal static class ResearchSessionsApi
             if (!sessions.TryGet(sessionId, out var session))
                 return Results.NotFound(new { error = "session not found" });
 
-            var dagId = string.IsNullOrWhiteSpace(session.DagId) ? session.Id : session.DagId.Trim();
+            var dagId = session.EffectiveDagId;
             var list = await dag.ListStagedAsync(dagId, ct);
             return Results.Json(new { ok = true, sessionId = session.Id, dagId, staged = list });
         });
@@ -673,7 +673,7 @@ internal static class ResearchSessionsApi
         {
             if (!sessions.TryGet(sessionId, out var session))
                 return Results.NotFound(new { error = "session not found" });
-            var dagId = string.IsNullOrWhiteSpace(session.DagId) ? session.Id : session.DagId.Trim();
+            var dagId = session.EffectiveDagId;
             return Results.Json(new { ok = true, sessionId = session.Id, dagId });
         });
 
@@ -721,11 +721,11 @@ internal static class ResearchSessionsApi
                 return Results.NotFound(new { error = "session not found" });
 
             // Ensure hydration for in-memory backend (best-effort).
-            var dagId = string.IsNullOrWhiteSpace(session.DagId) ? session.Id : session.DagId.Trim();
+            var dagId = session.EffectiveDagId;
             _ = await dag.LoadSnapshotAsync(dagId, ct);
 
             var client = graph.CreateClient(dagId);
-            var snapshot = await client.GetKnowledgeSnapshotAsync(ct);
+            var snapshot = await client.GetGraphSnapshotAsync(ct);
             return Results.Json(new { ok = true, sessionId = session.Id, dagId, graph = snapshot });
         });
 
@@ -745,7 +745,7 @@ internal static class ResearchSessionsApi
                 return Results.BadRequest(new { error = "nodeId is required" });
 
             // Ensure hydration for in-memory backend (best-effort).
-            var dagId = string.IsNullOrWhiteSpace(session.DagId) ? session.Id : session.DagId.Trim();
+            var dagId = session.EffectiveDagId;
             _ = await dag.LoadSnapshotAsync(dagId, ct);
 
             var client = graph.CreateClient(dagId);
@@ -768,6 +768,58 @@ internal static class ResearchSessionsApi
             }
         });
 
+        // Node Explanation API (US4) - called by frontend workflow-topology.tsx
+        app.MapGet("/api/sessions/{sessionId}/graph/{nodeId}/explain", async (
+            string sessionId,
+            string nodeId,
+            ResearchSessionManager sessions,
+            DagStore dag,
+            IKnowledgeGraphClientFactory graph,
+            CancellationToken ct) =>
+        {
+            if (!sessions.TryGet(sessionId, out var session))
+                return Results.NotFound(new { error = "session not found" });
+
+            nodeId = (nodeId ?? string.Empty).Trim();
+            if (nodeId.Length == 0)
+                return Results.BadRequest(new { error = "nodeId is required" });
+
+            // Ensure hydration for in-memory backend (best-effort).
+            var dagId = session.EffectiveDagId;
+            _ = await dag.LoadSnapshotAsync(dagId, ct);
+
+            var client = graph.CreateClient(dagId);
+            try
+            {
+                var explanation = await client.ExplainNodeAsync(nodeId, ct);
+
+                // Map backend NodeExplanation to frontend expected shape.
+                // Frontend expects "kind" but backend returns "NodeType".
+                return Results.Json(new
+                {
+                    ok = true,
+                    sessionId = session.Id,
+                    dagId,
+                    explanation = new
+                    {
+                        nodeId = explanation.NodeId,
+                        title = explanation.Title,
+                        kind = explanation.NodeType, // Frontend expects "kind", not "nodeType"
+                        markdownContent = explanation.MarkdownContent,
+                        directDependencies = explanation.DirectDependencies,
+                        fullChainNodeIds = Array.Empty<string>(), // Not in backend model; keep empty for compatibility
+                        dependents = explanation.Dependents,
+                        createdAt = explanation.CreatedAt.ToString("O"),
+                        updatedAt = explanation.UpdatedAt.ToString("O")
+                    }
+                }, Json);
+            }
+            catch (NodeNotFoundException ex)
+            {
+                return Results.NotFound(new { error = "node not found", nodeId = ex.NodeId });
+            }
+        });
+
         app.MapGet("/api/sessions/{sessionId}/graph/paper", async (
             string sessionId,
             ResearchSessionManager sessions,
@@ -779,7 +831,7 @@ internal static class ResearchSessionsApi
                 return Results.NotFound(new { error = "session not found" });
 
             // Ensure hydration for in-memory backend (best-effort).
-            var dagId = string.IsNullOrWhiteSpace(session.DagId) ? session.Id : session.DagId.Trim();
+            var dagId = session.EffectiveDagId;
             _ = await dag.LoadSnapshotAsync(dagId, ct);
 
             var client = graph.CreateClient(dagId);
@@ -1175,10 +1227,13 @@ internal static class ResearchSessionsApi
 
             await http.Response.StartAsync(ct);
 
+            // Use minimal buffer for real-time token streaming.
+            // Keep AutoFlush=false (default) to avoid sync Flush() which Kestrel disallows.
+            // WriteSseAsync calls FlushAsync explicitly after each event.
             await using var writer = new StreamWriter(
                 http.Response.Body,
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
-                bufferSize: 16 * 1024,
+                bufferSize: 256,
                 leaveOpen: true);
 
             async Task WriteSseAsync(AgUiEvent evt, CancellationToken token)

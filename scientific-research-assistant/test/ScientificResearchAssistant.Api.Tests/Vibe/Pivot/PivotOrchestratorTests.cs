@@ -119,7 +119,7 @@ public sealed class PivotOrchestratorTests
     public void ShouldPreserveNode_WithMatchingAspect_ReturnsTrue()
     {
         // Arrange
-        var node = CreateNodeWithDescription("node1", KnowledgeNodeKind.Knowledge, PivotNodeStatus.Active, "CNN架构分析与优化");
+        var node = (KnowledgeNode)CreateNodeWithDescription("node1", KnowledgeNodeKind.Knowledge, PivotNodeStatus.Active, "CNN架构分析与优化");
         var preserveAspects = new List<string> { "CNN" };
         var orchestrator = CreateOrchestrator();
 
@@ -134,7 +134,7 @@ public sealed class PivotOrchestratorTests
     public void ShouldPreserveNode_WithNoMatchingAspect_ReturnsFalse()
     {
         // Arrange
-        var node = CreateNodeWithDescription("node1", KnowledgeNodeKind.Knowledge, PivotNodeStatus.Active, "自然语言处理研究");
+        var node = (KnowledgeNode)CreateNodeWithDescription("node1", KnowledgeNodeKind.Knowledge, PivotNodeStatus.Active, "自然语言处理研究");
         var preserveAspects = new List<string> { "CNN", "图像" };
         var orchestrator = CreateOrchestrator();
 
@@ -149,7 +149,7 @@ public sealed class PivotOrchestratorTests
     public void ShouldPreserveNode_WithDirectionContextMatch_ReturnsTrue()
     {
         // Arrange
-        var node = CreateNodeWithDirectionContext("node1", KnowledgeNodeKind.Knowledge, PivotNodeStatus.Active, "深度学习基础架构");
+        var node = (KnowledgeNode)CreateNodeWithDirectionContext("node1", KnowledgeNodeKind.Knowledge, PivotNodeStatus.Active, "深度学习基础架构");
         var preserveAspects = new List<string> { "架构" };
         var orchestrator = CreateOrchestrator();
 
@@ -164,7 +164,7 @@ public sealed class PivotOrchestratorTests
     public void ShouldPreserveNode_WithEmptyPreserveAspects_ReturnsFalse()
     {
         // Arrange
-        var node = CreateNode("node1", KnowledgeNodeKind.Knowledge, PivotNodeStatus.Active);
+        var node = (KnowledgeNode)CreateNode("node1", KnowledgeNodeKind.Knowledge, PivotNodeStatus.Active);
         var preserveAspects = new List<string>();
         var orchestrator = CreateOrchestrator();
 
@@ -216,7 +216,6 @@ public sealed class PivotOrchestratorTests
             Arg.Any<KnowledgeNodeType>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
-            Arg.Any<KnowledgeNodeKind?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
@@ -225,7 +224,7 @@ public sealed class PivotOrchestratorTests
             Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(CreateNode("updated", KnowledgeNodeKind.Plan, PivotNodeStatus.Cancelled)));
+            .Returns(Task.FromResult((KnowledgeNode)CreateNode("updated", KnowledgeNodeKind.Knowledge, PivotNodeStatus.Cancelled)));
 
         var orchestrator = CreateOrchestrator();
 
@@ -242,7 +241,6 @@ public sealed class PivotOrchestratorTests
             Arg.Any<KnowledgeNodeType>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
-            Arg.Any<KnowledgeNodeKind?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
@@ -257,36 +255,17 @@ public sealed class PivotOrchestratorTests
     public async Task CreatePlanNodeAsync_CreatesNodeWithPlanKind()
     {
         // Arrange
-        var createdNode = CreateNode("newplan1", KnowledgeNodeKind.Plan, PivotNodeStatus.Active);
-        _graphClient.AddNodeAsync(
-            Arg.Any<string>(),
-            Arg.Any<KnowledgeNodeType>(),
+        var createdPlanNode = (PlanNode)CreateNode("newplan1", KnowledgeNodeKind.Plan, PivotNodeStatus.Active);
+        _graphClient.CreatePlanNodeAsync(
             Arg.Any<string>(),
             Arg.Any<string>(),
-            KnowledgeNodeKind.Plan,
+            Arg.Any<string>(),
             Arg.Any<string?>(),
-            Arg.Any<string?>(),
-            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<IEnumerable<string>?>(),
             Arg.Any<IEnumerable<string>?>(),
             Arg.Any<CancellationToken>())
-            .Returns(createdNode);
-
-        // Also mock UpsertNodeAsync for direction context update
-        _graphClient.UpsertNodeAsync(
-            Arg.Any<string>(),
-            Arg.Any<KnowledgeNodeType>(),
-            Arg.Any<string?>(),
-            Arg.Any<string?>(),
-            Arg.Any<KnowledgeNodeKind?>(),
-            Arg.Any<string?>(),
-            Arg.Any<string?>(),
-            Arg.Any<string?>(),
-            Arg.Any<PivotNodeStatus?>(),
-            Arg.Any<DateTimeOffset?>(),
-            Arg.Any<string?>(),
-            Arg.Any<string?>(),
-            Arg.Any<CancellationToken>())
-            .Returns(createdNode);
+            .Returns(createdPlanNode);
 
         var orchestrator = CreateOrchestrator();
 
@@ -294,24 +273,21 @@ public sealed class PivotOrchestratorTests
         var result = await orchestrator.CreatePlanNodeAsync(
             "session1",
             "newplan1",
-            KnowledgeNodeType.ResearchHypothesis,
             "新研究计划",
             "详细描述",
             directionContext: "新方向");
 
         // Assert
         result.ShouldNotBeNull();
-        result.Kind.ShouldBe(KnowledgeNodeKind.Plan);
+        result.ShouldBeOfType<PlanNode>();
 
-        await _graphClient.Received().AddNodeAsync(
+        await _graphClient.Received().CreatePlanNodeAsync(
             "newplan1",
-            KnowledgeNodeType.ResearchHypothesis,
             "新研究计划",
             "详细描述",
-            KnowledgeNodeKind.Plan,
             Arg.Any<string?>(),
-            Arg.Any<string?>(),
-            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<IEnumerable<string>?>(),
             Arg.Any<IEnumerable<string>?>(),
             Arg.Any<CancellationToken>());
     }
@@ -348,7 +324,8 @@ public sealed class PivotOrchestratorTests
         var snapshot = new KnowledgeSnapshot
         {
             SessionId = "session1",
-            Nodes = [],
+            PlanNodes = [],
+            KnowledgeNodes = [],
             Edges = []
         };
         SetupSnapshot(snapshot);
@@ -370,52 +347,87 @@ public sealed class PivotOrchestratorTests
                 30));
     }
 
-    private KnowledgeSnapshot CreateSnapshot(KnowledgeNode[] nodes)
+    private KnowledgeSnapshot CreateSnapshot(IGraphNode[] nodes)
     {
         return new KnowledgeSnapshot
         {
             SessionId = "session1",
-            Nodes = nodes.ToList(),
+            PlanNodes = nodes.OfType<PlanNode>().ToList(),
+            KnowledgeNodes = nodes.OfType<KnowledgeNode>().ToList(),
             Edges = []
         };
     }
 
-    private KnowledgeNode CreateNode(string id, KnowledgeNodeKind kind, PivotNodeStatus pivotStatus)
+    private IGraphNode CreateNode(string id, KnowledgeNodeKind kind, PivotNodeStatus pivotStatus)
     {
+        if (kind == KnowledgeNodeKind.Plan)
+        {
+            return new PlanNode
+            {
+                Id = id,
+                SessionId = "session1",
+                CoreDescription = $"Node {id}",
+                DetailedDescription = $"Detailed {id}",
+                PivotStatus = pivotStatus,
+                Status = PlanNodeStatus.Pending
+            };
+        }
         return new KnowledgeNode
         {
             Id = id,
             SessionId = "session1",
             NodeType = KnowledgeNodeType.Generic,
-            Kind = kind,
             CoreDescription = $"Node {id}",
             DetailedDescription = $"Detailed {id}",
             PivotStatus = pivotStatus
         };
     }
 
-    private KnowledgeNode CreateNodeWithDescription(string id, KnowledgeNodeKind kind, PivotNodeStatus pivotStatus, string coreDescription)
+    private IGraphNode CreateNodeWithDescription(string id, KnowledgeNodeKind kind, PivotNodeStatus pivotStatus, string coreDescription)
     {
+        if (kind == KnowledgeNodeKind.Plan)
+        {
+            return new PlanNode
+            {
+                Id = id,
+                SessionId = "session1",
+                CoreDescription = coreDescription,
+                DetailedDescription = $"Detailed {id}",
+                PivotStatus = pivotStatus,
+                Status = PlanNodeStatus.Pending
+            };
+        }
         return new KnowledgeNode
         {
             Id = id,
             SessionId = "session1",
             NodeType = KnowledgeNodeType.Generic,
-            Kind = kind,
             CoreDescription = coreDescription,
             DetailedDescription = $"Detailed {id}",
             PivotStatus = pivotStatus
         };
     }
 
-    private KnowledgeNode CreateNodeWithDirectionContext(string id, KnowledgeNodeKind kind, PivotNodeStatus pivotStatus, string directionContext)
+    private IGraphNode CreateNodeWithDirectionContext(string id, KnowledgeNodeKind kind, PivotNodeStatus pivotStatus, string directionContext)
     {
+        if (kind == KnowledgeNodeKind.Plan)
+        {
+            return new PlanNode
+            {
+                Id = id,
+                SessionId = "session1",
+                CoreDescription = $"Node {id}",
+                DetailedDescription = $"Detailed {id}",
+                PivotStatus = pivotStatus,
+                Status = PlanNodeStatus.Pending,
+                DirectionContext = directionContext
+            };
+        }
         return new KnowledgeNode
         {
             Id = id,
             SessionId = "session1",
             NodeType = KnowledgeNodeType.Generic,
-            Kind = kind,
             CoreDescription = $"Node {id}",
             DetailedDescription = $"Detailed {id}",
             PivotStatus = pivotStatus,

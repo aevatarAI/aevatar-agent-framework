@@ -21,9 +21,9 @@ public sealed class DagGroundingOptions
 
     /// <summary>
     /// Minimal attestation count required for a node to be considered grounded.
-    /// <para>Default: 1 (any attestation).</para>
+    /// <para>Default: 0 (all knowledge nodes are included for cross-session sharing).</para>
     /// </summary>
-    public int MinAttestations { get; set; } = 1;
+    public int MinAttestations { get; set; } = 0;
 
     /// <summary>
     /// If non-empty, at least one attestation pubkey must match one of these values.

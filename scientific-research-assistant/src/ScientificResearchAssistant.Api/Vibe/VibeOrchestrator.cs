@@ -39,6 +39,11 @@ internal sealed partial class VibeOrchestrator
     private static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
 
     private readonly ResearchRuntime _runtime;
+
+    /// <summary>
+    /// Expose runtime for milestone evaluation (verifier agent access).
+    /// </summary>
+    public ResearchRuntime Runtime => _runtime;
     private readonly MaterialsService _materials;
     private readonly WorkspaceService _workspace;
     private readonly BriefStore _brief;
@@ -133,7 +138,7 @@ internal sealed partial class VibeOrchestrator
         // ------------------------------------------------------------
         // Shared DAG binding (cross-session)
         // ------------------------------------------------------------
-        var dagId = string.IsNullOrWhiteSpace(session.DagId) ? session.Id : session.DagId.Trim();
+        var dagId = session.EffectiveDagId;
 
         // Load File-SSoT context (best-effort).
         var dagSnap = await _dag.LoadSnapshotAsync(dagId, ct);
@@ -402,31 +407,8 @@ internal sealed partial class VibeOrchestrator
         }
 
         // ------------------------------------------------------------
-        // Step: Persist plan into DAG (as "plan" nodes)
-        //
-        // 中文说明：
-        // - vibe researching 的目标是“往 DAG 上增量写知识”
-        // - 但在开始研究前，我们先把本轮 plan 落到 DAG（便于审阅/回放/可视化）
-        // - plan 节点不走 verifier-quorum 共识（MVP）；仍保持知识写入走共识门控
-        // ------------------------------------------------------------
-        try
-        {
-            var m = BuildPlanDagMutation(session.Id, runId, question, plan);
-            if (m != null)
-            {
-                dagSnap = await _dag.ApplyMutationAsync(dagId, m, ct);
-                session.Events.Publish(new CustomEvent
-                {
-                    Timestamp = NowMs(),
-                    Name = "aevatar.vibe.plan_dag_written",
-                    Value = new { sessionId = session.Id, dagId, runId, mutationId = m.MutationId }
-                });
-            }
-        }
-        catch
-        {
-            // best-effort only
-        }
+        // Round Plan节点已移除：Milestone节点才是真正的Plan，Round Plan是冗余的元数据。
+        // 如需恢复，参见 BuildPlanDagMutation 方法。
 
         session.Events.Publish(new StepFinishedEvent
         {
@@ -990,12 +972,24 @@ internal sealed partial class VibeOrchestrator
 
         // Stable-ish ids: upsert the same milestone nodes across runs for the same session.
         // (If brief is rewritten, these nodes will be updated, not duplicated.)
+        //
+        // 中文说明：
+        // - 按 roundIndex 排序 milestones，确保顺序正确
+        // - 收集 nodeIds 以便后续创建 edges
+        var sortedMilestones = brief.Milestones
+            .Where(ms => !string.IsNullOrWhiteSpace(ms.ExpectedOutput))
+            .OrderBy(ms => ms.RoundIndex)
+            .Take(12)
+            .ToList();
+
+        var nodeIds = new List<string>(capacity: sortedMilestones.Count);
         var idx = 0;
-        foreach (var ms in brief.Milestones.Take(12))
+
+        foreach (var ms in sortedMilestones)
         {
             idx++;
-            var roundIndex = ms?.RoundIndex ?? 0;
-            var expected = (ms?.ExpectedOutput ?? string.Empty).Replace("\r", "").Trim();
+            var roundIndex = ms.RoundIndex;
+            var expected = (ms.ExpectedOutput ?? string.Empty).Replace("\r", "").Trim();
             if (expected.Length == 0) continue;
 
             var suffix = roundIndex > 0 ? $"r{roundIndex}" : $"i{idx}";
@@ -1030,9 +1024,32 @@ internal sealed partial class VibeOrchestrator
             node.Tags["author"] = "research_assistant";
             node.Tags["planKind"] = "milestone";
             node.Tags["milestoneRoundIndex"] = roundIndex.ToString();
+            node.Tags["sequentialOrder"] = idx.ToString();
 
             m.UpsertNodes.Add(node);
-            if (m.UpsertNodes.Count >= 12) break;
+            nodeIds.Add(nodeId);
+        }
+
+        // ------------------------------------------------------------
+        // Create edges to connect milestones in sequential order
+        //
+        // 中文说明：
+        // - 按顺序连接 milestone nodes: node[i] -> node[i+1]
+        // - DAG 语义: fromId (dependency) -> toId (dependent)
+        // - 即 Round 1 是 Round 2 的依赖，Round 2 是 Round 3 的依赖...
+        // ------------------------------------------------------------
+        for (var i = 0; i < nodeIds.Count - 1; i++)
+        {
+            var fromId = nodeIds[i];     // Earlier milestone (dependency)
+            var toId = nodeIds[i + 1];   // Later milestone (dependent)
+
+            m.UpsertEdges.Add(new SraDagEdge
+            {
+                FromId = fromId,
+                ToId = toId,
+                Type = "depends_on",
+                UpdatedAt = now
+            });
         }
 
         return m.UpsertNodes.Count == 0 ? null : m;

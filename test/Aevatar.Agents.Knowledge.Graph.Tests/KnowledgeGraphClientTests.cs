@@ -64,8 +64,9 @@ public class KnowledgeGraphClientTests
         // Verify retrieval from store
         var retrieved = await client.GetNodeAsync("theorem-1");
         retrieved.ShouldNotBeNull();
-        retrieved.DetailedDescription.ShouldBe(node.DetailedDescription);
-        retrieved.Proof.ShouldBe(node.Proof);
+        var retrievedKnowledge = (KnowledgeNode)retrieved!;
+        retrievedKnowledge.DetailedDescription.ShouldBe(node.DetailedDescription);
+        retrievedKnowledge.Proof.ShouldBe(node.Proof);
     }
 
     [Fact]
@@ -194,7 +195,8 @@ public class KnowledgeGraphClientTests
 
         fetched.ShouldNotBeNull();
         fetched!.Id.ShouldBe(created.Id);
-        fetched.NodeType.ShouldBe(KnowledgeNodeType.MathAxiom);
+        var fetchedKnowledge = (KnowledgeNode)fetched;
+        fetchedKnowledge.NodeType.ShouldBe(KnowledgeNodeType.MathAxiom);
     }
 
     [Fact]
@@ -224,8 +226,10 @@ public class KnowledgeGraphClientTests
 
         node1.ShouldNotBeNull();
         node2.ShouldNotBeNull();
-        node1!.NodeType.ShouldBe(KnowledgeNodeType.MathAxiom);
-        node2!.NodeType.ShouldBe(KnowledgeNodeType.BiologyExperiment);
+        var knowledge1 = (KnowledgeNode)node1!;
+        var knowledge2 = (KnowledgeNode)node2!;
+        knowledge1.NodeType.ShouldBe(KnowledgeNodeType.MathAxiom);
+        knowledge2.NodeType.ShouldBe(KnowledgeNodeType.BiologyExperiment);
     }
 
     [Fact]
@@ -567,7 +571,7 @@ public class KnowledgeGraphClientTests
 
         snapshot.NodeCount.ShouldBe(0);
         snapshot.EdgeCount.ShouldBe(0);
-        snapshot.Nodes.ShouldBeEmpty();
+        snapshot.AllNodes.ShouldBeEmpty();
         snapshot.Edges.ShouldBeEmpty();
     }
 
@@ -596,7 +600,8 @@ public class KnowledgeGraphClientTests
         {
             var retrieved = await client.GetNodeAsync(node.Id);
             retrieved.ShouldNotBeNull();
-            retrieved!.NodeType.ShouldBe(node.NodeType);
+            var retrievedKnowledge = (KnowledgeNode)retrieved!;
+            retrievedKnowledge.NodeType.ShouldBe(node.NodeType);
         }
     }
 

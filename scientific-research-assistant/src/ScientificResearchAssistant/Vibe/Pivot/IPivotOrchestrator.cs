@@ -35,7 +35,7 @@ public interface IPivotOrchestrator
     Task<(IReadOnlyList<string> Cancelled, IReadOnlyList<string> Preserved, IReadOnlyList<string> Superseded)>
         ClassifyNodesForPivotAsync(
             IKnowledgeGraphClient client,
-            KnowledgeSnapshot snapshot,
+            GraphSnapshot snapshot,
             DirectionChangeIntent intent,
             string pivotId,
             CancellationToken cancellationToken = default);
@@ -53,17 +53,15 @@ public interface IPivotOrchestrator
     /// </summary>
     /// <param name="sessionId">Session identifier.</param>
     /// <param name="nodeId">Unique node identifier.</param>
-    /// <param name="nodeType">Type of knowledge node.</param>
     /// <param name="coreDescription">Core description of the plan.</param>
     /// <param name="detailedDescription">Detailed description.</param>
     /// <param name="directionContext">Research direction context.</param>
     /// <param name="dependsOn">Optional dependencies.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The created knowledge node.</returns>
-    Task<KnowledgeNode> CreatePlanNodeAsync(
+    /// <returns>The created plan node.</returns>
+    Task<PlanNode> CreatePlanNodeAsync(
         string sessionId,
         string nodeId,
-        KnowledgeNodeType nodeType,
         string coreDescription,
         string detailedDescription,
         string? directionContext = null,

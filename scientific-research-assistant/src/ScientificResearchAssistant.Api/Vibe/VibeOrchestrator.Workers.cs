@@ -68,6 +68,52 @@ internal sealed partial class VibeOrchestrator
     }
 
     // ============================================================
+    //  Agent Status Reporting
+    // ============================================================
+
+    /// <summary>
+    /// Emit an agent status report event for real-time UI updates.
+    /// Status text should be a brief, human-readable description of current work.
+    /// </summary>
+    private static void EmitAgentStatusReport(
+        ResearchSession session,
+        string agentName,
+        string statusText,
+        double? progress = null)
+    {
+        session.Events.Publish(new CustomEvent
+        {
+            Timestamp = NowMs(),
+            Name = VibeEventNames.AgentStatusReport,
+            Value = new
+            {
+                agentId = agentName,
+                agentName,
+                statusText,
+                progress,
+                sessionId = session.Id
+            }
+        });
+    }
+
+    // Agent-specific status messages
+    private static class AgentStatusMessages
+    {
+        public const string PlannerStart = "正在分析研究问题，制定研究计划...";
+        public const string PlannerStreaming = "正在输出研究计划...";
+        public const string ReasonerStart = "正在进行深度推理分析...";
+        public const string ReasonerStreaming = "正在构建推理链...";
+        public const string LibrarianStart = "正在搜索相关文献和参考资料...";
+        public const string LibrarianStreaming = "正在整理文献摘要...";
+        public const string VerifierStart = "正在验证推理步骤的正确性...";
+        public const string VerifierStreaming = "正在检查边界条件...";
+        public const string DagBuilderStart = "正在构建知识图谱节点...";
+        public const string DagBuilderStreaming = "正在生成 DAG 结构...";
+        public const string PaperEditorStart = "正在更新论文草稿...";
+        public const string PaperEditorStreaming = "正在编辑论文内容...";
+    }
+
+    // ============================================================
     //  Workers
     // ============================================================
 
@@ -82,6 +128,7 @@ internal sealed partial class VibeOrchestrator
         CancellationToken ct)
     {
         session.Events.Publish(new StepStartedEvent { Timestamp = NowMs(), StepName = "vibe.planner" });
+        EmitAgentStatusReport(session, "planner", AgentStatusMessages.PlannerStart);
         var messageId = $"msg:{session.Id}:planner:{runId}";
         StartAgentMessage(session, messageId, agent: "planner", stepName: "vibe.planner", providerName: providerName);
 
@@ -138,6 +185,7 @@ internal sealed partial class VibeOrchestrator
         CancellationToken ct)
     {
         session.Events.Publish(new StepStartedEvent { Timestamp = NowMs(), StepName = "vibe.reasoner" });
+        EmitAgentStatusReport(session, "reasoner", AgentStatusMessages.ReasonerStart);
         var messageId = $"msg:{session.Id}:reasoner:{runId}";
         StartAgentMessage(session, messageId, agent: "reasoner", stepName: "vibe.reasoner", providerName: providerName);
 
@@ -209,6 +257,7 @@ internal sealed partial class VibeOrchestrator
         CancellationToken ct)
     {
         session.Events.Publish(new StepStartedEvent { Timestamp = NowMs(), StepName = "vibe.librarian" });
+        EmitAgentStatusReport(session, "librarian", AgentStatusMessages.LibrarianStart);
         var messageId = $"msg:{session.Id}:librarian:{runId}";
         StartAgentMessage(session, messageId, agent: "librarian", stepName: "vibe.librarian", providerName: providerName);
 
@@ -276,6 +325,7 @@ internal sealed partial class VibeOrchestrator
         CancellationToken ct)
     {
         session.Events.Publish(new StepStartedEvent { Timestamp = NowMs(), StepName = "vibe.verifier" });
+        EmitAgentStatusReport(session, "verifier", AgentStatusMessages.VerifierStart);
         var messageId = $"msg:{session.Id}:verifier:{runId}";
         StartAgentMessage(session, messageId, agent: "verifier", stepName: "vibe.verifier", providerName: providerName);
 
@@ -345,6 +395,7 @@ internal sealed partial class VibeOrchestrator
         CancellationToken ct)
     {
         session.Events.Publish(new StepStartedEvent { Timestamp = NowMs(), StepName = "vibe.dag_builder" });
+        EmitAgentStatusReport(session, "dag_builder", AgentStatusMessages.DagBuilderStart);
         var messageId = $"msg:{session.Id}:dag_builder:{runId}";
         StartAgentMessage(session, messageId, agent: "dag_builder", stepName: "vibe.dag_builder", providerName: providerName);
 
@@ -427,6 +478,7 @@ internal sealed partial class VibeOrchestrator
         CancellationToken ct)
     {
         session.Events.Publish(new StepStartedEvent { Timestamp = NowMs(), StepName = "vibe.paper_editor" });
+        EmitAgentStatusReport(session, "paper_editor", AgentStatusMessages.PaperEditorStart);
         var messageId = $"msg:{session.Id}:paper_editor:{runId}";
         StartAgentMessage(session, messageId, agent: "paper_editor", stepName: "vibe.paper_editor", providerName: providerName);
 

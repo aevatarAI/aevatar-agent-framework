@@ -43,7 +43,7 @@ public sealed class PivotSnapshotManager : IPivotSnapshotManager
         var client = _clientFactory.CreateClient(sessionId);
 
         // Capture the current graph state
-        var snapshot = await client.GetKnowledgeSnapshotAsync(cancellationToken);
+        var snapshot = await client.GetGraphSnapshotAsync(cancellationToken);
 
         // Create snapshot metadata
         var metadata = PivotSnapshotMetadata.Create(
@@ -141,11 +141,11 @@ public sealed class PivotSnapshotManager : IPivotSnapshotManager
             var client = _clientFactory.CreateClient(sessionId);
 
             // Get current state to compare
-            var currentSnapshot = await client.GetKnowledgeSnapshotAsync(cancellationToken);
+            var currentSnapshot = await client.GetGraphSnapshotAsync(cancellationToken);
 
             // Calculate differences
-            var originalNodeIds = snapshot.Snapshot.Nodes.Select(n => n.Id).ToHashSet();
-            var currentNodeIds = currentSnapshot.Nodes.Select(n => n.Id).ToHashSet();
+            var originalNodeIds = snapshot.Snapshot.AllNodes.Select(n => n.Id).ToHashSet();
+            var currentNodeIds = currentSnapshot.AllNodes.Select(n => n.Id).ToHashSet();
 
             // Nodes to remove (created after pivot)
             var newNodeIds = currentNodeIds.Except(originalNodeIds).ToList();
@@ -155,9 +155,9 @@ public sealed class PivotSnapshotManager : IPivotSnapshotManager
             var preservedNewCount = 0;
 
             // Restore cancelled nodes
-            foreach (var originalNode in snapshot.Snapshot.Nodes)
+            foreach (var originalNode in snapshot.Snapshot.AllNodes)
             {
-                var currentNode = currentSnapshot.Nodes.FirstOrDefault(n => n.Id == originalNode.Id);
+                var currentNode = currentSnapshot.AllNodes.FirstOrDefault(n => n.Id == originalNode.Id);
 
                 // Skip if node doesn't exist or hasn't changed
                 if (currentNode == null)
@@ -169,9 +169,12 @@ public sealed class PivotSnapshotManager : IPivotSnapshotManager
                 if (currentNode.PivotStatus == PivotNodeStatus.Cancelled ||
                     currentNode.PivotStatus == PivotNodeStatus.Superseded)
                 {
+                    // Get node type - KnowledgeNode has NodeType, PlanNode uses Generic
+                    var nodeType = originalNode is KnowledgeNode kn ? kn.NodeType : KnowledgeNodeType.Generic;
+
                     await client.UpsertNodeAsync(
                         originalNode.Id,
-                        originalNode.NodeType,
+                        nodeType,
                         pivotStatus: originalNode.PivotStatus,
                         directionContext: originalNode.DirectionContext,
                         cancellationToken: cancellationToken);
@@ -181,15 +184,16 @@ public sealed class PivotSnapshotManager : IPivotSnapshotManager
             }
 
             // Handle new nodes (created after pivot)
+            var currentKnowledgeNodeIds = currentSnapshot.KnowledgeNodes.Select(n => n.Id).ToHashSet();
             foreach (var newNodeId in newNodeIds)
             {
-                var newNode = currentSnapshot.Nodes.FirstOrDefault(n => n.Id == newNodeId);
+                var newNode = currentSnapshot.AllNodes.FirstOrDefault(n => n.Id == newNodeId);
                 if (newNode == null)
                 {
                     continue;
                 }
 
-                if (request.PreserveNewCompleted && newNode.Kind == KnowledgeNodeKind.Knowledge)
+                if (request.PreserveNewCompleted && currentKnowledgeNodeIds.Contains(newNodeId))
                 {
                     // Preserve completed knowledge nodes
                     preservedNewCount++;

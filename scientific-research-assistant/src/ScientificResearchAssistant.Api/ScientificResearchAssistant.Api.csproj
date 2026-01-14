@@ -12,6 +12,7 @@
         <ProjectReference Include="../../../src/Aevatar.Agents.AI.Core/Aevatar.Agents.AI.Core.csproj" />
         <ProjectReference Include="../../../src/Aevatar.Agents.Knowledge.Graph/Aevatar.Agents.Knowledge.Graph.csproj" />
         <ProjectReference Include="../../../src/Aevatar.Agents.Persistence.InMemory.Graph/Aevatar.Agents.Persistence.InMemory.Graph.csproj" />
+        <ProjectReference Include="../../../src/Aevatar.Agents.Persistence.Neo4j.Graph/Aevatar.Agents.Persistence.Neo4j.Graph.csproj" />
         <ProjectReference Include="../../../src/Aevatar.Agents.Runtime.Local/Aevatar.Agents.Runtime.Local.csproj" />
         <ProjectReference Include="../../../cognitive-mesh/Aevatar.CognitiveMesh/Aevatar.CognitiveMesh.csproj" />
         <!-- Reference the existing CLI project to reuse ResearchAgent (or we can move Agent to shared lib, but linking file is easier for demo) -->

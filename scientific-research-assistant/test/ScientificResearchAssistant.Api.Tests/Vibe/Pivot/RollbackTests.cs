@@ -53,7 +53,7 @@ public sealed class RollbackTests
         metadata.SessionId.ShouldBe("session1");
         metadata.PivotId.ShouldBe("pivot1");
         metadata.DirectionSummary.ShouldBe("研究方向A");
-        metadata.Snapshot.Nodes.Count.ShouldBe(2);
+        metadata.Snapshot.AllNodes.Count().ShouldBe(2);
         metadata.IsValid.ShouldBeTrue();
     }
 
@@ -148,7 +148,6 @@ public sealed class RollbackTests
             Arg.Any<KnowledgeNodeType>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
-            Arg.Any<KnowledgeNodeKind?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
@@ -157,7 +156,7 @@ public sealed class RollbackTests
             Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<CancellationToken>())
-            .Returns(CreateNode("updated", KnowledgeNodeKind.Plan, PivotNodeStatus.Active));
+            .Returns(Task.FromResult((KnowledgeNode)CreateNode("updated", KnowledgeNodeKind.Knowledge, PivotNodeStatus.Active)));
 
         var manager = CreateManager();
         await manager.CreateSnapshotAsync("session1", "pivot1", "old direction");
@@ -204,7 +203,6 @@ public sealed class RollbackTests
             Arg.Any<KnowledgeNodeType>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
-            Arg.Any<KnowledgeNodeKind?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
@@ -213,7 +211,7 @@ public sealed class RollbackTests
             Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<CancellationToken>())
-            .Returns(CreateNode("updated", KnowledgeNodeKind.Knowledge, PivotNodeStatus.Active));
+            .Returns(Task.FromResult((KnowledgeNode)CreateNode("updated", KnowledgeNodeKind.Knowledge, PivotNodeStatus.Active)));
 
         var manager = CreateManager();
         await manager.CreateSnapshotAsync("session1", "pivot1", "old direction");
@@ -260,7 +258,6 @@ public sealed class RollbackTests
             Arg.Any<KnowledgeNodeType>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
-            Arg.Any<KnowledgeNodeKind?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
@@ -269,7 +266,7 @@ public sealed class RollbackTests
             Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<CancellationToken>())
-            .Returns(CreateNode("updated", KnowledgeNodeKind.Knowledge, PivotNodeStatus.Active));
+            .Returns(Task.FromResult((KnowledgeNode)CreateNode("updated", KnowledgeNodeKind.Knowledge, PivotNodeStatus.Active)));
 
         var manager = CreateManager();
         await manager.CreateSnapshotAsync("session1", "pivot1", "old direction");
@@ -463,32 +460,45 @@ public sealed class RollbackTests
             .Returns(new KnowledgeSnapshot
             {
                 SessionId = "session1",
-                Nodes = new List<KnowledgeNode>(),
+                PlanNodes = new List<PlanNode>(),
+                KnowledgeNodes = new List<KnowledgeNode>(),
                 Edges = new List<KnowledgeEdge>()
             });
     }
 
-    private static KnowledgeSnapshot CreateSnapshot(KnowledgeNode[] nodes)
+    private static KnowledgeSnapshot CreateSnapshot(IGraphNode[] nodes)
     {
         return new KnowledgeSnapshot
         {
             SessionId = "session1",
-            Nodes = nodes.ToList(),
+            PlanNodes = nodes.OfType<PlanNode>().ToList(),
+            KnowledgeNodes = nodes.OfType<KnowledgeNode>().ToList(),
             Edges = new List<KnowledgeEdge>()
         };
     }
 
-    private static KnowledgeNode CreateNode(
+    private static IGraphNode CreateNode(
         string id,
         KnowledgeNodeKind kind,
         PivotNodeStatus pivotStatus = PivotNodeStatus.Active)
     {
+        if (kind == KnowledgeNodeKind.Plan)
+        {
+            return new PlanNode
+            {
+                Id = id,
+                SessionId = "session1",
+                CoreDescription = $"Node {id}",
+                DetailedDescription = $"Detailed {id}",
+                PivotStatus = pivotStatus,
+                Status = PlanNodeStatus.Pending
+            };
+        }
         return new KnowledgeNode
         {
             Id = id,
             SessionId = "session1",
             NodeType = KnowledgeNodeType.Generic,
-            Kind = kind,
             CoreDescription = $"Node {id}",
             DetailedDescription = $"Detailed {id}",
             PivotStatus = pivotStatus

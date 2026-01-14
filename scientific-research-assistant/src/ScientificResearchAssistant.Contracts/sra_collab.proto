@@ -267,6 +267,7 @@ message SraDagNode {
   SraDagNodeKind kind = 6;            // knowledge vs plan (for grounding / filtering)
   string owner = 7;                   // optional: owner public key (hex/base64)
   repeated SraDagAttestation attestations = 8; // verifier signatures / confirmations
+  string session_id = 9;              // source session ID (for cross-session rendering)
   map<string, string> tags = 100;     // optional lightweight labels
 }
 

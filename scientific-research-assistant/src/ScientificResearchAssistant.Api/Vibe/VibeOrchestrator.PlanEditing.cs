@@ -142,6 +142,7 @@ internal sealed partial class VibeOrchestrator
             m.Labels["source"] = "user_chat";
 
             var desiredIds = new HashSet<string>(StringComparer.Ordinal);
+            var nodeIds = new List<string>(capacity: items.Count); // Collect node IDs for edge creation
             var i = 0;
             foreach (var it in items)
             {
@@ -150,6 +151,7 @@ internal sealed partial class VibeOrchestrator
                 var nodeId = SanitizeId($"plan_{session.Id}_ms_{suffix}");
                 if (nodeId.Length == 0) nodeId = $"plan_{Guid.NewGuid():N}";
                 desiredIds.Add(nodeId);
+                nodeIds.Add(nodeId);
 
                 var label = it.round > 0
                     ? $"Milestone (Round {it.round}): {Bound(it.expected, 160)}"
@@ -172,6 +174,23 @@ internal sealed partial class VibeOrchestrator
                 node.Tags["milestoneRoundIndex"] = it.round.ToString();
                 node.Tags["deleted"] = "false";
                 m.UpsertNodes.Add(node);
+            }
+
+            // Create edges to connect milestones in sequential order.
+            // DAG semantics: fromId (dependency) -> toId (dependent)
+            // i.e., Round 1 is dependency of Round 2, Round 2 is dependency of Round 3, etc.
+            for (var j = 0; j < nodeIds.Count - 1; j++)
+            {
+                var fromId = nodeIds[j];     // Earlier milestone (dependency)
+                var toId = nodeIds[j + 1];   // Later milestone (dependent)
+
+                m.UpsertEdges.Add(new SraDagEdge
+                {
+                    FromId = fromId,
+                    ToId = toId,
+                    Type = "depends_on",
+                    UpdatedAt = now
+                });
             }
 
             // Mark removed milestone nodes (for this session) as deleted=true so they stop showing up.

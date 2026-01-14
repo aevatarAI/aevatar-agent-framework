@@ -107,7 +107,7 @@ public sealed class PivotOrchestrator : IPivotOrchestrator
     public async Task<(IReadOnlyList<string> Cancelled, IReadOnlyList<string> Preserved, IReadOnlyList<string> Superseded)>
         ClassifyNodesForPivotAsync(
             IKnowledgeGraphClient client,
-            KnowledgeSnapshot snapshot,
+            GraphSnapshot snapshot,
             DirectionChangeIntent intent,
             string pivotId,
             CancellationToken cancellationToken = default)
@@ -116,7 +116,7 @@ public sealed class PivotOrchestrator : IPivotOrchestrator
         var preserved = new List<string>();
         var superseded = new List<string>();
 
-        foreach (var node in snapshot.Nodes)
+        foreach (var node in snapshot.AllNodes)
         {
             // Skip already cancelled nodes
             if (node.PivotStatus == PivotNodeStatus.Cancelled)
@@ -125,19 +125,20 @@ public sealed class PivotOrchestrator : IPivotOrchestrator
             }
 
             // Check if node should be preserved based on PreserveAspects
-            if (ShouldPreserveNode(node, intent.PreserveAspects))
+            // Both PlanNodes and KnowledgeNodes can be preserved based on their descriptions
+            if (ShouldPreserveNodeInternal(node, intent.PreserveAspects))
             {
                 preserved.Add(node.Id);
                 continue;
             }
 
-            // Classify based on node kind
-            if (node.Kind == KnowledgeNodeKind.Plan && node.PivotStatus == PivotNodeStatus.Active)
+            // Classify based on node type using pattern matching
+            if (node is PlanNode && node.PivotStatus == PivotNodeStatus.Active)
             {
                 // Pending plan nodes should be cancelled
                 cancelled.Add(node.Id);
             }
-            else if (node.Kind == KnowledgeNodeKind.Knowledge && node.PivotStatus == PivotNodeStatus.Active)
+            else if (node is KnowledgeNode && node.PivotStatus == PivotNodeStatus.Active)
             {
                 // Completed knowledge nodes should be marked as superseded
                 superseded.Add(node.Id);
@@ -149,6 +150,14 @@ public sealed class PivotOrchestrator : IPivotOrchestrator
 
     /// <inheritdoc />
     public bool ShouldPreserveNode(KnowledgeNode node, IReadOnlyList<string> preserveAspects)
+    {
+        return ShouldPreserveNodeInternal(node, preserveAspects);
+    }
+
+    /// <summary>
+    /// Internal implementation that works with any IGraphNode.
+    /// </summary>
+    private static bool ShouldPreserveNodeInternal(IGraphNode node, IReadOnlyList<string> preserveAspects)
     {
         if (preserveAspects.Count == 0)
         {
@@ -190,7 +199,7 @@ public sealed class PivotOrchestrator : IPivotOrchestrator
 
     private async Task UpdateNodesForPivotAsync(
         IKnowledgeGraphClient client,
-        KnowledgeSnapshot snapshot,
+        GraphSnapshot snapshot,
         IReadOnlyList<string> cancelledIds,
         IReadOnlyList<string> supersededIds,
         string pivotId,
@@ -199,18 +208,21 @@ public sealed class PivotOrchestrator : IPivotOrchestrator
     {
         var now = DateTimeOffset.UtcNow;
 
-        // Cancel pending plan nodes
+        // Cancel nodes (both PlanNodes and KnowledgeNodes)
         foreach (var nodeId in cancelledIds)
         {
-            var node = snapshot.Nodes.FirstOrDefault(n => n.Id == nodeId);
+            var node = snapshot.AllNodes.FirstOrDefault(n => n.Id == nodeId);
             if (node == null)
             {
                 continue;
             }
 
+            // Use UpsertNodeAsync with appropriate type
+            // For PlanNodes, use Generic type; for KnowledgeNodes, use their actual type
+            var nodeType = node is KnowledgeNode kn ? kn.NodeType : KnowledgeNodeType.Generic;
             await client.UpsertNodeAsync(
                 nodeId,
-                node.NodeType,
+                nodeType,
                 pivotStatus: PivotNodeStatus.Cancelled,
                 cancelledAt: now,
                 cancelledByPivotId: pivotId,
@@ -222,17 +234,19 @@ public sealed class PivotOrchestrator : IPivotOrchestrator
         // Mark completed nodes as superseded
         foreach (var nodeId in supersededIds)
         {
-            var node = snapshot.Nodes.FirstOrDefault(n => n.Id == nodeId);
+            var node = snapshot.AllNodes.FirstOrDefault(n => n.Id == nodeId);
             if (node == null)
             {
                 continue;
             }
 
+            var nodeType = node is KnowledgeNode kn ? kn.NodeType : KnowledgeNodeType.Generic;
+            var directionContext = node.DirectionContext ?? intent.NewTopic;
             await client.UpsertNodeAsync(
                 nodeId,
-                node.NodeType,
+                nodeType,
                 pivotStatus: PivotNodeStatus.Superseded,
-                directionContext: node.DirectionContext ?? intent.NewTopic,
+                directionContext: directionContext,
                 cancellationToken: cancellationToken);
 
             _logger.LogDebug("Pivot {PivotId}: Marked node {NodeId} as superseded", pivotId, nodeId);
@@ -240,10 +254,9 @@ public sealed class PivotOrchestrator : IPivotOrchestrator
     }
 
     /// <inheritdoc />
-    public async Task<KnowledgeNode> CreatePlanNodeAsync(
+    public async Task<PlanNode> CreatePlanNodeAsync(
         string sessionId,
         string nodeId,
-        KnowledgeNodeType nodeType,
         string coreDescription,
         string detailedDescription,
         string? directionContext = null,
@@ -252,28 +265,18 @@ public sealed class PivotOrchestrator : IPivotOrchestrator
     {
         var client = _clientFactory.CreateClient(sessionId);
 
-        var node = await client.AddNodeAsync(
+        // Note: directionContext is currently not settable via CreatePlanNodeAsync
+        // It would require extending the API if needed for pivot tracking
+        var node = await client.CreatePlanNodeAsync(
             nodeId,
-            nodeType,
             coreDescription,
             detailedDescription,
-            kind: KnowledgeNodeKind.Plan,
-            dependsOn: dependsOn,
+            dependsOnNodeIds: dependsOn?.ToList(),
             cancellationToken: cancellationToken);
 
-        // Update with pivot-specific fields
-        if (!string.IsNullOrEmpty(directionContext))
-        {
-            node = await client.UpsertNodeAsync(
-                nodeId,
-                nodeType,
-                directionContext: directionContext,
-                cancellationToken: cancellationToken);
-        }
-
         _logger.LogDebug(
-            "Created plan node {NodeId} for session {SessionId} with direction: {Direction}",
-            nodeId, sessionId, directionContext ?? "(none)");
+            "Created plan node {NodeId} for session {SessionId}",
+            nodeId, sessionId);
 
         return node;
     }

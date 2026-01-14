@@ -250,3 +250,88 @@ public sealed record PivotClarificationRequestEvent : AgUiEvent
     public double Confidence { get; init; }
 }
 
+// ─────────────────────────────────────────────────────────────
+//  Agent status reporting
+// ─────────────────────────────────────────────────────────────
+
+/// <summary>
+/// Emitted periodically by agents to report their current work status.
+/// This enables real-time status display in the UI.
+/// <para>
+/// Example status texts:
+/// - "正在分析论文 arXiv:2301.00234 的核心结论..."
+/// - "正在构建从 axiom-1 到 theorem-3 的推导链..."
+/// - "正在验证引理 lemma-7 的边界条件..."
+/// </para>
+/// </summary>
+public sealed record AgentStatusReportEvent : AgUiEvent
+{
+    public override string Type => "AGENT_STATUS_REPORT";
+
+    /// <summary>Unique identifier for the agent.</summary>
+    public required string AgentId { get; init; }
+
+    /// <summary>Display name of the agent.</summary>
+    public required string AgentName { get; init; }
+
+    /// <summary>
+    /// Brief, single-line status text describing current work.
+    /// Should be concise and human-readable.
+    /// </summary>
+    public required string StatusText { get; init; }
+
+    /// <summary>Optional session this agent is working on.</summary>
+    public string? SessionId { get; init; }
+
+    /// <summary>
+    /// Optional progress percentage (0.0 to 1.0).
+    /// Use when the agent can estimate completion.
+    /// </summary>
+    public double? Progress { get; init; }
+}
+
+// ─────────────────────────────────────────────────────────────
+//  Active plan node events
+// ─────────────────────────────────────────────────────────────
+
+/// <summary>
+/// Emitted when the active (executing) plan node changes.
+/// Enables UI to highlight/pulse the currently active plan node.
+/// </summary>
+public sealed record ActivePlanChangedEvent : AgUiEvent
+{
+    public override string Type => "ACTIVE_PLAN_CHANGED";
+
+    /// <summary>Session ID.</summary>
+    public required string SessionId { get; init; }
+
+    /// <summary>The plan node ID that is now active (or null if none).</summary>
+    public string? ActivePlanNodeId { get; init; }
+
+    /// <summary>The plan node ID that was previously active (or null if none).</summary>
+    public string? PreviousPlanNodeId { get; init; }
+}
+
+// ─────────────────────────────────────────────────────────────
+//  Helper: CustomEvent names for aevatar.vibe.* events
+// ─────────────────────────────────────────────────────────────
+
+/// <summary>
+/// Well-known CustomEvent names for the aevatar.vibe namespace.
+/// Use these constants when publishing via CustomEvent for consistency.
+/// </summary>
+public static class VibeEventNames
+{
+    public const string AgentStatusReport = "aevatar.vibe.agent_status_report";
+    public const string ActivePlanChanged = "aevatar.vibe.active_plan_changed";
+    public const string DagUpdated = "aevatar.vibe.dag_updated";
+    public const string PivotDetected = "aevatar.vibe.pivot_detected";
+    public const string PivotStarted = "aevatar.vibe.pivot_initiated";
+    public const string PivotCompleted = "aevatar.vibe.pivot_completed";
+    public const string MeshStarted = "aevatar.vibe.mesh_started";
+    public const string MeshNodeStarted = "aevatar.vibe.mesh_node_started";
+    public const string MeshNodeFinished = "aevatar.vibe.mesh_node_finished";
+    public const string MeshFinished = "aevatar.vibe.mesh_finished";
+    public const string BriefUpdated = "aevatar.vibe.brief_updated";
+}
+

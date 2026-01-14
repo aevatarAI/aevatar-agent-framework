@@ -364,6 +364,10 @@ public abstract partial class AIGAgentBase
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
+                    // Emit tool call notification so user sees progress during tool execution
+                    var toolName = token.AevatarFunctionCall.Name ?? "tool";
+                    yield return $"\n\n[Executing: {toolName}]\n\n";
+
                     var toolCallResponse = new AevatarLLMResponse
                     {
                         AevatarFunctionCall = token.AevatarFunctionCall,

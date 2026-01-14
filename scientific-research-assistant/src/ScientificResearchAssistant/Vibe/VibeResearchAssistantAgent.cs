@@ -20,14 +20,14 @@ namespace ScientificResearchAssistant.Vibe;
 
 public sealed class VibeResearchAssistantAgent : VibeAgentBase
 {
-    private readonly IVibeDagPlanAccess? _plans;
+    private readonly IVibeGraphAccess? _graphAccess;
 
     // ------------------------------------------------------------
     //  DAG knowledge filter (MVP)
     //
     //  中文说明：
     //  - 未来 DAG node 会区分两类：knowledge 与 plan
-    //  - vibe researching 启动时，会把“知识节点”摘要作为 grounded context 提供给 RA
+    //  - vibe researching 启动时，会把"知识节点"摘要作为 grounded context 提供给 RA
     //  - 这里先留一个筛选空方法：目前一律返回 true（TODO: 后续补充真实筛选规则）
     //
     //  TODO:
@@ -42,9 +42,9 @@ public sealed class VibeResearchAssistantAgent : VibeAgentBase
                node.Attestations.Count > 0;
     }
 
-    public VibeResearchAssistantAgent(IVibeDagPlanAccess? plans = null)
+    public VibeResearchAssistantAgent(IVibeGraphAccess? graphAccess = null)
     {
-        _plans = plans;
+        _graphAccess = graphAccess;
 
         SystemPrompt =
             """
@@ -58,7 +58,7 @@ public sealed class VibeResearchAssistantAgent : VibeAgentBase
             - Be explicit about assumptions vs evidence.
             - Keep outputs bounded (avoid long essays).
             - NEVER include secrets or tool tokens.
-            - If the user asks to change/adjust the research plan, you MAY call dag_plan_set_milestones (write DAG plan nodes).
+            - If the user asks to change/adjust the research plan, you MAY call create_plan (write Plan nodes to KnowledgeGraph).
 
             Modes (the user message will include a mode marker):
 
@@ -121,9 +121,25 @@ public sealed class VibeResearchAssistantAgent : VibeAgentBase
     protected override async Task RegisterToolsAsync(CancellationToken cancellationToken = default)
     {
         await base.RegisterToolsAsync(cancellationToken);
-        if (_plans != null)
+
+        // Graph tools (Plan/Knowledge/Query) for KnowledgeGraph
+        if (_graphAccess != null)
         {
-            await RegisterToolAsync(new DagPlanSetMilestonesTool(_plans), cancellationToken: cancellationToken);
+            // Plan management tools (FR-007)
+            await RegisterToolAsync(new CreatePlanTool(_graphAccess), cancellationToken: cancellationToken);
+            await RegisterToolAsync(new UpdatePlanStatusTool(_graphAccess), cancellationToken: cancellationToken);
+            await RegisterToolAsync(new GetPlanTool(_graphAccess), cancellationToken: cancellationToken);
+
+            // Knowledge management tools (FR-008)
+            await RegisterToolAsync(new CreateKnowledgeTool(_graphAccess), cancellationToken: cancellationToken);
+            await RegisterToolAsync(new GetKnowledgeTool(_graphAccess), cancellationToken: cancellationToken);
+            await RegisterToolAsync(new LinkKnowledgeToPlanTool(_graphAccess), cancellationToken: cancellationToken);
+
+            // Pivot tools (US6)
+            await RegisterToolAsync(new CanDeletePlanTool(_graphAccess), cancellationToken: cancellationToken);
+            await RegisterToolAsync(new DeletePlanTool(_graphAccess), cancellationToken: cancellationToken);
+            await RegisterToolAsync(new CreatePivotSnapshotTool(_graphAccess), cancellationToken: cancellationToken);
+            await RegisterToolAsync(new GetPivotSnapshotsTool(_graphAccess), cancellationToken: cancellationToken);
         }
     }
 }

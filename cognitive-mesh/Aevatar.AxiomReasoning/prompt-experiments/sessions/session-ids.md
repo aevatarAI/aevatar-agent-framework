@@ -25,10 +25,76 @@ For two proteins with identical native structures, their TM-scores to each other
 For any two proteins with identical native structures (global minima per O1), the TM-score between their native structures is 1.
 **88420025b1ba** generate expected results
 
+**9e2e8627ff35**
+axioms:
+O1: Let
+$$
+M := (\NN_{>0},\cdot)
+$$
+be the multiplicative monoid of positive integers. Every  $n\in M$ can be written uniquely as a prime number or a product of prime numbers. $$
+    n=\prod_{p\in\PP} p^{a_p(n)},\qquad a_p(n)\in\NN,\quad a_p(n)=0\text{ for all but finitely many }p.
+    $$
+O2: Fix a weight function $w:\PP\to\RR$. Define the radial character
+$$
+\rho_w(n) := \exp\!\Big(\sum_{p\in\PP} a_p(n)\, w(p)\Big),
+$$
+where $n=\prod_{p} p^{a_p(n)}$. Let
+$$
+M := (\NN_{>0},\cdot)
+$$
+be the multiplicative monoid of positive integers. For all $m,n\in M$ one has $\rho_w(mn)=\rho_w(m)\rho_w(n)$.
+O3: Fix a phase weight $\beta:\PP\to\RR$. This $\beta(p)$ is a prime phase weight and define the multiplicative phase (valued in $\RR/2\pi\ZZ$) by
+$$
+\theta_\times(n)\equiv \sum_{p\in\PP} a_p(n)\,\beta(p)\pmod{2\pi}.
+$$ Let
+$$
+M := (\NN_{>0},\cdot)
+$$
+be the multiplicative monoid of positive integers. For all $m,n\in M$,
+$$
+\theta_\times(mn)\equiv\theta_\times(m)+\theta_\times(n)\pmod{2\pi}.
+$$
+O4: Let
+$$
+M := (\NN_{>0},\cdot)
+$$
+be the multiplicative monoid of positive integers. Define a map $\mathcal{Z}:M\to\CC^*$ by
+$$
+\mathcal{Z}(n):=\rho_w(n)\,\e^{\iu\theta_\times(n)},
+$$ where $$
+\rho_w(n) := \exp\!\Big(\sum_{p\in\PP} a_p(n)\, w(p)\Big),
+$$, $n=\prod_{p} p^{a_p(n)}$ and $$
+\theta_\times(mn)\equiv\theta_\times(m)+\theta_\times(n)\pmod{2\pi}.
+$$.
 
+hypothesis:
+H1:For all $m,n\in M$,
+$$
+\mathcal{Z}(mn)=\mathcal{Z}(m)\mathcal{Z}(n).
+$$
+H2: Every integer greater than 1 can be written uniquely as a prime number or a product of prime numbers.
 
-* Seed Hypothesis:
-""
+added axioms:
+O5: Let $\\OO$ denote the real octonion algebra.\nWrite an octonion in the standard basis as\n$\nx=x_0+\\sum_{i=1}^7 x_i e_i\n$\nwith $x_i\\in\\RR$.\nDefine octonionic conjugation by\n$\n\\bar{x}:=x_0-\\sum_{i=1}^7 x_i e_i\n$\nand the norm by\n$\nN(x):=x\\bar{x}=\\bar{x}x\\in\\RR_{\\ge 0}.\n$\nDefine $\\|x\\|:=\\sqrt{N(x)}$ and the unit sphere\n$\nS^7:=\\{u\\in\\OO:\\ N(u)=1\\}.$
+
+added hypothesis:
+H3: Let $\OO$ denote the real octonion algebra. Write an octonion in the standard basis as
+$
+x=x_0+\sum_{i=1}^7 x_i e_i
+$
+with $x_i\in\RR$.
+Define octonionic conjugation by
+$
+\bar{x}:=x_0-\sum_{i=1}^7 x_i e_i
+$
+and the norm by
+$
+N(x):=x\bar{x}=\bar{x}x\in\RR_{\ge 0}.
+$ For all $x,y\in\OO$ one has
+$$
+N(xy)=N(x)N(y).
+$$
+
 
 | Session ID | Created At | Status | Workflow |
 |------------|------------|--------|----------|
@@ -77,3 +143,6 @@ For any two proteins with identical native structures (global minima per O1), th
 | `311da2ee8f6c` | 2026-01-13 02:24:42 UTC | Completed | hypothesis_promotion_loop_hpa |
 | `f33ce77da495` | 2026-01-13 03:27:02 UTC | Failed | hypothesis_promotion_loop |
 | `d5ee9b32fb50` | 2026-01-13 03:44:50 UTC | Failed | hypothesis_promotion_loop |
+| `f4df7f22e7e6` | 2026-01-13 05:25:47 UTC | Completed | hypothesis_promotion_loop_hpa |
+| `608357ffbcdc` | 2026-01-13 05:33:14 UTC | Failed | hypothesis_promotion_loop_hpa |
+| `9e2e8627ff35` | 2026-01-13 07:39:14 UTC | Failed | hypothesis_promotion_loop_hpa |

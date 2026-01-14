@@ -616,6 +616,9 @@ steps:
 
               Selection rules:
               - Select hypotheses from state.existing_hypothesis.
+              - Each selected B should address the refutation issue (if possible):
+                (a) add exactly ONE missing dependency ID, OR
+                (b) weaken/restrict the statement to remove the contradiction.
               - Each B MUST include depends_on + factor_sequence (ordered generators).
               - If a selected hypothesis lacks depends_on or factor_sequence, infer them from the statement and available axioms/theorems.
               - Do NOT invent IDs. Use only axiom IDs, assumption IDs, and theorem IDs present in RelevantFacts.
@@ -1473,6 +1476,71 @@ steps:
                 path: status
                 value: limit
 
+  # --------------------------------------------------------
+  # Step 4.5: check if all existing_hypothesis are proven as theorems
+  # --------------------------------------------------------
+  - id: check_all_hypotheses_proven
+    type: conditional
+    condition: "{{ state.existing_hypothesis != null && state.existing_hypothesis != '' }}"
+    if_true:
+      - id: check_all_proven
+        type: llm_call
+        prompt: |
+          Check if ALL hypotheses from existing_hypothesis pool have been proven as theorems.
+
+          Existing hypotheses pool:
+          {{ state.existing_hypothesis | json }}
+
+          Proved theorems (each has id, statement, proof, depends_on, factor_sequence):
+          {{ state.theorems | json }}
+
+          
+          CRITICAL OUTPUT REQUIREMENTS:
+          - Output ONLY a single valid JSON object, nothing else.
+          - Do NOT include any explanatory text, markdown, or code blocks.
+          - Do NOT repeat the JSON output. Output it exactly ONCE.
+          - Do NOT add any prefix or suffix text.
+          - Do NOT add extra closing braces. The JSON must end with exactly ONE closing brace: }
+          - Do NOT add any characters after the closing brace (no numbers, no extra braces, no text, no repeated JSON).
+          - Your output must start with { and end with } (exactly one of each).
+          - After the closing brace }, there must be NOTHING else. No characters, no numbers, no text, no repeated JSON fragments.
+          - Example of CORRECT output: {"all_proven": true}
+          - Example of WRONG output: {"all_proven": true}all_proven": true} (has repeated JSON)
+          - Example of WRONG output: {"all_proven": true}{"all_proven": true} (has duplicate JSON objects)
+          - Example of WRONG output: {"all_proven": true}0} (has extra characters after JSON)
+
+          Required JSON schema:
+          {
+            "all_proven": boolean
+          }
+
+          Language: {{language}}
+          
+        output: json
+        store: proven_check_raw
+
+      - id: set_done_if_all_proven
+        type: transform
+        ops:
+          - op: eval
+            expr: "proven_check_raw != null && proven_check_raw.all_proven != null"
+            store: has_valid_check
+
+          - op: eval
+            expr: "has_valid_check ? proven_check_raw.all_proven : false"
+            store: all_proven
+
+          - op: set_path_if
+            if: "{{ all_proven }}"
+            target: state
+            path: done
+            value: true
+
+          - op: set_path_if
+            if: "{{ all_proven }}"
+            target: state
+            path: status
+            value: limit
 
   # --------------------------------------------------------
   # Step 5: stop or recurse

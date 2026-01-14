@@ -438,6 +438,7 @@ message TradingConfig {
     double max_total_position_pct = 7;      // Maximum total position percentage
     TradeExecutionMode execution_mode = 8;  // Execution mode (DryRun/Live)
     double min_base_asset_usd_on_start = 9; // Startup guard: ensure base asset value >= N USDT before Start (e.g., BTC >= 10U)
+    repeated string symbols = 10;           // Optional: trade multiple symbols (AI Wars allows a fixed set, see docs)
 }
 
 // Analysis weight configuration

@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Linq;
 using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Attributes;
@@ -74,6 +75,18 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
     // 只在运行期用：避免同一 decision 重复触发上传（不写入 State，重启后自然重置）
     private readonly HashSet<string> _aiWarsUploadRequestedDecisionIds = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _cycleIdByDecisionId = new(StringComparer.Ordinal);
+
+    // ---------------------------------------------------------------------
+    //  AI Wars Upload batching（多币对合并上传）
+    //
+    //  现象：多 symbol 场景下，每个 symbol 都上传一次 uploadAiLog → 噪声大、回执多、成本高。
+    //  本质：uploadAiLog 的 input/output/explanation 支持 object，我们可以把“本轮多币对决策”一次上传。
+    //  方案：对 BUY/SELL 决策做 debounce（默认 2s），聚合为一个 batch payload，再触发一次上传。
+    // ---------------------------------------------------------------------
+    private readonly object _aiWarsBatchLock = new();
+    private readonly List<(string CycleId, string DecisionId, DateTime AtUtc)> _aiWarsPendingDecisionBatch = new();
+    private int _aiWarsBatchFlushScheduled;
+    private const int AiWarsBatchDebounceMs = 2000;
 
     // ---------------------------------------------------------------------
     //  人类可读策略日志（Markdown）
@@ -398,15 +411,42 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
         if (envelope.Payload == null)
             return;
 
-        // Only upload when an order was attempted / produced an execution outcome.
+        // =====================================================================
+        //  Trigger policy (现象 → 本质):
+        //
+        //  现象：远程“看起来做过决策”，但主办方收不到 AI log。
+        //  本质：之前只在 OrderExecuted/Simulated/Failed 触发上传；如果决策没有走到成交事件，
+        //        就永远不会上传（不会生成 artifact/receipt），外部看起来像“系统没上传”。
+        //
+        //  设计：只要产生了“非 HOLD 的决策周期结果”，就触发一次 upload（并去重）。
+        //        这样即使下单失败/未成交，也会有 receipt 帮我们定位缺的到底是凭证/权限/网络。
+        // =====================================================================
+
+        // 1) Decision-level upload (BUY/SELL only) -> batch enqueue
+        try
+        {
+            var completed = envelope.Payload.Unpack<DecisionCycleCompletedEvent>();
+            var dir = (completed.Direction ?? "").Trim().ToUpperInvariant();
+            if (dir is "BUY" or "SELL" &&
+                !string.IsNullOrWhiteSpace(completed.DecisionId))
+            {
+                EnqueueAiWarsDecisionForBatch(completed.CycleId ?? string.Empty, completed.DecisionId);
+            }
+            return;
+        }
+        catch { /* ignore */ }
+
+        // 2) Execution-outcome upload (best-effort; still useful when available)
         try
         {
             var executed = envelope.Payload.Unpack<OrderExecutedEvent>();
-            await RequestAiWarsUploadAsync(
-                cycleId: _cycleIdByDecisionId.TryGetValue(executed.DecisionId, out var cid) ? cid : string.Empty,
-                decisionId: executed.DecisionId,
-                stage: "Order Execution",
-                orderId: TryParseLong(executed.OrderId));
+            // Batch mode: don't spam per outcome; just enqueue the decisionId so the next batch can include latest execution snapshot.
+            if (!string.IsNullOrWhiteSpace(executed.DecisionId) &&
+                _cycleIdByDecisionId.TryGetValue(executed.DecisionId, out var cid) &&
+                !string.IsNullOrWhiteSpace(cid))
+            {
+                EnqueueAiWarsDecisionForBatch(cid, executed.DecisionId);
+            }
             return;
         }
         catch { /* ignore */ }
@@ -414,11 +454,12 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
         try
         {
             var simulated = envelope.Payload.Unpack<OrderSimulatedEvent>();
-            await RequestAiWarsUploadAsync(
-                cycleId: _cycleIdByDecisionId.TryGetValue(simulated.DecisionId, out var cid) ? cid : string.Empty,
-                decisionId: simulated.DecisionId,
-                stage: "Order Simulation",
-                orderId: null);
+            if (!string.IsNullOrWhiteSpace(simulated.DecisionId) &&
+                _cycleIdByDecisionId.TryGetValue(simulated.DecisionId, out var cid) &&
+                !string.IsNullOrWhiteSpace(cid))
+            {
+                EnqueueAiWarsDecisionForBatch(cid, simulated.DecisionId);
+            }
             return;
         }
         catch { /* ignore */ }
@@ -426,13 +467,396 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
         try
         {
             var failed = envelope.Payload.Unpack<OrderFailedEvent>();
-            await RequestAiWarsUploadAsync(
-                cycleId: _cycleIdByDecisionId.TryGetValue(failed.DecisionId, out var cid) ? cid : string.Empty,
-                decisionId: failed.DecisionId,
-                stage: "Order Failure",
-                orderId: null);
+            if (!string.IsNullOrWhiteSpace(failed.DecisionId) &&
+                _cycleIdByDecisionId.TryGetValue(failed.DecisionId, out var cid) &&
+                !string.IsNullOrWhiteSpace(cid))
+            {
+                EnqueueAiWarsDecisionForBatch(cid, failed.DecisionId);
+            }
         }
         catch { /* ignore */ }
+    }
+
+    private void EnqueueAiWarsDecisionForBatch(string cycleId, string decisionId)
+    {
+        if (string.IsNullOrWhiteSpace(decisionId))
+            return;
+
+        // 已经上传过（任何批次）就别再进队列
+        if (_aiWarsUploadRequestedDecisionIds.Contains(decisionId))
+            return;
+
+        lock (_aiWarsBatchLock)
+        {
+            // 队列内去重
+            if (_aiWarsPendingDecisionBatch.Any(x => string.Equals(x.DecisionId, decisionId, StringComparison.OrdinalIgnoreCase)))
+                return;
+            _aiWarsPendingDecisionBatch.Add((cycleId ?? string.Empty, decisionId, DateTime.UtcNow));
+        }
+
+        // Debounce flush：不要阻塞事件处理管线
+        if (Interlocked.Exchange(ref _aiWarsBatchFlushScheduled, 1) == 0)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(AiWarsBatchDebounceMs);
+                    await FlushAiWarsDecisionBatchAsync();
+                }
+                catch
+                {
+                    // ignore
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref _aiWarsBatchFlushScheduled, 0);
+                }
+            });
+        }
+    }
+
+    private async Task FlushAiWarsDecisionBatchAsync()
+    {
+        List<(string CycleId, string DecisionId, DateTime AtUtc)> batch;
+        lock (_aiWarsBatchLock)
+        {
+            if (_aiWarsPendingDecisionBatch.Count == 0)
+                return;
+            batch = _aiWarsPendingDecisionBatch.ToList();
+            _aiWarsPendingDecisionBatch.Clear();
+        }
+
+        // 只上传 BUY/SELL 且“不是降级/异常占位”的决策。
+        // - 若本 batch 全是 fallback/熔断/异常，则不上传（避免主办方收到一堆无意义报错日志）
+        var decisionIds = batch
+            .Select(x => x.DecisionId)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(id =>
+            {
+                if (_aiWarsUploadRequestedDecisionIds.Contains(id)) return false;
+                if (!_decisionsById.TryGetValue(id, out var d) || d == null) return false;
+                var dir = (d.Direction ?? "").Trim().ToUpperInvariant();
+                if (dir is not ("BUY" or "SELL")) return false;
+                return IsAiWarsUploadWorthyDecision(d);
+            })
+            .ToList();
+
+        if (decisionIds.Count == 0)
+            return;
+
+        var payloadJson = BuildAiWarsBatchUploadPayloadJson(decisionIds);
+        if (string.IsNullOrWhiteSpace(payloadJson))
+            return;
+
+        try
+        {
+            var dir = Path.Combine(State.OutputDir, "ai-wars");
+            Directory.CreateDirectory(dir);
+
+            var requestId = Guid.NewGuid().ToString("N")[..16];
+            var fileName = $"aiwars_upload_{DateTime.UtcNow:yyyyMMddHHmmss}_{requestId}_batch_{decisionIds.Count}.json";
+            var path = Path.Combine(dir, fileName);
+            await File.WriteAllTextAsync(path, payloadJson, Utf8NoBom);
+
+            foreach (var id in decisionIds)
+                _aiWarsUploadRequestedDecisionIds.Add(id);
+
+            // 用 batchId 作为 CycleId，便于 receipts/markdown 一眼辨认这是“合并上传”
+            var batchId = $"batch_{DateTime.UtcNow:yyyyMMddHHmmss}_{decisionIds.Count}";
+
+            await PublishAsync(new AiWarsLogUploadRequestedEvent
+            {
+                RequestId = requestId,
+                CycleId = batchId,
+                ArtifactPath = path,
+                ContentType = "application/json",
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "[TradeAudit] Failed to request AI Wars batch upload");
+        }
+    }
+
+    private static bool IsAiWarsUploadWorthyDecision(TradingDecisionEvent d)
+    {
+        if (d == null)
+            return false;
+
+        // IMPORTANT (user request update):
+        // - Continue uploading AI logs even when LLM is degraded/circuit-open.
+        // - BUT: remove low-level error details (exception/provider strings) from the uploaded payload.
+        //
+        // Therefore, we no longer block uploads here; we sanitize the payload content later.
+        return true;
+    }
+
+    // ---------------------------------------------------------------------
+    //  AI log sanitization (avoid leaking low-level LLM failure details)
+    // ---------------------------------------------------------------------
+    private static bool LooksLikeLlmDegraded(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        return text.Contains("llm-circuit-open", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("llm-timeout", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("decision-exception", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("LLMCallException", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("Circuit breaker OPEN", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("fallback:", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string SanitizeAiLogText(string? text, int maxLen, bool keepNewlines)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return "";
+
+        var raw = text.Replace("\r\n", "\n").Replace("\r", "\n");
+        var degraded = LooksLikeLlmDegraded(raw);
+
+        // Drop lines that leak low-level failure details.
+        var lines = raw.Split('\n')
+            .Select(x => x.Trim())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Where(x =>
+                !x.Contains("llm-circuit-open", StringComparison.OrdinalIgnoreCase) &&
+                !x.Contains("llm-timeout", StringComparison.OrdinalIgnoreCase) &&
+                !x.Contains("decision-exception", StringComparison.OrdinalIgnoreCase) &&
+                !x.Contains("LLMCallException", StringComparison.OrdinalIgnoreCase) &&
+                !x.Contains("Circuit breaker OPEN", StringComparison.OrdinalIgnoreCase) &&
+                !x.Contains("fallback:", StringComparison.OrdinalIgnoreCase))
+            .Take(keepNewlines ? 30 : 12)
+            .ToList();
+
+        if (degraded)
+        {
+            // Keep the meaning without the details.
+            lines.Insert(0, "AI 降级：上游模型不可用/不稳定，已启用本地降级策略继续决策（已隐藏错误细节）。");
+        }
+
+        var joined = keepNewlines ? string.Join("\n", lines) : string.Join(" ", lines);
+        joined = joined.Replace("\r", " ").Replace("\n", " ").Trim();
+        while (joined.Contains("  ", StringComparison.Ordinal))
+            joined = joined.Replace("  ", " ", StringComparison.Ordinal);
+
+        if (joined.Length > maxLen)
+            joined = joined[..maxLen] + "…";
+        return joined;
+    }
+
+    private string BuildAiWarsBatchUploadPayloadJson(List<string> decisionIds)
+    {
+        if (decisionIds == null || decisionIds.Count == 0)
+            return string.Empty;
+
+        // Build per-decision entries (best-effort, all from caches)
+        var entries = new List<Dictionary<string, object?>>();
+        foreach (var decisionId in decisionIds)
+        {
+            if (!_decisionsById.TryGetValue(decisionId, out var decision) || decision == null)
+                continue;
+
+            _cycleIdByDecisionId.TryGetValue(decisionId, out var cycleId);
+            DecisionCycleStartedEvent? started = null;
+            DecisionCycleCompletedEvent? completed = null;
+            if (!string.IsNullOrWhiteSpace(cycleId))
+            {
+                _cycleStarted.TryGetValue(cycleId, out started);
+                _cycleCompleted.TryGetValue(cycleId, out completed);
+            }
+
+            var symbol = completed?.Symbol ?? decision.Symbol ?? started?.Symbol ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(symbol))
+                continue;
+
+            _latestSentiment.TryGetValue(symbol, out var sentiment);
+            _latestTechnical.TryGetValue(symbol, out var technical);
+            _latestNews.TryGetValue(symbol, out var news);
+
+            _approvedByDecisionId.TryGetValue(decisionId, out var approved);
+            _rejectedByDecisionId.TryGetValue(decisionId, out var rejected);
+            _executedByDecisionId.TryGetValue(decisionId, out var executed);
+            _simulatedByDecisionId.TryGetValue(decisionId, out var simulated);
+            _failedByDecisionId.TryGetValue(decisionId, out var failed);
+
+            var inputObj = new Dictionary<string, object?>
+            {
+                ["cycleId"] = cycleId,
+                ["decisionId"] = decisionId,
+                ["symbol"] = symbol,
+                ["trigger"] = started?.Trigger,
+                ["priceSnapshot"] = decision.SuggestedPrice,
+                ["analysis"] = new Dictionary<string, object?>
+                {
+                    ["sentimentSummary"] = SanitizeAiLogText(decision.SentimentSummary ?? sentiment?.AnalysisSummary, 220, keepNewlines: false),
+                    ["technicalSummary"] = SanitizeAiLogText(decision.TechnicalSummary ?? technical?.AnalysisSummary, 220, keepNewlines: false),
+                    ["newsSummary"] = SanitizeAiLogText(decision.NewsSummary ?? news?.AnalysisSummary, 200, keepNewlines: false)
+                }
+            };
+
+            var outputObj = new Dictionary<string, object?>
+            {
+                ["decision"] = new Dictionary<string, object?>
+                {
+                    ["direction"] = decision.Direction,
+                    ["confidence"] = decision.Confidence,
+                    ["positionPct"] = decision.SuggestedPositionPct,
+                    ["reasoning"] = SanitizeAiLogText(decision.Reasoning, 420, keepNewlines: true)
+                },
+                ["risk"] = approved != null
+                    ? new Dictionary<string, object?>
+                    {
+                        ["result"] = "APPROVED",
+                        ["riskAssessment"] = approved.RiskAssessment,
+                        ["positionAdjusted"] = approved.PositionSizeAdjusted,
+                        ["stopLoss"] = approved.StopLoss,
+                        ["takeProfit"] = approved.TakeProfit,
+                        ["orderType"] = approved.OrderType,
+                        ["qty"] = approved.Quantity,
+                        ["price"] = approved.Price
+                    }
+                    : rejected != null
+                        ? new Dictionary<string, object?>
+                        {
+                            ["result"] = "REJECTED",
+                            ["riskLevel"] = rejected.RiskLevel,
+                            ["reason"] = rejected.RejectionReason,
+                            ["violatedRules"] = rejected.ViolatedRules.ToArray()
+                        }
+                        : null,
+                ["execution"] = executed != null
+                    ? new Dictionary<string, object?>
+                    {
+                        ["result"] = "ORDER_EXECUTED",
+                        ["orderId"] = executed.OrderId,
+                        ["clientOrderId"] = executed.ClientOrderId,
+                        ["status"] = executed.Status
+                    }
+                    : simulated != null
+                        ? new Dictionary<string, object?>
+                        {
+                            ["result"] = "ORDER_SIMULATED",
+                            ["clientOrderId"] = simulated.ClientOrderId,
+                            ["reason"] = simulated.Reason
+                        }
+                        : failed != null
+                            ? new Dictionary<string, object?>
+                            {
+                                ["result"] = "ORDER_FAILED",
+                                ["errorCode"] = failed.ErrorCode,
+                                ["errorMessage"] = failed.ErrorMessage
+                            }
+                            : null
+            };
+
+            entries.Add(new Dictionary<string, object?>
+            {
+                ["symbol"] = symbol,
+                ["input"] = inputObj,
+                ["output"] = outputObj
+            });
+        }
+
+        if (entries.Count == 0)
+            return string.Empty;
+
+        var explanation = BuildAiWarsBatchExplanation(entries);
+
+        var payload = new Dictionary<string, object?>
+        {
+            // 多币对 batch：可能包含多个订单，因此 orderId 置空
+            ["orderId"] = null,
+            ["stage"] = "Decision Batch",
+            ["model"] = _aiModel,
+            ["input"] = new Dictionary<string, object?>
+            {
+                ["batchSize"] = entries.Count,
+                ["decisions"] = entries.Select(x => x["input"]).ToArray()
+            },
+            ["output"] = new Dictionary<string, object?>
+            {
+                ["results"] = entries.Select(x => x["output"]).ToArray()
+            },
+            ["explanation"] = explanation
+        };
+
+        return JsonSerializer.Serialize(payload, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+            WriteIndented = false
+        });
+    }
+
+    private static string BuildAiWarsBatchExplanation(List<Dictionary<string, object?>> entries)
+    {
+        // Batch explanation = “本轮汇总”，要短、可读、可审计（<=1000 chars）
+        // - 多行输出：一行一个币对，便于人类扫读
+        var sb = new StringBuilder();
+        sb.AppendLine($"【合并上传汇总】本轮 {entries.Count} 个币对决策（batch upload）");
+
+        static string GetNestedString(Dictionary<string, object?>? obj, string key)
+        {
+            if (obj == null) return "";
+            return obj.TryGetValue(key, out var v) ? (v?.ToString() ?? "") : "";
+        }
+
+        static Dictionary<string, object?>? GetNestedObj(Dictionary<string, object?>? obj, string key)
+        {
+            if (obj == null) return null;
+            return obj.TryGetValue(key, out var v) ? (v as Dictionary<string, object?>) : null;
+        }
+
+        var i = 1;
+        foreach (var it in entries)
+        {
+            var input = it.TryGetValue("input", out var inp) ? inp as Dictionary<string, object?> : null;
+            var output = it.TryGetValue("output", out var outp) ? outp as Dictionary<string, object?> : null;
+            var symbol = input != null && input.TryGetValue("symbol", out var sym) ? (sym?.ToString() ?? "UNKNOWN") : "UNKNOWN";
+
+            var decisionObj = output != null && output.TryGetValue("decision", out var d) ? d as Dictionary<string, object?> : null;
+            var riskObj = output != null && output.TryGetValue("risk", out var r) ? r as Dictionary<string, object?> : null;
+            var execObj = output != null && output.TryGetValue("execution", out var e) ? e as Dictionary<string, object?> : null;
+
+            var dir = decisionObj != null && decisionObj.TryGetValue("direction", out var dv) ? (dv?.ToString() ?? "HOLD") : "HOLD";
+            var conf = decisionObj != null && decisionObj.TryGetValue("confidence", out var cv) ? (cv?.ToString() ?? "0") : "0";
+            var pos = decisionObj != null && decisionObj.TryGetValue("positionPct", out var pv) ? (pv?.ToString() ?? "0") : "0";
+
+            var risk = riskObj != null && riskObj.TryGetValue("result", out var rr) ? (rr?.ToString() ?? "UNKNOWN") : "UNKNOWN";
+            var exec = execObj != null && execObj.TryGetValue("result", out var er) ? (er?.ToString() ?? "NO_ORDER") : "NO_ORDER";
+
+            sb.AppendLine($"{i}) {symbol}  {dir}  conf={conf}  pos={pos}%  风控={risk}  执行={exec}");
+
+            // 市场分析（摘要）：来自 input.analysis.*
+            var analysis = GetNestedObj(input, "analysis");
+            var tech = TrimOneLine(GetNestedString(analysis, "technicalSummary"), 120);
+            var senti = TrimOneLine(GetNestedString(analysis, "sentimentSummary"), 120);
+            var news = TrimOneLine(GetNestedString(analysis, "newsSummary"), 90);
+            sb.AppendLine("   市场分析：");
+            sb.AppendLine($"   - 技术：{(!string.IsNullOrWhiteSpace(tech) ? tech : "N/A")}");
+            sb.AppendLine($"   - 情绪：{(!string.IsNullOrWhiteSpace(senti) ? senti : "N/A")}");
+            sb.AppendLine($"   - 新闻：{(!string.IsNullOrWhiteSpace(news) ? news : "N/A")}");
+
+            // 决策过程（摘要）：来自 output.decision.reasoning（可能包含多行）
+            var reasoning = TrimPretty(GetNestedString(decisionObj, "reasoning"), 260);
+            sb.AppendLine("   决策过程：");
+            if (!string.IsNullOrWhiteSpace(reasoning))
+                sb.AppendLine($"   {TrimOneLine(reasoning, 320)}");
+            else
+                sb.AppendLine("   N/A");
+
+            i++;
+
+            // Keep some headroom for trailing trimming.
+            if (sb.Length >= 940)
+                break;
+        }
+
+        var text = sb.ToString().Trim();
+        if (text.Length > 1000)
+            text = text[..1000];
+        return text;
     }
 
     private async Task RequestAiWarsUploadAsync(
@@ -486,6 +910,12 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
     {
         // Build from cached events (best-effort)
         _decisionsById.TryGetValue(decisionId, out var decision);
+        if (decision == null)
+            return string.Empty;
+
+        // Continue uploading even when degraded; sanitize later.
+        if (!IsAiWarsUploadWorthyDecision(decision))
+            return string.Empty;
 
         DecisionCycleStartedEvent? started = null;
         DecisionCycleCompletedEvent? completed = null;
@@ -521,9 +951,9 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
             ["priceSnapshot"] = decision?.SuggestedPrice ?? 0d,
             ["analysis"] = new Dictionary<string, object?>
             {
-                ["sentimentSummary"] = decision?.SentimentSummary ?? sentiment?.AnalysisSummary,
-                ["technicalSummary"] = decision?.TechnicalSummary ?? technical?.AnalysisSummary,
-                ["newsSummary"] = decision?.NewsSummary ?? news?.AnalysisSummary
+                ["sentimentSummary"] = SanitizeAiLogText(decision?.SentimentSummary ?? sentiment?.AnalysisSummary, 220, keepNewlines: false),
+                ["technicalSummary"] = SanitizeAiLogText(decision?.TechnicalSummary ?? technical?.AnalysisSummary, 220, keepNewlines: false),
+                ["newsSummary"] = SanitizeAiLogText(decision?.NewsSummary ?? news?.AnalysisSummary, 200, keepNewlines: false)
             }
         };
 
@@ -537,7 +967,7 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
                 ["direction"] = decision.Direction,
                 ["confidence"] = decision.Confidence,
                 ["positionPct"] = decision.SuggestedPositionPct,
-                ["reasoning"] = decision.Reasoning
+                ["reasoning"] = SanitizeAiLogText(decision.Reasoning, 420, keepNewlines: true)
             },
             ["risk"] = approved != null
                 ? new Dictionary<string, object?>
@@ -611,31 +1041,155 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
         OrderSimulatedEvent? simulated,
         OrderFailedEvent? failed)
     {
-        var dir = decision?.Direction ?? "HOLD";
+        // ============================================================
+        //  AI Wars "explanation"（小作文）可读性目标：
+        //  - 必须 <= 1000 chars（API 限制）
+        //  - 必须可扫描：分段、换行、关键数字对齐
+        //  - 必须可审计：说明信号 -> 决策 -> 风控 -> 执行 -> 异常/降级
+        // ============================================================
+
+        var symbol = (decision?.Symbol ?? "").Trim();
+        var dir = ((decision?.Direction ?? "HOLD").Trim()).ToUpperInvariant();
         var conf = decision?.Confidence ?? 0;
+        var posPct = decision?.SuggestedPositionPct ?? 0;
+        var px = decision?.SuggestedPrice ?? 0d;
 
-        var risk = approved != null
-            ? $"APPROVED({approved.RiskAssessment})"
-            : rejected != null
-                ? $"REJECTED({rejected.RiskLevel})"
-                : "UNKNOWN";
+        var s = decision?.SentimentSummary ?? "";
+        var t = decision?.TechnicalSummary ?? "";
+        var n = decision?.NewsSummary ?? "";
+        var whyDecision = decision?.Reasoning ?? "";
 
-        var exec = executed != null
-            ? $"ORDER_EXECUTED(orderId={executed.OrderId})"
-            : simulated != null
-                ? "ORDER_SIMULATED"
-                : failed != null
-                    ? $"ORDER_FAILED({failed.ErrorCode})"
-                    : "NO_ORDER";
+        // Detect degradation, but do NOT include low-level exception details in uploaded explanation.
+        var degraded = LooksLikeLlmDegraded(whyDecision);
 
-        var reason = decision?.Reasoning ?? string.Empty;
-        if (!string.IsNullOrWhiteSpace(reason) && reason.Length > 600)
-            reason = reason[..600] + "…";
+        static string F(double v, string fmt) => v > 0 ? v.ToString(fmt, System.Globalization.CultureInfo.InvariantCulture) : "-";
+        static string F6(double v) => v > 0 ? v.ToString("F6", System.Globalization.CultureInfo.InvariantCulture) : "-";
 
-        var text = $"Decision={dir} (conf={conf}); Risk={risk}; Exec={exec}. {reason}".Trim();
+        // ------------------------------------------------------------
+        //  分段小作文（多行）
+        // ------------------------------------------------------------
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"【交易复盘】{(string.IsNullOrWhiteSpace(symbol) ? "UNKNOWN" : symbol)}");
+        sb.AppendLine($"- 决策：{dir}（置信度 {conf}）  仓位建议：{(posPct > 0 ? $"{posPct:F2}%" : "-")}  参考价：{F6(px)}");
+        sb.AppendLine();
+
+        // 信号摘要（每行一类）
+        sb.AppendLine("【信号摘要】");
+        if (!string.IsNullOrWhiteSpace(t))
+            sb.AppendLine($"- 技术：{TrimOneLine(t, 220)}");
+        else
+            sb.AppendLine("- 技术：N/A");
+
+        if (!string.IsNullOrWhiteSpace(s))
+            sb.AppendLine($"- 情绪：{TrimOneLine(s, 220)}");
+        else
+            sb.AppendLine("- 情绪：N/A");
+
+        if (!string.IsNullOrWhiteSpace(n))
+            sb.AppendLine($"- 新闻：{TrimOneLine(n, 180)}");
+        else
+            sb.AppendLine("- 新闻：N/A");
+        sb.AppendLine();
+
+        // 风控（明确 SL/TP/仓位调整）
+        sb.AppendLine("【风控】");
+        if (approved != null)
+        {
+            sb.AppendLine($"- 结论：通过（等级={approved.RiskAssessment}）");
+            sb.AppendLine($"- 调整仓位：{approved.PositionSizeAdjusted:F2}%  订单：{approved.OrderType}  qty={F(approved.Quantity, "F6")}  price={F6(approved.Price)}");
+            sb.AppendLine($"- 止损：{F6(approved.StopLoss)}  止盈：{F6(approved.TakeProfit)}");
+        }
+        else if (rejected != null)
+        {
+            var why = rejected.RejectionReason ?? "";
+            if (why.Length > 240) why = why[..240] + "…";
+            sb.AppendLine($"- 结论：拒绝（等级={rejected.RiskLevel}）");
+            sb.AppendLine($"- 原因：{TrimOneLine(why, 260)}");
+        }
+        else
+        {
+            sb.AppendLine("- 结论：未知（缺少风控事件）");
+        }
+        sb.AppendLine();
+
+        // 执行
+        sb.AppendLine("【执行】");
+        if (executed != null)
+        {
+            sb.AppendLine($"- 结果：ORDER_EXECUTED  orderId={executed.OrderId}  status={executed.Status}");
+        }
+        else if (simulated != null)
+        {
+            var r = simulated.Reason ?? "";
+            if (r.Length > 240) r = r[..240] + "…";
+            sb.AppendLine("- 结果：ORDER_SIMULATED");
+            sb.AppendLine($"- 原因：{TrimOneLine(r, 260)}");
+        }
+        else if (failed != null)
+        {
+            var msg = failed.ErrorMessage ?? "";
+            if (msg.Length > 240) msg = msg[..240] + "…";
+            sb.AppendLine($"- 结果：ORDER_FAILED  code={failed.ErrorCode}");
+            sb.AppendLine($"- 信息：{TrimOneLine(msg, 260)}");
+        }
+        else
+        {
+            sb.AppendLine("- 结果：无订单（本周期未进入执行/或执行事件缺失）");
+        }
+        sb.AppendLine();
+
+        // 决策过程 / 降级说明
+        sb.AppendLine("【决策过程】");
+        if (degraded)
+        {
+            sb.AppendLine("- 状态：AI 降级（上游模型不可用/不稳定）");
+            sb.AppendLine("- 说明：已启用本地降级策略继续决策（已隐藏错误细节）。");
+        }
+        else if (!string.IsNullOrWhiteSpace(whyDecision))
+        {
+            // Keep readability, but also sanitize in case provider details slipped into reasoning.
+            sb.AppendLine(SanitizeAiLogText(whyDecision, 420, keepNewlines: true));
+        }
+        else
+        {
+            sb.AppendLine("- 说明：未提供额外 reasoning（可能是规则/解析缺失）");
+        }
+
+        var text = sb.ToString().Trim();
         if (text.Length > 1000)
             text = text[..1000];
         return text;
+    }
+
+    private static string TrimPretty(string? s, int maxLen)
+    {
+        if (string.IsNullOrWhiteSpace(s))
+            return "";
+
+        // Keep newlines (readability), but normalize excessive blank lines and trim each line.
+        var raw = s.Replace("\r\n", "\n").Replace("\r", "\n");
+        var lines = raw.Split('\n')
+            .Select(x => x.Trim())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Take(20)
+            .ToArray();
+
+        var joined = string.Join("\n", lines);
+        if (joined.Length > maxLen)
+            joined = joined[..maxLen] + "…";
+        return joined;
+    }
+
+    private static string TrimOneLine(string? s, int maxLen)
+    {
+        if (string.IsNullOrWhiteSpace(s))
+            return "";
+        var x = s.Replace("\r", " ").Replace("\n", " ").Trim();
+        while (x.Contains("  ", StringComparison.Ordinal))
+            x = x.Replace("  ", " ", StringComparison.Ordinal);
+        if (x.Length > maxLen)
+            x = x[..maxLen] + "…";
+        return x;
     }
 
     private static long? TryParseLong(string? value)
@@ -1017,6 +1571,15 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
         var techSum = decision?.TechnicalSummary ?? "";
         var newsSum = decision?.NewsSummary ?? "";
 
+        // ------------------------------------------------------------
+        //  AI Used marker (critical observability)
+        //
+        //  - YES: decision came from an AI engine (Direct LLM / CognitiveMesh, etc.)
+        //  - NO : decision came from deterministic fallback policy (DecisionId starts with "FALLBACK_")
+        // ------------------------------------------------------------
+        var aiUsed = !string.IsNullOrWhiteSpace(decisionId) &&
+                     !decisionId.StartsWith("FALLBACK_", StringComparison.OrdinalIgnoreCase);
+
         var riskLine = approved != null
             ? $"APPROVED ({approved.RiskAssessment})"
             : rejected != null
@@ -1047,6 +1610,7 @@ public sealed class TradeAuditAgent : GAgentBase<TradeAuditState>
         sb.AppendLine($"- Trigger: `{started?.Trigger ?? ""}`");
         sb.AppendLine($"- Decision: **{dir}** (confidence={conf})");
         sb.AppendLine($"- DecisionId: `{decisionId}`");
+        sb.AppendLine($"- AI Used: `{(aiUsed ? "YES" : "NO")}`");
         sb.AppendLine($"- ExecutedToRisk: `{executedFlag}` | Mode: `{mode}`");
         sb.AppendLine();
 

@@ -307,7 +307,10 @@ curl -X POST http://localhost:7100/api/trading/stop
 
 ### 交易参数（Trading）
 
-- `Trading:Symbol`：AI Wars 合约赛道推荐 `cmt_btcusdt`
+- `Trading:Symbol`：主交易对（保留兼容）。AI Wars 合约赛道推荐 `cmt_btcusdt`
+- `Trading:Symbols`：多交易对模式（推荐）
+  - 目前按 AI Wars 规则内置白名单：`cmt_btcusdt`, `cmt_ethusdt`, `cmt_solusdt`, `cmt_dogeusdt`, `cmt_xrpusdt`, `cmt_adausdt`, `cmt_bnbusdt`, `cmt_ltcusdt`
+  - 配了 `Symbols` 就会对 **每个 symbol 独立做分析与决策**（Sentiment/Technical 按 symbol 隔离，避免 K 线混用）
 - `Trading:Interval`：`1m/5m/15m/1h...`（影响 kline 采样）
 - `Trading:ExecutionMode`：`DryRun` 或 `Live`
 - `Trading:MinBaseAssetUsdOnStart`

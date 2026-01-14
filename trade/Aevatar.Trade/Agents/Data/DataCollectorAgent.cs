@@ -320,11 +320,37 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
         try
         {
             _pollingRunningSinceUtc = DateTime.UtcNow;
-            foreach (var symbol in symbols)
+            
+            // ------------------------------------------------------------
+            //  多交易对：并发抓取、串行落状态
+            //  - 并发：避免 8 个 symbol 串行导致 1s polling 形同虚设
+            //  - 串行：State/LatestPrices 是共享对象，保持单线程写入避免竞态
+            // ------------------------------------------------------------
+            async Task<TickerResponse?> FetchTickerAsync(string symbol)
             {
-                using var tickerCts = new CancellationTokenSource(TimeSpan.FromSeconds(PollTickerTimeoutSeconds));
-                var ticker = await _apiClient.GetTickerAsync(symbol, tickerCts.Token);
-                OnTickerReceived(ticker);
+                try
+                {
+                    using var tickerCts = new CancellationTokenSource(TimeSpan.FromSeconds(PollTickerTimeoutSeconds));
+                    return await _apiClient.GetTickerAsync(symbol, tickerCts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    Logger.LogWarning("[DataCollector] Ticker timeout for {Symbol}", symbol);
+                    return null;
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogWarning(ex, "[DataCollector] Ticker fetch failed for {Symbol}", symbol);
+                    return null;
+                }
+            }
+
+            var tickerTasks = symbols.Select(FetchTickerAsync).ToArray();
+            var tickers = await Task.WhenAll(tickerTasks);
+            foreach (var t in tickers)
+            {
+                if (t != null)
+                    OnTickerReceived(t);
             }
 
             if (DateTime.UtcNow >= _nextKlinePollUtc)
@@ -332,12 +358,37 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
                 var next = DateTime.UtcNow + ParseIntervalToTimeSpan(_pollingInterval);
                 _nextKlinePollUtc = next;
 
-                foreach (var symbol in symbols)
+                async Task<(string Symbol, KlineData? Last)> FetchLastKlineAsync(string symbol)
                 {
-                    using var klineCts = new CancellationTokenSource(TimeSpan.FromSeconds(PollKlinesTimeoutSeconds));
-                    var klines = await _apiClient.GetKlinesAsync(symbol, _pollingInterval, limit: 1, klineCts.Token);
-                    var last = klines.LastOrDefault();
-                    if (last == null) continue;
+                    try
+                    {
+                        using var klineCts = new CancellationTokenSource(TimeSpan.FromSeconds(PollKlinesTimeoutSeconds));
+                        var klines = await _apiClient.GetKlinesAsync(symbol, _pollingInterval, limit: 1, klineCts.Token);
+                        return (symbol, klines.LastOrDefault());
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        Logger.LogWarning(
+                            "[DataCollector] Klines timeout for {Symbol} Interval={Interval}",
+                            symbol, _pollingInterval);
+                        return (symbol, null);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogWarning(
+                            ex,
+                            "[DataCollector] Klines fetch failed for {Symbol} Interval={Interval}",
+                            symbol, _pollingInterval);
+                        return (symbol, null);
+                    }
+                }
+
+                var klineTasks = symbols.Select(FetchLastKlineAsync).ToArray();
+                var lastKlines = await Task.WhenAll(klineTasks);
+                foreach (var (symbol, last) in lastKlines)
+                {
+                    if (last == null)
+                        continue;
 
                     var evt = new KlineUpdateEvent
                     {

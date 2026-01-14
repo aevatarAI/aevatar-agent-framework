@@ -133,7 +133,8 @@ trade/
 │   │   │   ├── MarketSentimentAgent.cs
 │   │   │   └── TechnicalAnalystAgent.cs
 │   │   ├── Coordinator/
-│   │   │   └── TradingCoordinatorAgent.cs
+│   │   │   ├── TradingCoordinatorAgent.cs
+│   │   │   └── TradingCoordinatorAgent.Prompt.cs
 │   │   ├── RiskControl/
 │   │   │   └── RiskManagerAgent.cs
 │   │   └── Execution/

@@ -5,6 +5,8 @@ using Aevatar.Agents.AI.Core;
 using Aevatar.Trade.Tools;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
+using System.Net.Http.Json;
+using System.Text.Json;
 
 namespace Aevatar.Trade.Agents.RiskControl;
 
@@ -16,6 +18,27 @@ public class RiskManagerAgent : AIGAgentBase
 {
     // Risk LLM must not block the stream forever; otherwise Coordinator publishes get back-pressured.
     private const int LlmTimeoutSeconds = 300;
+    private const double FallbackMinNotionalUsdt = 10.0; // AI Wars: trade value must be >= 10U
+
+    // =====================================================================
+    //  CognitiveMesh risk workflow (optional)
+    //
+    //  WHY:
+    //  - When Coordinator uses CognitiveMesh (workflow) for decision, RiskManager can also
+    //    use a workflow to output a strict JSON evaluation.
+    //  - This makes the decision→risk chain more consistent and auditable.
+    //
+    //  NOTE:
+    //  - No tool calling here. This only produces a JSON risk evaluation that we parse locally.
+    // =====================================================================
+    public string? CognitiveMeshBaseUrl { get; set; }
+    public string CognitiveMeshStrategy { get; set; } = "Cognitive";
+    public string CognitiveRiskWorkflow { get; set; } = "trade-risk";
+
+    private static readonly JsonSerializerOptions CognitiveJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
 
     // ============================================================
     //  高频行情事件“止血阀”
@@ -49,6 +72,11 @@ public class RiskManagerAgent : AIGAgentBase
 
     public override string SystemPrompt { get; set; } = """
         You are a risk manager responsible for protecting capital safety, the last line of defense for trading decisions.
+        
+        Mode: **Micro-Scalping Approval**
+        - Strategy wants small, frequent trades.
+        - Approve tiny probe trades when constraints are satisfied.
+        - Take profit can be small: cover fees + tiny edge.
 
         【Risk Control Rules - Hard Constraints】
 
@@ -61,9 +89,12 @@ public class RiskManagerAgent : AIGAgentBase
            - Maximum daily loss: Not exceeding 5% of total capital
            - Consecutive loss circuit breaker: Pause for 1 hour after 3 consecutive losses
 
-        3. Stop Loss and Take Profit Settings
-           - Stop loss: 1-3% (dynamically adjusted based on ATR)
-           - Take profit: 1.5-3x stop loss (risk-reward ratio)
+        3. Stop Loss and Take Profit Settings (scalp-friendly)
+           - Assume total fees (entry+exit) are around 0.08%~0.12% (best-effort).
+           - For micro-scalps:
+             - stop_loss_pct: typically 0.3%~0.8%
+             - take_profit_pct: typically 0.15%~0.45% (must be > fees + small edge)
+           - Prefer tight SL/TP over wide swing targets.
 
         【Risk Assessment Dimensions】
 
@@ -94,6 +125,17 @@ public class RiskManagerAgent : AIGAgentBase
             "risk_notes": "<risk assessment notes>",
             "summary": "<one-sentence risk control conclusion>"
         }
+
+        【Human readability requirement】
+        - Output language: **Chinese**.
+        - risk_notes should read like a short “risk checklist memo”, NOT machine tuples.
+        - Suggested risk_notes structure (plain text):
+          风控核对：
+          1) 账户与仓位：总权益/可用/当前仓位占用/保证金使用率（若缺失写“未知”）
+          2) 规则校验：单笔仓位/总仓位/日亏/连亏熔断（逐条给结论）
+          3) 执行建议：仓位=…% 止损=…% 止盈=…%（止盈需覆盖手续费+一点边际）
+          4) 结论：批准/拒绝 + 一句话原因
+        - If upstream decision mentions llm-timeout/circuit-open/fallback, mention “AI降级” but still judge risk normally.
 
         【Rejection Conditions - Any trigger results in rejection】
         - Exceeding daily loss limit
@@ -319,30 +361,49 @@ public class RiskManagerAgent : AIGAgentBase
 
         try
         {
+            // Prefer CognitiveMesh workflow when configured.
+            if (!string.IsNullOrWhiteSpace(CognitiveMeshBaseUrl))
+            {
+                var cmEval = await EvaluateWithCognitiveMeshAsync(prompt, evt.DecisionId);
+                if (cmEval != null)
+                {
+                    if (cmEval.Approved)
+                        await ApproveTrade(evt, cmEval);
+                    else
+                        await RejectTrade(evt, cmEval.ViolatedRules, cmEval.RiskLevel);
+                    return;
+                }
+                // If CognitiveMesh fails, continue with local LLM / fallback below.
+            }
+
             var timeout = TimeSpan.FromSeconds(LlmTimeoutSeconds);
             using var timeoutCts = new CancellationTokenSource(timeout);
 
             ChatResponse chat;
             try
             {
-                var task = ChatAsync(ChatRequest.Create(prompt), timeoutCts.Token);
+                var req = ChatRequest.Create(prompt);
+                // 风控：需要结构化 JSON，但不需要长输出
+                req.SetTemperatureIfNotSet(0.2);
+                req.SetMaxTokensIfNotSet(520);
+                var task = ChatWithFailoverAsync(req, timeoutCts.Token);
                 chat = await task.WaitAsync(timeout);
             }
             catch (TimeoutException)
             {
                 timeoutCts.Cancel();
                 Logger.LogWarning(
-                    "[RiskManager] LLM timeout >{Timeout}s. Rejecting trade to keep system unblocked. DecisionId={DecisionId}",
+                    "[RiskManager] LLM timeout >{Timeout}s. Using fallback approval policy. DecisionId={DecisionId}",
                     LlmTimeoutSeconds, evt.DecisionId);
-                await RejectTrade(evt, new List<string> { $"risk-llm-timeout>{LlmTimeoutSeconds}s" }, "HIGH");
+                await ApproveTrade(evt, BuildFallbackEvaluation(evt, $"risk-llm-timeout>{LlmTimeoutSeconds}s"));
                 return;
             }
             catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
             {
                 Logger.LogWarning(
-                    "[RiskManager] LLM timeout >{Timeout}s. Rejecting trade to keep system unblocked. DecisionId={DecisionId}",
+                    "[RiskManager] LLM timeout >{Timeout}s. Using fallback approval policy. DecisionId={DecisionId}",
                     LlmTimeoutSeconds, evt.DecisionId);
-                await RejectTrade(evt, new List<string> { $"risk-llm-timeout>{LlmTimeoutSeconds}s" }, "HIGH");
+                await ApproveTrade(evt, BuildFallbackEvaluation(evt, $"risk-llm-timeout>{LlmTimeoutSeconds}s"));
                 return;
             }
 
@@ -357,11 +418,83 @@ public class RiskManagerAgent : AIGAgentBase
                 await RejectTrade(evt, evaluation.ViolatedRules, evaluation.RiskLevel);
             }
         }
+        catch (Aevatar.Agents.AI.Abstractions.CircuitBreakerOpenException cbEx)
+        {
+            Logger.LogWarning(
+                cbEx,
+                "[RiskManager] LLM circuit OPEN. Using fallback approval policy. DecisionId={DecisionId}",
+                evt.DecisionId);
+            await ApproveTrade(evt, BuildFallbackEvaluation(evt, $"risk-llm-circuit-open: {cbEx.Message}"));
+        }
         catch (Exception ex)
         {
             Logger.LogError(ex, "[RiskManager] AI evaluation failed, rejecting trade");
             await RejectTrade(evt, new List<string> { "Risk control AI evaluation failed" }, "HIGH");
         }
+    }
+
+    private async Task<RiskEvaluation?> EvaluateWithCognitiveMeshAsync(string task, string? decisionId)
+    {
+        if (string.IsNullOrWhiteSpace(CognitiveMeshBaseUrl))
+            return null;
+
+        try
+        {
+            var baseUri = new Uri(CognitiveMeshBaseUrl.Trim().TrimEnd('/'));
+            var reasonUri = new Uri(baseUri, "/api/reason");
+
+            using var http = new HttpClient();
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(LlmTimeoutSeconds));
+
+            var body = new
+            {
+                strategyKind = string.IsNullOrWhiteSpace(CognitiveMeshStrategy) ? "Cognitive" : CognitiveMeshStrategy,
+                cognitiveWorkflow = string.IsNullOrWhiteSpace(CognitiveRiskWorkflow) ? "trade-risk" : CognitiveRiskWorkflow,
+                timeoutSeconds = LlmTimeoutSeconds,
+                task = task,
+                context = string.IsNullOrWhiteSpace(decisionId)
+                    ? null
+                    : new Dictionary<string, string> { ["decisionId"] = decisionId }
+            };
+
+            using var resp = await http.PostAsJsonAsync(reasonUri, body, timeoutCts.Token);
+            var raw = await resp.Content.ReadAsStringAsync(timeoutCts.Token);
+            if (!resp.IsSuccessStatusCode)
+            {
+                Logger.LogWarning(
+                    "[RiskManager] CognitiveMesh HTTP failed: {Status} {Reason}.",
+                    (int)resp.StatusCode, resp.ReasonPhrase);
+                return null;
+            }
+
+            var parsed = JsonSerializer.Deserialize<CognitiveMeshReasoningResult>(raw, CognitiveJsonOptions);
+            if (parsed == null || !parsed.Success || string.IsNullOrWhiteSpace(parsed.Content))
+            {
+                Logger.LogWarning(
+                    "[RiskManager] CognitiveMesh returned failure: {Error}",
+                    parsed?.Error ?? "unknown");
+                return null;
+            }
+
+            return ParseEvaluationResponse(parsed.Content);
+        }
+        catch (OperationCanceledException)
+        {
+            Logger.LogWarning("[RiskManager] CognitiveMesh timeout. Falling back.");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "[RiskManager] CognitiveMesh risk call failed. Falling back.");
+            return null;
+        }
+    }
+
+    private sealed record CognitiveMeshReasoningResult
+    {
+        public bool Success { get; init; }
+        public string? Content { get; init; }
+        public string? Error { get; init; }
     }
 
     private string BuildEvaluationPrompt(TradingDecisionEvent evt)
@@ -466,15 +599,6 @@ public class RiskManagerAgent : AIGAgentBase
             return;
         }
 
-        if (_riskState.TotalEquity <= 0)
-        {
-            await RejectTrade(
-                decision,
-                new List<string> { "Account equity is unknown (sync-account not completed yet)" },
-                riskLevel: "HIGH");
-            return;
-        }
-
         // Calculate actual stop loss and take profit prices
         var stopLoss = decision.Direction == "BUY" 
             ? currentPrice * (1 - evaluation.StopLossPct / 100)
@@ -558,9 +682,17 @@ public class RiskManagerAgent : AIGAgentBase
         //  NOTE:
         //  - StepSize rounding is handled by WeexContractApiClient before placing the order.
         // ------------------------------------------------------------
-        if (_riskState.TotalEquity <= 0) return 0;
-        if (positionPct <= 0) return 0;
         if (currentPrice <= 0) return 0;
+
+        // If equity is unknown, fall back to the minimum notional so the system can still trade.
+        // This is especially important when LLM is down and we still want "能开多/能开空，挣钱就撤" behavior.
+        if (_riskState.TotalEquity <= 0)
+        {
+            var qtyFallback = FallbackMinNotionalUsdt / currentPrice;
+            return qtyFallback > 0 ? Math.Round(qtyFallback, 8, MidpointRounding.AwayFromZero) : 0;
+        }
+
+        if (positionPct <= 0) return 0;
 
         var positionValueUsdt = _riskState.TotalEquity * (positionPct / 100);
         if (positionValueUsdt <= 0) return 0;
@@ -569,6 +701,28 @@ public class RiskManagerAgent : AIGAgentBase
         if (qty <= 0) return 0;
 
         return Math.Round(qty, 8, MidpointRounding.AwayFromZero);
+    }
+
+    private RiskEvaluation BuildFallbackEvaluation(TradingDecisionEvent evt, string reason)
+    {
+        // Tiny scalp profile:
+        // - adjusted_position_pct: clamp to [0.5, 2.0] so we don't accidentally oversize.
+        // - stop_loss_pct / take_profit_pct: tight enough to "cover fees + small edge".
+        var pos = evt.SuggestedPositionPct;
+        if (pos <= 0) pos = 1.0;
+        pos = Math.Clamp(pos, 0.5, 2.0);
+
+        return new RiskEvaluation
+        {
+            Approved = true,
+            RiskLevel = "MEDIUM",
+            AdjustedPositionPct = pos,
+            StopLossPct = 0.6,
+            TakeProfitPct = 0.25,
+            ViolatedRules = new List<string>(),
+            RiskNotes = $"fallback-approve: {reason}",
+            Summary = $"fallback approval (LLM unavailable): {reason}"
+        };
     }
 
     /// <summary>

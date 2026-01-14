@@ -4,6 +4,7 @@ using Aevatar.Agents.AI.Core;
 using Aevatar.Trade.Infrastructure.DecisionEngines;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
+using System.Collections.Concurrent;
 using System.Threading;
 
 namespace Aevatar.Trade.Agents.Coordinator;
@@ -12,12 +13,18 @@ namespace Aevatar.Trade.Agents.Coordinator;
 /// Trading coordinator agent (Chief trading decision maker)
 /// Responsibilities: Synthesize opinions from all analysts and make final trading decisions
 /// </summary>
-public class TradingCoordinatorAgent : AIGAgentBase
+public partial class TradingCoordinatorAgent : AIGAgentBase
 {
     // ============ AI Configuration ============
 
     public override string SystemPrompt { get; set; } = """
-        You are the chief trading decision maker, responsible for synthesizing analysis from all parties to make final trading decisions.
+        You are the chief trading decision maker.
+        
+        Mode: **Aggressive Micro-Scalping**
+        - Goal: take many small, low-risk trades; capture tiny profits quickly.
+        - Profit target: small but real — enough to cover fees and leave a small edge.
+        - Bias: if there is no strong bearish evidence, prefer taking a tiny long entry rather than doing nothing.
+        - HOLD should be rare: only when signals are extremely conflicting / price is chaotic / data is missing AND risk is unclear.
 
         【Your Analysis Team】
         1. Market Sentiment Analyst - Provides market sentiment scores and trend judgments
@@ -26,12 +33,10 @@ public class TradingCoordinatorAgent : AIGAgentBase
 
         【Decision Framework】
 
-        1. Signal Consistency Judgment
-           - All three bullish: Strong buy signal
-           - All three bearish: Strong sell signal
-           - Two bullish, one neutral: Moderate buy
-           - Two bearish, one neutral: Moderate sell
-           - Analysis divergence: Prefer conservative, wait and see
+        1. Micro-Scalp Entry Logic (be proactive)
+           - If Technical is not clearly BEARISH and Sentiment is not extremely negative: lean BUY with small size.
+           - If Technical is clearly BEARISH or funding/open-interest suggests crowded longs: lean SELL (or HOLD if unsure).
+           - If analysis is missing: treat missing parts as NEUTRAL and still allow a tiny probe trade.
 
         2. Priority Rules
            - Major news events > Technical analysis > Sentiment analysis
@@ -58,16 +63,20 @@ public class TradingCoordinatorAgent : AIGAgentBase
             "summary": "<one-sentence decision summary>"
         }
 
-        【Risk Awareness】
-        - Choose to wait and see when uncertain
-        - Avoid chasing rallies and selling dips
-        - Control single position size
-        - Leave room to handle unexpected situations
+        【Scalping Parameters (must follow)】
+        - position_pct: prefer 0.5%~2.0% for probe trades; only go larger if signals align strongly.
+        - If you choose BUY/SELL, do NOT output very low confidence. For micro-scalps, output confidence >= 50 unless truly unsure.
+        - Your decision should be actionable: direction should usually be BUY or SELL, not HOLD.
+        
+        【Risk Awareness (still required)】
+        - Keep trades small; avoid large exposure.
+        - Avoid HOLD-by-default; small probes are acceptable.
         """;
 
     // ============ State ============
 
     private readonly CoordinatorState _coordState = new();
+    private readonly object _stateLock = new();
     
     // Configuration
     private int _minConfidenceToTrade = 60;
@@ -90,17 +99,47 @@ public class TradingCoordinatorAgent : AIGAgentBase
     //  - 高频：允许每秒尝试一次（用户明确要求 LLM 调用不设上限）。
     //  - 稳定：同一时间只跑一个决策（避免并发堆积导致延迟爆炸）。
     // ---------------------------------------------------------------------
-    private const int DecisionMinIntervalSeconds = 1;
+    // ============================================================================
+    //  决策节流（非常关键）
+    //
+    //  现象：Trading:Interval=2m 你以为“两分钟决策一次”，但系统仍会每秒 poll ticker，
+    //       且每次 tick 都会触发 TryMakeDecisionAsync -> 造成“看起来像 2s 一次”的错觉。
+    //
+    //  原则：
+    //  - 行情采样可以高频（为了风控/限价 sizing），但“LLM 决策”必须有明确节流。
+    //  - 默认：跟 Trading:Interval 对齐（例如 2m -> 120s），并允许通过 Configure 覆盖。
+    // ============================================================================
+    private int _decisionMinIntervalSeconds = 60;
     private int _decisionRunning;
-    private DateTime _lastNoStrategyExplainUtc = DateTime.MinValue;
     private const int NoStrategyExplainIntervalSeconds = 60;
     private DateTime _decisionInFlightStartUtc = DateTime.MinValue;
-    private DateTime _lastInFlightExplainUtc = DateTime.MinValue;
-    private const int InFlightExplainAfterSeconds = 60;
-    private const int InFlightExplainIntervalSeconds = 60;
 
     // Latest market snapshot (from DataCollector) for pricing / order placement.
-    private readonly Dictionary<string, MarketTickEvent> _latestTickBySymbol = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, MarketTickEvent> _latestTickBySymbol =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    // Latest analysis snapshots (per symbol).
+    // - 多交易对下，如果用单一 LatestSentiment/LatestTechnical，会“互相覆盖”，导致只对最后一个 symbol 决策。
+    private readonly ConcurrentDictionary<string, MarketSentimentAnalysisEvent> _latestSentimentBySymbol =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, TechnicalAnalysisEvent> _latestTechnicalBySymbol =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, NewsImpactAnalysisEvent> _latestNewsBySymbol =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    // Per-symbol throttles (avoid one symbol starving all others).
+    private readonly ConcurrentDictionary<string, DateTime> _lastDecisionUtcBySymbol =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, DateTime> _lastNoStrategyExplainUtcBySymbol =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    // Multi-symbol decision scheduler (completion-driven):
+    // - 同一 symbol 的新 tick/分析到达时，只标记 pending（合并），不堆积队列。
+    // - 决策 worker 单飞：上一轮 LLM 未完成时，不启动下一轮；完成后如果 pending，则立刻继续。
+    // - 仍保留最小间隔 _decisionMinIntervalSeconds，避免“LLM 一返回就立刻无限加速”导致限流/熔断。
+    private readonly ConcurrentDictionary<string, byte> _pendingDecisionBySymbol =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly SemaphoreSlim _decisionSignal = new(0, int.MaxValue);
 
     /// <summary>
     /// Optional decision engine override.
@@ -120,10 +159,13 @@ public class TradingCoordinatorAgent : AIGAgentBase
 
     public override Task<string> GetDescriptionAsync()
     {
-        return Task.FromResult(
-            $"TradingCoordinator: Decisions={_coordState.DecisionsMade}, " +
-            $"Approved={_coordState.DecisionsApproved}, " +
-            $"Rejected={_coordState.DecisionsRejected}");
+        lock (_stateLock)
+        {
+            return Task.FromResult(
+                $"TradingCoordinator: Decisions={_coordState.DecisionsMade}, " +
+                $"Approved={_coordState.DecisionsApproved}, " +
+                $"Rejected={_coordState.DecisionsRejected}");
+        }
     }
 
     /// <summary>
@@ -135,7 +177,8 @@ public class TradingCoordinatorAgent : AIGAgentBase
         double technicalWeight = 0.4,
         double newsWeight = 0.3,
         TradeExecutionMode executionMode = TradeExecutionMode.DryRun,
-        int decisionTimeoutSeconds = 300)
+        int decisionTimeoutSeconds = 300,
+        int? decisionMinIntervalSeconds = null)
     {
         _minConfidenceToTrade = minConfidence;
         _sentimentWeight = sentimentWeight;
@@ -143,10 +186,14 @@ public class TradingCoordinatorAgent : AIGAgentBase
         _newsWeight = newsWeight;
         _executionMode = executionMode.ToString();
         _decisionTimeoutSeconds = Math.Clamp(decisionTimeoutSeconds, 3, 3600);
+        if (decisionMinIntervalSeconds.HasValue && decisionMinIntervalSeconds.Value > 0)
+        {
+            _decisionMinIntervalSeconds = Math.Clamp(decisionMinIntervalSeconds.Value, 1, 24 * 60 * 60);
+        }
 
         Logger.LogInformation(
-            "[Coordinator] Configured: MinConf={MinConf}, Weights=[S:{S}, T:{T}, N:{N}], Timeout={Timeout}s",
-            minConfidence, sentimentWeight, technicalWeight, newsWeight, _decisionTimeoutSeconds);
+            "[Coordinator] Configured: MinConf={MinConf}, Weights=[S:{S}, T:{T}, N:{N}], Timeout={Timeout}s, DecisionMinInterval={Interval}s",
+            minConfidence, sentimentWeight, technicalWeight, newsWeight, _decisionTimeoutSeconds, _decisionMinIntervalSeconds);
     }
 
     // ============ Event Handlers ============
@@ -176,7 +223,7 @@ public class TradingCoordinatorAgent : AIGAgentBase
         // - 触发决策改为 fire-and-forget，让事件处理快速返回，传播不阻塞
         // - 内部用 _decisionRunning 做 single-flight，避免并发决策风暴
         // =========================================================================
-        _ = TryMakeDecisionAsync();
+        _ = TryMakeDecisionAsync(evt.Symbol);
         return Task.CompletedTask;
     }
 
@@ -186,7 +233,15 @@ public class TradingCoordinatorAgent : AIGAgentBase
     [EventHandler]
     public Task HandleSentimentAnalysis(MarketSentimentAnalysisEvent evt)
     {
-        _coordState.LatestSentiment = evt;
+        if (!string.IsNullOrWhiteSpace(evt.Symbol))
+        {
+            _latestSentimentBySymbol[evt.Symbol] = evt;
+        }
+
+        lock (_stateLock)
+        {
+            _coordState.LatestSentiment = evt;
+        }
         Logger.LogDebug(
             "[Coordinator] Received sentiment: Score={Score}, Trend={Trend}",
             evt.SentimentScore, evt.SentimentTrend);
@@ -205,7 +260,7 @@ public class TradingCoordinatorAgent : AIGAgentBase
         // ------------------------------------------------------------
         _ = PublishAsync(evt, Aevatar.Agents.EventDirection.Down);
 
-        _ = TryMakeDecisionAsync();
+        _ = TryMakeDecisionAsync(evt.Symbol);
         return Task.CompletedTask;
     }
 
@@ -215,7 +270,15 @@ public class TradingCoordinatorAgent : AIGAgentBase
     [EventHandler]
     public Task HandleTechnicalAnalysis(TechnicalAnalysisEvent evt)
     {
-        _coordState.LatestTechnical = evt;
+        if (!string.IsNullOrWhiteSpace(evt.Symbol))
+        {
+            _latestTechnicalBySymbol[evt.Symbol] = evt;
+        }
+
+        lock (_stateLock)
+        {
+            _coordState.LatestTechnical = evt;
+        }
         Logger.LogDebug(
             "[Coordinator] Received technical: Trend={Trend}, Signal={Signal}",
             evt.TrendDirection, evt.Signal);
@@ -223,7 +286,7 @@ public class TradingCoordinatorAgent : AIGAgentBase
         // Observability: forward latest analysis to audit chain (see HandleSentimentAnalysis).
         _ = PublishAsync(evt, Aevatar.Agents.EventDirection.Down);
 
-        _ = TryMakeDecisionAsync();
+        _ = TryMakeDecisionAsync(evt.Symbol);
         return Task.CompletedTask;
     }
 
@@ -233,7 +296,20 @@ public class TradingCoordinatorAgent : AIGAgentBase
     [EventHandler]
     public Task HandleNewsAnalysis(NewsImpactAnalysisEvent evt)
     {
-        _coordState.LatestNews = evt;
+        // News can affect multiple symbols; cache per symbol for decision prompts.
+        if (evt.AffectedSymbols != null)
+        {
+            foreach (var s in evt.AffectedSymbols)
+            {
+                if (!string.IsNullOrWhiteSpace(s))
+                    _latestNewsBySymbol[s] = evt;
+            }
+        }
+
+        lock (_stateLock)
+        {
+            _coordState.LatestNews = evt;
+        }
         Logger.LogDebug(
             "[Coordinator] Received news: Impact={Impact}, Level={Level}",
             evt.ImpactType, evt.ImpactLevel);
@@ -241,7 +317,7 @@ public class TradingCoordinatorAgent : AIGAgentBase
         // Observability: forward latest analysis to audit chain (see HandleSentimentAnalysis).
         _ = PublishAsync(evt, Aevatar.Agents.EventDirection.Down);
 
-        _ = TryMakeDecisionAsync();
+        _ = TryMakeDecisionAsync(evt.AffectedSymbols?.FirstOrDefault() ?? "");
         return Task.CompletedTask;
     }
 
@@ -251,7 +327,10 @@ public class TradingCoordinatorAgent : AIGAgentBase
     [EventHandler]
     public Task HandleTradeApproved(ApprovedTradeEvent evt)
     {
-        _coordState.DecisionsApproved++;
+        lock (_stateLock)
+        {
+            _coordState.DecisionsApproved++;
+        }
         Logger.LogInformation(
             "[Coordinator] Decision approved: {DecisionId} -> {Side} {Symbol}",
             evt.DecisionId, evt.Side, evt.Symbol);
@@ -264,7 +343,10 @@ public class TradingCoordinatorAgent : AIGAgentBase
     [EventHandler]
     public Task HandleTradeRejected(TradeRejectedEvent evt)
     {
-        _coordState.DecisionsRejected++;
+        lock (_stateLock)
+        {
+            _coordState.DecisionsRejected++;
+        }
         Logger.LogWarning(
             "[Coordinator] Decision rejected: {DecisionId}, Reason: {Reason}",
             evt.DecisionId, evt.RejectionReason);
@@ -276,62 +358,93 @@ public class TradingCoordinatorAgent : AIGAgentBase
     /// <summary>
     /// Attempt to make a trading decision
     /// </summary>
-    private async Task TryMakeDecisionAsync()
+    private Task TryMakeDecisionAsync(string symbol)
     {
-        // Check if there is sufficient analysis data.
-        // If not, emit a periodic "why no strategy" cycle so the user always sees a reason in trade-audit (*.md).
-        if (!HasSufficientData(out var noDataReason))
-        {
-            var now = DateTime.UtcNow;
-            if ((now - _lastNoStrategyExplainUtc).TotalSeconds >= NoStrategyExplainIntervalSeconds)
-            {
-                _lastNoStrategyExplainUtc = now;
-                await PublishNoStrategyCycleAsync(noDataReason);
-            }
+        if (string.IsNullOrWhiteSpace(symbol))
+            return Task.CompletedTask;
 
-            Logger.LogDebug("[Coordinator] Insufficient data for decision: {Reason}", noDataReason);
-            return;
-        }
+        // Coalesce: mark as pending (latest snapshot wins).
+        _pendingDecisionBySymbol[symbol] = 1;
+        _decisionSignal.Release();
 
-        // If a decision is already running (LLM call in-flight), do NOT start another one.
-        // Instead, periodically emit a "waiting" reason so the log keeps moving and users
-        // don't feel the system is deadlocked.
-        if (Volatile.Read(ref _decisionRunning) == 1)
-        {
-            var now = DateTime.UtcNow;
-            var startedAt = _decisionInFlightStartUtc == DateTime.MinValue ? now : _decisionInFlightStartUtc;
-            var elapsed = now - startedAt;
+        // Fire-and-forget:
+        // - event handler must return fast so Down propagation is not blocked
+        // - the worker uses _decisionRunning single-flight to avoid concurrent LLM calls
+        _ = RunDecisionLoopAsync();
+        return Task.CompletedTask;
+    }
 
-            if (elapsed.TotalSeconds >= InFlightExplainAfterSeconds &&
-                (now - _lastInFlightExplainUtc).TotalSeconds >= InFlightExplainIntervalSeconds)
-            {
-                _lastInFlightExplainUtc = now;
-                await PublishNoStrategyCycleAsync($"waiting for LLM response (in-flight {elapsed.TotalSeconds:F0}s)");
-            }
-
-            return;
-        }
-
-        // Check decision interval (to avoid being too frequent)
-        if (_coordState.LastDecisionTime != null)
-        {
-            var elapsed = DateTime.UtcNow - _coordState.LastDecisionTime.ToDateTime();
-            if (elapsed.TotalSeconds < DecisionMinIntervalSeconds)
-            {
-                Logger.LogDebug("[Coordinator] Decision throttled, last decision {Seconds}s ago",
-                    elapsed.TotalSeconds);
-                return;
-            }
-        }
-
-        // Re-entrancy guard: do not run multiple LLM calls concurrently.
+    private async Task RunDecisionLoopAsync()
+    {
         if (Interlocked.Exchange(ref _decisionRunning, 1) == 1)
             return;
 
         try
         {
             _decisionInFlightStartUtc = DateTime.UtcNow;
-            await MakeDecisionAsync();
+
+            while (true)
+            {
+                // 1) Pick ONE eligible symbol to decide now.
+                //    - If all pending symbols are within min-interval, wait until earliest allowed time or a new signal.
+                var now = DateTime.UtcNow;
+                string? picked = null;
+                TimeSpan? earliestWait = null;
+
+                foreach (var kv in _pendingDecisionBySymbol)
+                {
+                    var symbol = kv.Key;
+                    if (string.IsNullOrWhiteSpace(symbol))
+                    {
+                        _pendingDecisionBySymbol.TryRemove(symbol, out _);
+                        continue;
+                    }
+
+                    if (!HasSufficientData(symbol, out var noDataReason))
+                    {
+                        _pendingDecisionBySymbol.TryRemove(symbol, out _);
+                        MaybePublishNoStrategy(symbol, noDataReason);
+                        continue;
+                    }
+
+                    if (_lastDecisionUtcBySymbol.TryGetValue(symbol, out var lastUtc))
+                    {
+                        var nextAllowed = lastUtc.AddSeconds(_decisionMinIntervalSeconds);
+                        if (nextAllowed > now)
+                        {
+                            var wait = nextAllowed - now;
+                            earliestWait = earliestWait == null ? wait : (wait < earliestWait ? wait : earliestWait);
+                            continue;
+                        }
+                    }
+
+                    picked = symbol;
+                    break;
+                }
+
+                if (!string.IsNullOrWhiteSpace(picked))
+                {
+                    // Remove pending before executing to avoid re-entrancy storms.
+                    _pendingDecisionBySymbol.TryRemove(picked, out _);
+                    await MakeDecisionAsync(picked);
+                    _lastDecisionUtcBySymbol[picked] = DateTime.UtcNow;
+                    continue;
+                }
+
+                // 2) No eligible symbol right now.
+                if (_pendingDecisionBySymbol.IsEmpty)
+                {
+                    // Drain extra signals (best-effort) to avoid a busy restart when idle.
+                    while (_decisionSignal.CurrentCount > 0)
+                        _ = _decisionSignal.Wait(0);
+                    break;
+                }
+
+                // 3) Pending exists but all are within min-interval: wait until earliest allowed OR a new incoming signal.
+                var waitFor = earliestWait ?? TimeSpan.FromMilliseconds(200);
+                waitFor = waitFor < TimeSpan.FromMilliseconds(20) ? TimeSpan.FromMilliseconds(20) : waitFor;
+                await _decisionSignal.WaitAsync(waitFor);
+            }
         }
         finally
         {
@@ -340,81 +453,43 @@ public class TradingCoordinatorAgent : AIGAgentBase
         }
     }
 
-    private bool HasSufficientData()
+    private void MaybePublishNoStrategy(string symbol, string reason)
     {
-        // ------------------------------------------------------------
-        //  高频模式：不要用“5分钟新鲜度”把系统锁死
-        //
-        //  现实情况：
-        //  - 15m/5m K 线：技术分析天然更新慢
-        //  - 只要有 tick（价格）+ 至少一个分析维度，就允许决策
-        // ------------------------------------------------------------
+        var now = DateTime.UtcNow;
+        var last = _lastNoStrategyExplainUtcBySymbol.TryGetValue(symbol, out var t) ? t : DateTime.MinValue;
+        if ((now - last).TotalSeconds < NoStrategyExplainIntervalSeconds)
+            return;
 
-        var hasAnyAnalysis = _coordState.LatestSentiment != null || _coordState.LatestTechnical != null || _coordState.LatestNews != null;
-        if (!hasAnyAnalysis)
-            return false;
-
-        // Determine symbol from whatever analysis exists.
-        var symbol =
-            _coordState.LatestTechnical?.Symbol
-            ?? _coordState.LatestSentiment?.Symbol
-            ?? _coordState.LatestNews?.AffectedSymbols.FirstOrDefault()
-            ?? "";
-
-        if (string.IsNullOrWhiteSpace(symbol))
-            return false;
-
-        // Need a price snapshot to size positions and place limit orders reliably.
-        if (!_latestTickBySymbol.TryGetValue(symbol, out var tick) || tick.Price <= 0)
-            return false;
-
-        return true;
+        _lastNoStrategyExplainUtcBySymbol[symbol] = now;
+        _ = PublishNoStrategyCycleAsync(symbol, reason);
     }
 
-    private bool HasSufficientData(out string reason)
+    private bool HasSufficientData(string symbol, out string reason)
     {
         reason = "";
-
-        var hasAnyAnalysis = _coordState.LatestSentiment != null || _coordState.LatestTechnical != null || _coordState.LatestNews != null;
-        if (!hasAnyAnalysis)
-        {
-            reason = "no analysis yet (Sentiment/Technical/News all missing) — likely LLM not configured or analysis not triggered";
-            return false;
-        }
-
-        var symbol =
-            _coordState.LatestTechnical?.Symbol
-            ?? _coordState.LatestSentiment?.Symbol
-            ?? _coordState.LatestNews?.AffectedSymbols.FirstOrDefault()
-            ?? "";
-
         if (string.IsNullOrWhiteSpace(symbol))
         {
-            reason = "no symbol resolved from analysis";
+            reason = "empty symbol";
             return false;
         }
 
+        // Need a price snapshot to size positions and place limit orders reliably.
         if (!_latestTickBySymbol.TryGetValue(symbol, out var tick) || tick.Price <= 0)
         {
             reason = $"no market tick snapshot for {symbol} (ticker polling may be failing)";
             return false;
         }
 
+        // Aggressive micro-scalp mode:
+        // - We allow decisions even when analysts haven't produced reports yet.
+        // - Missing analysis will be treated as NEUTRAL by the prompt.
         return true;
     }
 
-    private async Task PublishNoStrategyCycleAsync(string reason)
+    private async Task PublishNoStrategyCycleAsync(string symbol, string reason)
     {
         try
         {
-            // Best-effort: pick a symbol to show in the log
-            var symbol =
-                _coordState.LatestTechnical?.Symbol
-                ?? _coordState.LatestSentiment?.Symbol
-                ?? _coordState.LatestNews?.AffectedSymbols.FirstOrDefault()
-                ?? _latestTickBySymbol.Keys.FirstOrDefault()
-                ?? "UNKNOWN";
-
             var cycleId = Guid.NewGuid().ToString("N")[..16];
             var decisionId = $"NO_STRATEGY_{cycleId}";
 
@@ -461,16 +536,6 @@ public class TradingCoordinatorAgent : AIGAgentBase
         }
     }
 
-    private static string TrimReason(string? reason)
-    {
-        if (string.IsNullOrWhiteSpace(reason))
-            return "";
-        var s = reason.Replace("\r", " ").Replace("\n", " ").Trim();
-        if (s.Length > 180)
-            s = s[..180] + "…";
-        return s;
-    }
-
     private async Task PublishTimeoutCycleAsync(string cycleId, string symbol, double currentPrice, string reason)
     {
         try
@@ -512,14 +577,12 @@ public class TradingCoordinatorAgent : AIGAgentBase
         }
     }
 
-    private async Task MakeDecisionAsync()
+    private async Task MakeDecisionAsync(string symbol)
     {
-        var symbol =
-            _coordState.LatestTechnical?.Symbol
-            ?? _coordState.LatestSentiment?.Symbol
-            ?? _coordState.LatestNews?.AffectedSymbols.FirstOrDefault()
-            ?? "UNKNOWN";
-        var prompt = BuildDecisionPrompt();
+        if (string.IsNullOrWhiteSpace(symbol))
+            symbol = "UNKNOWN";
+
+        var prompt = BuildDecisionPrompt(symbol);
         var cycleId = Guid.NewGuid().ToString("N")[..16];
 
         // Pricing snapshot (best-effort). This will be attached to the decision so downstream agents can size orders.
@@ -539,7 +602,11 @@ public class TradingCoordinatorAgent : AIGAgentBase
         {
             var engine = DecisionEngine ?? new DirectLlmDecisionEngine(async (p, ct) =>
             {
-                var chat = await ChatAsync(ChatRequest.Create(p), ct);
+                var req = ChatRequest.Create(p);
+                // 快速决策：低温 + 限制输出长度，强迫尽快返回结构化 JSON
+                req.SetTemperatureIfNotSet(0.2);
+                req.SetMaxTokensIfNotSet(420);
+                var chat = await ChatWithFailoverAsync(req, ct);
                 return chat.Content ?? string.Empty;
             });
 
@@ -581,9 +648,12 @@ public class TradingCoordinatorAgent : AIGAgentBase
             }
 
             // Update state
-            _coordState.LastDecision = decision.Direction;
-            _coordState.DecisionsMade++;
-            _coordState.LastDecisionTime = Timestamp.FromDateTime(DateTime.UtcNow);
+            lock (_stateLock)
+            {
+                _coordState.LastDecision = decision.Direction;
+                _coordState.DecisionsMade++;
+                _coordState.LastDecisionTime = Timestamp.FromDateTime(DateTime.UtcNow);
+            }
 
             // Check confidence threshold
             var forwardedToRisk = decision.Direction != "HOLD" && decision.Confidence >= _minConfidenceToTrade;
@@ -628,10 +698,81 @@ public class TradingCoordinatorAgent : AIGAgentBase
                 Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
             });
         }
+        catch (Aevatar.Agents.AI.Abstractions.CircuitBreakerOpenException cbEx)
+        {
+            // ------------------------------------------------------------
+            //  LLM fallback (AI-unavailable must not mean "no trading forever")
+            //
+            //  Philosophy:
+            //  - Keep the system alive and making decisions.
+            //  - When AI is down, switch to a tiny deterministic micro-scalp policy.
+            // ------------------------------------------------------------
+            Logger.LogWarning(cbEx, "[Coordinator] LLM circuit OPEN for {Symbol}. Using fallback decision policy.", symbol);
+            await PublishFallbackDecisionCycleAsync(
+                cycleId,
+                symbol,
+                currentPrice,
+                reason: $"llm-circuit-open: {cbEx.Message}");
+        }
         catch (Exception ex)
         {
             Logger.LogError(ex, "[Coordinator] Decision failed for {Symbol}", symbol);
-            
+            await PublishFallbackDecisionCycleAsync(
+                cycleId,
+                symbol,
+                currentPrice,
+                reason: $"decision-exception: {ex.GetType().Name}");
+        }
+    }
+
+    private async Task PublishFallbackDecisionCycleAsync(string cycleId, string symbol, double currentPrice, string reason)
+    {
+        try
+        {
+            _latestTickBySymbol.TryGetValue(symbol, out var tick);
+            var change24h = tick?.Change24H ?? 0d;
+
+            // Small, deterministic "always act" policy:
+            // - If we have a price, pick a side based on short-term drift (change_24h sign).
+            // - If drift is flat, alternate by second parity (deterministic enough, no RNG).
+            var direction =
+                currentPrice <= 0 ? "HOLD" :
+                Math.Abs(change24h) >= 0.15 ? (change24h >= 0 ? "BUY" : "SELL")
+                : (DateTime.UtcNow.Second % 2 == 0 ? "BUY" : "SELL");
+
+            var decisionId = $"FALLBACK_{cycleId}";
+            var decision = new TradingDecisionEvent
+            {
+                DecisionId = decisionId,
+                Symbol = symbol,
+                Direction = direction,
+                Confidence = direction == "HOLD" ? 0 : 55,
+                SuggestedPositionPct = direction == "HOLD" ? 0 : 1.0, // tiny probe trade
+                SuggestedPrice = currentPrice > 0 ? currentPrice : 0,
+                SentimentSummary = "fallback: LLM unavailable",
+                TechnicalSummary = $"fallback: change24h={change24h:F3}%",
+                NewsSummary = "",
+                Reasoning = reason,
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+            };
+
+            await PublishAsync(decision);
+
+            await PublishAsync(new DecisionCycleCompletedEvent
+            {
+                CycleId = cycleId,
+                DecisionId = decisionId,
+                Symbol = symbol,
+                Direction = decision.Direction,
+                Confidence = decision.Confidence,
+                Executed = decision.Direction != "HOLD",
+                ExecutionMode = _executionMode,
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "[Coordinator] Failed to publish fallback decision cycle for {Symbol}", symbol);
             await PublishAsync(new DecisionCycleCompletedEvent
             {
                 CycleId = cycleId,
@@ -747,56 +888,5 @@ Schema:
         return sb.ToString();
     }
 
-    private TradingDecisionEvent ParseDecisionResponse(string response, string symbol)
-    {
-        try
-        {
-            using var doc = System.Text.Json.JsonDocument.Parse(response);
-            var root = doc.RootElement;
-
-            var reasoning = "";
-            if (root.TryGetProperty("reasoning", out var reasoningObj))
-            {
-                var parts = new List<string>();
-                if (reasoningObj.TryGetProperty("sentiment_factor", out var sf))
-                    parts.Add($"Sentiment: {sf.GetString()}");
-                if (reasoningObj.TryGetProperty("technical_factor", out var tf))
-                    parts.Add($"Technical: {tf.GetString()}");
-                if (reasoningObj.TryGetProperty("news_factor", out var nf))
-                    parts.Add($"News: {nf.GetString()}");
-                if (reasoningObj.TryGetProperty("final_logic", out var fl))
-                    parts.Add($"Decision Logic: {fl.GetString()}");
-                reasoning = string.Join(" | ", parts);
-            }
-
-            return new TradingDecisionEvent
-            {
-                DecisionId = Guid.NewGuid().ToString("N")[..16],
-                Symbol = symbol,
-                Direction = root.TryGetProperty("direction", out var dir)
-                    ? dir.GetString() ?? "HOLD" : "HOLD",
-                Confidence = root.TryGetProperty("confidence", out var conf)
-                    ? conf.GetInt32() : 50,
-                SuggestedPositionPct = root.TryGetProperty("position_pct", out var pos)
-                    ? pos.GetDouble() : 10,
-                SentimentSummary = _coordState.LatestSentiment?.AnalysisSummary ?? "",
-                TechnicalSummary = _coordState.LatestTechnical?.AnalysisSummary ?? "",
-                NewsSummary = _coordState.LatestNews?.AnalysisSummary ?? "",
-                Reasoning = reasoning,
-                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
-            };
-        }
-        catch
-        {
-            return new TradingDecisionEvent
-            {
-                DecisionId = Guid.NewGuid().ToString("N")[..16],
-                Symbol = symbol,
-                Direction = "HOLD",
-                Confidence = 30,
-                Reasoning = response,
-                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
-            };
-        }
-    }
+    // ParseDecisionResponse moved to TradingCoordinatorAgent.Prompt.cs
 }

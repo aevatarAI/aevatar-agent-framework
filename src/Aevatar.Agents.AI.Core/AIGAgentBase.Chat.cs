@@ -13,6 +13,190 @@ namespace Aevatar.Agents.AI.Core;
 
 public abstract partial class AIGAgentBase
 {
+    // ------------------------------------------------------------
+    //  LLM Failover (运行期自动切换 provider)
+    //
+    //  现象：某个 provider 被熔断/限流后，所有依赖它的 Agent 会连续 fallback（看起来“全是 fallback”）。
+    //  本质：Agent 初始化后绑定单一 provider；熔断时只会快速失败，缺少“换备用 provider 再试一次”的路径。
+    //  方案：提供 ChatWithFailoverAsync：
+    //        - 捕获 CircuitBreakerOpenException / WasCircuitBroken 的 LLMCallException
+    //        - 在同一轮内切换到下一个可用 provider 并重试（默认最多换 2 次）
+    //        - 成功就继续，不成功再把异常抛给上层（上层再决定 fallback）
+    // ------------------------------------------------------------
+    private readonly SemaphoreSlim _providerFailoverLock = new(1, 1);
+    private DateTime _lastProviderFailoverUtc = DateTime.MinValue;
+
+    protected async Task<ChatResponse> ChatWithFailoverAsync(
+        ChatRequest request,
+        CancellationToken cancellationToken = default,
+        int maxProviderSwitches = 3)
+    {
+        if (!_isInitialized)
+            throw new InvalidOperationException("AI Agent must be initialized before use. Call InitializeAsync() first.");
+
+        Exception? lastFailure = null;
+
+        // Fast path
+        try
+        {
+            return await ChatAsync(request, cancellationToken);
+        }
+        catch (CircuitBreakerOpenException cb)
+        {
+            lastFailure = cb;
+        }
+        catch (LLMCallException ex)
+        {
+            // NOTE:
+            // - Even when WasCircuitBroken=false, this is still a strong signal of upstream instability
+            //   (rate limit / transient 5xx / network errors) and we should try another provider.
+            lastFailure = ex;
+        }
+        catch (HttpRequestException ex)
+        {
+            lastFailure = ex;
+        }
+        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            // Treat provider-side timeouts as failover candidates (caller didn't cancel).
+            lastFailure = ex;
+        }
+
+        // Failover path: switch provider then retry a few times.
+        for (var hop = 0; hop < Math.Max(1, maxProviderSwitches); hop++)
+        {
+            var switched = await TrySwitchToNextHealthyProviderAsync(cancellationToken, force: true);
+            if (!switched)
+                break;
+
+            try
+            {
+                return await ChatAsync(request, cancellationToken);
+            }
+            catch (CircuitBreakerOpenException)
+            {
+                // try next
+            }
+            catch (LLMCallException ex)
+            {
+                lastFailure = ex;
+                // try next
+            }
+            catch (HttpRequestException ex)
+            {
+                lastFailure = ex;
+            }
+            catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                lastFailure = ex;
+            }
+        }
+
+        // Let caller handle fallback logic (preserve the original failure context if any).
+        if (lastFailure != null)
+            throw lastFailure;
+        throw new InvalidOperationException("LLM failover failed: no exception context available.");
+    }
+
+    private async Task<bool> TrySwitchToNextHealthyProviderAsync(CancellationToken ct, bool force)
+    {
+        var factory = LLMProviderFactory;
+        if (factory == null)
+            return false;
+
+        // Avoid rapid oscillation (best-effort). Keep this small; trading wants fast recovery.
+        var now = DateTime.UtcNow;
+        if (!force && (now - _lastProviderFailoverUtc).TotalMilliseconds < 200)
+            return false;
+
+        await _providerFailoverLock.WaitAsync(ct);
+        try
+        {
+            // Re-check after lock
+            now = DateTime.UtcNow;
+            if (!force && (now - _lastProviderFailoverUtc).TotalMilliseconds < 200)
+                return false;
+
+            var currentName = _activeProviderConfig?.Name ?? string.Empty;
+            var names = factory.GetAvailableProviderNames();
+            if (names == null || names.Count == 0)
+                return false;
+
+            // Pick next provider (stable order from factory).
+            var idx = 0;
+            if (!string.IsNullOrWhiteSpace(currentName))
+            {
+                for (var i = 0; i < names.Count; i++)
+                {
+                    if (string.Equals(names[i], currentName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        idx = i + 1;
+                        break;
+                    }
+                }
+            }
+
+            string? picked = null;
+            for (var step = 0; step < names.Count; step++)
+            {
+                var cand = names[(idx + step) % names.Count];
+                if (string.IsNullOrWhiteSpace(cand))
+                    continue;
+                if (!string.IsNullOrWhiteSpace(currentName) &&
+                    string.Equals(cand, currentName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                // Skip providers that are currently circuit-open (best-effort).
+                // - This avoids "switching into another open circuit" and then still falling back.
+                try
+                {
+                    var candProvider = await factory.GetProviderAsync(cand, ct);
+                    if (candProvider is AevatarLLMProviderBase baseProvider)
+                    {
+                        var hs = baseProvider.GetHealthStatus();
+                        if (hs.State == CircuitState.Open && hs.OpenUntil > DateTime.UtcNow)
+                        {
+                            continue;
+                        }
+                    }
+                }
+                catch
+                {
+                    // If we can't even construct the provider, skip it.
+                    continue;
+                }
+
+                picked = cand;
+                break;
+            }
+
+            if (string.IsNullOrWhiteSpace(picked))
+                return false;
+
+            // Switch provider for subsequent ChatAsync calls.
+            _activeProviderConfig = factory.GetProviderConfig(picked);
+            _llmProvider = await factory.GetProviderAsync(picked, ct);
+            _lastProviderFailoverUtc = DateTime.UtcNow;
+
+            Logger.LogWarning(
+                "[LLM] Agent {AgentId} failover: {From} -> {To}",
+                Id,
+                string.IsNullOrWhiteSpace(currentName) ? "(unknown)" : currentName,
+                picked);
+
+            return true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Logger.LogDebug(ex, "[LLM] Agent {AgentId} failover switch failed (best-effort)", Id);
+            return false;
+        }
+        finally
+        {
+            _providerFailoverLock.Release();
+        }
+    }
+
     /// <summary>
     /// Process a chat request and return a response.
     /// </summary>

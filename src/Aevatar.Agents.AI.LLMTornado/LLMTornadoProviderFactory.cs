@@ -80,7 +80,7 @@ public sealed class LLMTornadoProviderFactory : LLMProviderFactoryBase
         }
 
         var logger = _serviceProvider.GetRequiredService<ILogger<LLMTornadoProvider>>();
-        return new LLMTornadoProvider(api, logger, providerType, model);
+        return new LLMTornadoProvider(api, logger, providerType, model, providerConfig.Name);
     }
 
     private static LLmProviders ParseProvider(string? providerType)

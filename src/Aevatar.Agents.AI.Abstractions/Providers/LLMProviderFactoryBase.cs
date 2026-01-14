@@ -11,7 +11,11 @@ public abstract class LLMProviderFactoryBase : ILLMProviderFactory
 {
     protected readonly LLMProvidersConfig Config;
     protected readonly ILogger Logger;
-    protected readonly Dictionary<string, Lazy<IAevatarLLMProvider>> Providers = new();
+    // NOTE:
+    // - Provider names are configuration keys; treat them as case-insensitive to avoid
+    //   surprising "works locally but not in prod" issues due to casing differences.
+    protected readonly Dictionary<string, Lazy<IAevatarLLMProvider>> Providers =
+        new(StringComparer.OrdinalIgnoreCase);
     protected readonly Dictionary<string, LLMProviderConfig> ProviderConfigs;
 
     protected LLMProviderFactoryBase(IOptions<LLMProvidersConfig> config, ILogger logger)

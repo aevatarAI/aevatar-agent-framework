@@ -80,6 +80,26 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
 
+// ============ Normalize TradeAudit output dir (IMPORTANT) ============
+// Why:
+// - TradeAuditAgent writes files using TradeAuditConfig.OutputDir.
+// - AuditController reads files using the SAME config, but resolves relative paths using ASP.NET ContentRootPath.
+// - Under Aspire/AppHost, the process working directory may differ from ContentRootPath, causing "logs not generated"
+//   symptoms in the frontend (actually written to a different folder).
+// Fix:
+// - Normalize OutputDir to an absolute path rooted at ContentRootPath so writer/reader are consistent.
+builder.Services.PostConfigure<TradeAuditConfig>(cfg =>
+{
+    var raw = string.IsNullOrWhiteSpace(cfg.OutputDir) ? "trade-audit" : cfg.OutputDir.Trim();
+    if (Path.IsPathRooted(raw))
+    {
+        cfg.OutputDir = raw;
+        return;
+    }
+
+    cfg.OutputDir = Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, raw));
+});
+
 // Agent runtime
 builder.Services.AddAgentRuntime(builder.Configuration);
 builder.Services.AddGAgentActorFactoryProvider();

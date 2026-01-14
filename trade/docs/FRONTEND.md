@@ -48,6 +48,7 @@ trade/frontend/
 - `GET /api/audit/latest?maxBytes=...` # 最新策略日志（Markdown tail）
 - `GET /api/audit/files`               # 审计文件列表
 - `GET /api/audit/tail?name=...`       # 读取指定文件尾部（md/jsonl）
+- `GET /api/audit/stream`              # SSE：实时推送 trade-audit/*.jsonl 新增行（用于 Streaming Cards）
 
 ### WEEX Tools（调试工具箱）
 
@@ -65,8 +66,9 @@ trade/frontend/
 ## 改进建议（下一步）
 
 - ✅ **可观测性时间线**：已在 Dashboard 中以 `trade-audit/*.md` 的方式呈现（按 cycle 汇总）
+- ✅ **AI 输出流（Streaming Cards）**：Dashboard 新增基于 SSE 的 per-symbol 卡片流（展开可看 raw JSON）
 - **安全护栏**：在 UI 层增加 “Live 下单” 二次确认（默认提示风险）
-- **状态推送**：未来可通过 SSE/WebSocket 推送状态，而不是手动刷新
+- **状态推送**：未来可把更多状态（仓位/订单/LLM 进度）也改成 SSE 推送，减少轮询
 
 ## Aspire 一键启动（推荐）
 

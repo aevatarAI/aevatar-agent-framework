@@ -1,6 +1,7 @@
 using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Core;
+using Aevatar.Agents.AI.Abstractions;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 using System.Threading;
@@ -78,9 +79,35 @@ public class TechnicalAnalystAgent : AIGAgentBase
     private DateTime _lastAnalysisUtc = DateTime.MinValue;
     private int _analysisRunning;
     private const int KlineBufferSize = 200;
-    private const int MinAnalysisIntervalSeconds = 1;
+    // ============================================================================
+    //  LLM 调度节流（非常关键）
+    //
+    //  现象：多 symbol + 1s 触发，会导致技术分析 LLM 调用洪峰，极易触发限流/熔断。
+    //  原则：行情更新高频，AI 分析低频（例如 30s / 60s）。
+    // ============================================================================
+    private int _minAnalysisIntervalSeconds = 30;
+
+    /// <summary>
+    /// 配置分析最小间隔（秒）。
+    /// - 建议与 Trading:Interval 对齐，避免多 symbol 场景把 LLM 打到熔断。
+    /// </summary>
+    public void Configure(int minAnalysisIntervalSeconds)
+    {
+        _minAnalysisIntervalSeconds = Math.Clamp(minAnalysisIntervalSeconds, 10, 600);
+    }
     // See MarketSentimentAgent for rationale.
     private const int LlmTimeoutSeconds = 300;
+
+    // 熔断降级：避免每秒刷屏
+    private readonly Dictionary<string, DateTime> _lastCircuitNoticeUtcBySymbol =
+        new(StringComparer.OrdinalIgnoreCase);
+    private const int CircuitNoticeMinIntervalSeconds = 10;
+    
+    /// <summary>
+    /// 目标交易对（多交易对模式下必填）。
+    /// - 让每个 Agent 只维护一个 symbol 的 K 线缓冲，避免混用导致指标失真。
+    /// </summary>
+    public string? TargetSymbol { get; set; }
 
     // ============ Lifecycle ============
 
@@ -93,8 +120,9 @@ public class TechnicalAnalystAgent : AIGAgentBase
 
     public override Task<string> GetDescriptionAsync()
     {
+        var scope = string.IsNullOrWhiteSpace(TargetSymbol) ? "" : $"({TargetSymbol})";
         return Task.FromResult(
-            $"TechnicalAnalystAgent: Trend={_techState.CurrentTrend}, " +
+            $"TechnicalAnalystAgent{scope}: Trend={_techState.CurrentTrend}, " +
             $"Strength={_techState.TrendStrength}, " +
             $"Analyses={_techState.AnalysisCount}");
     }
@@ -107,6 +135,12 @@ public class TechnicalAnalystAgent : AIGAgentBase
     [EventHandler]
     public async Task HandleKlineUpdate(KlineUpdateEvent evt)
     {
+        if (!string.IsNullOrWhiteSpace(TargetSymbol) &&
+            !string.Equals(evt.Symbol, TargetSymbol, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
         // Update kline buffer
         _klineBuffer.Add(evt);
         if (_klineBuffer.Count > KlineBufferSize)
@@ -126,6 +160,12 @@ public class TechnicalAnalystAgent : AIGAgentBase
     {
         if (string.IsNullOrWhiteSpace(evt.Symbol))
             return;
+        
+        if (!string.IsNullOrWhiteSpace(TargetSymbol) &&
+            !string.Equals(evt.Symbol, TargetSymbol, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
 
         await TryAnalyzeAsync(evt.Symbol);
     }
@@ -155,7 +195,11 @@ public class TechnicalAnalystAgent : AIGAgentBase
             ChatResponse chat;
             try
             {
-                var task = ChatAsync(ChatRequest.Create(prompt), timeoutCts.Token);
+                var req = ChatRequest.Create(prompt);
+                // 技术分析：输出尽量短，方便 Coordinator 高频整合
+                req.SetTemperatureIfNotSet(0.2);
+                req.SetMaxTokensIfNotSet(380);
+                var task = ChatWithFailoverAsync(req, timeoutCts.Token);
                 chat = await task.WaitAsync(timeout);
             }
             catch (TimeoutException)
@@ -194,6 +238,42 @@ public class TechnicalAnalystAgent : AIGAgentBase
                 "[TechnicalAgent] Analysis completed for {Symbol}: Trend={Trend}, Signal={Signal}",
                 symbol, analysis.TrendDirection, analysis.Signal);
         }
+        catch (CircuitBreakerOpenException ex)
+        {
+            var now = DateTime.UtcNow;
+            var last = _lastCircuitNoticeUtcBySymbol.TryGetValue(symbol, out var t) ? t : DateTime.MinValue;
+            if ((now - last).TotalSeconds < CircuitNoticeMinIntervalSeconds)
+                return;
+
+            _lastCircuitNoticeUtcBySymbol[symbol] = now;
+
+            Logger.LogWarning(
+                "[TechnicalAgent] LLM circuit OPEN for {Symbol}. Provider={Provider}, Until={Until:HH:mm:ss}. Publish degraded analysis (confidence=0).",
+                symbol, ex.ProviderName, ex.OpenUntil);
+
+            await PublishAsync(new TechnicalAnalysisEvent
+            {
+                Symbol = symbol,
+                TrendDirection = "SIDEWAYS",
+                TrendStrength = 0,
+                SupportLevel = indicators.Support,
+                ResistanceLevel = indicators.Resistance,
+                Rsi = indicators.RSI,
+                Macd = indicators.MACD.MACD,
+                MacdSignal = indicators.MACD.Signal,
+                MacdHistogram = indicators.MACD.Histogram,
+                Ma20 = indicators.MA20,
+                Ma60 = indicators.MA60,
+                BollingerUpper = indicators.BollingerUpper,
+                BollingerLower = indicators.BollingerLower,
+                Atr = indicators.ATR,
+                Signal = "HOLD",
+                PatternDetected = "",
+                AnalysisSummary = $"LLM unavailable (circuit open): {ex.ProviderName} until {ex.OpenUntil:HH:mm:ss} UTC",
+                Confidence = 0,
+                Timestamp = Timestamp.FromDateTime(now)
+            }, Aevatar.Agents.EventDirection.Up);
+        }
         catch (Exception ex)
         {
             Logger.LogError(ex, "[TechnicalAgent] Analysis failed for {Symbol}", symbol);
@@ -206,7 +286,7 @@ public class TechnicalAnalystAgent : AIGAgentBase
             return;
 
         var now = DateTime.UtcNow;
-        if ((now - _lastAnalysisUtc).TotalSeconds < MinAnalysisIntervalSeconds)
+        if ((now - _lastAnalysisUtc).TotalSeconds < _minAnalysisIntervalSeconds)
             return;
 
         if (Interlocked.Exchange(ref _analysisRunning, 1) == 1)

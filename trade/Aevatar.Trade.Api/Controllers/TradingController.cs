@@ -46,6 +46,7 @@ public class TradingController : ControllerBase
     {
         try
         {
+            // One-click start: Start will auto-initialize when needed.
             await _tradingSystem.StartAsync(ct);
             return Ok(new { message = "Trading system started" });
         }

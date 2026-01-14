@@ -1,6 +1,7 @@
 using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Core;
+using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Trade.Infrastructure.WeexApi;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
@@ -71,12 +72,35 @@ public class MarketSentimentAgent : AIGAgentBase
     /// funding rate / open interest instead of using placeholders.
     /// </summary>
     public IWeexApiClient? ApiClient { get; set; }
+    
+    /// <summary>
+    /// 目标交易对（多交易对模式下必填）。
+    /// - 让每个 Agent 只关注一个 symbol，避免“状态互相覆盖/节流互相影响”。
+    /// </summary>
+    public string? TargetSymbol { get; set; }
 
     private readonly SentimentAnalystState _sentimentState = new();
     private int _tickCounter;
     private DateTime _lastAnalysisUtc = DateTime.MinValue;
     private int _analysisRunning;
-    private const int MinAnalysisIntervalSeconds = 1;
+    // ============================================================================
+    //  LLM 调度节流（非常关键）
+    //
+    //  现象：你把 tick/interval 拉到 1s，再叠加多 symbol，就会把 LLM 变成“持续高并发压力测试”。
+    //  本质：LLM 有速率限制/不稳定，连续失败 -> 熔断 -> 看起来系统一直 fail。
+    //
+    //  原则：行情数据可以高频，但“AI 分析”必须低频、可解释、可控。
+    // ============================================================================
+    private int _minAnalysisIntervalSeconds = 30;
+
+    /// <summary>
+    /// 配置分析最小间隔（秒）。
+    /// - 建议与 Trading:Interval 对齐，避免多 symbol 场景把 LLM 打到熔断。
+    /// </summary>
+    public void Configure(int minAnalysisIntervalSeconds)
+    {
+        _minAnalysisIntervalSeconds = Math.Clamp(minAnalysisIntervalSeconds, 10, 600);
+    }
     // NOTE: Must be < LocalMessageStream capacity (default 1000) * tick interval (1s),
     // otherwise the DataCollector can be back-pressured and appear "stuck".
     // 300s is generous and matches DecisionEngine default timeout.
@@ -86,6 +110,11 @@ public class MarketSentimentAgent : AIGAgentBase
     private readonly Dictionary<string, MarketIndicatorSnapshot> _indicatorCache =
         new(StringComparer.OrdinalIgnoreCase);
     private const int IndicatorCacheTtlSeconds = 15;
+
+    // 熔断降级：避免每秒刷屏 + 避免不断失败导致系统“看起来一直在报错”
+    private readonly Dictionary<string, DateTime> _lastCircuitNoticeUtcBySymbol =
+        new(StringComparer.OrdinalIgnoreCase);
+    private const int CircuitNoticeMinIntervalSeconds = 10;
 
     private sealed class MarketIndicatorSnapshot
     {
@@ -108,8 +137,9 @@ public class MarketSentimentAgent : AIGAgentBase
 
     public override Task<string> GetDescriptionAsync()
     {
+        var scope = string.IsNullOrWhiteSpace(TargetSymbol) ? "" : $"({TargetSymbol})";
         return Task.FromResult(
-            $"MarketSentimentAgent: Score={_sentimentState.CurrentSentiment}, " +
+            $"MarketSentimentAgent{scope}: Score={_sentimentState.CurrentSentiment}, " +
             $"Analyses={_sentimentState.AnalysisCount}");
     }
 
@@ -121,6 +151,12 @@ public class MarketSentimentAgent : AIGAgentBase
     [EventHandler]
     public async Task HandleMarketTick(MarketTickEvent evt)
     {
+        if (!string.IsNullOrWhiteSpace(TargetSymbol) &&
+            !string.Equals(evt.Symbol, TargetSymbol, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
         // ------------------------------------------------------------
         //  Analyze every N ticks to avoid being too frequent.
         //
@@ -133,7 +169,7 @@ public class MarketSentimentAgent : AIGAgentBase
         // First analysis ASAP for cold start.
         // Then high frequency (user要求：LLM调用无上限)，但保证同一时间只跑一个请求，避免堆积。
         var now = DateTime.UtcNow;
-        if (_sentimentState.AnalysisCount > 0 && (now - _lastAnalysisUtc).TotalSeconds < MinAnalysisIntervalSeconds)
+        if (_sentimentState.AnalysisCount > 0 && (now - _lastAnalysisUtc).TotalSeconds < _minAnalysisIntervalSeconds)
             return;
 
         if (Interlocked.Exchange(ref _analysisRunning, 1) == 1)
@@ -188,7 +224,11 @@ public class MarketSentimentAgent : AIGAgentBase
             ChatResponse chat;
             try
             {
-                var task = ChatAsync(ChatRequest.Create(prompt), timeoutCts.Token);
+                var req = ChatRequest.Create(prompt);
+                // 情绪分析：要快，不要长篇大论
+                req.SetTemperatureIfNotSet(0.2);
+                req.SetMaxTokensIfNotSet(360);
+                var task = ChatWithFailoverAsync(req, timeoutCts.Token);
                 chat = await task.WaitAsync(timeout);
             }
             catch (TimeoutException)
@@ -234,6 +274,34 @@ public class MarketSentimentAgent : AIGAgentBase
             Logger.LogInformation(
                 "[SentimentAgent] Analysis completed for {Symbol}: Score={Score}, Signal={Signal}",
                 symbol, analysis.SentimentScore, analysis.AnalysisSummary);
+        }
+        catch (CircuitBreakerOpenException ex)
+        {
+            var now = DateTime.UtcNow;
+            var last = _lastCircuitNoticeUtcBySymbol.TryGetValue(symbol, out var t) ? t : DateTime.MinValue;
+            if ((now - last).TotalSeconds < CircuitNoticeMinIntervalSeconds)
+                return;
+
+            _lastCircuitNoticeUtcBySymbol[symbol] = now;
+
+            // 关键：不要 LogError（否则日志会出现 fail: ...）
+            Logger.LogWarning(
+                "[SentimentAgent] LLM circuit OPEN for {Symbol}. Provider={Provider}, Until={Until:HH:mm:ss}. Publish degraded analysis (confidence=0).",
+                symbol, ex.ProviderName, ex.OpenUntil);
+
+            await PublishAsync(new MarketSentimentAnalysisEvent
+            {
+                Symbol = symbol,
+                SentimentScore = 0,
+                SentimentTrend = "SIDEWAYS",
+                FearGreedIndex = double.NaN,
+                LongShortRatio = double.NaN,
+                FundingRate = fundingRate ?? double.NaN,
+                OpenInterest = openInterest ?? double.NaN,
+                AnalysisSummary = $"LLM unavailable (circuit open): {ex.ProviderName} until {ex.OpenUntil:HH:mm:ss} UTC",
+                Confidence = 0,
+                Timestamp = Timestamp.FromDateTime(now)
+            }, Aevatar.Agents.EventDirection.Up);
         }
         catch (Exception ex)
         {

@@ -17,6 +17,9 @@ Console.WriteLine();
 // ============ Services ============
 
 IResourceBuilder<ProjectResource> tradingApi;
+var cognitiveMesh = builder.AddProject<Projects.Aevatar_CognitiveMesh>("cognitive-mesh")
+    .WithHttpEndpoint(port: 5678, name: "http")
+    .WithExternalHttpEndpoints();
 
 switch (runtimeType.ToLower())
 {
@@ -24,6 +27,13 @@ switch (runtimeType.ToLower())
         Console.WriteLine("✅ Using Local runtime (single-machine in-memory mode)");
         tradingApi = builder.AddProject<Projects.Aevatar_Trade_Api>("trading-api")
             .WithEnvironment("AgentRuntime__RuntimeType", "Local")
+            // Use CognitiveMesh as the coordinator "brain":
+            // - It runs Cognitive DSL workflows (trade-cycle.yaml) and returns a decision JSON string.
+            .WithEnvironment("DecisionEngine__Mode", "CognitiveMesh")
+            .WithEnvironment("DecisionEngine__CognitiveMeshBaseUrl", cognitiveMesh.GetEndpoint("http"))
+            .WithEnvironment("DecisionEngine__CognitiveMeshStrategy", "Cognitive")
+            .WithEnvironment("DecisionEngine__CognitiveWorkflow", "trade-cycle")
+            .WithEnvironment("DecisionEngine__TimeoutSeconds", "120")
             .WithExternalHttpEndpoints();
         break;
 
@@ -31,6 +41,11 @@ switch (runtimeType.ToLower())
         Console.WriteLine("✅ Using Orleans runtime (distributed mode)");
         tradingApi = builder.AddProject<Projects.Aevatar_Trade_Api>("trading-api")
             .WithEnvironment("AgentRuntime__RuntimeType", "Orleans")
+            .WithEnvironment("DecisionEngine__Mode", "CognitiveMesh")
+            .WithEnvironment("DecisionEngine__CognitiveMeshBaseUrl", cognitiveMesh.GetEndpoint("http"))
+            .WithEnvironment("DecisionEngine__CognitiveMeshStrategy", "Cognitive")
+            .WithEnvironment("DecisionEngine__CognitiveWorkflow", "trade-cycle")
+            .WithEnvironment("DecisionEngine__TimeoutSeconds", "120")
             .WithExternalHttpEndpoints();
         break;
 
@@ -78,6 +93,11 @@ Console.WriteLine("🌐 Trading API Endpoints:");
 Console.WriteLine("   📖 Swagger:    http://localhost:7100/swagger");
 Console.WriteLine("   📈 Metrics:    http://localhost:7100/metrics");
 Console.WriteLine("   💓 Health:     http://localhost:7100/health");
+Console.WriteLine();
+Console.WriteLine("🧠 Cognitive Mesh (Decision Engine):");
+Console.WriteLine("   - Web UI:     http://localhost:5678");
+Console.WriteLine("   - API:        http://localhost:5678/api/reason");
+Console.WriteLine("   - Workflow:   trade-cycle");
 Console.WriteLine();
 Console.WriteLine("🎮 Trading API Operations:");
 Console.WriteLine("   POST /api/trading/initialize  - Initialize system");

@@ -45,4 +45,20 @@
     </None>
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- ============================================================
+         Workflows (Cognitive DSL)
+         - Copy workflow YAML files into output/workflows so runtime can always discover them.
+         - This avoids relying on current working directory / source tree layout.
+         ============================================================ -->
+    <Content Include="..\..\src\Aevatar.Agents.Cognitive\workflows\*.yml">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>workflows\%(Filename)%(Extension)</Link>
+    </Content>
+    <Content Include="..\..\src\Aevatar.Agents.Cognitive\workflows\*.yaml">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>workflows\%(Filename)%(Extension)</Link>
+    </Content>
+  </ItemGroup>
+
 </Project>

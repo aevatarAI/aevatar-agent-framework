@@ -107,6 +107,7 @@ export type FillInfo = {
 export type MetaResponse = {
   trading: {
     symbol: string;
+    symbols?: string[];
     interval: string;
     executionMode: string; // "DryRun" | "Live" (stringified)
     minConfidenceToTrade: number;

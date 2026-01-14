@@ -38,6 +38,7 @@
         <ProjectReference Include="..\..\src\Aevatar.Agents.Runtime.Orleans\Aevatar.Agents.Runtime.Orleans.csproj" />
         <ProjectReference Include="..\..\src\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
         <ProjectReference Include="..\..\src\Aevatar.Agents.AI.MEAI\Aevatar.Agents.AI.MEAI.csproj" />
+        <ProjectReference Include="..\..\src\Aevatar.Agents.AI.LLMTornado\Aevatar.Agents.AI.LLMTornado.csproj" />
         <ProjectReference Include="..\Aevatar.Trade\Aevatar.Trade.csproj" />
     </ItemGroup>
     <ItemGroup>

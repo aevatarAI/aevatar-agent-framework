@@ -36,7 +36,7 @@ public static class ServiceCollectionExtensions
         {
             var api = sp.GetRequiredService<TornadoApi>();
             var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<LLMTornadoProvider>>();
-            return new LLMTornadoProvider(api, logger, config.Provider, config.Model);
+            return new LLMTornadoProvider(api, logger, config.Provider, config.Model, instanceName: "default");
         });
 
         return services;

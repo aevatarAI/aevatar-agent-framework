@@ -15,23 +15,34 @@ public class MetaController : ControllerBase
         IOptions<TradingConfig> trading,
         IOptions<TradeAuditConfig> audit,
         IOptions<AiWarsLogUploadConfig> aiWars,
+        IOptions<DecisionEngineConfig> decisionEngine,
         IOptions<Aevatar.Trade.Infrastructure.WeexApi.WeexApiConfig> weex)
     {
         var t = trading.Value;
         var a = audit.Value;
         var w = weex.Value;
         var u = aiWars.Value;
+        var de = decisionEngine.Value;
 
         return Ok(new
         {
             trading = new
             {
                 symbol = t.Symbol,
+                symbols = t.Symbols?.ToArray() ?? Array.Empty<string>(),
                 interval = t.Interval,
                 executionMode = t.ExecutionMode.ToString(),
                 minConfidenceToTrade = t.MinConfidenceToTrade,
                 maxPositionPct = t.MaxPositionPct,
                 maxTotalPositionPct = t.MaxTotalPositionPct
+            },
+            decisionEngine = new
+            {
+                mode = de.Mode,
+                cognitiveMeshBaseUrl = de.CognitiveMeshBaseUrl,
+                cognitiveMeshStrategy = de.CognitiveMeshStrategy,
+                cognitiveWorkflow = de.CognitiveWorkflow,
+                timeoutSeconds = de.TimeoutSeconds
             },
             weex = new
             {

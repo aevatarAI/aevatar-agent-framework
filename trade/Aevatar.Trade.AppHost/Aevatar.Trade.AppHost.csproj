@@ -17,6 +17,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\Aevatar.Trade.Api\Aevatar.Trade.Api.csproj" />
+        <ProjectReference Include="..\..\cognitive-mesh\Aevatar.CognitiveMesh\Aevatar.CognitiveMesh.csproj" />
     </ItemGroup>
 
 </Project>

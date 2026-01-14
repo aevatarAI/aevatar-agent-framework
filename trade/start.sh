@@ -71,6 +71,7 @@ kill_port() {
 echo "[start.sh] == Stop existing trade system =="
 # Kill AppHost first (it should stop the whole orchestration), then cleanup any leftovers.
 kill_port 20888
+  kill_port 5678
 kill_port 7100
 kill_port 5173
 kill_port 15888

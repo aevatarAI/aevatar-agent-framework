@@ -382,6 +382,261 @@ pre code {
   color: rgba(20, 83, 45, 0.95);
 }
 
+/* ============================================================================
+ *  AI Output Stream (SSE cards) - inspired by Aevatar.AxiomReasoning
+ * ============================================================================ */
+
+.ai-stream-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.03);
+  margin-bottom: 12px;
+}
+
+.ai-stream-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.16);
+}
+.ai-stream-dot.ok {
+  background: rgba(22, 163, 74, 0.85);
+}
+.ai-stream-dot.bad {
+  background: rgba(239, 68, 68, 0.85);
+}
+
+.ai-stream-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ai-stream-title {
+  font-weight: 850;
+  color: rgba(15, 23, 42, 0.92);
+}
+.ai-stream-sub {
+  font-size: 12px;
+  color: rgba(15, 23, 42, 0.65);
+}
+
+.btn-secondary {
+  appearance: none;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: rgba(15, 23, 42, 0.03);
+  color: rgba(15, 23, 42, 0.82);
+  padding: 8px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 750;
+  font-size: 12px;
+}
+.btn-secondary:hover {
+  background: rgba(15, 23, 42, 0.05);
+  border-color: rgba(15, 23, 42, 0.16);
+}
+.btn-secondary:focus-visible {
+  outline: none;
+  border-color: rgba(37, 99, 235, 0.28);
+  box-shadow: 0 0 0 4px var(--ring);
+}
+
+.ai-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 980px) {
+  .ai-cards-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ai-card {
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.02);
+  overflow: hidden;
+}
+.ai-card.streaming {
+  border-color: rgba(37, 99, 235, 0.28);
+  box-shadow: 0 0 0 4px var(--ring);
+}
+
+.ai-card-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(15, 23, 42, 0.03);
+}
+.ai-card-header::-webkit-details-marker {
+  display: none;
+}
+.ai-card > summary {
+  list-style: none;
+}
+.ai-card > summary {
+  cursor: pointer;
+}
+.ai-card-symbol {
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+.ai-card-count,
+.ai-card-time {
+  font-size: 12px;
+  color: rgba(15, 23, 42, 0.65);
+}
+.ai-card-status {
+  display: flex;
+  gap: 8px;
+  margin-left: 10px;
+  flex-wrap: wrap;
+}
+.ai-pill {
+  font-size: 12px;
+  color: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  background: rgba(15, 23, 42, 0.03);
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.ai-card-empty {
+  padding: 12px;
+  color: rgba(15, 23, 42, 0.65);
+}
+.ai-card-body {
+  padding: 8px 10px 10px;
+}
+
+.ai-item {
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.02);
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+.ai-item-summary {
+  cursor: pointer;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 10px 10px;
+  user-select: none;
+}
+.ai-item-type {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: rgba(15, 23, 42, 0.65);
+  min-width: 170px;
+}
+.ai-item-text {
+  color: rgba(15, 23, 42, 0.88);
+  font-weight: 750;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ai-item-ts {
+  font-size: 12px;
+  color: rgba(15, 23, 42, 0.65);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.ai-item-detail {
+  padding: 0 10px 10px;
+}
+.ai-item-kv {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.ai-k {
+  display: inline-block;
+  font-size: 12px;
+  color: rgba(15, 23, 42, 0.65);
+  margin-right: 6px;
+}
+.ai-v {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: rgba(15, 23, 42, 0.88);
+}
+.ai-raw-summary {
+  cursor: pointer;
+  font-weight: 850;
+  color: rgba(15, 23, 42, 0.70);
+}
+.ai-raw {
+  margin-top: 8px;
+  max-height: 260px;
+  overflow: auto;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  background: rgba(15, 23, 42, 0.03);
+  color: rgba(15, 23, 42, 0.88);
+  font-size: 12px;
+}
+.ai-card-more {
+  margin-top: 8px;
+  font-size: 12px;
+  color: rgba(15, 23, 42, 0.65);
+  text-align: center;
+}
+
+/* ============================================================================
+ *  Open Orders (grouped cards)
+ * ============================================================================ */
+
+.ordersGrid {
+  display: grid;
+  gap: 10px;
+}
+
+.orderGroup {
+  border: 1px solid var(--border2);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.74));
+  overflow: hidden;
+}
+.orderGroup > summary {
+  list-style: none;
+  cursor: pointer;
+}
+.orderGroupHeader {
+  display: flex;
+  align-items: baseline;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+  background: rgba(15, 23, 42, 0.02);
+}
+
+.orderCards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 10px;
+}
+@media (max-width: 900px) {
+  .orderCards {
+    grid-template-columns: 1fr;
+  }
+}
+
+.orderCard {
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 14px;
+  padding: 10px 10px;
+  background: rgba(255, 255, 255, 0.70);
+}
+
 .badge {
   display: inline-flex;
   align-items: center;
@@ -441,6 +696,11 @@ pre code {
     grid-template-columns: 1.35fr 0.65fr;
     align-items: start;
   }
+}
+
+/* TradingPage: force single-column layout (multi-symbol terminal). */
+.dashGridSingle {
+  grid-template-columns: 1fr !important;
 }
 
 .dashMain,

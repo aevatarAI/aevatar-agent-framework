@@ -98,6 +98,38 @@ public sealed class CognitiveStrategy : IReasoningStrategy
         return ValidationResult.Success();
     }
 
+    private string ResolveProviderName(ReasoningOptions options)
+    {
+        var requested = (options.ProviderName ?? "").Trim();
+        if (!string.IsNullOrWhiteSpace(requested))
+        {
+            if (_llmFactory.HasProvider(requested))
+                return requested;
+
+            // Do NOT fail hard here; fall back to an available provider so workflows can still run.
+            _logger.LogWarning(
+                "Requested provider '{Provider}' not found. Falling back to available providers: {Providers}",
+                requested,
+                string.Join(", ", _llmFactory.GetAvailableProviderNames()));
+        }
+
+        // Prefer config default (instance name), if present and valid.
+        var cfgDefault = (_configuration["LLMProviders:Default"] ?? _configuration["LLMProviders:default"] ?? "").Trim();
+        if (!string.IsNullOrWhiteSpace(cfgDefault) && _llmFactory.HasProvider(cfgDefault))
+            return cfgDefault;
+
+        // Finally, pick the first available provider from factory.
+        var available = _llmFactory.GetAvailableProviderNames()
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (available.Count > 0)
+            return available[0];
+
+        // Last resort: historical constant (may still fail, but keeps behavior explicit).
+        return string.IsNullOrWhiteSpace(cfgDefault) ? AevatarAgentsConstants.DefaultProviderName : cfgDefault;
+    }
+
     public async Task<ReasoningResult> ExecuteAsync(
         string task,
         ReasoningOptions options,
@@ -166,7 +198,17 @@ public sealed class CognitiveStrategy : IReasoningStrategy
             }
             
             // Initialize AI Agent (set LLM Provider)
-            var providerName = options.ProviderName ?? AevatarAgentsConstants.DefaultProviderName;
+            //
+            // IMPORTANT:
+            // - Do NOT hardcode a single provider name (e.g., "deepseek").
+            // - In many environments, configured provider instance names differ (e.g., "deepseek-deepseek-chat").
+            // - If we pick a non-existent provider, the whole workflow never uses AI and returns failure.
+            //
+            // Strategy:
+            // - Prefer request-provided ProviderName
+            // - Then try config LLMProviders:Default
+            // - Then fall back to the first available provider in factory
+            var providerName = ResolveProviderName(options);
             await coordinator.InitializeAsync(providerName, cancellationToken: ct);
             
             // Configure Coordinator

@@ -14,24 +14,35 @@ public class LLMTornadoProvider : AevatarLLMProviderBase
     private readonly LLMCallPolicy _policy;
     private readonly LLmProviders _providerType;
     private readonly string _modelName;
+    private readonly string _instanceName;
 
     public LLMTornadoProvider(
         TornadoApi api,
         ILogger<LLMTornadoProvider> logger,
         LLmProviders providerType,
         string modelName,
+        string? instanceName = null,
         LLMCallPolicy? policy = null)
     {
         _api = api;
         _logger = logger;
         _providerType = providerType;
         _modelName = modelName;
+        _instanceName = string.IsNullOrWhiteSpace(instanceName) ? providerType.ToString() : instanceName.Trim();
         _policy = policy ?? LLMCallPolicy.Default;
     }
 
     protected override LLMCallPolicy Policy => _policy;
     protected override ILogger? Logger => _logger;
-    protected override string ProviderName => $"LLMTornado:{_providerType}";
+    // IMPORTANT:
+    // - CircuitBreaker key uses ProviderName.
+    // - Old implementation bucketed by providerType only (e.g., "LLMTornado:Anthropic"), which meant:
+    //   one bad Anthropic call could open the circuit for ALL Anthropic usages.
+    // - New implementation buckets by provider *instance name* (from LLMProviders:Providers:{name}),
+    //   so:
+    //   - errors correlate to user secrets config
+    //   - circuits are isolated per configured provider instance
+    protected override string ProviderName => $"LLMTornado:{_instanceName}";
 
     protected override async Task<AevatarLLMResponse> GenerateCoreAsync(
         AevatarLLMRequest request,
@@ -77,8 +88,40 @@ public class LLMTornadoProvider : AevatarLLMProviderBase
 
     private LlmTornado.Chat.ChatRequest MapToChatRequest(AevatarLLMRequest request)
     {
-        // Use model from request settings, or fall back to configured model
-        var modelId = request.Settings?.ModelId ?? _modelName;
+        // ============================================================
+        //  Model resolution (provider-aware)
+        //
+        // 中文 + ASCII:
+        // - Upper layers (AIGAgentBase) may set a global default model (e.g. "gpt-5.1").
+        // - But LLMTornado routes by provider: Google(Gemini) cannot accept OpenAI model ids.
+        // - Here we resolve/validate the model in ONE place to avoid "cross-provider model" 404s.
+        //
+        // Design:
+        // - If request does not specify model -> use configured provider instance model.
+        // - If request specifies an obviously incompatible model for this provider:
+        //   - Prefer falling back to configured provider instance model (if compatible)
+        //   - Otherwise fail-fast with a clear configuration hint.
+        // ============================================================
+        var requestedModel = request.Settings?.ModelId;
+        var modelId = string.IsNullOrWhiteSpace(requestedModel) ? _modelName : requestedModel.Trim();
+
+        // Guard: Google (Gemini) will 404 when fed OpenAI-style model ids like "gpt-*".
+        if (_providerType == LLmProviders.Google && LooksLikeOpenAiChatModel(modelId))
+        {
+            if (!string.IsNullOrWhiteSpace(_modelName) && !LooksLikeOpenAiChatModel(_modelName))
+            {
+                _logger.LogWarning(
+                    "[LLM] Model override '{RequestedModel}' is incompatible with provider Google(Gemini). Falling back to provider instance model '{ConfiguredModel}' (provider: {ProviderName}).",
+                    modelId, _modelName, ProviderName);
+                modelId = _modelName;
+            }
+            else
+            {
+                throw new ArgumentException(
+                    $"LLMTornado provider Google(Gemini) cannot use model '{modelId}'. " +
+                    $"Set 'LLMProviders:Providers:{_instanceName}:Model' to a Gemini model (e.g. 'models/gemini-...') or remove the request-level ModelId override.");
+            }
+        }
         
         // Create ChatModel with model name and provider type for correct routing
         var chatModel = new ChatModel(modelId, _providerType);
@@ -137,6 +180,17 @@ public class LLMTornadoProvider : AevatarLLMProviderBase
         return chatRequest;
     }
 
+    private static bool LooksLikeOpenAiChatModel(string? modelId)
+    {
+        if (string.IsNullOrWhiteSpace(modelId))
+            return false;
+
+        // Keep this intentionally narrow:
+        // - We only use it to stop the known "gpt-*" -> Gemini mismatch.
+        // - Avoid overfitting: other providers may accept arbitrary ids via custom endpoints.
+        return modelId.Trim().StartsWith("gpt-", StringComparison.OrdinalIgnoreCase);
+    }
+
     private List<LlmTornado.Common.Tool> MapToChatTools(IList<AevatarFunctionDefinition> functions)
     {
         var tools = new List<LlmTornado.Common.Tool>();
@@ -183,7 +237,7 @@ public class LLMTornadoProvider : AevatarLLMProviderBase
                 result.AevatarFunctionCall = new AevatarFunctionCall
                 {
                     Name = toolCall.FunctionCall.Name!,
-                    Arguments = toolCall.FunctionCall.Arguments
+                    Arguments = toolCall.FunctionCall.Arguments ?? ""
                 };
             }
         }

@@ -8,13 +8,13 @@
 - `test/Aevatar.Agents.AI.Core.Tests/Aevatar.Agents.AI.Core.Tests.csproj`
 - `test/Aevatar.Agents.AI.Tests/Aevatar.Agents.AI.Tests.csproj`
 - `test/Aevatar.Agents.Core.Tests.Agents/Aevatar.Agents.Core.Tests.Agents.csproj`
-- `test/Aevatar.PaperReview.Tests/Aevatar.PaperReview.Tests.csproj`
+- `apps/Aevatar.PaperReview/test/Aevatar.PaperReview.Tests/Aevatar.PaperReview.Tests.csproj`
 
 ## 覆盖面矩阵（按功能点）
 
 | 功能点 | 适用性 | 结论 | 证据（测试文件，节选） |
 |---|---|---|---|
-| 运行时/生命周期 | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.AI.Tests/AIAgentArchitectureTests.cs`, `test/Aevatar.Agents.AI.Tests/AIGAgentTests.cs`, `test/Aevatar.Agents.Core.Tests.Agents/ExceptionTestAgent.cs`, `test/Aevatar.Agents.Core.Tests.Agents/BasicTestAgent.cs`, `test/Aevatar.Agents.Core.Tests.Agents/IntegrationTestAgents.cs`, `test/Aevatar.PaperReview.Tests/PaperReviewIntegrationTests.cs` |
+| 运行时/生命周期 | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.AI.Tests/AIAgentArchitectureTests.cs`, `test/Aevatar.Agents.AI.Tests/AIGAgentTests.cs`, `test/Aevatar.Agents.Core.Tests.Agents/ExceptionTestAgent.cs`, `test/Aevatar.Agents.Core.Tests.Agents/BasicTestAgent.cs`, `test/Aevatar.Agents.Core.Tests.Agents/IntegrationTestAgents.cs`, `apps/Aevatar.PaperReview/test/Aevatar.PaperReview.Tests/PaperReviewIntegrationTests.cs` |
 | 事件/订阅/流 | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.AI.Abstractions.Tests/ProcessingStrategyTests.cs`, `test/Aevatar.Agents.AI.Abstractions.Tests/LLMProviderTests.cs`, `test/Aevatar.Agents.AI.Abstractions.Tests/Fixtures/AITestFixture.cs`, `test/Aevatar.Agents.AI.Core.Tests/AIGAgentBaseTests.cs`, `test/Aevatar.Agents.AI.Tests/AIGAgentWithToolBaseTests.cs`, `test/Aevatar.Agents.AI.Tests/AIAgentArchitectureTests.cs` … |
 | 序列化/Protobuf | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.AI.Abstractions.Tests/ToolSystemTests.cs`, `test/Aevatar.Agents.AI.Abstractions.Tests/ProcessingStrategyTests.cs`, `test/Aevatar.Agents.AI.Core.Tests/AIGAgentBaseTests.cs`, `test/Aevatar.Agents.AI.Core.Tests/StatePropertyAccessorTests.cs`, `test/Aevatar.Agents.AI.Core.Tests/AgentSkillsToolTests.cs`, `test/Aevatar.Agents.AI.Core.Tests/MemorySearchSemanticTests.cs` … |
 | 持久化/存储 | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.AI.Abstractions.Tests/Fixtures/AITestFixture.cs`, `test/Aevatar.Agents.AI.Core.Tests/AIGAgentBaseTests.cs`, `test/Aevatar.Agents.AI.Core.Tests/MemorySearchSemanticTests.cs`, `test/Aevatar.Agents.Core.Tests.Agents/ConfigurableTestAgent.cs` |

@@ -48,7 +48,7 @@
   - _Requirements: 3, 5, 11_
   - _Prompt: Role: AI Platform Engineer (.NET) | Task: Implement the task for spec platform, first run spec-workflow-guide to get the workflow guide then implement the task: Create a RoleAIGAgent derived from AIGAgentBase and a factory that instantiates agents per role and applies YAML config via AgentYamlConfigApplier. Ensure baseline tool allowlist is enforced and skills are enabled only when YAML declares skills. | Restrictions: Agents must have parameterless constructors; state/config types crossing boundaries must be Protobuf; do not bypass tool safety policies. | _Leverage: AI.Core GlobalAgentYamlRegistry + AgentYamlConfigApplier | _Requirements: 3, 5, 11 | Success: Role agents start, load YAML, and tool visibility matches allowlist.
 
-- [ ] 7. Implement ToolRegistry and security policy layer (dangerous tools, path allowlists, timeouts)
+- [x] 7. Implement ToolRegistry and security policy layer (dangerous tools, path allowlists, timeouts)
   - File: `platform/src/Aevatar.Platform.Core/Tools/PlatformToolRegistry.cs`
   - File: `platform/src/Aevatar.Platform.Core/Tools/PlatformToolPolicy.cs`
   - Purpose: Provide OpenCode-parity tool capabilities while keeping a “default safe” policy; enforce repo port policy for server defaults
@@ -56,7 +56,7 @@
   - _Requirements: 6, 1, 2_
   - _Prompt: Role: Security-minded Backend Engineer | Task: Implement the task for spec platform, first run spec-workflow-guide to get the workflow guide then implement the task: Implement a tool registry and policy layer that controls dangerous tools (shell/web_search/etc), path allowlists, command allowlists, and timeouts. Integrate with AI.Core tool system as the execution backend. | Restrictions: Default must be safe; no privilege escalation via hooks; do not allow port 5000 defaults anywhere. | _Leverage: AI.Core tool policy patterns, HOOKS_HARNESS.md | _Requirements: 6, 1, 2 | Success: Tools are discoverable, policy blocks unsafe actions by default, and logs/events explain denials.
 
-- [ ] 8. Implement file-backed EventStore for sessions (Event Sourcing + export/import)
+- [x] 8. Implement file-backed EventStore for sessions (Event Sourcing + export/import)
   - File: `platform/src/Aevatar.Platform.Core/Sessions/FileEventStore.cs`
   - File: `platform/src/Aevatar.Platform.Core/Sessions/SessionService.cs`
   - Purpose: `session list/show/resume/export/import` behavior and crash recovery
@@ -64,7 +64,7 @@
   - _Requirements: 8, 1_
   - _Prompt: Role: Backend Engineer (Event Sourcing) | Task: Implement the task for spec platform, first run spec-workflow-guide to get the workflow guide then implement the task: Build a file-backed IEventStore and SessionService for Platform sessions. Events must be Protobuf, storage must be bounded and append-only, and export/import must use a stable JSON format (no secrets). | Restrictions: No non-Protobuf event payloads; ensure replay is deterministic; do not delete tests. | _Leverage: existing IEventStore abstractions | _Requirements: 8, 1 | Success: Sessions can be created/resumed/listed/exported/imported, and unit tests cover basic replay.
 
-- [ ] 9. Implement CLI command surface (OpenCode parity) backed by PlatformCore
+- [x] 9. Implement CLI command surface (OpenCode parity) backed by PlatformCore
   - File: `platform/src/Aevatar.Platform.Cli/Program.cs`
   - File: `platform/src/Aevatar.Platform.Cli/Commands/RootCommands.cs`
   - Purpose: Wire `tui/run/serve/web/attach/...` commands and global flags; route to Core services
@@ -72,7 +72,7 @@
   - _Requirements: 1, 8, 11_
   - _Prompt: Role: CLI Developer (.NET) | Task: Implement the task for spec platform, first run spec-workflow-guide to get the workflow guide then implement the task: Implement OpenCode-parity CLI command surface using System.CommandLine: default starts TUI, plus subcommands run/serve/web/attach/agent/auth/mcp/models/session/stats/export/import/acp/uninstall/upgrade. Wire global flags. Ensure default ports are not 5000. | Restrictions: Keep command parsing deterministic; avoid long files; do not start long-running server in foreground in tests. | _Leverage: OpenCode CLI docs, FEASIBILITY.md | _Requirements: 1, 8, 11 | Success: `aevatar --help` shows expected commands/flags; basic commands invoke Core handlers.
 
-- [ ] 10. Implement TUI (OpenCode parity) with Spectre.Console + streaming rendering
+- [x] 10. Implement TUI (OpenCode parity) with Spectre.Console + streaming rendering
   - File: `platform/src/Aevatar.Platform.Cli/Tui/TuiApp.cs`
   - File: `platform/src/Aevatar.Platform.Cli/Tui/InputParser.cs`
   - Purpose: Provide `@` file attach, `!` shell, `/` commands, `/editor`, and streaming output display
@@ -80,7 +80,7 @@
   - _Requirements: 1, 7, 6_
   - _Prompt: Role: Terminal UI Engineer | Task: Implement the task for spec platform, first run spec-workflow-guide to get the workflow guide then implement the task: Build a Spectre.Console-based TUI that matches OpenCode behaviors: @ fuzzy file attach, ! shell run (policy controlled), / commands (help/sessions/themes/editor/etc), /editor uses EDITOR env, and streaming output rendering. | Restrictions: No secrets in UI logs; bounded rendering (truncate long outputs); avoid tight loops; keep files small. | _Leverage: OpenCode TUI docs, FEASIBILITY.md | _Requirements: 1, 7, 6 | Success: TUI can run a prompt through WorkflowEngine and stream outputs; input syntaxes work.
 
-- [ ] 11. Implement `serve/web/attach` backend (HTTP + streaming) with authentication
+- [x] 11. Implement `serve/web/attach` backend (HTTP + streaming) with authentication
   - File: `platform/src/Aevatar.Platform.Server/Aevatar.Platform.Server.csproj`
   - File: `platform/src/Aevatar.Platform.Server/Program.cs`
   - File: `platform/src/Aevatar.Platform.Server/Endpoints/SessionsEndpoints.cs`
@@ -89,7 +89,7 @@
   - _Requirements: 1, 7, 8_
   - _Prompt: Role: Backend Engineer (ASP.NET Core) | Task: Implement the task for spec platform, first run spec-workflow-guide to get the workflow guide then implement the task: Create a minimal ASP.NET Core server project that provides endpoints needed for serve/web/attach (session create/list/input, stream events snapshot-first via SSE, attach handshake). Support basic auth via env/config, and ensure default port is not 5000. | Restrictions: No port 5000 defaults; streaming must be snapshot-first; keep payloads bounded; avoid storing secrets. | _Leverage: SRA ResearchSessionsApi SSE patterns | _Requirements: 1, 7, 8 | Success: Server can stream session events and TUI can attach to it.
 
-- [ ] 12. Add automated tests: CLI parsing, DSL compile, session replay, and policy denials
+- [x] 12. Add automated tests: CLI parsing, DSL compile, session replay, and policy denials
   - File: `platform/test/Aevatar.Platform.Tests/Aevatar.Platform.Tests.csproj`
   - File: `platform/test/Aevatar.Platform.Tests/PlatformSmokeTests.cs`
   - Purpose: Lock in parity-critical behaviors and prevent regressions

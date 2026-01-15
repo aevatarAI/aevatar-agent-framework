@@ -1,0 +1,39 @@
+<Solution>
+  <Folder Name="/experimental/novel/">
+    <Project Path="src\Aevatar.Novel.Contracts\Aevatar.Novel.Contracts.csproj" />
+    <Project Path="src\Aevatar.Novel.Sidecar\Aevatar.Novel.Sidecar.csproj" />
+    <File Path="src\README.md" />
+    <File Path="boot.sh" />
+  </Folder>
+  <Folder Name="/experimental/novel/docs/">
+    <File Path="docs\PLAN.md" />
+    <File Path="docs\PRD.md" />
+    <File Path="docs\STORAGE.md" />
+    <File Path="docs\STRUCTURE.md" />
+  </Folder>
+  <Folder Name="/experimental/novel/protos/">
+    <File Path="protos\novel_assets.proto" />
+    <File Path="protos\novel_pipeline.proto" />
+    <File Path="protos\novel_sidecar.proto" />
+    <File Path="protos\docs\README.md" />
+  </Folder>
+  <Folder Name="/experimental/novel/agent_skills/">
+    <File Path="agent_skills\README.md" />
+  </Folder>
+  <Folder Name="/experimental/novel/frontend/">
+    <File Path="frontend\README.md" />
+    <File Path="frontend\package.json" />
+    <File Path="frontend\src-tauri\Cargo.toml" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="..\..\src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
+  </Folder>
+  <Folder Name="/root/">
+    <File Path="..\..\AGENTS.md" />
+    <File Path="..\..\Directory.Packages.props" />
+  </Folder>
+</Solution>
+
+

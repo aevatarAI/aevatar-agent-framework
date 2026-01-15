@@ -21,7 +21,7 @@ var host = Host.CreateDefaultBuilder(args)
     .ConfigureAppConfiguration((context, config) =>
     {
         config.AddJsonFile("appsettings.json", optional: true)
-              .AddAevatarUserSecrets()
+              .AddAevatarUserConfig()
               .AddJsonFile("appsettings.secrets.json", optional: true); // Load secrets
         config.AddEnvironmentVariables();
     })

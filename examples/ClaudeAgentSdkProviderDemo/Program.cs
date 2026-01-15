@@ -42,7 +42,7 @@ var host = Host.CreateDefaultBuilder(args)
         // not from current working directory.
         config.SetBasePath(demoBin);
         config.AddJsonFile("appsettings.json", optional: false)
-            .AddAevatarUserSecrets()
+            .AddAevatarUserConfig()
             .AddJsonFile("appsettings.secrets.json", optional: true);
         config.AddEnvironmentVariables();
     })

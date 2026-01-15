@@ -4,7 +4,7 @@
 
 ### 典型用法
 
-- 配置 `HttpClient.BaseAddress` 指向你的 sidecar / `Aevatar.Secrets.Api`（例如 `http://localhost:6677`）。
+- 配置 `HttpClient.BaseAddress` 指向你的 sidecar / `Aevatar.Config`（例如 `http://localhost:6677`）。
 - 调用：
   - `ListProviderTypesAsync()`
   - `ListInstancesAsync()`

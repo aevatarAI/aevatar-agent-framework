@@ -54,14 +54,16 @@ src/
 │   ├── Conversation History                # → 对话历史
 │   └── MCP Client                          # → MCP 工具支持
 │
-└── cognitive-mesh/
+└── src/
     ├── Aevatar.CognitiveMesh.Dsl/          # DSL 编译器 ✅ 可直接使用
     │   ├── CognitiveDslCompiler            # → 解析 workflow JSON
     │   ├── MeshDefinition                  # → 工作流定义模型
     │   └── Validation Rules                # → Schema 验证
     │
-    └── Aevatar.CognitiveMesh.Abstractions/ # 策略抽象
-        └── IReasoningStrategy              # → 可参考
+    ├── Aevatar.Agents.Cognitive.Core/      # 策略抽象
+    │   └── IReasoningStrategy              # → 可参考
+    ├── Aevatar.Agents.Cognitive.Content/   # 内容加载/项目存储
+    └── Aevatar.Agents.Cognitive.Streaming/ # 广播/流式工具
 ```
 
 ### 2.2 需要新开发

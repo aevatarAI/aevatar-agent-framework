@@ -15,7 +15,7 @@ class Program
         {
            var builder = new ConfigurationBuilder();
            builder.AddJsonFile("appsettings.json", false);
-           builder.AddAevatarUserSecrets();
+           builder.AddAevatarUserConfig();
            builder.AddJsonFile("appsettings.secrets.json", true);
            options.Services.ReplaceConfiguration(builder.Build());
            options.UseAutofac();

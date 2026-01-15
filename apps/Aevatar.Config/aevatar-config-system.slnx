@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/apps/Aevatar.Config/">
+    <Project Path="Aevatar.Config.csproj" />
+    <File Path="README.md" />
+    <File Path="boot.sh" />
+  </Folder>
+  <Folder Name="/apps/Aevatar.Config/docs/">
+    <File Path="docs\README.md" />
+    <File Path="docs\TECH_DEBT.md" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="..\..\src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
+  </Folder>
+</Solution>

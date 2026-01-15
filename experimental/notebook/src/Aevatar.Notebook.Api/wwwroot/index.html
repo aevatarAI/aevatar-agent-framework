@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Aevatar.Notebook</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app" id="appRoot">
+    <!-- =========================================================
+         Header (NotebookLM-like, minimal)
+         ========================================================= -->
+    <header class="header" role="banner">
+      <div class="header-left">
+        <button id="toggleLeftBtn" class="icon-btn" type="button" aria-label="Toggle sources sidebar">
+          <span class="icon">⟷</span>
+        </button>
+        <div class="brand">
+          <div class="brand-title">Aevatar.Notebook</div>
+          <div class="brand-sub">当前笔记本：<span class="muted">default</span></div>
+        </div>
+      </div>
+
+      <div class="header-center">
+        <div class="search">
+          <span class="search-icon">⌕</span>
+          <input id="globalSearch" class="search-input" placeholder="Search sources, chat, reports…" />
+        </div>
+      </div>
+
+      <div class="header-right">
+        <div id="statusBadge" class="status-pill" aria-live="polite">loading…</div>
+
+        <div class="segmented" role="group" aria-label="Theme">
+          <button class="seg-btn" type="button" data-theme="light">Light</button>
+          <button class="seg-btn" type="button" data-theme="dark">Dark</button>
+          <button class="seg-btn" type="button" data-theme="device">Device</button>
+        </div>
+
+        <button id="toggleRightBtn" class="icon-btn" type="button" aria-label="Toggle studio sidebar">
+          <span class="icon">⟷</span>
+        </button>
+
+        <button id="focusBtn" class="btn btn-ghost" type="button">专注</button>
+        <button id="resetBtn" class="btn btn-secondary" type="button">Reset</button>
+      </div>
+    </header>
+
+    <!-- =========================================================
+         Main three-column layout
+         ========================================================= -->
+    <main class="layout" role="main">
+      <!-- Left: Sources -->
+      <aside class="sidebar sidebar-left" aria-label="Sources">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">Sources</div>
+            <div class="panel-actions">
+              <button id="refreshSourcesBtn" class="btn btn-ghost btn-sm" type="button">Refresh</button>
+            </div>
+          </div>
+
+          <div class="stack">
+            <div class="row">
+              <input id="sourceTitle" class="input" placeholder="Title (optional)" />
+              <button id="addSourceBtn" class="btn btn-primary" type="button">Add</button>
+            </div>
+            <textarea id="sourceText" class="textarea" placeholder="Paste source text…"></textarea>
+
+            <div class="row row-tight">
+              <input id="sourceFile" class="input input-file" type="file" accept=".txt" />
+              <button id="uploadSourceBtn" class="btn btn-secondary" type="button">Upload</button>
+            </div>
+
+            <div class="row row-tight">
+              <div class="hint">
+                <span class="dot dot-ok"></span>
+                <span id="selectedSourcesInfo">selected: 0 / 0 (empty = all)</span>
+              </div>
+              <button id="clearSelectedSourcesBtn" class="btn btn-ghost btn-sm" type="button">Clear</button>
+            </div>
+
+            <div id="sourcesList" class="list list-tight" role="list"></div>
+            <pre id="sourceDetail" class="pre pre-compact"></pre>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Center: Chat -->
+      <section class="center" aria-label="Chat">
+        <div class="panel panel-center">
+          <div class="panel-header">
+            <div class="panel-title">Chat</div>
+            <div class="panel-actions">
+              <div class="hint">
+                <span class="muted">Sources:</span>
+                <span id="chatSelectedBadge" class="badge badge-soft">0 selected</span>
+              </div>
+            </div>
+          </div>
+
+          <div id="chatLog" class="chat-log" role="log" aria-live="polite"></div>
+
+          <div class="chat-input" role="group" aria-label="Chat input">
+            <div class="chips-row" aria-label="Quick prompts">
+              <div id="promptChips" class="chips-scroll">
+                <button class="chip chip-soft" type="button" data-prompt="总结这批资料的关键结论（用要点）。">总结关键结论</button>
+                <button class="chip chip-soft" type="button" data-prompt="把这些资料的主要观点按主题分组，并给出每组的引用。">按主题分组</button>
+                <button class="chip chip-soft" type="button" data-prompt="给出可执行建议（每条建议引用来源）。">可执行建议</button>
+                <button class="chip chip-soft" type="button" data-prompt="指出资料之间的冲突与不一致（标注引用）。">找冲突</button>
+              </div>
+            </div>
+
+            <div class="input-row">
+              <input id="chatInput" class="input input-chat" placeholder="Ask a question…" />
+              <button id="sendBtn" class="btn btn-primary" type="button">Send</button>
+            </div>
+          </div>
+
+          <details class="meta">
+            <summary class="meta-summary">Debug</summary>
+            <pre id="chatMeta" class="pre pre-small"></pre>
+          </details>
+        </div>
+      </section>
+
+      <!-- Right: Studio / Notes -->
+      <aside class="sidebar sidebar-right" aria-label="Studio">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">Studio</div>
+            <div class="panel-actions">
+              <button id="refreshReportsBtn" class="btn btn-ghost btn-sm" type="button">Refresh</button>
+            </div>
+          </div>
+
+          <!-- NotebookLM-like Studio layout (MVP) -->
+          <div class="studio-stack">
+            <!-- Tool grid -->
+            <div class="studio-grid" role="list" aria-label="Studio tools">
+              <button class="studio-tile studio-tile--blue is-active" type="button" data-studio="report">
+                <div class="studio-tile-top">
+                  <div class="studio-tile-icon" aria-hidden="true">📄</div>
+                </div>
+                <div class="studio-tile-label">报告</div>
+              </button>
+
+              <button class="studio-tile studio-tile--green is-disabled" type="button" disabled>
+                <div class="studio-tile-top">
+                  <div class="studio-tile-icon" aria-hidden="true">🎧</div>
+                </div>
+                <div class="studio-tile-label">音频概览</div>
+              </button>
+
+              <button class="studio-tile studio-tile--purple is-disabled" type="button" disabled>
+                <div class="studio-tile-top">
+                  <div class="studio-tile-icon" aria-hidden="true">🧠</div>
+                </div>
+                <div class="studio-tile-label">思维导图</div>
+              </button>
+
+              <button class="studio-tile studio-tile--beige is-disabled" type="button" disabled>
+                <div class="studio-tile-top">
+                  <div class="studio-tile-icon" aria-hidden="true">🗂️</div>
+                </div>
+                <div class="studio-tile-label">闪卡</div>
+              </button>
+
+              <button class="studio-tile studio-tile--cyan is-disabled" type="button" disabled>
+                <div class="studio-tile-top">
+                  <div class="studio-tile-icon" aria-hidden="true">❓</div>
+                </div>
+                <div class="studio-tile-label">测验</div>
+              </button>
+
+              <button class="studio-tile studio-tile--sand is-disabled" type="button" disabled>
+                <div class="studio-tile-top">
+                  <div class="studio-tile-icon" aria-hidden="true">🎞️</div>
+                </div>
+                <div class="studio-tile-label">演示文稿</div>
+              </button>
+            </div>
+
+            <!-- Report generation (active tile) -->
+            <section class="studio-section" aria-label="Report generation">
+              <div class="studio-section-title">Generate report</div>
+              <div class="row">
+                <input id="reportTopic" class="input" placeholder="Report topic…" />
+                <button id="genReportBtn" class="btn btn-primary" type="button">Generate</button>
+              </div>
+              <div id="reportStatus" class="studio-status muted" aria-live="polite"></div>
+
+              <!-- Streaming progress (collapsible) -->
+              <details id="reportStreamDetails" class="meta meta-compact" hidden>
+                <summary class="meta-summary">Generation details</summary>
+                <div id="reportStreamTools" class="chat-tools"></div>
+                <div id="reportStreamLog"></div>
+              </details>
+
+              <!-- Debug (hidden by default; we show it only when there is content) -->
+              <details id="reportDebug" class="meta meta-compact" hidden>
+                <summary class="meta-summary">Debug</summary>
+                <pre id="reportMeta" class="pre pre-small"></pre>
+              </details>
+            </section>
+
+            <!-- Outputs -->
+            <section class="studio-section" aria-label="Studio outputs">
+              <div class="studio-section-title">Reports</div>
+              <div id="reportsList" class="studio-outputs" role="list"></div>
+              <pre id="reportBox" class="pre studio-preview"></pre>
+            </section>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <footer class="footer" role="contentinfo">
+      <div class="muted">Project: <code>experimental/notebook/</code></div>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
+
+

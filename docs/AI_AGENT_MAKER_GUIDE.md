@@ -180,7 +180,7 @@ builder.Configuration
     // Global user-level secrets (encrypted, per-user) - best-effort.
     // - Default: ~/.aevatar/secrets.json
     // - Override: AEVATAR_SECRETS_PATH / AEVATAR_SECRETS_DIR
-    .AddAevatarUserSecrets()
+    .AddAevatarUserConfig()
     .AddJsonFile("appsettings.secrets.json", optional: true, reloadOnChange: true);
 
 // 3. Configure Logging

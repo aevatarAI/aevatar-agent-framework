@@ -22,7 +22,7 @@ public abstract class AppTestBase<TStartupModule> : AbpIntegratedTest<TStartupMo
     {
         var builder = new ConfigurationBuilder();
         builder.AddJsonFile("appsettings.json", false);
-        builder.AddAevatarUserSecrets();
+        builder.AddAevatarUserConfig();
         builder.AddJsonFile("appsettings.secrets.json", true);
         services.ReplaceConfiguration(builder.Build());
     }

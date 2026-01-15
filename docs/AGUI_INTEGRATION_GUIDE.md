@@ -344,5 +344,5 @@ AG-UI 集成带来的核心价值：
 ## 相关文档
 
 - [AG-UI 技术架构](./src/Aevatar.Agents.Cognitive/docs/AGUI.md) - 详细的技术实现
-- [AxiomReasoning 架构](./cognitive-mesh/Aevatar.AxiomReasoning/docs/ARCHITECTURE.md) - 实际应用案例
+- [AxiomReasoning 架构](../apps/Aevatar.AxiomReasoning/src/Aevatar.AxiomReasoning/docs/ARCHITECTURE.md) - 实际应用案例
 

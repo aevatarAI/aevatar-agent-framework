@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/aigagentbase-stage4/requirements.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-15T06:13:03.947Z",
+      "trigger": "initial",
+      "approvalId": "approval_1768457583458_6gdkwv6nx",
+      "approvalTitle": "Spec Requirements: aigagentbase-stage4"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-15T06:14:11.547Z",
+      "trigger": "approved",
+      "approvalId": "approval_1768457583458_6gdkwv6nx",
+      "approvalTitle": "Spec Requirements: aigagentbase-stage4"
+    }
+  ]
+}

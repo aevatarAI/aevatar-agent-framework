@@ -1,0 +1,38 @@
+<Solution>
+  <Folder Name="/apps/Aevatar.VibeResearching/">
+    <Project Path="src\VibeResearching\VibeResearching.csproj" />
+    <Project Path="src\VibeResearching.Api\VibeResearching.Api.csproj" />
+    <Project Path="src\VibeResearching.Contracts\VibeResearching.Contracts.csproj" />
+    <Project Path="src\VibeResearching.AppHost\VibeResearching.AppHost.csproj" />
+    <File Path="README.md" />
+    <File Path="boot.sh" />
+  </Folder>
+
+  <Folder Name="/apps/Aevatar.VibeResearching/docs/">
+    <File Path="docs\INTEGRATION_GUIDE.md" />
+    <File Path="docs\ARCHITECTURE.md" />
+    <File Path="docs\VIBE_RESEARCHING.md" />
+    <File Path="docs\CONFIGURATION.md" />
+    <File Path="docs\DEVELOPMENT.md" />
+  </Folder>
+  <Folder Name="/apps/Aevatar.VibeResearching/test/">
+    <Project Path="test\VibeResearching.Tests\VibeResearching.Tests.csproj" />
+    <Project Path="test\VibeResearching.Api.Tests\VibeResearching.Api.Tests.csproj" />
+  </Folder>
+
+  <Folder Name="/src/">
+    <Project Path="..\..\src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.AI.MEAI\Aevatar.Agents.AI.MEAI.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.AGUI\Aevatar.Agents.AGUI.csproj" />
+  </Folder>
+
+  <Folder Name="/root/">
+    <File Path="..\..\AGENTS.md" />
+    <File Path="..\..\Directory.Packages.props" />
+  </Folder>
+</Solution>
+
+

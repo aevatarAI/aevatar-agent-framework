@@ -24,7 +24,7 @@ public class AppWebTestModule : AbpModule
     {
         var builder = new ConfigurationBuilder();
         builder.AddJsonFile("appsettings.json", false);
-        builder.AddAevatarUserSecrets();
+        builder.AddAevatarUserConfig();
         builder.AddJsonFile("appsettings.secrets.json", true);
         context.Services.ReplaceConfiguration(builder.Build());
     }

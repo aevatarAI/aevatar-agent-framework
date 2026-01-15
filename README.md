@@ -328,7 +328,6 @@ examples/
 ├── AIEventSourcingDemo/         # AI + EventSourcing
 ├── MCPToolDemo/                 # Model Context Protocol Demo
 ├── CreativeSystem/              # Creative Reasoning Web App
-├── MakerSystem/                 # MAKER Framework Demo
 ├── MongoDBEventStoreDemo/       # MongoDB Persistence
 ├── KafkaStreamDemo/             # Kafka Stream Integration
 ├── Demo.Agents/                 # Various Agent Implementations

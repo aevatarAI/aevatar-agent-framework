@@ -67,7 +67,7 @@ public class ClusterFixture : IDisposable
         {
             var configuration = new ConfigurationBuilder()
                 .AddJsonFile("appsettings.json", optional: true)
-                .AddAevatarUserSecrets()
+                .AddAevatarUserConfig()
                 .AddJsonFile("appsettings.secrets.json", optional: true)
                 .Build();
 

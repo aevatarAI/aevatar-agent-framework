@@ -28,7 +28,7 @@ public static class Program
                 var baseDir = AppContext.BaseDirectory;
 
                 config.AddJsonFile("appsettings.json", optional: true)
-                    .AddAevatarUserSecrets()
+                    .AddAevatarUserConfig()
                     .AddJsonFile("appsettings.secrets.json", optional: true)
                     .AddJsonFile(Path.Combine(baseDir, "appsettings.json"), optional: true, reloadOnChange: false)
                     .AddJsonFile(Path.Combine(baseDir, "appsettings.secrets.json"), optional: true, reloadOnChange: false);

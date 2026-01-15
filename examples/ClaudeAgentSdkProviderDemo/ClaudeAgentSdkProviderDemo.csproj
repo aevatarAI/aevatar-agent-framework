@@ -10,6 +10,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Aevatar.Agents.AI.Abstractions\Aevatar.Agents.AI.Abstractions.csproj" />
     <ProjectReference Include="..\..\src\Aevatar.Agents.AI.LLMTornado\Aevatar.Agents.AI.LLMTornado.csproj" />
+    <ProjectReference Include="..\..\src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

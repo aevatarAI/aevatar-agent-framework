@@ -1,0 +1,26 @@
+<Solution>
+  <Folder Name="/experimental/aevatar-kit/">
+    <Project Path="src\AevatarKit.Api\AevatarKit.Api.csproj" />
+    <Project Path="src\AevatarKit.Core\AevatarKit.Core.csproj" />
+    <Project Path="src\AevatarKit.Runtime\AevatarKit.Runtime.csproj" />
+    <File Path="docs\README.md" />
+    <File Path="docs\PLAN.md" />
+    <File Path="docs\TECH_DEBT.md" />
+    <File Path="boot.sh" />
+  </Folder>
+  <Folder Name="/experimental/aevatar-kit/docs/">
+    <File Path="docs\README.md" />
+    <File Path="docs\PLAN.md" />
+    <File Path="docs\TECH_DEBT.md" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="..\..\src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
+  </Folder>
+  <Folder Name="/root/">
+    <File Path="..\..\AGENTS.md" />
+    <File Path="..\..\Directory.Packages.props" />
+  </Folder>
+</Solution>
+
+

@@ -16,9 +16,10 @@ test/
 ├── Aevatar.Agents.Local.Tests/       # Local runtime tests
 ├── Aevatar.Agents.Orleans.Tests/     # Orleans runtime tests
 ├── Aevatar.Agents.ProtoActor.Tests/  # ProtoActor runtime tests
-├── ScientificResearchAssistant.Tests/ # ScientificResearchAssistant (vibe) unit tests
 └── Aevatar.Agents.Orleans.MongoDB.Tests/  # MongoDB repository tests
 ```
+
+App-level tests live under each app's `test/` directory (for example `apps/Aevatar.PaperReview/test/`).
 
 ---
 

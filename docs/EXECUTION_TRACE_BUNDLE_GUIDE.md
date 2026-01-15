@@ -73,7 +73,7 @@ ${AEVATAR_TRACE_DIR}/
 
 ## 5. 三个系统的接入方式与查看路径
 
-### 5.1 MakerSystem（examples/MakerSystem）
+### 5.1 MakerSystem（apps/Aevatar.MakerSystem/examples/MakerSystem）
 
 - **执行完成时**：
   - `MakerResult.ToExecutionTrace()` → `IExecutionTraceStore.SaveAsync(...)`

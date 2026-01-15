@@ -1,15 +1,211 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Aevatar.Agents.AI.Abstractions;
+using Aevatar.Agents.AI.Abstractions.Configuration;
+using Aevatar.Agents.AI.Core.Configuration;
 using Aevatar.Agents.AI.Core.Utils;
 using Aevatar.Agents.AI.Tool.Abstractions;
-using Aevatar.Agents.AI.Tool.Messages;
-using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.AI.Core;
 
 public abstract partial class AIGAgentBase
 {
+    protected internal sealed record YamlToolPolicy(
+        IReadOnlySet<string> Allowlist,
+        IReadOnlySet<string> DangerousToolNames,
+        bool EnableDangerousTools);
+
+    private static readonly IReadOnlySet<string> DefaultYamlDangerousToolNames =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "python_exec",
+            "skills_run_python"
+        };
+
+    private static readonly IReadOnlyCollection<string> DefaultYamlSkillToolNames =
+    [
+        "skills_list",
+        "skills_load",
+        "find_helpful_skills",
+        "find_helpful_alls",
+        "list_skills",
+        "read_skill_document",
+        "skills_files",
+        "skills_read_file",
+        "skills_run_python"
+    ];
+
+    /// <summary>
+    /// Skill tool names used for YAML allowlist building.
+    /// Override to customize or reduce the default skills tool surface.
+    /// </summary>
+    protected virtual IReadOnlyCollection<string> GetYamlSkillToolNames()
+        => DefaultYamlSkillToolNames;
+
+    internal IReadOnlyCollection<string> InternalGetYamlSkillToolNames()
+        => GetYamlSkillToolNames();
+
+    /// <summary>
+    /// Policy hook: default skill roots used when YAML enables skills.
+    /// Default: ~/.aevatar/skills (via AgentYamlConfigLoader).
+    /// </summary>
+    protected virtual IReadOnlyCollection<string> GetYamlDefaultSkillRoots()
+        => new[] { AgentYamlConfigLoader.GetSkillsDirectory() };
+
+    internal IReadOnlyCollection<string> InternalGetYamlDefaultSkillRoots()
+        => GetYamlDefaultSkillRoots();
+
+    /// <summary>
+    /// Policy hook: dangerous tool names used by YAML to decide AllowDangerousTools.
+    /// Default: python_exec + skills_run_python (case-insensitive).
+    /// </summary>
+    protected virtual IReadOnlySet<string> GetYamlDangerousToolNames()
+        => DefaultYamlDangerousToolNames;
+
+    internal IReadOnlySet<string> InternalGetYamlDangerousToolNames()
+        => GetYamlDangerousToolNames();
+
+    /// <summary>
+    /// Policy hook: build the final YAML tool policy (allowlist + dangerous enablement).
+    /// Default behavior matches current semantics.
+    /// </summary>
+    protected virtual YamlToolPolicy BuildYamlToolPolicy(AgentYamlConfig yaml)
+    {
+        var skillToolNames = GetYamlSkillToolNames();
+        var allowlist = BuildToolAllowlistFromYaml(yaml, skillToolNames);
+        var dangerousToolNames = GetYamlDangerousToolNames();
+        var enableDangerous = ShouldEnableDangerousToolsFromYaml(yaml, allowlist, dangerousToolNames);
+
+        return new YamlToolPolicy(allowlist, dangerousToolNames, enableDangerous);
+    }
+
+    internal YamlToolPolicy InternalBuildYamlToolPolicy(AgentYamlConfig yaml)
+        => BuildYamlToolPolicy(yaml);
+
+    /// <summary>
+    /// Policy hook: emit a structured audit log for YAML tool policy decisions.
+    /// Default: Debug-level, best-effort (no behavior change).
+    /// </summary>
+    protected virtual void LogYamlToolPolicyDecision(AgentYamlConfig yaml, YamlToolPolicy policy)
+    {
+        var allowlistCount = policy.Allowlist?.Count ?? 0;
+        var allowlistHash = BuildAllowlistFingerprint(policy.Allowlist);
+        var allowlistSample = BuildAllowlistSample(policy.Allowlist, maxItems: 6);
+
+        Logger.LogDebug(
+            "YAML tool policy decision: allowlist_count={AllowCount} allowlist_hash={AllowHash} allowlist_sample={AllowSample} dangerous_names_count={DangerCount} enable_dangerous={EnableDangerous} skills_count={SkillsCount} tools_count={ToolsCount}",
+            allowlistCount,
+            allowlistHash,
+            allowlistSample,
+            policy.DangerousToolNames?.Count ?? 0,
+            policy.EnableDangerousTools,
+            yaml?.Skills?.Count ?? 0,
+            yaml?.Tools?.Count ?? 0);
+    }
+
+    private static string BuildAllowlistFingerprint(IReadOnlySet<string>? allowlist)
+    {
+        if (allowlist == null || allowlist.Count == 0)
+            return "empty";
+
+        var ordered = allowlist.OrderBy(x => x, StringComparer.OrdinalIgnoreCase);
+        var joined = string.Join("|", ordered);
+        var bytes = Encoding.UTF8.GetBytes(joined);
+        var hash = SHA256.HashData(bytes);
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static string BuildAllowlistSample(IReadOnlySet<string>? allowlist, int maxItems)
+    {
+        if (allowlist == null || allowlist.Count == 0)
+            return "[]";
+
+        var items = allowlist
+            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+            .Take(Math.Clamp(maxItems, 1, 16))
+            .ToArray();
+
+        return "[" + string.Join(", ", items) + "]";
+    }
+
+    internal void InternalLogYamlToolPolicyDecision(AgentYamlConfig yaml, YamlToolPolicy policy)
+        => LogYamlToolPolicyDecision(yaml, policy);
+
+    /// <summary>
+    /// Policy hook: decide whether YAML allowlist should enable dangerous tools.
+    /// Default behavior matches current semantics: only enable if allowlist explicitly includes a dangerous tool.
+    /// </summary>
+    protected virtual bool ShouldEnableDangerousToolsFromYaml(
+        AgentYamlConfig yaml,
+        IReadOnlySet<string> allowlist,
+        IReadOnlySet<string> dangerousToolNames)
+    {
+        if (allowlist == null || allowlist.Count == 0)
+            return false;
+
+        return allowlist.Any(x => dangerousToolNames.Contains(x));
+    }
+
+    internal bool InternalShouldEnableDangerousToolsFromYaml(
+        AgentYamlConfig yaml,
+        IReadOnlySet<string> allowlist,
+        IReadOnlySet<string> dangerousToolNames)
+        => ShouldEnableDangerousToolsFromYaml(yaml, allowlist, dangerousToolNames);
+
+    /// <summary>
+    /// Policy hook: build the baseline tool allowlist from YAML config.
+    /// Default behavior matches current semantics:
+    /// - yaml.tools => explicit allowlist
+    /// - yaml.skills present => auto-include skills tool surface
+    /// </summary>
+    protected virtual IReadOnlySet<string> BuildToolAllowlistFromYaml(
+        AgentYamlConfig yaml,
+        IReadOnlyCollection<string> skillToolNames)
+    {
+        var allow = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (yaml == null)
+            return allow;
+
+        if (yaml.Tools is { Count: > 0 })
+        {
+            foreach (var t in yaml.Tools)
+            {
+                var name = (t ?? string.Empty).Trim();
+                if (name.Length > 0)
+                    allow.Add(name);
+            }
+        }
+
+        var autoSkillTools = GetSkillToolsAutoIncludedFromYaml(yaml, skillToolNames);
+        if (autoSkillTools is { Count: > 0 })
+        {
+            foreach (var t in autoSkillTools)
+                allow.Add(t);
+        }
+
+        return allow;
+    }
+
+    /// <summary>
+    /// Policy hook: decide which skills tools should be auto-included into YAML allowlist.
+    /// Default: include the full skills tool surface only when yaml.skills is present.
+    /// </summary>
+    protected virtual IReadOnlyCollection<string> GetSkillToolsAutoIncludedFromYaml(
+        AgentYamlConfig yaml,
+        IReadOnlyCollection<string> skillToolNames)
+    {
+        if (yaml?.Skills is { Count: > 0 } && skillToolNames != null)
+            return skillToolNames;
+
+        return Array.Empty<string>();
+    }
+
+    internal IReadOnlySet<string> InternalBuildToolAllowlistFromYaml(
+        AgentYamlConfig yaml,
+        IReadOnlyCollection<string> skillToolNames)
+        => BuildToolAllowlistFromYaml(yaml, skillToolNames);
     private async Task<ToolExecutionResult> ExecuteAllowedToolAsync(
         string toolName,
         Dictionary<string, object> args,
@@ -17,54 +213,7 @@ public abstract partial class AIGAgentBase
         AevatarLLMRequest llmRequest,
         CancellationToken cancellationToken)
     {
-        // Enforce policy again at execution time (defense in depth).
-        var toolDef =
-            _registeredToolsCache.FirstOrDefault(t =>
-                string.Equals(t.Name, toolName, StringComparison.OrdinalIgnoreCase));
-        if (toolDef != null && !IsToolAllowedByPolicy(toolDef))
-        {
-            var content = JsonSerializer.Serialize(new
-            {
-                success = false,
-                error = "Tool execution denied by agent policy.",
-                tool = toolName,
-                deniedReason = BuildToolPolicyDenyReason(toolDef)
-            });
-
-            return new ToolExecutionResult
-            {
-                ToolName = toolName,
-                IsSuccess = false,
-                ErrorMessage = $"Tool '{toolName}' is denied by agent policy.",
-                Content = content,
-                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
-            };
-        }
-
-        if (AIGAgentKeys.TryGetToolAllowlist(llmRequest, out var allowlist) &&
-            allowlist.Count > 0 &&
-            !allowlist.Contains(toolName))
-        {
-            // Deny execution (return a tool result the model can read)
-            var content = JsonSerializer.Serialize(new
-            {
-                success = false,
-                error = "Tool is not allowed by current allowlist.",
-                tool = toolName,
-                allowedTools = allowlist.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray()
-            });
-
-            return new ToolExecutionResult
-            {
-                ToolName = toolName,
-                IsSuccess = false,
-                ErrorMessage = $"Tool '{toolName}' is not allowed by current allowlist.",
-                Content = content,
-                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
-            };
-        }
-
-        return await ExecuteToolAsync(toolName, args, executionContext, cancellationToken);
+        return await Tooling.ExecuteAllowedToolAsync(toolName, args, executionContext, llmRequest, cancellationToken);
     }
 
     private bool IsToolAllowedByPolicy(ToolDefinition tool)

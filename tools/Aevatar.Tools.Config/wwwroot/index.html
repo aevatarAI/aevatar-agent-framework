@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Aevatar Config</title>
+  <link rel="stylesheet" href="aevatar-secrets-ui.css" />
+</head>
+<body>
+  <div class="app-container">
+    <!-- LEFT SIDEBAR -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-logo">⚡</div>
+        <div class="sidebar-title">Aevatar</div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <div class="nav-section">
+          <div class="nav-section-title">secrets.json</div>
+          <div class="nav-item active" data-view="list" id="navProviders">
+            <span class="nav-icon">🔌</span>
+            <span class="nav-label">Providers</span>
+          </div>
+          <div class="nav-item" data-view="embeddings" id="navEmbeddings">
+            <span class="nav-icon">E</span>
+            <span class="nav-label">Embeddings</span>
+          </div>
+          <div class="nav-item" data-view="websearch" id="navWebSearch">
+            <span class="nav-icon">🔎</span>
+            <span class="nav-label">Web Search</span>
+          </div>
+          <div class="nav-item" data-view="skillsmp" id="navSkillsMp">
+            <span class="nav-icon">S</span>
+            <span class="nav-label">SkillsMP</span>
+          </div>
+          <div class="nav-item" data-view="crypto" id="navCrypto">
+            <span class="nav-icon">🔑</span>
+            <span class="nav-label">Signer Key</span>
+          </div>
+          <div class="nav-item" data-view="advanced" id="navAdvanced">
+            <span class="nav-icon">⚙</span>
+            <span class="nav-label">Custom Key</span>
+          </div>
+          <div class="nav-item" data-view="rawjson" id="navSecretsRaw">
+            <span class="nav-icon">{ }</span>
+            <span class="nav-label">Raw JSON</span>
+          </div>
+        </div>
+
+        <div class="nav-section">
+          <div class="nav-section-title">config.json</div>
+          <div class="nav-item" data-view="configjson" id="navConfigRaw">
+            <span class="nav-icon">📄</span>
+            <span class="nav-label">Raw JSON</span>
+          </div>
+        </div>
+
+        <div class="nav-section">
+          <div class="nav-section-title">agents/</div>
+          <div class="nav-item" data-view="agents" id="navAgents">
+            <span class="nav-icon">🤖</span>
+            <span class="nav-label">Agent Files</span>
+          </div>
+        </div>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="hint">
+          <span class="mono">~/.aevatar/</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content">
+      <!-- LIST VIEW (Providers) -->
+      <div id="viewList">
+        <div class="page-header">
+          <div class="title">LLM Providers</div>
+          <button class="icon-btn" id="closeBtn" title="Close">✕</button>
+        </div>
+        <div class="content">
+          <div class="search">
+            <span class="ic">⌕</span>
+            <input id="searchInput" placeholder="Search providers" />
+          </div>
+
+          <div class="section hidden" id="secDefault">
+            <div class="section-title">Default provider</div>
+            <div class="row">
+              <div class="grow">
+                <select id="defaultSelect">
+                  <option value="">-- select default --</option>
+                </select>
+              </div>
+              <button class="btn" id="defaultSetBtn" type="button">Set</button>
+            </div>
+            <div class="hint" id="defaultHint" style="margin-top: 8px;"></div>
+          </div>
+
+          <div class="section hidden" id="secConfigured">
+            <div class="section-title">✅ Configured</div>
+            <div class="list" id="listConfigured"></div>
+          </div>
+
+          <div class="section hidden" id="secTrash">
+            <div class="section-title">🗑️ Trash (API keys)</div>
+            <div class="list" id="listTrash"></div>
+          </div>
+
+          <div class="section" id="secTier1">
+            <div class="section-title">☁️ Major Cloud Providers</div>
+            <div class="list" id="listTier1"></div>
+          </div>
+
+          <div class="section" id="secTier2">
+            <div class="section-title">⚡ Popular Alternatives</div>
+            <div class="list" id="listTier2"></div>
+          </div>
+
+          <div class="section" id="secAggregator">
+            <div class="section-title">🔀 Aggregators & Routers</div>
+            <div class="list" id="listAggregator"></div>
+          </div>
+
+          <div class="section" id="secRegional">
+            <div class="section-title">🌏 Regional & Specialized</div>
+            <div class="list" id="listRegional"></div>
+          </div>
+
+          <div class="section" id="secLocal">
+            <div class="section-title">💻 Local / Self-hosted</div>
+            <div class="list" id="listLocal"></div>
+          </div>
+
+          <div class="section hidden" id="secExperimental">
+            <div class="section-title">🧪 Experimental</div>
+            <div class="list" id="listExperimental"></div>
+          </div>
+
+          <div class="hint">
+            Powered by <a href="https://github.com/lofcz/LlmTornado" target="_blank">LLMTornado</a>. 
+            Saves into <span class="mono">~/.aevatar/secrets.json</span> (encrypted).
+          </div>
+        </div>
+      </div>
+
+      <!-- CONNECT VIEW -->
+      <div id="viewConnect" class="hidden">
+        <div class="topbar">
+          <button class="icon-btn" id="backBtn" title="Back">←</button>
+          <div class="title" id="connectTitle">Connect</div>
+          <div class="spacer"></div>
+          <button class="icon-btn" id="connectCloseBtn" title="Close">✕</button>
+        </div>
+        <div class="form">
+          <div class="subtitle" id="connectSubtitle"></div>
+
+          <label>Provider name</label>
+          <input id="providerNameInput" type="text" placeholder="e.g. openai" />
+
+          <label>Endpoint</label>
+          <input id="endpointInput" type="text" placeholder="e.g. https://api.openai.com" />
+          <div class="hint" id="endpointMeta" style="margin-top: 6px;"></div>
+
+          <label>Model</label>
+          <select id="modelSelect">
+            <option value="">-- click Fetch models --</option>
+          </select>
+          <div class="hint" id="modelMeta" style="margin-top: 6px;"></div>
+
+          <label>Reuse API key from (optional)</label>
+          <select id="reuseKeySelect">
+            <option value="">-- (enter new key) --</option>
+          </select>
+          <div class="hint" id="reuseKeyMeta" style="margin-top: 6px;"></div>
+
+          <label>API key</label>
+          <div class="row">
+            <div class="grow">
+              <input id="apiKeyInput" type="password" placeholder="API key" />
+            </div>
+            <button class="btn" id="toggleKeyBtn" type="button">Show</button>
+          </div>
+
+          <div class="actions">
+            <button class="btn primary" id="submitBtn">Save</button>
+            <button class="btn" id="testBtn" type="button">Test</button>
+            <button class="btn" id="modelsBtn" type="button">Fetch models</button>
+            <button class="btn danger" id="disconnectBtn">Delete</button>
+          </div>
+
+          <div id="connectMsg" class="msg"></div>
+
+          <div class="hint" style="margin-top: 16px;">
+            Writes <span class="mono">LLMProviders:Providers:&lt;providerName&gt;:ApiKey</span> into user secrets.
+          </div>
+        </div>
+      </div>
+
+      <!-- ADVANCED VIEW -->
+      <div id="viewAdvanced" class="hidden">
+        <div class="topbar">
+          <button class="icon-btn" id="advBackBtn" title="Back">←</button>
+          <div class="title">Custom key/value</div>
+          <div class="spacer"></div>
+          <button class="icon-btn" id="advCloseBtn" title="Close">✕</button>
+        </div>
+        <div class="form">
+          <div class="subtitle">Set any IConfiguration key/value. Values are never echoed back.</div>
+
+          <label>Key</label>
+          <input id="advKeyInput" type="text" placeholder="e.g. ConnectionStrings:MongoDB" />
+
+          <label>Value</label>
+          <div class="row">
+            <div class="grow">
+              <input id="advValueInput" type="password" placeholder="value" />
+            </div>
+            <button class="btn" id="advToggleBtn" type="button">Show</button>
+          </div>
+
+          <div class="actions">
+            <button class="btn primary" id="advSaveBtn">Save</button>
+            <button class="btn danger" id="advRemoveBtn">Remove</button>
+          </div>
+
+          <div id="advMsg" class="msg"></div>
+
+          <div class="hint" style="margin-top: 16px;">
+            Recommended key example: <span class="mono">LLMProviders:Providers:deepseek:ApiKey</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- EMBEDDINGS VIEW -->
+      <div id="viewEmbeddings" class="hidden">
+        <div class="topbar">
+          <button class="icon-btn" id="embBackBtn" title="Back">←</button>
+          <div class="title">Embeddings (Aliyun)</div>
+          <div class="spacer"></div>
+          <button class="icon-btn" id="embCloseBtn" title="Close">✕</button>
+        </div>
+        <div class="form">
+          <div class="subtitle">
+            Global embeddings config (fallback for all LLM providers). Stored at
+            <span class="mono">LLMProviders:Embeddings:*</span>.
+          </div>
+
+          <label class="row" style="align-items:center; gap:8px;">
+            <input id="embEnabledInput" type="checkbox" />
+            <span>Enabled</span>
+          </label>
+
+          <label>Provider type</label>
+          <input id="embProviderTypeInput" type="text" placeholder="e.g. deepseek (OpenAI-compatible)" />
+
+          <label>Endpoint</label>
+          <input id="embEndpointInput" type="text" placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1" />
+
+          <label>Model</label>
+          <input id="embModelInput" type="text" placeholder="text-embedding-v3" />
+
+          <label>API key</label>
+          <div class="row">
+            <div class="grow">
+              <input id="embApiKeyInput" type="password" placeholder="DashScope API key" />
+            </div>
+            <button class="btn" id="embToggleKeyBtn" type="button">Show</button>
+          </div>
+
+          <div class="actions">
+            <button class="btn primary" id="embSaveBtn" type="button">Save</button>
+            <button class="btn danger" id="embDeleteBtn" type="button">Delete</button>
+          </div>
+
+          <div id="embMsg" class="msg"></div>
+
+          <div class="hint" style="margin-top: 16px;">
+            Tip: this key is used by embeddings generators (skills search / vector indexing).
+          </div>
+        </div>
+      </div>
+
+      <!-- WEB SEARCH VIEW -->
+      <div id="viewWebSearch" class="hidden">
+        <div class="topbar">
+          <button class="icon-btn" id="webSearchBackBtn" title="Back">←</button>
+          <div class="title">Web Search</div>
+          <div class="spacer"></div>
+          <button class="icon-btn" id="webSearchCloseBtn" title="Close">✕</button>
+        </div>
+        <div class="form">
+          <div class="subtitle">
+            Web search providers configuration. Stored at
+            <span class="mono">Aevatar:Tools:WebSearch:*</span>.
+          </div>
+
+          <label class="row" style="align-items:center; gap:8px;">
+            <input id="webSearchEnabledInput" type="checkbox" />
+            <span>Enabled</span>
+          </label>
+
+          <label>Provider</label>
+          <input id="webSearchProviderInput" type="text" list="webSearchProviders" placeholder="tavily / brave / bing / serper" />
+          <datalist id="webSearchProviders">
+            <option value="tavily"></option>
+            <option value="brave"></option>
+            <option value="bing"></option>
+            <option value="azure-bing"></option>
+            <option value="serper"></option>
+            <option value="google-serper"></option>
+          </datalist>
+
+          <label>Endpoint</label>
+          <input id="webSearchEndpointInput" type="text" placeholder="(auto from provider)" />
+
+          <label>Timeout (ms)</label>
+          <input id="webSearchTimeoutInput" type="number" min="500" step="1000" placeholder="15000" />
+
+          <label>Search depth (Tavily)</label>
+          <input id="webSearchDepthInput" type="text" placeholder="basic / advanced" />
+
+          <label>API key</label>
+          <div class="row">
+            <div class="grow">
+              <input id="webSearchApiKeyInput" type="password" placeholder="Provider API key" />
+            </div>
+            <button class="btn" id="webSearchToggleKeyBtn" type="button">Show</button>
+          </div>
+
+          <div class="actions">
+            <button class="btn primary" id="webSearchSaveBtn" type="button">Save</button>
+            <button class="btn danger" id="webSearchDeleteBtn" type="button">Delete</button>
+          </div>
+
+          <div id="webSearchMsg" class="msg"></div>
+
+          <div class="hint" style="margin-top: 16px;">
+            Providers: Tavily / Brave / Bing / Serper (keys are stored encrypted).
+          </div>
+        </div>
+      </div>
+
+      <!-- CRYPTO VIEW -->
+      <div id="viewCrypto" class="hidden">
+        <div class="topbar">
+          <button class="icon-btn" id="cryptoBackBtn" title="Back">←</button>
+          <div class="title">Signer key (secp256k1)</div>
+          <div class="spacer"></div>
+          <button class="icon-btn" id="cryptoCloseBtn" title="Close">✕</button>
+        </div>
+        <div class="form">
+          <div class="subtitle">
+            Local signer identity stored in encrypted user secrets. Used to stamp DAG nodes with <span class="mono">owner</span> (public key).
+          </div>
+
+          <label>Public key (hex)</label>
+          <div class="row">
+            <div class="grow">
+              <input id="cryptoPubKeyInput" type="text" placeholder="(not configured yet)" readonly />
+            </div>
+            <button class="btn" id="cryptoCopyPubBtn" type="button">Copy</button>
+          </div>
+          <div class="hint" id="cryptoPubMeta" style="margin-top: 6px;"></div>
+
+          <label>Private key</label>
+          <div class="row">
+            <div class="grow">
+              <input id="cryptoPrivMaskedInput" type="text" placeholder="(not configured yet)" readonly />
+            </div>
+          </div>
+          <div class="hint" id="cryptoPrivMeta" style="margin-top: 6px;"></div>
+
+          <div class="actions">
+            <button class="btn primary" id="cryptoGenerateBtn" type="button">Generate & Save</button>
+          </div>
+
+          <div id="cryptoMsg" class="msg"></div>
+
+          <div class="hint" style="margin-top: 16px;">
+            Stores:
+            <span class="mono">Crypto:EcdsaSecp256k1:PrivateKeyHex</span> /
+            <span class="mono">Crypto:EcdsaSecp256k1:PublicKeyHex</span>.
+          </div>
+        </div>
+      </div>
+
+      <!-- SKILLSMP VIEW -->
+      <div id="viewSkillsMp" class="hidden">
+        <div class="topbar">
+          <button class="icon-btn" id="skillsMpBackBtn" title="Back">←</button>
+          <div class="title">SkillsMP</div>
+          <div class="spacer"></div>
+          <button class="icon-btn" id="skillsMpCloseBtn" title="Close">✕</button>
+        </div>
+        <div class="form">
+          <div class="subtitle">
+            SkillsMP marketplace API key. Stored at <span class="mono">SkillsMP:ApiKey</span>.
+          </div>
+
+          <label>Base URL (optional)</label>
+          <input id="skillsMpBaseUrlInput" type="text" placeholder="https://skillsmp.com" />
+
+          <label>API key</label>
+          <div class="row">
+            <div class="grow">
+              <input id="skillsMpApiKeyInput" type="password" placeholder="SkillsMP API key" />
+            </div>
+            <button class="btn" id="skillsMpToggleKeyBtn" type="button">Show</button>
+          </div>
+
+          <div class="actions">
+            <button class="btn primary" id="skillsMpSaveBtn" type="button">Save</button>
+            <button class="btn danger" id="skillsMpDeleteBtn" type="button">Delete</button>
+          </div>
+
+          <div id="skillsMpMsg" class="msg"></div>
+
+          <div class="hint" style="margin-top: 16px;">
+            Docs: <span class="mono">https://skillsmp.com/zh/docs/api</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- RAW JSON VIEW (secrets.json) -->
+      <div id="viewRawJson" class="hidden">
+        <div class="topbar">
+          <button class="icon-btn" id="rawBackBtn" title="Back">←</button>
+          <div class="title">secrets.json - Raw Editor</div>
+          <div class="spacer"></div>
+          <button class="icon-btn" id="rawCloseBtn" title="Close">✕</button>
+        </div>
+        <div class="form json-editor-form">
+          <div class="subtitle">
+            Edit secrets.json as nested JSON. Changes are applied on Save. <span class="badge">Encrypted</span>
+          </div>
+
+          <label>JSON (editable)</label>
+          <textarea id="rawJsonInput" class="json-textarea" placeholder="Loading..."></textarea>
+
+          <div class="actions">
+            <button class="btn primary" id="rawSaveBtn" type="button">Save</button>
+            <button class="btn" id="rawReloadBtn" type="button">Reload</button>
+          </div>
+
+          <div id="rawMsg" class="msg"></div>
+
+          <div class="hint" style="margin-top: 16px;">
+            Format: nested JSON (like appsettings.json). Keys become IConfiguration paths
+            <span class="mono">Parent:Child:Key</span>.
+          </div>
+        </div>
+      </div>
+
+      <!-- CONFIG JSON VIEW (config.json) -->
+      <div id="viewConfigJson" class="hidden">
+        <div class="topbar">
+          <button class="icon-btn" id="configBackBtn" title="Back">←</button>
+          <div class="title">config.json - Raw Editor</div>
+          <div class="spacer"></div>
+          <button class="icon-btn" id="configCloseBtn" title="Close">✕</button>
+        </div>
+        <div class="form json-editor-form">
+          <div class="subtitle">
+            Edit config.json as nested JSON. This file is <b>NOT encrypted</b> - do not store secrets here.
+            <span class="badge">Plain Text</span>
+          </div>
+
+          <label>JSON (editable)</label>
+          <textarea id="configJsonInput" class="json-textarea" placeholder="Loading..."></textarea>
+
+          <div class="actions">
+            <button class="btn primary" id="configSaveBtn" type="button">Save</button>
+            <button class="btn" id="configReloadBtn" type="button">Reload</button>
+          </div>
+
+          <div id="configMsg" class="msg"></div>
+
+          <div class="hint" style="margin-top: 16px;">
+            Use for non-sensitive settings like logging level, UI preferences, local Ollama config.
+          </div>
+        </div>
+      </div>
+
+      <!-- AGENTS LIST VIEW -->
+      <div id="viewAgents" class="hidden">
+        <div class="topbar">
+          <button class="icon-btn" id="agentsBackBtn" title="Back">←</button>
+          <div class="title">Agent Files</div>
+          <div class="spacer"></div>
+          <button class="btn" id="agentsNewBtn" type="button">+ New</button>
+          <button class="icon-btn" id="agentsCloseBtn" title="Close">✕</button>
+        </div>
+        <div class="content">
+          <div class="subtitle">
+            YAML configuration files in <span class="mono">~/.aevatar/agents/</span>
+          </div>
+
+          <div class="list" id="agentsList">
+            <div class="item placeholder">
+              <div class="item-main">
+                <div class="item-desc">Loading agent files...</div>
+              </div>
+            </div>
+          </div>
+
+          <div id="agentsMsg" class="msg"></div>
+
+          <div class="hint" style="margin-top: 16px;">
+            Each file defines an agent with persona, tools, skills, and system prompt.
+          </div>
+        </div>
+      </div>
+
+      <!-- AGENT EDIT VIEW -->
+      <div id="viewAgentEdit" class="hidden">
+        <div class="topbar">
+          <button class="icon-btn" id="agentEditBackBtn" title="Back">←</button>
+          <div class="title" id="agentEditTitle">Edit Agent</div>
+          <div class="spacer"></div>
+          <button class="icon-btn" id="agentEditCloseBtn" title="Close">✕</button>
+        </div>
+        <div class="form json-editor-form">
+          <div class="subtitle" id="agentEditSubtitle">
+            Editing agent configuration file
+          </div>
+
+          <label>Filename</label>
+          <input id="agentFilenameInput" type="text" placeholder="e.g. coder.yaml" />
+
+          <label>YAML Content</label>
+          <textarea id="agentYamlInput" class="json-textarea yaml-textarea" placeholder="id: my-agent&#10;name: My Agent&#10;provider: default&#10;..."></textarea>
+
+          <div class="actions">
+            <button class="btn primary" id="agentSaveBtn" type="button">Save</button>
+            <button class="btn" id="agentReloadBtn" type="button">Reload</button>
+            <button class="btn danger" id="agentDeleteBtn" type="button">Delete</button>
+          </div>
+
+          <div id="agentEditMsg" class="msg"></div>
+
+          <div class="hint" style="margin-top: 16px;">
+            Reference: <span class="mono">id</span>, <span class="mono">name</span>, <span class="mono">provider</span>, 
+            <span class="mono">model</span>, <span class="mono">temperature</span>, <span class="mono">persona</span>, 
+            <span class="mono">tools</span>, <span class="mono">skills</span>, <span class="mono">system_prompt</span>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Keep old IDs for backward compatibility with existing JS -->
+  <div style="display:none;">
+    <span id="embeddingsItem"></span>
+    <span id="webSearchItem"></span>
+    <span id="skillsMpItem"></span>
+    <span id="secp256k1Item"></span>
+    <span id="advancedItem"></span>
+    <span id="rawJsonItem"></span>
+  </div>
+
+  <script src="aevatar-secrets-ui.js"></script>
+</body>
+</html>

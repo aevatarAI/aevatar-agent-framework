@@ -1,0 +1,16 @@
+<Solution>
+  <Folder Name="/apps/Aevatar.MakerSystem/">
+    <Project Path="MakerSystem.AppHost\MakerSystem.AppHost.csproj" />
+    <Project Path="examples\MakerSystem\MakerSystem.csproj" />
+    <File Path="README.md" />
+    <File Path="boot.sh" />
+    <File Path="docs\TECH_DEBT.md" />
+  </Folder>
+  <Folder Name="/apps/Aevatar.MakerSystem/docs/">
+    <File Path="docs\README.md" />
+    <File Path="docs\TECH_DEBT.md" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="..\..\src\Aevatar.Agents.Maker\Aevatar.Agents.Maker.csproj" />
+  </Folder>
+</Solution>

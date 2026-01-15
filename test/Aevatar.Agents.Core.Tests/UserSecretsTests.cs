@@ -49,7 +49,7 @@ public sealed class UserSecretsTests
     }
 
     [Fact]
-    public void AddAevatarUserSecrets_LoadsIntoConfiguration()
+    public void AddAevatarUserConfig_LoadsIntoConfiguration()
     {
         var dir = Path.Combine(Path.GetTempPath(), "aevatar-user-secrets-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
@@ -69,7 +69,7 @@ public sealed class UserSecretsTests
 
             var cfg = new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string?> { ["Foo:Bar"] = "from-inmem" })
-                .AddAevatarUserSecrets(o =>
+                .AddAevatarUserConfig(o =>
                 {
                     o.SecretsDirectory = dir;
                     o.SecretsFileName = "secrets.json";

@@ -23,22 +23,6 @@ namespace Aevatar.Agents.AI.Core.Configuration;
 
 public static class AgentYamlConfigApplier
 {
-    private static readonly string[] SkillToolNames =
-    [
-        "skills_list",
-        "skills_load",
-        "find_helpful_skills",
-        "find_helpful_alls",
-        "list_skills",
-        "read_skill_document",
-        "skills_files",
-        "skills_read_file",
-        "skills_run_python"
-    ];
-
-    private static readonly HashSet<string> DangerousToolNames =
-        new(["python_exec", "skills_run_python"], StringComparer.OrdinalIgnoreCase);
-
     private static IDisposable? BeginConfigScopeIfNeeded()
     {
         return StateProtectionContext.IsModifiable
@@ -145,37 +129,21 @@ public static class AgentYamlConfigApplier
         {
             agent.AllowInternalTools = true;
             await agent.ConfigureAgentSkillsAsync(
-                roots: new[] { AgentYamlConfigLoader.GetSkillsDirectory() },
+                roots: agent.InternalGetYamlDefaultSkillRoots(),
                 enable: true,
                 cancellationToken: ct);
         }
 
-        // Baseline tool allowlist:
-        // - yaml.tools => explicit allowlist
-        // - yaml.skills present => auto-include skills tool surface
-        var allow = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        if (yaml.Tools is { Count: > 0 })
-        {
-            foreach (var t in yaml.Tools)
-            {
-                var name = (t ?? string.Empty).Trim();
-                if (name.Length > 0)
-                    allow.Add(name);
-            }
-        }
-
-        if (yaml.Skills is { Count: > 0 })
-        {
-            foreach (var t in SkillToolNames)
-                allow.Add(t);
-        }
+        // Baseline tool allowlist + dangerous tools policy (hooked in AIGAgentBase).
+        var policy = agent.InternalBuildYamlToolPolicy(yaml);
+        agent.InternalLogYamlToolPolicyDecision(yaml, policy);
+        var allow = policy.Allowlist;
 
         agent.SetFixedToolAllowlist(allow.Count == 0 ? null : allow);
 
         // Dangerous tools: enable only if explicitly allowlisted by YAML.
         // (We keep fallback semantics for agents that already configure AllowDangerousTools themselves.)
-        if (allow.Any(x => DangerousToolNames.Contains(x)))
+        if (policy.EnableDangerousTools)
         {
             agent.AllowDangerousTools = true;
         }
@@ -199,5 +167,3 @@ public static class AgentYamlConfigApplier
         await ApplyToolsAndSkillsAsync(agent, yaml, ct);
     }
 }
-
-

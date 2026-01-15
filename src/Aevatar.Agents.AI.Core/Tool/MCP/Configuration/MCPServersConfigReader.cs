@@ -284,7 +284,7 @@ public static class MCPServersConfigReader
         bool namespaceTools,
         out ResolvedServer server)
     {
-        // Legacy schema (scientific-research-assistant historical):
+        // Legacy schema (Aevatar.VibeResearching; formerly scientific-research-assistant):
         // MCP:Type = "Http" | "Docker"
         // MCP:HttpUrl
         // MCP:DockerImage

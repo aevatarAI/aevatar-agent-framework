@@ -19,7 +19,7 @@
 配置源从低到高（越靠后优先级越高）：
 
 1) `appsettings.json`
-2) `AddAevatarUserSecrets()`（全局 user secrets，跨项目复用）
+2) `AddAevatarUserConfig()`（全局 user secrets，跨项目复用）
 3) `appsettings.secrets.json`（可选：项目级覆盖，不提交）
 4) 环境变量（部署/CI 场景覆盖）
 
@@ -36,7 +36,7 @@ secrets 内部是 **IConfiguration 风格的 key/value**（例如 `Foo:Bar`）�
 在 `Program.cs` 里（建议在 `appsettings.secrets.json` 之前）：
 
 ```csharp
-builder.Configuration.AddAevatarUserSecrets();
+builder.Configuration.AddAevatarUserConfig();
 builder.Configuration.AddJsonFile("appsettings.secrets.json", optional: true, reloadOnChange: true);
 ```
 
@@ -64,10 +64,10 @@ dotnet run --project src/Aevatar.Agents.SecretsCli -- list
 
 ### 如何写入（Web App）
 
-仓库内提供了一个最小本地 Web App：`apps/Aevatar.Secrets.Api/`（默认端口 `6667/6677`）。
+仓库内提供了一个最小本地 Web App：`apps/Aevatar.Config/`（默认端口 `6667/6677`）。
 
 ```bash
-dotnet run --project apps/Aevatar.Secrets.Api/Aevatar.Secrets.Api.csproj
+dotnet run --project apps/Aevatar.Config/Aevatar.Config.csproj
 ```
 
 打开 `http://localhost:6677`（浏览器推荐；`6667` 在 Chrome 里会触发 `ERR_UNSAFE_PORT`），填写 providerName + apiKey 即可写入（仅允许 localhost 调用写入接口）。

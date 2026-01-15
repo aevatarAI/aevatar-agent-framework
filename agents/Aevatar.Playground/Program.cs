@@ -9,7 +9,7 @@ var builder = Host.CreateApplicationBuilder(args);
 
 builder.Configuration
     .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
-    .AddAevatarUserSecrets()
+    .AddAevatarUserConfig()
     .AddJsonFile("appsettings.secrets.json", optional: true, reloadOnChange: true);
 builder.Services.Configure<LLMProvidersConfig>(builder.Configuration.GetSection("LLMProviders"));
 

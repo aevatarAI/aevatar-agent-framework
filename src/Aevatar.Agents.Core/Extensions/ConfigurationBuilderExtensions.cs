@@ -36,28 +36,6 @@ public static class ConfigurationBuilderExtensions
     }
 
     /// <summary>
-    /// Add Aevatar user-level encrypted secrets as an IConfiguration source (best-effort).
-    /// <para/>
-    /// Typical use:
-    /// <code>
-    /// builder.Configuration.AddAevatarUserSecrets();
-    /// </code>
-    /// </summary>
-    [Obsolete("Use AddAevatarUserConfig() instead, which loads both config.json and secrets.json")]
-    public static IConfigurationBuilder AddAevatarUserSecrets(
-        this IConfigurationBuilder builder,
-        Action<AevatarUserSecretsOptions>? configure = null)
-    {
-        ArgumentNullException.ThrowIfNull(builder);
-
-        var options = new AevatarUserSecretsOptions();
-        configure?.Invoke(options);
-
-        builder.Add(new AevatarUserSecretsConfigurationSource(options));
-        return builder;
-    }
-
-    /// <summary>
     /// Register a user-level secrets store for runtime write operations (e.g., web API or CLI).
     /// </summary>
     public static IServiceCollection AddAevatarUserSecretsStore(

@@ -8,7 +8,7 @@ namespace Aevatar.Secrets.Client;
 //  AevatarSecretsClient
 //
 //  中文说明：
-//  - 这是一个轻量 .NET Client，用来调用 Secrets API（本地 sidecar 或 Aevatar.Secrets.Api）
+//  - 这是一个轻量 .NET Client，用来调用 Secrets API（本地 sidecar 或 Aevatar.Config）
 //  - 目标：让其他项目集成「Provider/Instance + ApiKey/Model/Endpoint」能力不再复制 HTTP 细节
 //  - 约束：不负责鉴权（服务端本地 loopback 保护），不记录任何 secret 值
 // ============================================================

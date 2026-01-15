@@ -24,7 +24,7 @@ dotnet run
 
 优先级从低到高：
 - `appsettings.json`
-- `AddAevatarUserSecrets()`（推荐：用户级 `~/.aevatar/secrets.json`）
+- `AddAevatarUserConfig()`（推荐：用户级 `~/.aevatar/secrets.json`）
 - `appsettings.secrets.json`（项目级覆盖，不提交）
 - 环境变量
 

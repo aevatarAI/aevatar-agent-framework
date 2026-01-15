@@ -7,8 +7,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Aevatar.Platform.Contracts\Aevatar.Platform.Contracts.csproj" />
     <ProjectReference Include="..\..\..\src\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
-    <ProjectReference Include="..\..\..\cognitive-mesh\Aevatar.CognitiveMesh.Dsl\Aevatar.CognitiveMesh.Dsl.csproj" />
+    <ProjectReference Include="..\..\..\src\Aevatar.CognitiveMesh.Dsl\Aevatar.CognitiveMesh.Dsl.csproj" />
   </ItemGroup>
 
   <ItemGroup>

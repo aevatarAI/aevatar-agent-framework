@@ -1,14 +1,16 @@
+using System.CommandLine;
+using Aevatar.Platform.Cli.Commands;
 using Aevatar.Platform.Core;
 
 // ============================================================
-//  Aevatar.Platform CLI (skeleton)
+//  Aevatar.Platform CLI
 //
-//  NOTE:
-//  - Task 1 only establishes buildable scaffolding.
-//  - OpenCode parity CLI/TUI commands are implemented in later tasks.
+//  说明：
+//  - OpenCode parity 的命令面由 RootCommands 构建
+//  - 默认进入 TUI；-c/--command 走单次运行
 // ============================================================
 
-Console.WriteLine($"Aevatar Platform (skeleton) v{PlatformCore.Version}");
-Console.WriteLine("Next: implement OpenCode-parity CLI/TUI, profiles/packs, workflow engine, and session store.");
+var root = RootCommands.BuildRootCommand();
+return await root.InvokeAsync(args);
 
 

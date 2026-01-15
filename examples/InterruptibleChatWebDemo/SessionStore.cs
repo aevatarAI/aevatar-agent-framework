@@ -269,7 +269,7 @@ public sealed class SessionStore
                         $"provider='{providerName}'\n" +
                         $"error='{ex.Message}'\n\n" +
                         "配置方式：\n" +
-                        "- ~/.aevatar/secrets.json（推荐，AddAevatarUserSecrets）\n" +
+                        "- ~/.aevatar/secrets.json（推荐，AddAevatarUserConfig）\n" +
                         "- 或 examples/InterruptibleChatWebDemo/appsettings.secrets.json\n" +
                         $"需要的 key：LLMProviders:Providers:{providerName}:ApiKey"
                 }));

@@ -135,7 +135,7 @@
 #### AI3. 《多 Agent 编排的工程化：从 MAKER 到 Cognitive Mesh（从 demo 到系统）》
 - **目标**：把“多智能体协作”落到可运行的大系统
 - **关键点**：分解/协调/执行、事件流驱动的编排、可扩展的执行内核
-- **素材**：`examples/MakerSystem/`、`cognitive-mesh/README.md`
+- **素材**：`apps/Aevatar.MakerSystem/examples/MakerSystem/`、`apps/Aevatar.CognitiveMesh/README.md`
 
 ### 3.5 Layer D：生产化（Operate）
 
@@ -181,7 +181,7 @@
 - **深度架构**：`docs/ARCHITECTURE_REFERENCE.md`
 - **工程规则**：`AGENTS.md`
 - **可观测性**：`docs/OBSERVABILITY.md`
-- **示例入口**：`examples/SimpleDemo/`、`examples/EventSourcingDemo/`、`examples/MakerSystem/`、`examples/MCPToolDemo/`（以实际为准）
+- **示例入口**：`examples/SimpleDemo/`、`examples/EventSourcingDemo/`、`apps/Aevatar.MakerSystem/examples/MakerSystem/`、`examples/MCPToolDemo/`（以实际为准）
 
 ---
 

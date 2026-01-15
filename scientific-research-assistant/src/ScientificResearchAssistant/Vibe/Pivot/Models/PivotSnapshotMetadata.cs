@@ -3,7 +3,7 @@ using Aevatar.Agents.Knowledge.Graph.Models;
 namespace ScientificResearchAssistant.Vibe.Pivot.Models;
 
 /// <summary>
-/// Wraps a KnowledgeSnapshot with pivot-specific metadata for rollback support.
+/// Wraps a GraphSnapshot with pivot-specific metadata for rollback support.
 /// </summary>
 public sealed class PivotSnapshotMetadata
 {
@@ -16,8 +16,8 @@ public sealed class PivotSnapshotMetadata
     /// <summary>Pivot operation that triggered this snapshot.</summary>
     public required string PivotId { get; init; }
 
-    /// <summary>The captured graph state (from IKnowledgeGraphClient.GetKnowledgeSnapshotAsync).</summary>
-    public required KnowledgeSnapshot Snapshot { get; init; }
+    /// <summary>The captured graph state (from IKnowledgeGraphClient.GetGraphSnapshotAsync).</summary>
+    public required GraphSnapshot Snapshot { get; init; }
 
     /// <summary>Research direction summary at snapshot time.</summary>
     public required string DirectionSummary { get; init; }
@@ -34,7 +34,7 @@ public sealed class PivotSnapshotMetadata
     public static PivotSnapshotMetadata Create(
         string sessionId,
         string pivotId,
-        KnowledgeSnapshot snapshot,
+        GraphSnapshot snapshot,
         string directionSummary,
         int rollbackWindowMinutes = 30)
     {

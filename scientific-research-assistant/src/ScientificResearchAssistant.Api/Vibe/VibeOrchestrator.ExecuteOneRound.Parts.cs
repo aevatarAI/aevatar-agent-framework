@@ -11,23 +11,45 @@ internal sealed partial class VibeOrchestrator
     //  ExecuteOneRoundAsync helpers (split to keep main file small)
     // ============================================================
 
-    private async Task RunPivotDetectionAsync(
-        ResearchSession session,
-        string runId,
-        string question,
-        Action<string> emitAssistantDelta,
-        CancellationToken ct)
+    internal sealed class VibeRoundContext
     {
+        public VibeRoundContext(
+            ResearchSession session,
+            string runId,
+            SessionInputInDto input,
+            string question,
+            MaterialsSnapshot materials,
+            Action<string> emitAssistantDelta)
+        {
+            Session = session ?? throw new ArgumentNullException(nameof(session));
+            RunId = runId ?? throw new ArgumentNullException(nameof(runId));
+            Input = input ?? throw new ArgumentNullException(nameof(input));
+            Question = question ?? throw new ArgumentNullException(nameof(question));
+            Materials = materials ?? throw new ArgumentNullException(nameof(materials));
+            EmitAssistantDelta = emitAssistantDelta ?? (_ => { });
+        }
+
+        public ResearchSession Session { get; }
+        public string RunId { get; }
+        public SessionInputInDto Input { get; }
+        public string Question { get; }
+        public MaterialsSnapshot Materials { get; }
+        public Action<string> EmitAssistantDelta { get; }
+    }
+
+    private async Task RunPivotDetectionAsync(VibeRoundContext ctx, CancellationToken ct)
+    {
+        var session = ctx.Session;
         session.Events.Publish(new StepStartedEvent { Timestamp = NowMs(), StepName = "vibe.pivot_detection" });
         try
         {
             var currentDirection = await GetCurrentDirectionAsync(session.Id, ct);
             var pivotIntent = await DetectDirectionChangeAsync(
                 session,
-                runId,
-                question,
+                ctx.RunId,
+                ctx.Question,
                 currentDirection,
-                emitAssistantDelta,
+                ctx.EmitAssistantDelta,
                 ct);
 
             // Execute pivot if high-confidence direction change detected
@@ -59,14 +81,14 @@ internal sealed partial class VibeOrchestrator
                         _host.Logger.LogWarning(
                             "Pivot queue full for session {SessionId}, request rejected",
                             session.Id);
-                        emitAssistantDelta("\n⏳ 研究方向更新队列已满，请稍后重试...\n\n");
+                        ctx.EmitAssistantDelta("\n⏳ 研究方向更新队列已满，请稍后重试...\n\n");
                     }
                     else if (queueResult.ErrorMessage != null)
                     {
                         _host.Logger.LogError(
                             "Pivot failed for session {SessionId}: {Error}",
                             session.Id, queueResult.ErrorMessage);
-                        emitAssistantDelta("\n⚠ 研究方向更新失败，将继续使用当前方向\n\n");
+                        ctx.EmitAssistantDelta("\n⚠ 研究方向更新失败，将继续使用当前方向\n\n");
                     }
                     else if (queueResult.Operation != null)
                     {
@@ -95,13 +117,13 @@ internal sealed partial class VibeOrchestrator
 
                         // Notify user of completion
                         var queuedNote = queueResult.Queued ? " (队列等待后执行)" : "";
-                        emitAssistantDelta($"\n✓ 研究方向已更新完成{queuedNote} (取消了 {pivotOp.CancelledNodeIds.Count} 个待执行计划，保留了 {pivotOp.PreservedNodeIds.Count} 个已完成成果)\n\n");
+                        ctx.EmitAssistantDelta($"\n✓ 研究方向已更新完成{queuedNote} (取消了 {pivotOp.CancelledNodeIds.Count} 个待执行计划，保留了 {pivotOp.PreservedNodeIds.Count} 个已完成成果)\n\n");
                     }
                 }
                 catch (Exception pivotEx)
                 {
                     _host.Logger.LogError(pivotEx, "Pivot execution failed for session {SessionId}", session.Id);
-                    emitAssistantDelta("\n⚠ 研究方向更新失败，将继续使用当前方向\n\n");
+                    ctx.EmitAssistantDelta("\n⚠ 研究方向更新失败，将继续使用当前方向\n\n");
                     // Don't block the round - pivot failure is non-fatal
                 }
             }
@@ -118,31 +140,35 @@ internal sealed partial class VibeOrchestrator
     }
 
     private async Task<(PlanResult Plan, SraDagSnapshot DagSnapshot)> RunPlanPhaseAsync(
-        ResearchSession session,
+        VibeRoundContext ctx,
         string dagId,
-        string runId,
-        SessionInputInDto input,
-        string question,
-        MaterialsSnapshot materials,
         SraDagSnapshot dagSnap,
         IReadOnlyList<SraRoundSummary> recentTrace,
         string? raProvider,
-        Action<string> emitAssistantDelta,
         CancellationToken ct)
     {
+        var session = ctx.Session;
         session.Events.Publish(new StepStartedEvent
         {
             Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             StepName = "vibe.ra_plan"
         });
 
-        var plan = await TryGetPlanAsync(session.Id, input, question, materials, dagSnap, recentTrace, raProvider, ct);
+        var plan = await TryGetPlanAsync(
+            session.Id,
+            ctx.Input,
+            ctx.Question,
+            ctx.Materials,
+            dagSnap,
+            recentTrace,
+            raProvider,
+            ct);
         if (!string.IsNullOrWhiteSpace(plan.RawJson))
         {
-            EmitSection(emitAssistantDelta, "### Plan (research_assistant)\n");
-            emitAssistantDelta("```json\n");
-            emitAssistantDelta(plan.RawJson!.Trim() + "\n");
-            emitAssistantDelta("```\n\n");
+            EmitSection(ctx.EmitAssistantDelta, "### Plan (research_assistant)\n");
+            ctx.EmitAssistantDelta("```json\n");
+            ctx.EmitAssistantDelta(plan.RawJson!.Trim() + "\n");
+            ctx.EmitAssistantDelta("```\n\n");
         }
 
         // ------------------------------------------------------------
@@ -155,7 +181,7 @@ internal sealed partial class VibeOrchestrator
         // ------------------------------------------------------------
         try
         {
-            var m = BuildPlanDagMutation(session.Id, runId, question, plan);
+            var m = BuildPlanDagMutation(session.Id, ctx.RunId, ctx.Question, plan);
             if (m != null)
             {
                 dagSnap = await _core.Dag.ApplyMutationAsync(dagId, m, ct);
@@ -163,7 +189,7 @@ internal sealed partial class VibeOrchestrator
                 {
                     Timestamp = NowMs(),
                     Name = "aevatar.vibe.plan_dag_written",
-                    Value = new { sessionId = session.Id, dagId, runId, mutationId = m.MutationId }
+                    Value = new { sessionId = session.Id, dagId, runId = ctx.RunId, mutationId = m.MutationId }
                 });
             }
         }
@@ -182,16 +208,11 @@ internal sealed partial class VibeOrchestrator
     }
 
     private async Task<(Dictionary<string, string> Outputs, bool MeshUsed)> RunWorkerPhaseAsync(
-        ResearchSession session,
+        VibeRoundContext ctx,
         string dagId,
-        string runId,
-        SessionInputInDto input,
-        string question,
-        MaterialsSnapshot materials,
         SraDagSnapshot dagSnap,
         PlanResult plan,
         Func<string, string?> resolveProvider,
-        Action<string> emitAssistantDelta,
         List<LibrarianAxiomCandidate> librarianAxioms,
         List<string> factsWritten,
         CancellationToken ct)
@@ -200,15 +221,10 @@ internal sealed partial class VibeOrchestrator
 
         var localDagSnap = dagSnap;
         var meshUsed = await TryRunMeshWorkerPhaseAsync(
-            session,
+            ctx,
             dagId,
-            runId,
-            input,
-            question,
-            materials,
             plan,
             resolveProvider,
-            emitAssistantDelta,
             outputs,
             ct,
             onDagRefreshed: s => localDagSnap = s);
@@ -216,15 +232,10 @@ internal sealed partial class VibeOrchestrator
         if (!meshUsed)
         {
             await RunFallbackWorkerPhaseAsync(
-                session,
+                ctx,
                 dagId,
-                runId,
-                input,
-                question,
-                materials,
                 plan,
                 resolveProvider,
-                emitAssistantDelta,
                 outputs,
                 librarianAxioms,
                 factsWritten,
@@ -237,15 +248,10 @@ internal sealed partial class VibeOrchestrator
     }
 
     private async Task<bool> TryRunMeshWorkerPhaseAsync(
-        ResearchSession session,
+        VibeRoundContext ctx,
         string dagId,
-        string runId,
-        SessionInputInDto input,
-        string question,
-        MaterialsSnapshot materials,
         PlanResult plan,
         Func<string, string?> resolveProvider,
-        Action<string> emitAssistantDelta,
         Dictionary<string, string> outputs,
         CancellationToken ct,
         Action<SraDagSnapshot> onDagRefreshed)
@@ -257,15 +263,15 @@ internal sealed partial class VibeOrchestrator
         var meshUsed = false;
         try
         {
-            var raw = await TryLoadOrSeedMeshAsync(session, runId, ct);
+            var raw = await TryLoadOrSeedMeshAsync(ctx.Session, ctx.RunId, ct);
             if (string.IsNullOrWhiteSpace(raw))
             {
                 // Mesh enabled but mesh.{yaml|json} absent AND cannot seed → fall back silently (best-effort event only).
-                session.Events.Publish(new CustomEvent
+                ctx.Session.Events.Publish(new CustomEvent
                 {
                     Timestamp = NowMs(),
                     Name = "aevatar.vibe.mesh_missing",
-                    Value = new { sessionId = session.Id, runId }
+                    Value = new { sessionId = ctx.Session.Id, runId = ctx.RunId }
                 });
                 return false;
             }
@@ -274,8 +280,8 @@ internal sealed partial class VibeOrchestrator
             if (!compile.Ok || compile.Definition == null)
             {
                 HandleMeshErrorsOrFallback(
-                    session,
-                    emitAssistantDelta,
+                    ctx.Session,
+                    ctx.EmitAssistantDelta,
                     kind: "mesh.compile_failed",
                     errors: compile.Errors,
                     options: meshOpt,
@@ -284,12 +290,12 @@ internal sealed partial class VibeOrchestrator
                 return meshUsed;
             }
 
-            var planRes = _mesh.Planner.Plan(session.Id, runId, compile.Definition);
+            var planRes = _mesh.Planner.Plan(ctx.Session.Id, ctx.RunId, compile.Definition);
             if (!planRes.Ok || planRes.Plan == null)
             {
                 HandleMeshErrorsOrFallback(
-                    session,
-                    emitAssistantDelta,
+                    ctx.Session,
+                    ctx.EmitAssistantDelta,
                     kind: "mesh.plan_failed",
                     errors: planRes.Errors,
                     options: meshOpt,
@@ -309,12 +315,12 @@ internal sealed partial class VibeOrchestrator
             foreach (var role in requiredRoles)
             {
                 var p = await EnsureProviderRunnableOrPauseAsync(
-                    session,
-                    runId,
+                    ctx.Session,
+                    ctx.RunId,
                     agent: role,
                     stepName: $"vibe.mesh.{role}",
                     resolveProvider: () => resolveProvider(role),
-                    emitAssistantDelta: emitAssistantDelta,
+                    emitAssistantDelta: ctx.EmitAssistantDelta,
                     ct: ct);
 
                 if (!string.IsNullOrWhiteSpace(p))
@@ -329,12 +335,12 @@ internal sealed partial class VibeOrchestrator
             onDagRefreshed(freshDag);
 
             var run = await _mesh.Runner.ExecuteAsync(
-                session,
-                input,
-                materials,
+                ctx.Session,
+                ctx.Input,
+                ctx.Materials,
                 freshDag,
                 planRes.Plan,
-                question,
+                ctx.Question,
                 ResolveProviderForMesh,
                 ct);
 
@@ -363,7 +369,7 @@ internal sealed partial class VibeOrchestrator
             meshUsed = true;
 
             // Best-effort artifacts for debugging/replay.
-            TryWriteMeshRunArtifacts(session.Id, runId, raw!, planRes.Plan, run);
+            TryWriteMeshRunArtifacts(ctx.Session.Id, ctx.RunId, raw!, planRes.Plan, run);
 
             return true;
         }
@@ -372,8 +378,8 @@ internal sealed partial class VibeOrchestrator
             if (ex is OperationCanceledException && ct.IsCancellationRequested)
                 throw;
             HandleMeshErrorsOrFallback(
-                session,
-                emitAssistantDelta,
+                ctx.Session,
+                ctx.EmitAssistantDelta,
                 kind: "mesh.exception",
                 errors: [new Aevatar.CognitiveMesh.Dsl.Validation.DslValidationError("mesh.exception", ex.Message, null)],
                 options: meshOpt,
@@ -384,15 +390,10 @@ internal sealed partial class VibeOrchestrator
     }
 
     private async Task RunFallbackWorkerPhaseAsync(
-        ResearchSession session,
+        VibeRoundContext ctx,
         string dagId,
-        string runId,
-        SessionInputInDto input,
-        string question,
-        MaterialsSnapshot materials,
         PlanResult plan,
         Func<string, string?> resolveProvider,
-        Action<string> emitAssistantDelta,
         Dictionary<string, string> outputs,
         List<LibrarianAxiomCandidate> librarianAxioms,
         List<string> factsWritten,
@@ -430,32 +431,32 @@ internal sealed partial class VibeOrchestrator
                 case "planner":
                 {
                     var provider = await EnsureProviderRunnableOrPauseAsync(
-                        session,
-                        runId,
+                        ctx.Session,
+                        ctx.RunId,
                         agent: "planner",
                         stepName: "vibe.planner",
                         resolveProvider: () => resolveProvider("planner"),
-                        emitAssistantDelta: emitAssistantDelta,
+                        emitAssistantDelta: ctx.EmitAssistantDelta,
                         ct: ct);
-                    outputs[agent] = await RunPlannerAsync(session, runId, input, question, materials, getDagSnapshot(), provider, ct);
+                    outputs[agent] = await RunPlannerAsync(
+                        ctx,
+                        getDagSnapshot(),
+                        provider,
+                        ct);
                     break;
                 }
                 case "reasoner":
                 {
                     var provider = await EnsureProviderRunnableOrPauseAsync(
-                        session,
-                        runId,
+                        ctx.Session,
+                        ctx.RunId,
                         agent: "reasoner",
                         stepName: "vibe.reasoner",
                         resolveProvider: () => resolveProvider("reasoner"),
-                        emitAssistantDelta: emitAssistantDelta,
+                        emitAssistantDelta: ctx.EmitAssistantDelta,
                         ct: ct);
                     outputs[agent] = await RunReasonerAsync(
-                        session,
-                        runId,
-                        input,
-                        question,
-                        materials,
+                        ctx,
                         getDagSnapshot(),
                         outputs.TryGetValue("planner", out var p) ? p : null,
                         provider,
@@ -465,19 +466,22 @@ internal sealed partial class VibeOrchestrator
                 case "librarian":
                 {
                     var provider = await EnsureProviderRunnableOrPauseAsync(
-                        session,
-                        runId,
+                        ctx.Session,
+                        ctx.RunId,
                         agent: "librarian",
                         stepName: "vibe.librarian",
                         resolveProvider: () => resolveProvider("librarian"),
-                        emitAssistantDelta: emitAssistantDelta,
+                        emitAssistantDelta: ctx.EmitAssistantDelta,
                         ct: ct);
-                    outputs[agent] = await RunLibrarianAsync(session, runId, input, question, materials, getDagSnapshot(), provider, ct);
+                    outputs[agent] = await RunLibrarianAsync(
+                        ctx,
+                        getDagSnapshot(),
+                        provider,
+                        ct);
 
                     await ApplyLibrarianSideEffectsAsync(
-                        session,
+                        ctx,
                         outputs,
-                        emitAssistantDelta,
                         librarianAxioms,
                         factsWritten,
                         ct);
@@ -486,19 +490,15 @@ internal sealed partial class VibeOrchestrator
                 case "verifier":
                 {
                     var provider = await EnsureProviderRunnableOrPauseAsync(
-                        session,
-                        runId,
+                        ctx.Session,
+                        ctx.RunId,
                         agent: "verifier",
                         stepName: "vibe.verifier",
                         resolveProvider: () => resolveProvider("verifier"),
-                        emitAssistantDelta: emitAssistantDelta,
+                        emitAssistantDelta: ctx.EmitAssistantDelta,
                         ct: ct);
                     outputs[agent] = await RunVerifierAsync(
-                        session,
-                        runId,
-                        input,
-                        question,
-                        materials,
+                        ctx,
                         getDagSnapshot(),
                         outputs.TryGetValue("reasoner", out var r) ? r : null,
                         provider,
@@ -508,18 +508,24 @@ internal sealed partial class VibeOrchestrator
                 case "dag_builder":
                 {
                     // Refresh DAG snapshot right before builder (other sessions may have mutated the shared DAG).
-                        var fresh = await _core.Dag.LoadSnapshotAsync(dagId, ct);
+                    var fresh = await _core.Dag.LoadSnapshotAsync(dagId, ct);
                     onDagRefreshed(fresh);
 
                     var provider = await EnsureProviderRunnableOrPauseAsync(
-                        session,
-                        runId,
+                        ctx.Session,
+                        ctx.RunId,
                         agent: "dag_builder",
                         stepName: "vibe.dag_builder",
                         resolveProvider: () => resolveProvider("dag_builder"),
-                        emitAssistantDelta: emitAssistantDelta,
+                        emitAssistantDelta: ctx.EmitAssistantDelta,
                         ct: ct);
-                    outputs[agent] = await RunDagBuilderAsync(session, runId, input, question, materials, fresh, outputs, librarianAxioms, provider, ct);
+                    outputs[agent] = await RunDagBuilderAsync(
+                        ctx,
+                        fresh,
+                        outputs,
+                        librarianAxioms,
+                        provider,
+                        ct);
                     break;
                 }
                 default:
@@ -530,9 +536,8 @@ internal sealed partial class VibeOrchestrator
     }
 
     private async Task ApplyLibrarianSideEffectsAsync(
-        ResearchSession session,
+        VibeRoundContext ctx,
         IReadOnlyDictionary<string, string> outputs,
-        Action<string> emitAssistantDelta,
         List<LibrarianAxiomCandidate> librarianAxioms,
         List<string> factsWritten,
         CancellationToken ct)
@@ -554,16 +559,16 @@ internal sealed partial class VibeOrchestrator
 
             if (actions.FactsWrite is { Count: > 0 })
             {
-                var written = await TryWriteFactsAsync(session.Id, actions.FactsWrite, ct);
+                var written = await TryWriteFactsAsync(ctx.Session.Id, actions.FactsWrite, ct);
                 if (written.Count > 0)
                 {
                     factsWritten.AddRange(written);
 
                     // Surface the write as an explicit system-style delta in the main assistant stream.
-                    EmitSection(emitAssistantDelta, "### Librarian wrote facts\n");
+                    EmitSection(ctx.EmitAssistantDelta, "### Librarian wrote facts\n");
                     foreach (var p in written)
-                        emitAssistantDelta($"- {p}\n");
-                    emitAssistantDelta("\n");
+                        ctx.EmitAssistantDelta($"- {p}\n");
+                    ctx.EmitAssistantDelta("\n");
                 }
             }
         }

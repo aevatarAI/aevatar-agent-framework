@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/platform/design.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-14T11:18:36.822Z",
+      "trigger": "initial",
+      "approvalId": "approval_1768389516816_c6h7xdf2p",
+      "approvalTitle": "Platform design.md approval (OpenCode CLI/TUI parity architecture)"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-14T11:26:25.205Z",
+      "trigger": "approved",
+      "approvalId": "approval_1768389746254_i3hljx3vf",
+      "approvalTitle": "Platform design.md approval (revise: Agent OS with profiles/packs + OpenCode parity)"
+    }
+  ]
+}

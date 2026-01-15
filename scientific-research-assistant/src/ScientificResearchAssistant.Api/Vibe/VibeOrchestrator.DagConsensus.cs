@@ -67,7 +67,7 @@ internal sealed partial class VibeOrchestrator
         // ------------------------------------------------------------
         try
         {
-            var dagId = string.IsNullOrWhiteSpace(session.DagId) ? session.Id : session.DagId.Trim();
+            var dagId = session.EffectiveDagId;
             var applied = await _core.Dag.ApplyMutationAsync(dagId, candidate, ct);
 
             session.Events.Publish(new CustomEvent

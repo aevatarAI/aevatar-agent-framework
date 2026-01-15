@@ -1,11 +1,13 @@
+using System.Text;
 using System.Text.Json.Serialization;
 
 namespace Aevatar.Agents.Knowledge.Graph.Models;
 
 /// <summary>
 /// A knowledge node in the graph representing a piece of scientific knowledge.
+/// Implements <see cref="IGraphNode"/> for common graph operations.
 /// </summary>
-public sealed class KnowledgeNode
+public sealed class KnowledgeNode : IGraphNode
 {
     /// <summary>Unique identifier within the session (provided by caller).</summary>
     public required string Id { get; init; }
@@ -17,19 +19,20 @@ public sealed class KnowledgeNode
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public required KnowledgeNodeType NodeType { get; init; }
 
-    /// <summary>
-    /// Whether this node is a tentative plan node or an asserted knowledge node.
-    /// <para>Default is <see cref="KnowledgeNodeKind.Knowledge"/> to preserve historical semantics.</para>
-    /// </summary>
-    public KnowledgeNodeKind Kind { get; init; } = KnowledgeNodeKind.Knowledge;
+    // ========== IGraphNode implementation ==========
+
+    /// <summary>When this node was created.</summary>
+    public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
+
+    /// <summary>When this node was last updated.</summary>
+    public DateTimeOffset UpdatedAt { get; init; } = DateTimeOffset.UtcNow;
 
     /// <summary>
     /// Owner public key of this node (the agent/user who authored it).
-    /// <para>
-    /// Recommended encoding: hex or base64. Empty/null means "unknown / not set".
-    /// </para>
     /// </summary>
     public string? Owner { get; init; }
+
+    // ========== KnowledgeNode-specific fields ==========
 
     /// <summary>Core description - a concise summary of the key conclusion.</summary>
     public required string CoreDescription { get; init; }
@@ -46,26 +49,29 @@ public sealed class KnowledgeNode
     /// <summary>S3 presigned HTTPS URL for resource download.</summary>
     public string? ResourceUri { get; init; }
 
-    /// <summary>When this node was created.</summary>
-    public DateTimeOffset Timestamp { get; init; }
-
     /// <summary>
     /// Attestations for a knowledge node, as a list of (pubkey, signature).
-    /// <para>
-    /// For <see cref="KnowledgeNodeKind.Plan"/> this should typically be empty.
-    /// </para>
     /// </summary>
     public IReadOnlyList<KnowledgeAttestation> Attestations { get; init; } = [];
 
     /// <summary>IDs of nodes this node depends on (upstream dependencies).</summary>
     public IReadOnlyList<string> DependsOn { get; init; } = [];
 
-    // ========== Pivot-related fields (added for research direction pivot feature) ==========
+    /// <summary>
+    /// How this knowledge was derived (methodology, reasoning steps, etc.).
+    /// Required: All knowledge must have a derivation source.
+    /// </summary>
+    public string? DerivationProcess { get; init; }
+
+    /// <summary>
+    /// Source references (URLs, papers, citations, etc.).
+    /// </summary>
+    public IReadOnlyList<string> References { get; init; } = [];
+
+    // ========== Pivot-related fields ==========
 
     /// <summary>
     /// Status of this node with respect to research direction pivots.
-    /// Default is Active. When a pivot cancels pending nodes, they are marked as Cancelled.
-    /// Completed nodes from a previous direction are marked as Superseded.
     /// </summary>
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public PivotNodeStatus PivotStatus { get; init; } = PivotNodeStatus.Active;
@@ -82,7 +88,107 @@ public sealed class KnowledgeNode
 
     /// <summary>
     /// Research direction context when this node was created.
-    /// Used for partial pivot filtering to identify which nodes to preserve.
     /// </summary>
     public string? DirectionContext { get; init; }
+
+    // ========== IGraphNode.Explain() implementation ==========
+
+    /// <inheritdoc />
+    public NodeExplanation Explain(GraphSnapshot snapshot)
+    {
+        var directDeps = DependsOn.ToList();
+        var dependents = snapshot.GetDependents(Id).ToList();
+
+        var sb = new StringBuilder();
+
+        // Title
+        sb.AppendLine($"# {CoreDescription}");
+        sb.AppendLine();
+
+        // Meta info
+        sb.AppendLine($"**Type**: {NodeType}");
+        sb.AppendLine($"**Node ID**: `{Id}`");
+        sb.AppendLine();
+
+        // Description
+        sb.AppendLine("## Description");
+        sb.AppendLine();
+        sb.AppendLine(DetailedDescription);
+        sb.AppendLine();
+
+        // Derivation process
+        if (!string.IsNullOrWhiteSpace(DerivationProcess))
+        {
+            sb.AppendLine("## Derivation Process");
+            sb.AppendLine();
+            sb.AppendLine(DerivationProcess);
+            sb.AppendLine();
+        }
+
+        // References
+        if (References.Count > 0)
+        {
+            sb.AppendLine("## References");
+            sb.AppendLine();
+            foreach (var reference in References)
+            {
+                sb.AppendLine($"- {reference}");
+            }
+            sb.AppendLine();
+        }
+
+        // Dependencies (what this knowledge is derived from)
+        if (directDeps.Count > 0)
+        {
+            sb.AppendLine("## Derived From");
+            sb.AppendLine();
+            foreach (var depId in directDeps)
+            {
+                var node = snapshot.GetNode(depId);
+                var label = node != null ? $"{node.CoreDescription} (`{depId}`)" : $"`{depId}`";
+                sb.AppendLine($"- {label}");
+            }
+            sb.AppendLine();
+        }
+
+        // Dependents (what depends on this knowledge)
+        if (dependents.Count > 0)
+        {
+            sb.AppendLine("## Used By");
+            sb.AppendLine();
+            foreach (var depId in dependents)
+            {
+                var node = snapshot.GetNode(depId);
+                var label = node != null ? $"{node.CoreDescription} (`{depId}`)" : $"`{depId}`";
+                sb.AppendLine($"- {label}");
+            }
+            sb.AppendLine();
+        }
+
+        // Resource link
+        if (!string.IsNullOrWhiteSpace(ResourceUri))
+        {
+            sb.AppendLine("## Resources");
+            sb.AppendLine();
+            sb.AppendLine($"[Download Resources]({ResourceUri})");
+            sb.AppendLine();
+        }
+
+        // Timestamps
+        sb.AppendLine("---");
+        sb.AppendLine();
+        sb.AppendLine($"*Created: {CreatedAt:yyyy-MM-dd HH:mm:ss UTC}*");
+
+        return new NodeExplanation
+        {
+            NodeId = Id,
+            NodeType = "Knowledge",
+            Title = CoreDescription,
+            MarkdownContent = sb.ToString(),
+            DirectDependencies = directDeps,
+            Dependents = dependents,
+            CreatedAt = CreatedAt,
+            UpdatedAt = UpdatedAt
+        };
+    }
 }

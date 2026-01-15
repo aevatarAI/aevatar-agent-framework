@@ -97,19 +97,36 @@ public sealed class ResearchSessionManager
 
 public sealed class ResearchSession(string id)
 {
+    // ============================================================
+    //  Global Knowledge Graph
+    //
+    //  All sessions share a single global KnowledgeGraph by default.
+    //  This enables:
+    //  - Cross-session knowledge node visibility
+    //  - Cross-session knowledge node connections
+    //  - Research in any session can build upon knowledge from other sessions
+    // ============================================================
+    public const string GlobalDagId = "global";
+
     public string Id { get; } = id;
     public DateTimeOffset CreatedAt { get; } = DateTimeOffset.UtcNow;
     public string? ProviderName { get; init; }
 
     // ------------------------------------------------------------
-    // DAG binding (MVP, in-memory)
+    // DAG binding
     //
     // 中文说明：
-    // - 默认：每个 session 使用自己的 DAG（dagId == sessionId）
-    // - 共享：多个 session 可绑定同一个 dagId => 共享同一份 KnowledgeGraph/DAG
-    // - 目前 session 本身是内存态（重启会丢），因此 dagId 绑定也仅在进程内生效
+    // - 默认：所有 session 共享全局 KnowledgeGraph（dagId == "global"）
+    // - 这样所有 session 的知识节点可以互相连接、互相引用
+    // - 如需隔离，可手动设置 DagId = sessionId
     // ------------------------------------------------------------
     public string? DagId { get; set; }
+
+    /// <summary>
+    /// Get the effective DAG ID for this session.
+    /// Defaults to GlobalDagId for cross-session knowledge sharing.
+    /// </summary>
+    public string EffectiveDagId => string.IsNullOrWhiteSpace(DagId) ? GlobalDagId : DagId.Trim();
 
     public BroadcastEventHub<AgUiEvent> Events { get; } = new(replayBufferSize: 0);
 

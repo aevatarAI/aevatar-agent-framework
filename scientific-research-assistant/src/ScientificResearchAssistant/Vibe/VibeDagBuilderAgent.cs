@@ -1,3 +1,5 @@
+using ScientificResearchAssistant.Vibe.Tools;
+
 namespace ScientificResearchAssistant.Vibe;
 
 // ============================================================
@@ -28,11 +30,11 @@ namespace ScientificResearchAssistant.Vibe;
 
 public sealed class VibeDagBuilderAgent : VibeAgentBase
 {
-    private readonly ScientificResearchAssistant.Vibe.Tools.IVibeDagAccess? _dag;
+    private readonly IVibeGraphAccess? _graphAccess;
 
-    public VibeDagBuilderAgent(ScientificResearchAssistant.Vibe.Tools.IVibeDagAccess? dag = null)
+    public VibeDagBuilderAgent(IVibeGraphAccess? graphAccess = null)
     {
-        _dag = dag;
+        _graphAccess = graphAccess;
 
         SystemPrompt =
             """
@@ -45,8 +47,8 @@ public sealed class VibeDagBuilderAgent : VibeAgentBase
               Treat them as axioms (no verifier step required) but keep citations in tags.
 
             Helpful tools (optional):
-            - You MAY call dag_get_snapshot to see existing node ids/types and reuse them.
-            - You MAY call dag_explain(nodeId) to understand dependencies and avoid cycles.
+            - You MAY call graph_get_snapshot to see existing node ids/types and reuse them.
+            - You MAY call graph_explain_node(nodeId) to understand dependencies and avoid cycles.
 
             Rules:
             - Output STRICT JSON ONLY (no markdown, no code fences).
@@ -56,6 +58,32 @@ public sealed class VibeDagBuilderAgent : VibeAgentBase
             - Keep label <= 200 chars; proof <= 1200 chars.
             - For axioms from papers, put citation/source in tags, e.g.:
               tags: { "sourcePath": "...", "citation": "...", "trusted": "paper" }.
+
+            IMPORTANT - Provenance tracking:
+            - Each knowledge node MUST specify "motivatedByPlanNodeId" to link it to the plan step that motivated its creation.
+            - CRITICAL: Use the EXACT plan node ID from the "Plan:" section in the context (e.g., "plan_abc_123_ms_r1").
+              Do NOT construct the ID yourself - copy it exactly as shown in the plan context.
+            - Look at the current round context to determine which milestone/plan node is being executed.
+
+            Schema (updated):
+            {
+              "mutationId": "string",
+              "authorAgent": "dag_builder",
+              "nodes": [
+                {
+                  "id": "string",
+                  "type": "axiom|theorem|assumption|hypothesis|unknown",
+                  "kind": "knowledge",
+                  "label": "string",
+                  "proof": "string",
+                  "motivatedByPlanNodeId": "string (required for knowledge nodes)",
+                  "tags": { "k": "v" }
+                }
+              ],
+              "edges": [
+                { "from": "string", "to": "string", "type": "depends_on" }
+              ]
+            }
             """;
     }
 
@@ -63,11 +91,11 @@ public sealed class VibeDagBuilderAgent : VibeAgentBase
     {
         await base.RegisterToolsAsync(cancellationToken);
 
-        // Read-only DAG tools for higher-quality, stable mutations.
-        if (_dag != null)
+        // Read-only graph tools for higher-quality, stable mutations.
+        if (_graphAccess != null)
         {
-            await RegisterToolAsync(new ScientificResearchAssistant.Vibe.Tools.DagGetSnapshotTool(_dag), cancellationToken: cancellationToken);
-            await RegisterToolAsync(new ScientificResearchAssistant.Vibe.Tools.DagExplainTool(_dag), cancellationToken: cancellationToken);
+            await RegisterToolAsync(new GraphGetSnapshotTool(_graphAccess), cancellationToken: cancellationToken);
+            await RegisterToolAsync(new GraphExplainNodeTool(_graphAccess), cancellationToken: cancellationToken);
         }
     }
 }

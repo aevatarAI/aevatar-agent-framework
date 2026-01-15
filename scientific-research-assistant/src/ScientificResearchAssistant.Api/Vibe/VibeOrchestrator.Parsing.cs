@@ -66,6 +66,15 @@ internal sealed partial class VibeOrchestrator
             CreatedAt = now
         };
 
+        // ------------------------------------------------------------
+        // Track motivatedBy relationships to create edges later
+        //
+        // 中文说明：
+        // - 收集每个 knowledge node 的 motivatedByPlanNodeId
+        // - 后续创建 "motivated_by" 边连接 knowledge node 和 plan node
+        // ------------------------------------------------------------
+        var motivatedByEdges = new List<(string knowledgeNodeId, string planNodeId)>();
+
         if (parsed.Nodes != null)
         {
             foreach (var n in parsed.Nodes)
@@ -73,10 +82,16 @@ internal sealed partial class VibeOrchestrator
                 var nid = (n?.Id ?? string.Empty).Trim();
                 if (nid.Length == 0) continue;
 
+                // IMPORTANT: dag_builder can ONLY create Knowledge nodes.
+                // Plan nodes are created exclusively by VibeOrchestrator during plan generation.
+                // Ignore any "kind" field from LLM output to prevent unauthorized Plan node creation.
+                const SraDagNodeKind kind = SraDagNodeKind.Knowledge;
+
                 var node = new SraDagNode
                 {
                     Id = nid,
-                    Type = ParseNodeType(n!.Type),
+                    Type = ParseNodeType(n.Type),
+                    Kind = kind,
                     Label = Bound((n.Label ?? string.Empty).Trim(), 200),
                     Proof = Bound((n.Proof ?? string.Empty).Trim(), 1200),
                     UpdatedAt = now
@@ -89,6 +104,15 @@ internal sealed partial class VibeOrchestrator
                         if (string.IsNullOrWhiteSpace(kv.Key)) continue;
                         node.Tags[kv.Key.Trim()] = Bound(kv.Value?.Trim() ?? "", 200);
                     }
+                }
+
+                // Track motivatedByPlanNodeId for edge creation
+                var motivatedBy = (n.MotivatedByPlanNodeId ?? string.Empty).Trim();
+                if (motivatedBy.Length > 0 && kind == SraDagNodeKind.Knowledge)
+                {
+                    motivatedByEdges.Add((nid, motivatedBy));
+                    // Also store in tags for traceability
+                    node.Tags["motivatedByPlanNodeId"] = motivatedBy;
                 }
 
                 m.UpsertNodes.Add(node);
@@ -113,6 +137,24 @@ internal sealed partial class VibeOrchestrator
             }
         }
 
+        // ------------------------------------------------------------
+        // Create motivated_by edges
+        //
+        // 中文说明：
+        // - 语义: knowledgeNode -[motivated_by]-> planNode
+        // - 表示该 knowledge 是在执行某个 plan step 时产出的
+        // ------------------------------------------------------------
+        foreach (var (knowledgeNodeId, planNodeId) in motivatedByEdges)
+        {
+            m.UpsertEdges.Add(new SraDagEdge
+            {
+                FromId = knowledgeNodeId,
+                ToId = planNodeId,
+                Type = "motivated_by",
+                UpdatedAt = now
+            });
+        }
+
         return m;
     }
 
@@ -128,8 +170,10 @@ internal sealed partial class VibeOrchestrator
     {
         public string? Id { get; init; }
         public string? Type { get; init; }
+        public string? Kind { get; init; }  // "plan" or "knowledge"
         public string? Label { get; init; }
         public string? Proof { get; init; }
+        public string? MotivatedByPlanNodeId { get; init; }  // For provenance tracking
         public Dictionary<string, string?>? Tags { get; init; }
     }
 

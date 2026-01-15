@@ -1,0 +1,100 @@
+syntax = "proto3";
+
+package aevatar.platform;
+
+import "google/protobuf/timestamp.proto";
+
+// ============================================================
+//  Aevatar Platform contracts (cross-boundary, Protobuf-first)
+//
+//  约束：
+//  - 事件与状态会跨边界（持久化 / attach / streaming），因此必须为 Protobuf。
+//  - 不在消息里携带 secrets；大文本/大输出仅允许“有界预览”，原始内容应以文件引用表达。
+// ============================================================
+
+// Platform session snapshot (bounded, UI-friendly).
+message PlatformSessionState {
+  string session_id = 1;          // stable id (uuid/ulid as string)
+  string profile = 2;             // e.g. "coding" | "vibe" | "worldbuilding"
+  string active_workflow = 3;     // resolved workflow name
+  string working_directory = 4;   // local path (host-specific)
+  string provider = 5;            // provider name (NOT api key)
+  string model = 6;               // model id
+
+  // Files referenced by the session (paths only; do NOT inline content).
+  repeated string attached_files = 7;
+
+  // Best-effort metadata for UI; keep string-only and bounded.
+  map<string, string> tags = 8;
+}
+
+// A single user-authored message (text + file references).
+message UserMessageEvent {
+  string message_id = 1;
+  string text = 2; // bounded by platform policy
+  repeated string attached_files = 3; // paths within allowed roots
+}
+
+// Streaming output delta from an agent.
+message AgentOutputDeltaEvent {
+  string agent = 1;       // role/name
+  string message_id = 2;  // correlation to user message / run step
+  string delta = 3;       // bounded; UI should stream-render
+  bool is_final = 4;
+}
+
+message ToolExecutionStartedEvent {
+  string tool_call_id = 1;
+  string tool_name = 2;
+  string agent = 3;
+  // arguments MUST be bounded; prefer redacted preview or structured keys only.
+  string arguments_preview = 4;
+}
+
+message ToolExecutionFinishedEvent {
+  string tool_call_id = 1;
+  string tool_name = 2;
+  string agent = 3;
+  bool ok = 4;
+  // output MUST be bounded; full artifacts should be written to files and referenced.
+  string output_preview = 5;
+  string error = 6; // bounded, empty when ok
+}
+
+message WorkflowStepStartedEvent {
+  string run_id = 1;
+  string step_name = 2;
+  string agent = 3;
+}
+
+message WorkflowStepFinishedEvent {
+  string run_id = 1;
+  string step_name = 2;
+  string agent = 3;
+  bool ok = 4;
+  string summary = 5; // bounded
+}
+
+message ErrorEvent {
+  string code = 1;
+  string message = 2; // bounded, no secrets
+  map<string, string> meta = 3; // string-only
+}
+
+// Event envelope for event sourcing and streaming.
+message PlatformSessionEvent {
+  uint64 seq = 1; // monotonic within a session
+  google.protobuf.Timestamp timestamp = 2;
+
+  oneof body {
+    UserMessageEvent user_message = 10;
+    AgentOutputDeltaEvent agent_output_delta = 11;
+    ToolExecutionStartedEvent tool_started = 12;
+    ToolExecutionFinishedEvent tool_finished = 13;
+    WorkflowStepStartedEvent step_started = 14;
+    WorkflowStepFinishedEvent step_finished = 15;
+    ErrorEvent error = 16;
+  }
+}
+
+

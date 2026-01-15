@@ -71,10 +71,8 @@ public sealed class PivotQueueTests
         await Task.Delay(50);
 
         // Start second pivot (should queue)
-        var task2Started = false;
         var task2 = Task.Run(async () =>
         {
-            task2Started = true;
             return await queue.EnqueueAsync(
                 intent2,
                 async _ =>

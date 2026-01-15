@@ -75,6 +75,11 @@ internal sealed class MeshExecutionRunner
             }
         });
 
+        // Create aggregated research_assistant message for main chat display
+        var raMessageId = $"msg:{session.Id}:research_assistant:{plan.RunId}";
+        var raProviderName = resolveProviderName("research_assistant");
+        StartAgentMessage(session, raMessageId, agent: "research_assistant", stepName: "vibe.mesh", providerName: raProviderName);
+
         var plannerNodeId = plan.Nodes.FirstOrDefault(n => string.Equals((n.Type ?? "").Trim(), "planner", StringComparison.OrdinalIgnoreCase))?.Id;
 
         foreach (var nodeId in plan.TopoOrder)
@@ -91,11 +96,13 @@ internal sealed class MeshExecutionRunner
             var role = (node.Type ?? string.Empty).Trim().ToLowerInvariant();
             var providerName = resolveProviderName(role);
 
-            var stepName = $"vibe.mesh.{node.Id}";
-            var messageId = $"msg:{session.Id}:mesh:{node.Id}:{plan.RunId}";
+            // Use vibe.{role} format to match VibeOrchestrator.Workers pattern for frontend recognition
+            var stepName = $"vibe.{role}";
+            var messageId = $"msg:{session.Id}:{role}:{plan.RunId}";
 
             // Step + message start
             session.Events.Publish(new StepStartedEvent { Timestamp = NowMs(), StepName = stepName });
+            EmitAgentStatusReport(session, role, GetAgentStartMessage(role));
             StartAgentMessage(session, messageId, agent: role, stepName: stepName, providerName: providerName);
             session.Events.Publish(new CustomEvent
             {
@@ -129,35 +136,35 @@ internal sealed class MeshExecutionRunner
                     {
                         var (agent, agentId) = await _runtime.GetPlannerAgentAsync(session.Id, providerName, ct);
                         req.Context["agent_id"] = agentId;
-                        text = await RunAgentAsync(agent, req, session, messageId, maxChars: 20_000, fencedJson: false, ct);
+                        text = await RunAgentAsync(agent, req, session, messageId, raMessageId, role, maxChars: 20_000, fencedJson: false, ct);
                         break;
                     }
                     case "reasoner":
                     {
                         var (agent, agentId) = await _runtime.GetReasonerAgentAsync(session.Id, providerName, ct);
                         req.Context["agent_id"] = agentId;
-                        text = await RunAgentAsync(agent, req, session, messageId, maxChars: 40_000, fencedJson: false, ct);
+                        text = await RunAgentAsync(agent, req, session, messageId, raMessageId, role, maxChars: 40_000, fencedJson: false, ct);
                         break;
                     }
                     case "librarian":
                     {
                         var (agent, agentId) = await _runtime.GetLibrarianAgentAsync(session.Id, providerName, ct);
                         req.Context["agent_id"] = agentId;
-                        text = await RunAgentAsync(agent, req, session, messageId, maxChars: 20_000, fencedJson: false, ct);
+                        text = await RunAgentAsync(agent, req, session, messageId, raMessageId, role, maxChars: 20_000, fencedJson: false, ct);
                         break;
                     }
                     case "verifier":
                     {
                         var (agent, agentId) = await _runtime.GetVerifierAgentAsync(session.Id, providerName, ct);
                         req.Context["agent_id"] = agentId;
-                        text = await RunAgentAsync(agent, req, session, messageId, maxChars: 20_000, fencedJson: false, ct);
+                        text = await RunAgentAsync(agent, req, session, messageId, raMessageId, role, maxChars: 20_000, fencedJson: false, ct);
                         break;
                     }
                     case "dag_builder":
                     {
                         var (agent, agentId) = await _runtime.GetDagBuilderAgentAsync(session.Id, providerName, ct);
                         req.Context["agent_id"] = agentId;
-                        text = await RunAgentAsync(agent, req, session, messageId, maxChars: 30_000, fencedJson: true, ct);
+                        text = await RunAgentAsync(agent, req, session, messageId, raMessageId, role, maxChars: 30_000, fencedJson: true, ct);
                         break;
                     }
                     default:
@@ -165,7 +172,7 @@ internal sealed class MeshExecutionRunner
                         // Dynamic role path (role defined by ~/.aevatar/agents/{role}.yaml).
                         var (agent, agentId) = await _runtime.GetRoleAgentAsync(session.Id, providerName, role, ct);
                         req.Context["agent_id"] = agentId;
-                        text = await RunAgentAsync(agent, req, session, messageId, maxChars: 20_000, fencedJson: false, ct);
+                        text = await RunAgentAsync(agent, req, session, messageId, raMessageId, role, maxChars: 20_000, fencedJson: false, ct);
                         break;
                     }
                 }
@@ -206,6 +213,9 @@ internal sealed class MeshExecutionRunner
             Value = new { sessionId = session.Id, runId = plan.RunId, ok = errors.Count == 0, nodes = plan.Nodes.Count }
         });
 
+        // End the aggregated research_assistant message
+        EndAgentMessage(session, raMessageId);
+
         return new MeshRunResult(errors.Count == 0, outputs, errors);
     }
 
@@ -214,6 +224,8 @@ internal sealed class MeshExecutionRunner
         ChatRequest req,
         ResearchSession session,
         string messageId,
+        string raMessageId,
+        string role,
         int maxChars,
         bool fencedJson,
         CancellationToken ct)
@@ -221,34 +233,59 @@ internal sealed class MeshExecutionRunner
         var sb = new StringBuilder(capacity: Math.Min(maxChars, 4096));
         var supportsStreaming = await agent.SupportsStreamingAsync(ct);
 
+        // Emit header to research_assistant for main chat display
+        var roleHeader = $"\n### [{role.ToUpperInvariant()}]\n";
+        EmitAgentDelta(session, raMessageId, "assistant", roleHeader);
+
         if (fencedJson)
+        {
             EmitAgentDelta(session, messageId, "assistant", "```json\n");
+            EmitAgentDelta(session, raMessageId, "assistant", "```json\n");
+        }
 
         if (!supportsStreaming)
         {
+            Console.WriteLine($"[MeshRunner] NON-STREAMING mode for {messageId}");
             var resp = await agent.ChatAsync(req, ct);
             var text = (resp.Content ?? string.Empty);
             if (fencedJson) text = text.Trim();
             sb.Append(text);
             if (text.Length > 0)
-                EmitAgentDelta(session, messageId, "assistant", Bound(text, maxChars) + (fencedJson ? "\n" : ""));
+            {
+                var bounded = Bound(text, maxChars) + (fencedJson ? "\n" : "");
+                EmitAgentDelta(session, messageId, "assistant", bounded);
+                EmitAgentDelta(session, raMessageId, "assistant", bounded);
+            }
+            Console.WriteLine($"[MeshRunner] Non-streaming response: {text.Length} chars");
         }
         else
         {
+            var chunkCount = 0;
             await foreach (var chunk in agent.ChatStreamAsync(req, ct))
             {
                 if (string.IsNullOrEmpty(chunk)) continue;
+                chunkCount++;
                 sb.Append(chunk);
+                // Send to both agent-specific message and aggregated research_assistant
                 EmitAgentDelta(session, messageId, "assistant", chunk);
+                EmitAgentDelta(session, raMessageId, "assistant", chunk);
                 if (sb.Length >= maxChars)
                     break;
             }
+            // Log streaming stats for debugging
+            Console.WriteLine($"[MeshRunner] Streamed {chunkCount} chunks, total {sb.Length} chars for {messageId}");
         }
 
         if (fencedJson)
+        {
             EmitAgentDelta(session, messageId, "assistant", "\n```\n\n");
+            EmitAgentDelta(session, raMessageId, "assistant", "\n```\n\n");
+        }
         else
+        {
             EmitAgentDelta(session, messageId, "assistant", "\n\n");
+            EmitAgentDelta(session, raMessageId, "assistant", "\n\n");
+        }
 
         var result = sb.ToString();
         result = fencedJson ? result.Trim() : result;
@@ -431,6 +468,42 @@ internal sealed class MeshExecutionRunner
         if (s.Length <= max) return s;
         return s[..max];
     }
+
+    // ------------------------------------------------------------
+    //  Agent Status Reporting (matches VibeOrchestrator.Workers pattern)
+    // ------------------------------------------------------------
+
+    private static void EmitAgentStatusReport(
+        ResearchSession session,
+        string agentName,
+        string statusText,
+        double? progress = null)
+    {
+        session.Events.Publish(new CustomEvent
+        {
+            Timestamp = NowMs(),
+            Name = "aevatar.vibe.agent_status_report",
+            Value = new
+            {
+                agentId = agentName,
+                agentName,
+                statusText,
+                progress,
+                sessionId = session.Id
+            }
+        });
+    }
+
+    private static string GetAgentStartMessage(string role) => role switch
+    {
+        "planner" => "正在分析研究问题，制定研究计划...",
+        "reasoner" => "正在进行深度推理分析...",
+        "librarian" => "正在搜索相关文献和参考资料...",
+        "verifier" => "正在验证推理步骤的正确性...",
+        "dag_builder" => "正在构建知识图谱节点...",
+        "paper_editor" => "正在更新论文草稿...",
+        _ => $"正在执行 {role} 任务..."
+    };
 }
 
 

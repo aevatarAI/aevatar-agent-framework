@@ -1,0 +1,614 @@
+/* ============================================================
+   Sisyphus - Axiom Reasoning Visualization Panel
+   Theme: Cyberpunk 🌃
+   
+   Deep dark tech aesthetic with neon glow effects
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600&family=Orbitron:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* === Background Colors === */
+    --bg-base: #030308;           /* 深黑紫 - 主背景 */
+    --bg-surface: #0a0a12;        /* 暗紫黑 - 卡片/面板 */
+    --bg-elevated: #101018;       /* 稍亮 - hover状态 */
+    --bg-accent: #18181f;         /* 激活状态 */
+    
+    /* === Text Colors === */
+    --text-primary: #f0f0f5;
+    --text-secondary: #a0a0b0;
+    --text-muted: #606075;
+    --text-dimmed: #404050;
+    
+    /* === Border Colors === */
+    --border-subtle: rgba(0, 240, 255, 0.08);
+    --border-default: rgba(0, 240, 255, 0.15);
+    --border-strong: rgba(0, 240, 255, 0.3);
+    
+    /* === Neon Colors === */
+    --neon-cyan: #00f0ff;         /* 🔵 主色 - 主要交互 */
+    --neon-gold: #f0b000;         /* 🟡 强调色 - 高亮 */
+    --neon-purple: #8b5cf6;       /* 🟣 次要色 - 辅助 */
+    --neon-green: #00ff88;        /* 🟢 成功状态 */
+    --neon-orange: #ffaa00;       /* 🟡 警告状态 */
+    --neon-red: #ff3366;          /* 🔴 错误状态 */
+    
+    /* === Glow Effects === */
+    --glow-cyan: 0 0 10px rgba(0, 240, 255, 0.5), 0 0 20px rgba(0, 240, 255, 0.3), 0 0 30px rgba(0, 240, 255, 0.1);
+    --glow-gold: 0 0 10px rgba(240, 176, 0, 0.5), 0 0 20px rgba(240, 176, 0, 0.3), 0 0 30px rgba(240, 176, 0, 0.1);
+    --glow-purple: 0 0 10px rgba(139, 92, 246, 0.5), 0 0 20px rgba(139, 92, 246, 0.3);
+    --glow-green: 0 0 10px rgba(0, 255, 136, 0.5), 0 0 20px rgba(0, 255, 136, 0.3);
+    
+    /* === Shadows === */
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.6);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.6);
+    
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
+  }
+
+  * {
+    border-color: var(--border-subtle);
+  }
+
+  body {
+    background: var(--bg-base);
+    color: var(--text-primary);
+    font-family: "Space Grotesk", -apple-system, BlinkMacSystemFont, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  /* === Scrollbar === */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--bg-base);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-default);
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--neon-cyan);
+    box-shadow: var(--glow-cyan);
+  }
+
+  ::selection {
+    background: rgba(0, 240, 255, 0.25);
+    color: var(--text-primary);
+  }
+}
+
+@layer components {
+  /* === Typography === */
+  .font-display {
+    font-family: "Orbitron", sans-serif;
+    letter-spacing: 0.05em;
+  }
+
+  .font-mono {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+  }
+
+  /* === Card with Cyberpunk Border === */
+  .card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    position: relative;
+  }
+
+  .card-hover {
+    transition: all 0.2s ease;
+  }
+
+  .card-hover:hover {
+    background: var(--bg-elevated);
+    border-color: var(--border-default);
+    box-shadow: var(--shadow-md);
+  }
+
+  /* === Cyber Corner Decorations === */
+  .cyber-corners {
+    position: relative;
+  }
+
+  .cyber-corners::before,
+  .cyber-corners::after {
+    content: '';
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    border-color: var(--neon-cyan);
+    border-style: solid;
+    pointer-events: none;
+  }
+
+  .cyber-corners::before {
+    top: -1px;
+    left: -1px;
+    border-width: 2px 0 0 2px;
+  }
+
+  .cyber-corners::after {
+    bottom: -1px;
+    right: -1px;
+    border-width: 0 2px 2px 0;
+  }
+
+  /* === Glass Panel === */
+  .glass {
+    background: rgba(10, 10, 18, 0.9);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-lg);
+  }
+
+  /* === Status Indicators with Glow === */
+  .status-dot {
+    @apply w-2.5 h-2.5 rounded-full;
+  }
+
+  .status-dot-active {
+    background: var(--neon-green);
+    box-shadow: var(--glow-green);
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+
+  .status-dot-warning {
+    background: var(--neon-orange);
+    box-shadow: 0 0 10px rgba(255, 170, 0, 0.5);
+  }
+
+  .status-dot-error {
+    background: var(--neon-red);
+    box-shadow: 0 0 10px rgba(255, 51, 102, 0.5);
+    animation: pulse-error 1s ease-in-out infinite;
+  }
+
+  .status-dot-idle {
+    background: var(--text-muted);
+  }
+
+  @keyframes pulse-glow {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+  }
+
+  @keyframes pulse-error {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  /* === Neon Badge === */
+  .badge {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium;
+    background: rgba(0, 240, 255, 0.08);
+    border: 1px solid var(--border-default);
+    color: var(--text-secondary);
+    font-family: "JetBrains Mono", monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .badge-cyan {
+    background: rgba(0, 240, 255, 0.12);
+    color: var(--neon-cyan);
+    border-color: rgba(0, 240, 255, 0.3);
+  }
+
+  .badge-gold {
+    background: rgba(240, 176, 0, 0.12);
+    color: var(--neon-gold);
+    border-color: rgba(240, 176, 0, 0.3);
+  }
+
+  .badge-purple {
+    background: rgba(139, 92, 246, 0.12);
+    color: var(--neon-purple);
+    border-color: rgba(139, 92, 246, 0.3);
+  }
+
+  .badge-green {
+    background: rgba(0, 255, 136, 0.12);
+    color: var(--neon-green);
+    border-color: rgba(0, 255, 136, 0.3);
+  }
+
+  .badge-orange {
+    background: rgba(255, 170, 0, 0.12);
+    color: var(--neon-orange);
+    border-color: rgba(255, 170, 0, 0.3);
+  }
+
+  .badge-red {
+    background: rgba(255, 51, 102, 0.12);
+    color: var(--neon-red);
+    border-color: rgba(255, 51, 102, 0.3);
+  }
+
+  /* Legacy mappings */
+  .badge-blue { @apply badge-cyan; }
+  .badge-violet { @apply badge-purple; }
+  .badge-emerald { @apply badge-green; }
+  .badge-amber { @apply badge-orange; }
+  .badge-rose { @apply badge-red; }
+  .badge-magenta { @apply badge-gold; }
+
+  /* === Typing Cursor === */
+  .typing-cursor::after {
+    content: '▌';
+    animation: cursor-blink 0.8s step-end infinite;
+    color: var(--neon-cyan);
+    text-shadow: var(--glow-cyan);
+    margin-left: 2px;
+  }
+
+  @keyframes cursor-blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+  }
+
+  /* === Progress Bar === */
+  .progress-bar {
+    @apply h-1.5 rounded-full overflow-hidden;
+    background: var(--bg-accent);
+  }
+
+  .progress-bar-fill {
+    @apply h-full transition-all duration-500;
+    background: var(--neon-cyan);
+    box-shadow: var(--glow-cyan);
+  }
+
+  /* === Skeleton Loading === */
+  .skeleton {
+    @apply rounded;
+    background: linear-gradient(
+      90deg,
+      var(--bg-accent) 0%,
+      var(--bg-elevated) 50%,
+      var(--bg-accent) 100%
+    );
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.5s ease-in-out infinite;
+  }
+
+  @keyframes skeleton-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  /* === Node Card (Workflow) === */
+  .node-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    padding: 1rem;
+    transition: all 0.2s ease;
+    cursor: pointer;
+  }
+
+  .node-card:hover {
+    background: var(--bg-elevated);
+    border-color: var(--border-default);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+  }
+
+  .node-card.active {
+    border-color: var(--neon-cyan);
+    box-shadow: var(--glow-cyan);
+  }
+
+  .node-card.running {
+    border-color: var(--neon-gold);
+    box-shadow: var(--glow-pink);
+  }
+
+  .node-card.completed {
+    border-color: var(--neon-green);
+    box-shadow: var(--glow-green);
+  }
+
+  /* === Worker Card === */
+  .worker-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    transition: all 0.2s ease;
+    position: relative;
+  }
+
+  .worker-card:hover {
+    background: var(--bg-elevated);
+    border-color: var(--border-default);
+  }
+
+  .worker-card.streaming {
+    border-color: rgba(0, 240, 255, 0.4);
+  }
+
+  .worker-card.streaming::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--neon-cyan);
+    animation: scan-line 1.5s linear infinite;
+  }
+
+  @keyframes scan-line {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+
+  /* === Chat Bubble === */
+  .chat-bubble {
+    @apply p-4 rounded-xl relative;
+  }
+
+  .chat-bubble.agent {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-left: 3px solid var(--neon-cyan);
+  }
+
+  .chat-bubble.user {
+    background: rgba(255, 0, 170, 0.06);
+    border: 1px solid rgba(255, 0, 170, 0.2);
+  }
+
+  /* === Neon Buttons === */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold;
+    background: var(--neon-cyan);
+    color: var(--bg-base);
+    border: 1px solid var(--neon-cyan);
+    transition: all 0.2s ease;
+    text-shadow: none;
+  }
+
+  .btn-primary:hover {
+    box-shadow: var(--glow-cyan);
+    transform: translateY(-1px);
+  }
+
+  .btn-primary:active {
+    transform: translateY(0) scale(0.98);
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium;
+    background: transparent;
+    color: var(--neon-cyan);
+    border: 1px solid var(--neon-cyan);
+    transition: all 0.2s ease;
+  }
+
+  .btn-secondary:hover {
+    background: rgba(0, 240, 255, 0.1);
+    box-shadow: var(--glow-cyan);
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm;
+    color: var(--text-secondary);
+    transition: all 0.2s ease;
+  }
+
+  .btn-ghost:hover {
+    color: var(--neon-cyan);
+    background: rgba(0, 240, 255, 0.08);
+  }
+
+  /* === Icon Button === */
+  .icon-btn {
+    @apply p-2 rounded-lg;
+    color: var(--text-muted);
+    transition: all 0.2s ease;
+  }
+
+  .icon-btn:hover {
+    color: var(--neon-cyan);
+    background: rgba(0, 240, 255, 0.08);
+  }
+
+  /* === Input with Neon Focus === */
+  .input {
+    @apply w-full px-4 py-3 rounded-lg text-sm;
+    background: var(--bg-base);
+    color: var(--text-primary);
+    border: 1px solid var(--border-subtle);
+    font-family: "Space Grotesk", sans-serif;
+    transition: all 0.2s ease;
+  }
+
+  .input::placeholder {
+    color: var(--text-dimmed);
+  }
+
+  .input:hover {
+    border-color: var(--border-default);
+  }
+
+  .input:focus {
+    outline: none;
+    border-color: var(--neon-cyan);
+    box-shadow: 0 0 0 2px rgba(0, 240, 255, 0.15), var(--glow-cyan);
+  }
+
+  /* === Background Patterns === */
+  .bg-dots {
+    background-image: radial-gradient(
+      rgba(0, 240, 255, 0.06) 1px,
+      transparent 1px
+    );
+    background-size: 24px 24px;
+  }
+
+  .bg-gradient-subtle {
+    background: 
+      radial-gradient(ellipse at 20% 0%, rgba(0, 240, 255, 0.06) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 100%, rgba(255, 0, 170, 0.04) 0%, transparent 50%),
+      radial-gradient(ellipse at 50% 50%, rgba(139, 92, 246, 0.03) 0%, transparent 60%),
+      var(--bg-base);
+  }
+
+  .bg-grid-animated {
+    background-image: 
+      linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  /* === Neon Line Decoration === */
+  .neon-line-top {
+    position: relative;
+  }
+
+  .neon-line-top::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--neon-cyan), transparent);
+  }
+
+  .neon-line-bottom {
+    position: relative;
+  }
+
+  .neon-line-bottom::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--neon-gold), transparent);
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .transition-default {
+    transition: all 0.2s ease;
+  }
+
+  /* === Neon Text Glow === */
+  .text-glow-cyan {
+    text-shadow: 0 0 8px var(--neon-cyan), 0 0 16px rgba(0, 240, 255, 0.4);
+  }
+
+  .text-glow-gold {
+    text-shadow: 0 0 8px var(--neon-gold), 0 0 16px rgba(240, 176, 0, 0.4);
+  }
+
+  .text-glow-purple {
+    text-shadow: 0 0 8px var(--neon-purple), 0 0 16px rgba(139, 92, 246, 0.4);
+  }
+
+  .animate-fade-in {
+    animation: fade-in-up 0.4s ease-out;
+  }
+
+  @keyframes fade-in-up {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes scale-in {
+    from {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  .animate-scale-in {
+    animation: scale-in 0.2s ease-out;
+  }
+
+  .stagger-1 { animation-delay: 0.1s; }
+  .stagger-2 { animation-delay: 0.2s; }
+  .stagger-3 { animation-delay: 0.3s; }
+
+  /* === Enhanced Glow Pulse for Active Plan Nodes (Orange) === */
+  @keyframes glow-pulse {
+    0%, 100% {
+      box-shadow:
+        0 0 25px rgba(249, 115, 22, 0.7),
+        0 0 50px rgba(249, 115, 22, 0.4),
+        inset 0 0 12px rgba(255, 255, 255, 0.25);
+      transform: scale(1);
+    }
+    50% {
+      box-shadow:
+        0 0 50px rgba(249, 115, 22, 1),
+        0 0 100px rgba(249, 115, 22, 0.6),
+        0 0 150px rgba(249, 115, 22, 0.3),
+        inset 0 0 20px rgba(255, 255, 255, 0.4);
+      transform: scale(1.12);
+    }
+  }
+
+  .animate-glow-pulse {
+    animation: glow-pulse 1.2s ease-in-out infinite;
+  }
+
+  /* Ring animation for active plan nodes */
+  @keyframes ring-pulse {
+    0%, 100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.5;
+      transform: scale(1.2);
+    }
+  }
+
+  .animate-ring-pulse {
+    animation: ring-pulse 2s ease-in-out infinite;
+  }
+}

@@ -31,6 +31,7 @@ internal sealed class ResearchRunExecutor
     private readonly WorkspaceService _workspace;
     private readonly VibeOrchestrator _vibe;
     private readonly VibeGoalLoopRunner _vibeLoop;
+    private readonly VibeMilestoneLoopRunner _milestoneLoop;
     private readonly AgentProvidersStore _agentProviders;
     private readonly IOptions<LLMProvidersConfig> _llm;
     private readonly ILogger<ResearchRunExecutor> _logger;
@@ -41,6 +42,7 @@ internal sealed class ResearchRunExecutor
         WorkspaceService workspace,
         VibeOrchestrator vibe,
         VibeGoalLoopRunner vibeLoop,
+        VibeMilestoneLoopRunner milestoneLoop,
         AgentProvidersStore agentProviders,
         IOptions<LLMProvidersConfig> llm,
         ILogger<ResearchRunExecutor> logger)
@@ -50,6 +52,7 @@ internal sealed class ResearchRunExecutor
         _workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
         _vibe = vibe ?? throw new ArgumentNullException(nameof(vibe));
         _vibeLoop = vibeLoop ?? throw new ArgumentNullException(nameof(vibeLoop));
+        _milestoneLoop = milestoneLoop ?? throw new ArgumentNullException(nameof(milestoneLoop));
         _agentProviders = agentProviders ?? throw new ArgumentNullException(nameof(agentProviders));
         _llm = llm ?? throw new ArgumentNullException(nameof(llm));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -64,19 +67,39 @@ internal sealed class ResearchRunExecutor
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(input);
 
-        var mode = (input.Mode ?? "chat").Trim().ToLowerInvariant();
+        // Default mode changed from "chat" to "milestone" for research-driven workflow.
+        // Milestone mode executes research by iterating through plan milestones.
+        var mode = (input.Mode ?? "milestone").Trim().ToLowerInvariant();
+
+        // Milestone-driven research: execute by iterating through milestones in order
+        // "vibe" now defaults to milestone loop for full research workflow
+        if (mode is "milestone" or "vibe_milestone" or "research" or "vibe")
+        {
+            await ExecuteMilestoneLoopRunAsync(session, runId, input, ct);
+            return;
+        }
+        // Legacy: iteration-based loop (not milestone-aware)
         if (mode is "vibe_loop" or "vibe_goal_loop")
         {
             await ExecuteVibeGoalLoopRunAsync(session, runId, input, ct);
             return;
         }
-        if (mode is "vibe" or "vibe_researching" or "axiom")
+        // Single-round research (for debugging or quick tests)
+        if (mode is "vibe_researching" or "axiom" or "single")
         {
             await ExecuteVibeResearchingRunAsync(session, runId, input, ct);
             return;
         }
+        // Pure chat mode (no research orchestration)
+        if (mode is "chat")
+        {
+            await ExecuteChatRunAsync(session, runId, input, ct);
+            return;
+        }
 
-        await ExecuteChatRunAsync(session, runId, input, ct);
+        // Unknown mode: default to milestone-driven research
+        _logger.LogWarning("Unknown mode '{Mode}', defaulting to milestone-driven research", mode);
+        await ExecuteMilestoneLoopRunAsync(session, runId, input, ct);
     }
 
     private async Task ExecuteVibeGoalLoopRunAsync(
@@ -266,6 +289,199 @@ internal sealed class ResearchRunExecutor
             if (lockHeld)
         {
             session.RunLock.Release();
+            }
+        }
+    }
+
+    private async Task ExecuteMilestoneLoopRunAsync(
+        ResearchSession session,
+        string runId,
+        SessionInputInDto input,
+        CancellationToken ct)
+    {
+        string? error = null;
+        var assistant = new StringBuilder(capacity: 4096);
+        var assistantMessageId = $"msg:{session.Id}:assistant:{runId}";
+        var assistantMessageStarted = false;
+        var assistantMessageEnded = false;
+        var lockHeld = false;
+
+        try
+        {
+            await session.RunLock.WaitAsync(ct);
+            lockHeld = true;
+
+            var providerOverride = string.IsNullOrWhiteSpace(input.ProviderName)
+                ? null
+                : input.ProviderName.Trim();
+            var question = (input.Message ?? string.Empty).Trim();
+
+            session.Events.Publish(new RunStartedEvent
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                ThreadId = session.Id,
+                RunId = runId
+            });
+
+            // Emit user message
+            var userMessageId = $"msg:{session.Id}:user:{runId}";
+            EmitUserMessage(session, userMessageId, question);
+
+            // One assistant message stream; multi-agent outputs are merged with clear section headers.
+            session.Events.Publish(new TextMessageStartEvent
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                MessageId = assistantMessageId,
+                Role = "assistant"
+            });
+            assistantMessageStarted = true;
+
+            // Bind tool progress events to this run.
+            var prevSink = ResearchStreamEventContext.Current;
+            ResearchStreamEventContext.Current = new AgUiResearchStreamEventSink(
+                _runtime,
+                sessionId: session.Id,
+                hub: session.Events,
+                threadId: session.Id,
+                runId: runId);
+
+            try
+            {
+                // ------------------------------------------------------------
+                // Step 1) Materials (once per milestone run)
+                // ------------------------------------------------------------
+                session.Events.Publish(new StepStartedEvent
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    StepName = "vibe.materials"
+                });
+
+                var snapshot = await _materials.LoadAsync(session.Id, query: question, ct);
+                HydrateWorkspace(session, runId, question, snapshot);
+                ApplyKnowledgeToWorkspace(session, _workspace.ScanWorkspace(session.Id));
+
+                session.Events.Publish(new StateSnapshotEvent
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    Snapshot = session.Workspace
+                });
+
+                session.Events.Publish(new StepFinishedEvent
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    StepName = "vibe.materials"
+                });
+
+                // ------------------------------------------------------------
+                // Step 2+) Milestone-driven loop (execute each milestone in order)
+                // ------------------------------------------------------------
+                void Emit(string delta)
+                {
+                    if (string.IsNullOrEmpty(delta)) return;
+                    assistant.Append(delta);
+                    EmitAssistantDelta(session, assistantMessageId, delta);
+                }
+
+                var loopResult = await _milestoneLoop.ExecuteByMilestonesAsync(
+                    session,
+                    runId,
+                    input,
+                    question,
+                    snapshot,
+                    providerOverride,
+                    Emit,
+                    ct);
+
+                // ------------------------------------------------------------
+                // Done
+                // ------------------------------------------------------------
+                session.Events.Publish(new TextMessageEndEvent
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    MessageId = assistantMessageId
+                });
+                assistantMessageEnded = true;
+
+                session.Events.Publish(new RunFinishedEvent
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    ThreadId = session.Id,
+                    RunId = runId,
+                    Result = new
+                    {
+                        ok = loopResult.Ok,
+                        assistantMessageId,
+                        assistant = assistant.ToString(),
+                        mode = "milestone",
+                        milestones = new
+                        {
+                            executed = loopResult.MilestonesExecuted,
+                            total = loopResult.TotalMilestones,
+                            stopReason = loopResult.StopReason
+                        }
+                    }
+                });
+            }
+            finally
+            {
+                ResearchStreamEventContext.Current = prevSink;
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            error = "run canceled";
+
+            session.Events.Publish(new CustomEvent
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Name = "aevatar.scientific.run_canceled",
+                Value = new { threadId = session.Id, runId }
+            });
+
+            session.Events.Publish(new RunFinishedEvent
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                ThreadId = session.Id,
+                RunId = runId,
+                Result = new { ok = false, canceled = true, error, mode = "milestone" }
+            });
+
+            _logger.LogInformation("[Scientific] Milestone loop run canceled: {RunId}", runId);
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+
+            session.Events.Publish(new RunErrorEvent
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Message = error,
+                Code = "SRA_MILESTONE_LOOP_RUN_ERROR"
+            });
+
+            session.Events.Publish(new RunFinishedEvent
+            {
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                ThreadId = session.Id,
+                RunId = runId,
+                Result = new { ok = false, error, mode = "milestone" }
+            });
+
+            _logger.LogError(ex, "[Scientific] Milestone loop run failed: {Message}", ex.Message);
+        }
+        finally
+        {
+            if (assistantMessageStarted && !assistantMessageEnded)
+            {
+                session.Events.Publish(new TextMessageEndEvent
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    MessageId = assistantMessageId
+                });
+            }
+            if (lockHeld)
+            {
+                session.RunLock.Release();
             }
         }
     }

@@ -1,5 +1,6 @@
 using System.Globalization;
 using Aevatar.Agents.AI.Abstractions.Configuration;
+using Aevatar.Agents.Core.StateProtection;
 
 namespace Aevatar.Agents.AI.Core.Configuration;
 
@@ -38,9 +39,18 @@ public static class AgentYamlConfigApplier
     private static readonly HashSet<string> DangerousToolNames =
         new(["python_exec", "skills_run_python"], StringComparer.OrdinalIgnoreCase);
 
+    private static IDisposable? BeginConfigScopeIfNeeded()
+    {
+        return StateProtectionContext.IsModifiable
+            ? null
+            : StateProtectionContext.BeginInitializationScope();
+    }
+
     public static void ApplyModelKnobs(AgentYamlConfig yaml, AevatarAIAgentConfig cfg)
     {
         if (yaml == null || cfg == null) return;
+
+        using var scope = BeginConfigScopeIfNeeded();
 
         if (!string.IsNullOrWhiteSpace(yaml.Model))
             cfg.Model = yaml.Model.Trim();
@@ -78,6 +88,8 @@ public static class AgentYamlConfigApplier
     public static void ApplySystemPrompt(AIGAgentBase agent, AgentYamlConfig yaml, string? role)
     {
         if (agent == null || yaml == null) return;
+
+        using var scope = BeginConfigScopeIfNeeded();
 
         var roleKey = (role ?? string.Empty).Trim();
         var roleLine = roleKey.Length == 0
@@ -179,6 +191,8 @@ public static class AgentYamlConfigApplier
         CancellationToken ct)
     {
         if (agent == null || yaml == null) return;
+
+        using var scope = BeginConfigScopeIfNeeded();
 
         ApplyModelKnobs(yaml, agent.InternalConfig);
         ApplySystemPrompt(agent, yaml, role);

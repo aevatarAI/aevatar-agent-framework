@@ -9,6 +9,7 @@ using Aevatar.Agents.AI.Tool.MCP.Configuration;
 using Aevatar.Agents.Core.Secrets;
 using Aevatar.Agents.Knowledge.Graph;
 using Aevatar.Agents.Persistence.InMemory.Graph;
+using Aevatar.Agents.Persistence.Neo4j.Graph.DependencyInjection;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.Options;
 using ScientificResearchAssistant.Api.Infrastructure;
@@ -147,14 +148,17 @@ builder.Services.AddSingleton<BriefStore>();
 // - 这里默认用 InMemory 图后端（开发/测试最快，无外部依赖）
 // - DagStore 会把图快照同步落盘到 artifacts/dag/snapshot.json，保证可审阅/可恢复
 // ==========================================
-builder.Services.AddAevatarGraphInMemory();
+builder.Services.AddAevatarGraphNeo4j();
 builder.Services.AddKnowledgeGraph();
 
 // Vibe: DAG/Graph store (SSoT: KnowledgeGraph + file snapshot mirror)
+// DagStore is used by VibeOrchestrator for loading snapshots and applying mutations
 builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.Dag.DagStore>();
-builder.Services.AddSingleton<ScientificResearchAssistant.Vibe.Tools.IVibeDagAccess, ScientificResearchAssistant.Api.Vibe.Dag.VibeDagAccess>();
-builder.Services.AddSingleton<ScientificResearchAssistant.Vibe.Tools.IVibeDagPlanAccess, ScientificResearchAssistant.Api.Vibe.Dag.VibeDagPlanAccess>();
 builder.Services.AddSingleton<IDagGroundingPolicy, DefaultDagGroundingPolicy>();
+
+// Vibe: Unified graph access (FR-007/FR-008 tools)
+// IVibeGraphAccess is the primary interface for all agents' graph operations
+builder.Services.AddSingleton<ScientificResearchAssistant.Vibe.Tools.IVibeGraphAccess, ScientificResearchAssistant.Vibe.Tools.VibeGraphAccess>();
 
 // Vibe: Mesh-driven orchestration (Option B; feature-flagged)
 builder.Services.Configure<ScientificResearchAssistant.Api.Vibe.Mesh.MeshOrchestrationOptions>(
@@ -184,6 +188,9 @@ builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.VibeOrchestra
 
 // Vibe: outer loop runner (repeat rounds until goal verifier passes / budgets exhausted)
 builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.VibeGoalLoopRunner>();
+
+// Vibe: milestone-driven loop runner (execute research by iterating through milestones)
+builder.Services.AddSingleton<ScientificResearchAssistant.Api.Vibe.VibeMilestoneLoopRunner>();
 
 var app = builder.Build();
 

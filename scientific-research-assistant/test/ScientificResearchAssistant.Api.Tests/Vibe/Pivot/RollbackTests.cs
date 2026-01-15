@@ -12,6 +12,12 @@ namespace ScientificResearchAssistant.Api.Tests.Vibe.Pivot;
 
 public sealed class RollbackTests
 {
+    private enum KnowledgeNodeKind
+    {
+        Knowledge,
+        Plan
+    }
+
     private readonly IKnowledgeGraphClientFactory _clientFactory;
     private readonly IKnowledgeGraphClient _graphClient;
     private readonly IOptions<PivotOptions> _options;
@@ -41,7 +47,7 @@ public sealed class RollbackTests
             CreateNode("plan1", KnowledgeNodeKind.Plan)
         });
 
-        _graphClient.GetKnowledgeSnapshotAsync(Arg.Any<CancellationToken>()).Returns(snapshot);
+        _graphClient.GetGraphSnapshotAsync(Arg.Any<CancellationToken>()).Returns(snapshot);
 
         var manager = CreateManager();
 
@@ -53,7 +59,7 @@ public sealed class RollbackTests
         metadata.SessionId.ShouldBe("session1");
         metadata.PivotId.ShouldBe("pivot1");
         metadata.DirectionSummary.ShouldBe("研究方向A");
-        metadata.Snapshot.Nodes.Count.ShouldBe(2);
+        metadata.Snapshot.AllNodes.Count().ShouldBe(2);
         metadata.IsValid.ShouldBeTrue();
     }
 
@@ -140,7 +146,7 @@ public sealed class RollbackTests
             CreateNode("knowledge1", KnowledgeNodeKind.Knowledge, PivotNodeStatus.Superseded)
         });
 
-        _graphClient.GetKnowledgeSnapshotAsync(Arg.Any<CancellationToken>())
+        _graphClient.GetGraphSnapshotAsync(Arg.Any<CancellationToken>())
             .Returns(originalSnapshot, currentSnapshot);
 
         _graphClient.UpsertNodeAsync(
@@ -148,7 +154,6 @@ public sealed class RollbackTests
             Arg.Any<KnowledgeNodeType>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
-            Arg.Any<KnowledgeNodeKind?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
@@ -157,13 +162,13 @@ public sealed class RollbackTests
             Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<CancellationToken>())
-            .Returns(CreateNode("updated", KnowledgeNodeKind.Plan, PivotNodeStatus.Active));
+            .Returns(Task.FromResult((KnowledgeNode)CreateNode("updated", KnowledgeNodeKind.Knowledge, PivotNodeStatus.Active)));
 
         var manager = CreateManager();
         await manager.CreateSnapshotAsync("session1", "pivot1", "old direction");
 
         // Update mock to return current state for rollback
-        _graphClient.GetKnowledgeSnapshotAsync(Arg.Any<CancellationToken>())
+        _graphClient.GetGraphSnapshotAsync(Arg.Any<CancellationToken>())
             .Returns(currentSnapshot);
 
         var request = new RollbackRequest
@@ -196,7 +201,7 @@ public sealed class RollbackTests
             CreateNode("new1", KnowledgeNodeKind.Plan, PivotNodeStatus.Active)
         });
 
-        _graphClient.GetKnowledgeSnapshotAsync(Arg.Any<CancellationToken>())
+        _graphClient.GetGraphSnapshotAsync(Arg.Any<CancellationToken>())
             .Returns(originalSnapshot, currentSnapshot);
 
         _graphClient.UpsertNodeAsync(
@@ -204,7 +209,6 @@ public sealed class RollbackTests
             Arg.Any<KnowledgeNodeType>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
-            Arg.Any<KnowledgeNodeKind?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
@@ -213,12 +217,12 @@ public sealed class RollbackTests
             Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<CancellationToken>())
-            .Returns(CreateNode("updated", KnowledgeNodeKind.Knowledge, PivotNodeStatus.Active));
+            .Returns(Task.FromResult((KnowledgeNode)CreateNode("updated", KnowledgeNodeKind.Knowledge, PivotNodeStatus.Active)));
 
         var manager = CreateManager();
         await manager.CreateSnapshotAsync("session1", "pivot1", "old direction");
 
-        _graphClient.GetKnowledgeSnapshotAsync(Arg.Any<CancellationToken>())
+        _graphClient.GetGraphSnapshotAsync(Arg.Any<CancellationToken>())
             .Returns(currentSnapshot);
 
         var request = new RollbackRequest
@@ -252,7 +256,7 @@ public sealed class RollbackTests
             CreateNode("new_plan1", KnowledgeNodeKind.Plan, PivotNodeStatus.Active)
         });
 
-        _graphClient.GetKnowledgeSnapshotAsync(Arg.Any<CancellationToken>())
+        _graphClient.GetGraphSnapshotAsync(Arg.Any<CancellationToken>())
             .Returns(originalSnapshot, currentSnapshot);
 
         _graphClient.UpsertNodeAsync(
@@ -260,7 +264,6 @@ public sealed class RollbackTests
             Arg.Any<KnowledgeNodeType>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
-            Arg.Any<KnowledgeNodeKind?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<string?>(),
@@ -269,12 +272,12 @@ public sealed class RollbackTests
             Arg.Any<string?>(),
             Arg.Any<string?>(),
             Arg.Any<CancellationToken>())
-            .Returns(CreateNode("updated", KnowledgeNodeKind.Knowledge, PivotNodeStatus.Active));
+            .Returns(Task.FromResult((KnowledgeNode)CreateNode("updated", KnowledgeNodeKind.Knowledge, PivotNodeStatus.Active)));
 
         var manager = CreateManager();
         await manager.CreateSnapshotAsync("session1", "pivot1", "old direction");
 
-        _graphClient.GetKnowledgeSnapshotAsync(Arg.Any<CancellationToken>())
+        _graphClient.GetGraphSnapshotAsync(Arg.Any<CancellationToken>())
             .Returns(currentSnapshot);
 
         var request = new RollbackRequest
@@ -352,7 +355,7 @@ public sealed class RollbackTests
         await manager.CreateSnapshotAsync("session1", "pivot1", "direction1");
         await manager.CreateSnapshotAsync("session1", "pivot2", "direction2");
 
-        _graphClient.GetKnowledgeSnapshotAsync(Arg.Any<CancellationToken>())
+        _graphClient.GetGraphSnapshotAsync(Arg.Any<CancellationToken>())
             .Returns(CreateSnapshot(Array.Empty<KnowledgeNode>()));
 
         var request = new RollbackRequest
@@ -398,12 +401,12 @@ public sealed class RollbackTests
     }
 
     [Fact]
-    public void RemoveSnapshot_RemovesSpecificSnapshot()
+    public async Task RemoveSnapshot_RemovesSpecificSnapshot()
     {
         // Arrange
         SetupEmptySnapshot();
         var manager = CreateManager();
-        manager.CreateSnapshotAsync("session1", "pivot1", "direction").Wait();
+        await manager.CreateSnapshotAsync("session1", "pivot1", "direction");
 
         // Act
         manager.RemoveSnapshot("session1", "pivot1");
@@ -459,36 +462,49 @@ public sealed class RollbackTests
 
     private void SetupEmptySnapshot()
     {
-        _graphClient.GetKnowledgeSnapshotAsync(Arg.Any<CancellationToken>())
-            .Returns(new KnowledgeSnapshot
+        _graphClient.GetGraphSnapshotAsync(Arg.Any<CancellationToken>())
+            .Returns(new GraphSnapshot
             {
                 SessionId = "session1",
-                Nodes = new List<KnowledgeNode>(),
+                PlanNodes = new List<PlanNode>(),
+                KnowledgeNodes = new List<KnowledgeNode>(),
                 Edges = new List<KnowledgeEdge>()
             });
     }
 
-    private static KnowledgeSnapshot CreateSnapshot(KnowledgeNode[] nodes)
+    private static GraphSnapshot CreateSnapshot(IGraphNode[] nodes)
     {
-        return new KnowledgeSnapshot
+        return new GraphSnapshot
         {
             SessionId = "session1",
-            Nodes = nodes.ToList(),
+            PlanNodes = nodes.OfType<PlanNode>().ToList(),
+            KnowledgeNodes = nodes.OfType<KnowledgeNode>().ToList(),
             Edges = new List<KnowledgeEdge>()
         };
     }
 
-    private static KnowledgeNode CreateNode(
+    private static IGraphNode CreateNode(
         string id,
         KnowledgeNodeKind kind,
         PivotNodeStatus pivotStatus = PivotNodeStatus.Active)
     {
+        if (kind == KnowledgeNodeKind.Plan)
+        {
+            return new PlanNode
+            {
+                Id = id,
+                SessionId = "session1",
+                CoreDescription = $"Node {id}",
+                DetailedDescription = $"Detailed {id}",
+                PivotStatus = pivotStatus,
+                Status = PlanNodeStatus.Pending
+            };
+        }
         return new KnowledgeNode
         {
             Id = id,
             SessionId = "session1",
             NodeType = KnowledgeNodeType.Generic,
-            Kind = kind,
             CoreDescription = $"Node {id}",
             DetailedDescription = $"Detailed {id}",
             PivotStatus = pivotStatus

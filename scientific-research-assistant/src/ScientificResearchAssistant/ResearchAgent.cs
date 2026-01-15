@@ -9,11 +9,11 @@ namespace ScientificResearchAssistant;
 
 public class ResearchAgent : AIGAgentBase
 {
-    private readonly IVibeDagPlanAccess? _plans;
+    private readonly IVibeGraphAccess? _graphAccess;
 
-    public ResearchAgent(IVibeDagPlanAccess? plans = null)
+    public ResearchAgent(IVibeGraphAccess? graphAccess = null)
     {
-        _plans = plans;
+        _graphAccess = graphAccess;
 
         // Default: keep chat stateful + compacted (bounded) so AG-UI can build snapshots on reconnect.
         EnableChatHistoryInState = true;
@@ -40,7 +40,7 @@ public class ResearchAgent : AIGAgentBase
             "- Never fabricate tool results. Prefer executable verification when possible.\n" +
             "\n" +
             "Planning:\n" +
-            "- If the user asks to change/adjust the research plan (milestones), you MAY call dag_plan_set_milestones to update DAG plan nodes.\n" +
+            "- If the user asks to change/adjust the research plan, you MAY call create_plan to create Plan nodes in the knowledge graph.\n" +
             "- If the user intent is ambiguous, ask a clarification question instead of writing.";
     }
 
@@ -57,12 +57,14 @@ public class ResearchAgent : AIGAgentBase
         // Keep framework built-ins (state query / event publisher / memory / skills tools, etc.)
         await base.RegisterToolsAsync(cancellationToken);
 
-        // Optional: plan editing tool (writes milestone plan nodes).
-        if (_plans != null)
+        // Optional: plan editing tools (writes Plan nodes to KnowledgeGraph).
+        if (_graphAccess != null)
         {
-            await RegisterToolAsync(new DagPlanSetMilestonesTool(_plans), cancellationToken: cancellationToken);
+            await RegisterToolAsync(new CreatePlanTool(_graphAccess), cancellationToken: cancellationToken);
+            await RegisterToolAsync(new UpdatePlanStatusTool(_graphAccess), cancellationToken: cancellationToken);
+            await RegisterToolAsync(new GetPlanTool(_graphAccess), cancellationToken: cancellationToken);
         }
-        
+
         // Log available tools
         var tools = await GetRegisteredToolsAsync();
         Logger.LogInformation("📚 Available Tools: {Count}", tools.Count);

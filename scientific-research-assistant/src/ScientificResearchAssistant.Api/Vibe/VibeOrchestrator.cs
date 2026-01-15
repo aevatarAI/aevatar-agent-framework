@@ -7,6 +7,7 @@ using Google.Protobuf.Collections;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
+using ScientificResearchAssistant.Api;
 using ScientificResearchAssistant.Api.Materials;
 using ScientificResearchAssistant.Api.Paper;
 using ScientificResearchAssistant.Api.Sessions;
@@ -43,6 +44,8 @@ internal sealed partial class VibeOrchestrator
     private readonly VibeMesh _mesh;
     private readonly VibeHost _host;
 
+    internal ResearchRuntime Runtime => _core.Runtime;
+
     public VibeOrchestrator(VibeCore core, VibePivot pivot, VibeMesh mesh, VibeHost host)
     {
         _core = core ?? throw new ArgumentNullException(nameof(core));
@@ -66,10 +69,18 @@ internal sealed partial class VibeOrchestrator
         ArgumentNullException.ThrowIfNull(materials);
         emitAssistantDelta ??= _ => { };
 
+        var ctx = new VibeRoundContext(
+            session,
+            runId,
+            input,
+            question,
+            materials,
+            emitAssistantDelta);
+
         // ------------------------------------------------------------
         // Shared DAG binding (cross-session)
         // ------------------------------------------------------------
-        var dagId = string.IsNullOrWhiteSpace(session.DagId) ? session.Id : session.DagId.Trim();
+        var dagId = session.EffectiveDagId;
 
         // Load File-SSoT context (best-effort).
         var dagSnap = await _core.Dag.LoadSnapshotAsync(dagId, ct);
@@ -83,7 +94,7 @@ internal sealed partial class VibeOrchestrator
         // - 检测是非阻塞的，不会延迟响应
         // - 如果检测到高置信度的方向变更，会在后续阶段触发 pivot 工作流
         // ------------------------------------------------------------
-        await RunPivotDetectionAsync(session, runId, question, emitAssistantDelta, ct);
+        await RunPivotDetectionAsync(ctx, ct);
 
         // ------------------------------------------------------------
         // Per-agent LLM provider mapping (File-SSoT)
@@ -172,75 +183,65 @@ internal sealed partial class VibeOrchestrator
             if (brief == null)
                 return;
 
-                    // First brief for a session: start at version=1.
-                    brief.Version = 1;
+            // First brief for a session: start at version=1.
+            brief.Version = 1;
             var saved = await _core.Brief.SaveAsync(session.Id, brief, innerCt);
 
-                    // UI: notify brief updated (best-effort)
+            // UI: notify brief updated (best-effort)
+            session.Events.Publish(new CustomEvent
+            {
+                Timestamp = NowMs(),
+                Name = "aevatar.vibe.brief_updated",
+                Value = new { sessionId = session.Id, version = saved.Version }
+            });
+
+            // Also surface a human-friendly excerpt into the chat stream.
+            EmitSection(ctx.EmitAssistantDelta, "### Research Brief (1 page)\n");
+            ctx.EmitAssistantDelta(RenderBriefMarkdown(saved));
+            ctx.EmitAssistantDelta("\n\n");
+
+            // ------------------------------------------------------------
+            // Persist brief milestones into DAG (as multiple "plan" nodes)
+            //
+            // 中文说明：
+            // - 以前 goals 是一次产出多个条目；现在用 brief.milestones 作为“多条 plan”
+            // - 这些 plan 节点用于全局 roadmap（并不会污染 knowledge grounding）
+            // ------------------------------------------------------------
+            try
+            {
+                        var mm = BuildMilestonesPlanDagMutation(session.Id, runId, question, saved);
+                if (mm != null)
+                {
+                    dagSnap = await _core.Dag.ApplyMutationAsync(dagId, mm, innerCt);
                     session.Events.Publish(new CustomEvent
                     {
                         Timestamp = NowMs(),
-                        Name = "aevatar.vibe.brief_updated",
-                        Value = new { sessionId = session.Id, version = saved.Version }
+                        Name = "aevatar.vibe.milestones_plan_dag_written",
+                        Value = new { sessionId = session.Id, dagId, runId, mutationId = mm.MutationId, milestones = saved.Milestones.Count }
                     });
-
-                    // Also surface a human-friendly excerpt into the chat stream.
-                    EmitSection(emitAssistantDelta, "### Research Brief (1 page)\n");
-                    emitAssistantDelta(RenderBriefMarkdown(saved));
-                    emitAssistantDelta("\n\n");
-
-                    // ------------------------------------------------------------
-                    // Persist brief milestones into DAG (as multiple "plan" nodes)
-                    //
-                    // 中文说明：
-                    // - 以前 goals 是一次产出多个条目；现在用 brief.milestones 作为“多条 plan”
-                    // - 这些 plan 节点用于全局 roadmap（并不会污染 knowledge grounding）
-                    // ------------------------------------------------------------
-                    try
-                    {
-                        var mm = BuildMilestonesPlanDagMutation(session.Id, runId, question, saved);
-                        if (mm != null)
-                        {
-                    dagSnap = await _core.Dag.ApplyMutationAsync(dagId, mm, innerCt);
-                            session.Events.Publish(new CustomEvent
-                            {
-                                Timestamp = NowMs(),
-                                Name = "aevatar.vibe.milestones_plan_dag_written",
-                                Value = new { sessionId = session.Id, dagId, runId, mutationId = mm.MutationId, milestones = saved.Milestones.Count }
-                            });
-                        }
-                    }
-                    catch
-                    {
-                        // best-effort only
-                    }
+                }
+            }
+            catch
+            {
+                // best-effort only
+            }
         }, ct);
 
         var (plan, dagAfterPlan) = await RunPlanPhaseAsync(
-                                    session,
+            ctx,
             dagId,
-                                    runId,
-            input,
-            question,
-            materials,
             dagSnap,
             recentTrace,
             raProvider,
-            emitAssistantDelta,
             ct);
         dagSnap = dagAfterPlan;
 
         var (outputs, _) = await RunWorkerPhaseAsync(
-                                session,
+            ctx,
             dagId,
-            runId,
-                                input,
-            question,
-                                materials,
-                                dagSnap,
+            dagSnap,
             plan,
             ResolveProvider,
-            emitAssistantDelta,
             librarianAxioms,
             factsWritten,
             ct);
@@ -275,36 +276,32 @@ internal sealed partial class VibeOrchestrator
                 return;
 
             var paperEditorProvider = await EnsureProviderRunnableOrPauseAsync(
-                    session,
-                    runId,
-                    agent: "paper_editor",
-                    stepName: "vibe.paper_editor",
-                    resolveProvider: () => ResolveProvider("paper_editor"),
-                    emitAssistantDelta: emitAssistantDelta,
+                session,
+                runId,
+                agent: "paper_editor",
+                stepName: "vibe.paper_editor",
+                resolveProvider: () => ResolveProvider("paper_editor"),
+                emitAssistantDelta: ctx.EmitAssistantDelta,
                 ct: innerCt);
 
-                var paperEditorOut = await RunPaperEditorAsync(
-                    session,
-                    runId,
-                    input,
-                    question,
-                    materials,
-                    dagResult,
-                    outputs,
-                    paperEditorProvider,
+            var paperEditorOut = await RunPaperEditorAsync(
+                ctx,
+                dagResult,
+                outputs,
+                paperEditorProvider,
                 innerCt);
 
-                outputs["paper_editor"] = paperEditorOut;
+            outputs["paper_editor"] = paperEditorOut;
 
             var deliveryUpdate = await TryApplyPaperEditorOutputAsync(session, runId, paperEditorOut, innerCt);
             if (deliveryUpdate == null)
                 return;
 
-                    EmitSection(emitAssistantDelta, "### Delivery Center Updated\n");
-                    emitAssistantDelta($"- paperPatchesApplied={deliveryUpdate.PatchesApplied}, listsWritten={deliveryUpdate.ListsWritten}\n");
-                    if (!string.IsNullOrWhiteSpace(deliveryUpdate.ChangedSummary))
-                        emitAssistantDelta($"- summary: {Bound(deliveryUpdate.ChangedSummary!, 500)}\n");
-                    emitAssistantDelta("\n");
+            EmitSection(ctx.EmitAssistantDelta, "### Delivery Center Updated\n");
+            ctx.EmitAssistantDelta($"- paperPatchesApplied={deliveryUpdate.PatchesApplied}, listsWritten={deliveryUpdate.ListsWritten}\n");
+            if (!string.IsNullOrWhiteSpace(deliveryUpdate.ChangedSummary))
+                ctx.EmitAssistantDelta($"- summary: {Bound(deliveryUpdate.ChangedSummary!, 500)}\n");
+            ctx.EmitAssistantDelta("\n");
         }, ct);
 
         // ------------------------------------------------------------
@@ -319,8 +316,8 @@ internal sealed partial class VibeOrchestrator
         var summaryMd = await TryGetSummaryAsync(session.Id, input, question, dagResult, outputs, factsWritten, raProvider, ct);
         if (!string.IsNullOrWhiteSpace(summaryMd))
         {
-            EmitSection(emitAssistantDelta, "### Round Summary\n");
-            emitAssistantDelta(summaryMd!.Trim() + "\n\n");
+            EmitSection(ctx.EmitAssistantDelta, "### Round Summary\n");
+            ctx.EmitAssistantDelta(summaryMd!.Trim() + "\n\n");
         }
 
         await PersistTraceAsync(session, runId, input, question, outputs, dagResult, summaryMd, ct);

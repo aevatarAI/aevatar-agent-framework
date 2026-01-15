@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="Aevatar.Platform.Core\Aevatar.Platform.Core.csproj" />
+    <Project Path="Aevatar.Platform.Cli\Aevatar.Platform.Cli.csproj" />
+  </Folder>
+</Solution>
+
+

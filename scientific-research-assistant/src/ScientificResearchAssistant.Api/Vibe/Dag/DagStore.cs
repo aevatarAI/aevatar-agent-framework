@@ -7,6 +7,7 @@ using Google.Protobuf;
 using Google.Protobuf.Collections;
 using Google.Protobuf.Reflection;
 using Google.Protobuf.WellKnownTypes;
+using ScientificResearchAssistant.Api.Sessions;
 using ScientificResearchAssistant.Api.Workspace;
 using ScientificResearchAssistant.Contracts.Collab;
 
@@ -115,11 +116,19 @@ public sealed class DagStore
         try
         {
             await EnsureHydratedAsync(ws, ct);
-            var client = _graphFactory.CreateClient(ws.DagId);
+
+            // Use the actual session ID from mutation for writing nodes (preserves cross-session identity).
+            // For global DAG, dagId="global" but mutation.SessionId contains the real session ID.
+            var writeSessionId = string.IsNullOrWhiteSpace(mutation.SessionId) ? ws.DagId : mutation.SessionId;
+            var client = _graphFactory.CreateClient(writeSessionId);
             var localOwner = TryGetLocalDagOwnerPubKey();
 
             // ============================================================
             //  1) Upsert nodes (best-effort; never fail the whole run)
+            //
+            //  Note: Kind field determines whether to create PlanNode or KnowledgeNode.
+            //        PlanNode = milestone/research plan step
+            //        KnowledgeNode = knowledge/fact/theorem (default)
             // ============================================================
             foreach (var n in mutation.UpsertNodes)
             {
@@ -135,16 +144,37 @@ public sealed class DagStore
 
                 try
                 {
-                    await client.UpsertNodeAsync(
-                        nodeId: id,
-                        nodeType: MapDagNodeType(n.Type),
-                        kind: MapDagNodeKind(n.Kind),
-                        owner: string.IsNullOrWhiteSpace(n.Owner) ? localOwner : n.Owner.Trim(),
-                        coreDescription: label,
-                        detailedDescription: detail,
-                        proof: string.IsNullOrWhiteSpace(proof) ? null : proof,
-                        resourceFolderPath: null,
-                        cancellationToken: ct);
+                    if (n.Kind == SraDagNodeKind.Plan)
+                    {
+                        // PlanNode: check if exists first (CreatePlanNodeAsync throws on duplicate)
+                        var existing = await client.GetNodeAsync(id, ct);
+                        if (existing == null)
+                        {
+                            await client.CreatePlanNodeAsync(
+                                nodeId: id,
+                                coreDescription: string.IsNullOrWhiteSpace(label) ? id : label,
+                                detailedDescription: string.IsNullOrWhiteSpace(detail) ? id : detail,
+                                methodology: string.IsNullOrWhiteSpace(proof) ? null : proof,
+                                cancellationToken: ct);
+                        }
+                        else
+                        {
+                            _logger.LogDebug("PlanNode {NodeId} already exists, skipping upsert.", id);
+                        }
+                    }
+                    else
+                    {
+                        // KnowledgeNode (default): use UpsertNodeAsync
+                        await client.UpsertNodeAsync(
+                            nodeId: id,
+                            nodeType: MapDagNodeType(n.Type),
+                            owner: string.IsNullOrWhiteSpace(n.Owner) ? localOwner : n.Owner.Trim(),
+                            coreDescription: label,
+                            detailedDescription: detail,
+                            proof: string.IsNullOrWhiteSpace(proof) ? null : proof,
+                            resourceFolderPath: null,
+                            cancellationToken: ct);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -177,16 +207,28 @@ public sealed class DagStore
                     var existing = await client.GetNodeAsync(id, ct);
                     if (existing != null) continue;
 
-                    await client.UpsertNodeAsync(
-                        nodeId: id,
-                        nodeType: KnowledgeNodeType.Generic,
-                        kind: KnowledgeNodeKind.Knowledge,
-                        owner: localOwner,
-                        coreDescription: id,
-                        detailedDescription: id,
-                        proof: null,
-                        resourceFolderPath: null,
-                        cancellationToken: ct);
+                    // For plan nodes, create as PlanNode; for others, create as KnowledgeNode
+                    if (id.StartsWith("plan_", StringComparison.OrdinalIgnoreCase))
+                    {
+                        await client.CreatePlanNodeAsync(
+                            nodeId: id,
+                            coreDescription: id,
+                            detailedDescription: $"Placeholder for plan node: {id}",
+                            methodology: null,
+                            cancellationToken: ct);
+                    }
+                    else
+                    {
+                        await client.UpsertNodeAsync(
+                            nodeId: id,
+                            nodeType: KnowledgeNodeType.Generic,
+                            owner: localOwner,
+                            coreDescription: id,
+                            detailedDescription: id,
+                            proof: null,
+                            resourceFolderPath: null,
+                            cancellationToken: ct);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -300,9 +342,51 @@ public sealed class DagStore
         }).ToList();
     }
 
-    public async Task<object> GetSnapshotForListAsync(string dagId, CancellationToken ct)
+    public async Task<object> GetSnapshotForListAsync(string dagId, CancellationToken ct, string? currentSessionId = null)
     {
         var snap = await LoadSnapshotAsync(dagId, ct);
+
+        // For global DAG, also include current session's PlanNodes
+        if (dagId == ResearchSession.GlobalDagId && !string.IsNullOrWhiteSpace(currentSessionId))
+        {
+            try
+            {
+                var sessionClient = _graphFactory.CreateClient(currentSessionId);
+                var sessionGraph = await sessionClient.GetGraphSnapshotAsync(ct);
+                var planNodes = sessionGraph.PlanNodes;
+
+                if (planNodes.Count > 0)
+                {
+                    var now = Timestamp.FromDateTime(DateTime.UtcNow);
+                    foreach (var pn in planNodes)
+                    {
+                        if (pn == null) continue;
+                        var id = (pn.Id ?? string.Empty).Trim();
+                        if (id.Length == 0) continue;
+
+                        var label = Bound((pn.CoreDescription ?? string.Empty).Trim(), 200);
+                        var proof = Bound((pn.DetailedDescription ?? "").Trim(), 1200);
+                        var ts = pn.UpdatedAt;
+
+                        snap.Nodes.Add(new SraDagNode
+                        {
+                            Id = id,
+                            Type = SraDagNodeType.Assumption,
+                            Kind = SraDagNodeKind.Plan,
+                            Owner = pn.Owner ?? "",
+                            Label = label,
+                            Proof = proof,
+                            SessionId = currentSessionId,
+                            UpdatedAt = Timestamp.FromDateTime(DateTime.SpecifyKind(ts.UtcDateTime, DateTimeKind.Utc))
+                        });
+                    }
+                }
+            }
+            catch
+            {
+                // best-effort: session plan nodes are optional enhancement
+            }
+        }
 
         var nodes = snap.Nodes.Take(MaxNodesForList).Select(n => new
         {
@@ -317,7 +401,8 @@ public sealed class DagStore
                 .Take(20)
                 .Select(a => new { pubkey = a.Pubkey ?? "", signature = a.Signature ?? "" })
                 .ToList(),
-            updatedAt = n.UpdatedAt?.ToDateTime().ToUniversalTime().ToString("O") ?? ""
+            updatedAt = n.UpdatedAt?.ToDateTime().ToUniversalTime().ToString("O") ?? "",
+            sessionId = n.SessionId ?? ""  // Source session ID for cross-session rendering
         }).ToList();
 
         var edges = snap.Edges.Take(MaxEdgesForList).Select(e => new
@@ -367,11 +452,23 @@ public sealed class DagStore
 
         try
         {
+            // For global DAG, check if ANY nodes exist across all sessions
             var client = _graphFactory.CreateClient(ws.DagId);
-            var cur = await client.GetKnowledgeSnapshotAsync(ct);
-            if (cur.NodeCount > 0 || cur.EdgeCount > 0)
+            if (ws.DagId == ResearchSession.GlobalDagId)
             {
-                return;
+                var allNodes = await client.GetAllKnowledgeNodesGlobalAsync(ct);
+                if (allNodes.Count > 0)
+                {
+                    return; // Data exists in Neo4j
+                }
+            }
+            else
+            {
+                var cur = await client.GetGraphSnapshotAsync(ct);
+                if (cur.NodeCount > 0 || cur.EdgeCount > 0)
+                {
+                    return;
+                }
             }
 
             var path = GetSnapshotPath(ws.DagId);
@@ -427,7 +524,6 @@ public sealed class DagStore
                 await client.UpsertNodeAsync(
                     nodeId: id,
                     nodeType: MapDagNodeType(n.Type),
-                    kind: MapDagNodeKind(n.Kind),
                     owner: string.IsNullOrWhiteSpace(n.Owner) ? localOwner : n.Owner.Trim(),
                     coreDescription: label,
                     detailedDescription: detail,
@@ -464,7 +560,6 @@ public sealed class DagStore
                 await client.UpsertNodeAsync(
                     nodeId: id,
                     nodeType: KnowledgeNodeType.Generic,
-                    kind: KnowledgeNodeKind.Knowledge,
                     owner: localOwner,
                     coreDescription: id,
                     detailedDescription: id,
@@ -512,71 +607,116 @@ public sealed class DagStore
     {
         ct.ThrowIfCancellationRequested();
         var client = _graphFactory.CreateClient(dagId);
-        var graph = await client.GetKnowledgeSnapshotAsync(ct);
 
-        var nodeList = new List<SraDagNode>(capacity: Math.Max(0, graph.NodeCount));
-        var edgeList = new List<SraDagEdge>(capacity: Math.Max(0, graph.EdgeCount));
+        // For global DAG, get ALL nodes across ALL sessions (preserving original sessionId)
+        // For session-specific DAG, get only nodes for that session
+        IReadOnlyList<IGraphNode> allNodes;
+        IReadOnlyList<KnowledgeEdge> allEdges;
+
+        if (dagId == ResearchSession.GlobalDagId)
+        {
+            var knowledgeNodes = await client.GetAllKnowledgeNodesGlobalAsync(ct);
+            var edgesWithSession = await client.GetAllEdgesGlobalAsync(ct);
+            allNodes = knowledgeNodes.Cast<IGraphNode>().ToList();
+            allEdges = edgesWithSession.Select(e => e.Edge).ToList();
+        }
+        else
+        {
+            var graph = await client.GetGraphSnapshotAsync(ct);
+            allNodes = graph.AllNodes.ToList();
+            allEdges = graph.Edges.Cast<KnowledgeEdge>().ToList();
+        }
+
+        var nodeList = new List<SraDagNode>(capacity: Math.Max(0, allNodes.Count));
+        var edgeList = new List<SraDagEdge>(capacity: Math.Max(0, allEdges.Count));
 
         var any = false;
         var maxTs = DateTimeOffset.MinValue;
 
-        foreach (var n in graph.Nodes)
+        foreach (var n in allNodes)
         {
             ct.ThrowIfCancellationRequested();
             if (n == null) continue;
             var id = (n.Id ?? string.Empty).Trim();
             if (id.Length == 0) continue;
 
-            var ts = n.Timestamp;
-            any = true;
-            if (ts > maxTs) maxTs = ts;
-
             var label = Bound((n.CoreDescription ?? string.Empty).Trim(), 200);
-            var proof = string.IsNullOrWhiteSpace(n.Proof) ? (n.DetailedDescription ?? "") : n.Proof!;
-            proof = Bound(proof.Trim(), 1200);
 
-            nodeList.Add(new SraDagNode
+            if (n is KnowledgeNode kn)
             {
-                Id = id,
-                Type = MapKnowledgeNodeType(n.NodeType),
-                Kind = MapKnowledgeNodeKind(n.Kind),
-                Owner = n.Owner ?? "",
-                Label = label,
-                Proof = proof,
-                UpdatedAt = Timestamp.FromDateTime(DateTime.SpecifyKind(ts.UtcDateTime, DateTimeKind.Utc))
-            });
+                var ts = kn.CreatedAt;
+                any = true;
+                if (ts > maxTs) maxTs = ts;
 
-            // Map verifier attestations (best-effort; keep bounded + deterministic order for stable diffs).
-            try
-            {
-                var atts = (n.Attestations ?? Array.Empty<KnowledgeAttestation>())
-                    .Where(a => a != null)
-                    .Select(a => new
-                    {
-                        pub = (a.PubKey ?? string.Empty).Trim(),
-                        sig = (a.Signature ?? string.Empty).Trim()
-                    })
-                    .Where(x => x.pub.Length > 0 && x.sig.Length > 0)
-                    .OrderBy(x => x.pub, StringComparer.Ordinal)
-                    .Take(50)
-                    .ToList();
+                var proof = string.IsNullOrWhiteSpace(kn.Proof) ? (kn.DetailedDescription ?? "") : kn.Proof!;
+                proof = Bound(proof.Trim(), 1200);
 
-                foreach (var a in atts)
+                nodeList.Add(new SraDagNode
                 {
-                    nodeList[^1].Attestations.Add(new SraDagAttestation
+                    Id = id,
+                    Type = MapKnowledgeNodeType(kn.NodeType),
+                    Kind = SraDagNodeKind.Knowledge,
+                    Owner = kn.Owner ?? "",
+                    Label = label,
+                    Proof = proof,
+                    SessionId = kn.SessionId ?? "",
+                    UpdatedAt = Timestamp.FromDateTime(DateTime.SpecifyKind(ts.UtcDateTime, DateTimeKind.Utc))
+                });
+
+                // Map verifier attestations (best-effort; keep bounded + deterministic order for stable diffs).
+                try
+                {
+                    var atts = (kn.Attestations ?? Array.Empty<KnowledgeAttestation>())
+                        .Where(a => a != null)
+                        .Select(a => new
+                        {
+                            pub = (a.PubKey ?? string.Empty).Trim(),
+                            sig = (a.Signature ?? string.Empty).Trim()
+                        })
+                        .Where(x => x.pub.Length > 0 && x.sig.Length > 0)
+                        .OrderBy(x => x.pub, StringComparer.Ordinal)
+                        .Take(50)
+                        .ToList();
+
+                    foreach (var a in atts)
                     {
-                        Pubkey = a.pub,
-                        Signature = a.sig
-                    });
+                        nodeList[^1].Attestations.Add(new SraDagAttestation
+                        {
+                            Pubkey = a.pub,
+                            Signature = a.sig
+                        });
+                    }
+                }
+                catch
+                {
+                    // best-effort only
                 }
             }
-            catch
+            else if (n is PlanNode pn)
             {
-                // best-effort only
+                var ts = pn.UpdatedAt;
+                any = true;
+                if (ts > maxTs) maxTs = ts;
+
+                // For plan nodes, use DetailedDescription as the proof/content
+                var proof = Bound((pn.DetailedDescription ?? "").Trim(), 1200);
+
+                nodeList.Add(new SraDagNode
+                {
+                    Id = id,
+                    Type = SraDagNodeType.Assumption, // Plan nodes are treated as assumptions
+                    Kind = SraDagNodeKind.Plan,
+                    Owner = pn.Owner ?? "",
+                    Label = label,
+                    Proof = proof,
+                    SessionId = pn.SessionId ?? "",
+                    UpdatedAt = Timestamp.FromDateTime(DateTime.SpecifyKind(ts.UtcDateTime, DateTimeKind.Utc))
+                });
+                // PlanNodes don't have attestations
             }
         }
 
-        foreach (var e in graph.Edges)
+        foreach (var e in allEdges)
         {
             ct.ThrowIfCancellationRequested();
             if (e == null) continue;
@@ -631,13 +771,6 @@ public sealed class DagStore
             _ => KnowledgeNodeType.Generic
         };
 
-    private static KnowledgeNodeKind MapDagNodeKind(SraDagNodeKind k) =>
-        k switch
-        {
-            SraDagNodeKind.Plan => KnowledgeNodeKind.Plan,
-            _ => KnowledgeNodeKind.Knowledge
-        };
-
     private static SraDagNodeType MapKnowledgeNodeType(KnowledgeNodeType t) =>
         t switch
         {
@@ -666,13 +799,6 @@ public sealed class DagStore
                 or KnowledgeNodeType.CsDataStructure
                 or KnowledgeNodeType.CsDesignPattern => SraDagNodeType.Theorem,
             _ => SraDagNodeType.Unknown
-        };
-
-    private static SraDagNodeKind MapKnowledgeNodeKind(KnowledgeNodeKind k) =>
-        k switch
-        {
-            KnowledgeNodeKind.Plan => SraDagNodeKind.Plan,
-            _ => SraDagNodeKind.Knowledge
         };
 
     private static string AppendTags(string baseText, MapField<string, string> tags)

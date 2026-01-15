@@ -118,6 +118,12 @@
 - **进度（2026-01-14）**：
   - `TryReadNextStreamingTokenAsync` 改为返回 `AevatarLLMToken?`，用 `null` 表示结束，消除 `default!` 哨兵。
 
+#### I) AgentYamlConfigApplier 对 Config 的修改缺少 modifiable scope
+
+- **现象**：`AgentYamlConfigApplier` 直接改 `Config`，在非初始化/事件上下文下可能触发 StateProtection 异常。
+- **进度（2026-01-14）**：
+  - 统一使用 `StateProtectionContext.BeginInitializationScope()`（仅在必要时开启）包裹 Apply 路径，避免非法修改抛错。
+
 ### P2（低风险但影响可读性/一致性）
 
 #### D) 命名/注释一致性问题

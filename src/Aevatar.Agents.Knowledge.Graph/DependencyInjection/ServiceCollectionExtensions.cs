@@ -1,3 +1,4 @@
+using Aevatar.Agents.Knowledge.Graph.Services;
 using Aevatar.Agents.Knowledge.Graph.Storage;
 using Aevatar.Agents.Knowledge.Graph.Store;
 using Microsoft.Extensions.DependencyInjection;
@@ -48,6 +49,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IFileStorage, NullFileStorage>();
         services.TryAddSingleton<IKnowledgeGraphStore, GraphClientBackedStore>();
         services.TryAddSingleton<IKnowledgeGraphClientFactory, KnowledgeGraphClientFactory>();
+        services.TryAddSingleton<IGlobalKnowledgeIndex, GlobalKnowledgeIndex>();
         return services;
     }
 
@@ -94,6 +96,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IFileStorage, S3FileStorage>();
         services.TryAddSingleton<IKnowledgeGraphStore, GraphClientBackedStore>();
         services.TryAddSingleton<IKnowledgeGraphClientFactory, KnowledgeGraphClientFactory>();
+        services.TryAddSingleton<IGlobalKnowledgeIndex, GlobalKnowledgeIndex>();
         return services;
     }
 }

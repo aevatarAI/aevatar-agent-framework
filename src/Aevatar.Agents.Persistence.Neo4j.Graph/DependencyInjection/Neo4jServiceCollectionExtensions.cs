@@ -14,6 +14,25 @@ namespace Aevatar.Agents.Persistence.Neo4j.Graph.DependencyInjection;
 public static class Neo4jServiceCollectionExtensions
 {
     /// <summary>
+    /// 从环境变量读取配置并注册 Neo4j Graph（推荐用于生产环境）。
+    /// <para>支持的环境变量：NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, NEO4J_DATABASE</para>
+    /// </summary>
+    public static IServiceCollection AddAevatarGraphNeo4j(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        // Base Neo4j infra (driver/session/client) - reads from env vars
+        services.AddAevatarNeo4j();
+
+        // Graph provider (compiler/executor/client facade)
+        services.TryAddSingleton<IGraphCompiler<CypherCommand>, CypherCompiler>();
+        services.TryAddSingleton<IGraphExecutor<CypherCommand>, Neo4jExecutor>();
+        services.TryAddSingleton<IGraphClient, GraphClient<CypherCommand>>();
+
+        return services;
+    }
+
+    /// <summary>
     /// 使用字符串参数注册 Neo4j（便捷重载）。
     /// </summary>
     /// <param name="services">DI 容器，必非 null。</param>

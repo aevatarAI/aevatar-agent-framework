@@ -135,6 +135,20 @@ internal sealed partial class VibeOrchestrator
             if (m.UpsertNodes.Count >= 12) break;
         }
 
+        // Create edges to connect milestones in sequential order
+        // DAG semantics: fromId (dependency) -> toId (dependent)
+        var nodeIds = m.UpsertNodes.Select(n => n.Id).ToList();
+        for (var j = 0; j < nodeIds.Count - 1; j++)
+        {
+            m.UpsertEdges.Add(new SraDagEdge
+            {
+                FromId = nodeIds[j],
+                ToId = nodeIds[j + 1],
+                Type = "depends_on",
+                UpdatedAt = now
+            });
+        }
+
         return m.UpsertNodes.Count == 0 ? null : m;
     }
 

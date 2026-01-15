@@ -253,6 +253,14 @@ enum SraDagNodeKind {
   SRA_DAG_NODE_KIND_PLAN = 1;
 }
 
+// Plan node execution status (only relevant for plan nodes)
+enum SraDagPlanStatus {
+  SRA_DAG_PLAN_STATUS_UNSPECIFIED = 0;
+  SRA_DAG_PLAN_STATUS_PENDING = 1;
+  SRA_DAG_PLAN_STATUS_ACTIVE = 2;
+  SRA_DAG_PLAN_STATUS_COMPLETED = 3;
+}
+
 message SraDagAttestation {
   string pubkey = 1;                  // recommended: hex/base64
   string signature = 2;               // recommended: base64
@@ -268,6 +276,7 @@ message SraDagNode {
   string owner = 7;                   // optional: owner public key (hex/base64)
   repeated SraDagAttestation attestations = 8; // verifier signatures / confirmations
   string session_id = 9;              // source session ID (for cross-session rendering)
+  SraDagPlanStatus plan_status = 10;  // execution status for plan nodes (pending/active/completed)
   map<string, string> tags = 100;     // optional lightweight labels
 }
 

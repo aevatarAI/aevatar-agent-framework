@@ -144,7 +144,12 @@ public sealed class DagStore
 
                 try
                 {
-                    if (n.Kind == SraDagNodeKind.Plan)
+                    // SECURITY: Only allow Plan node creation from milestone mutations (brief generation).
+                    // Other sources (e.g., dag_builder) should only create Knowledge nodes.
+                    var isMilestoneMutation = mutation.Labels.TryGetValue("planKind", out var planKind) &&
+                                              string.Equals(planKind, "milestone", StringComparison.OrdinalIgnoreCase);
+
+                    if (n.Kind == SraDagNodeKind.Plan && isMilestoneMutation)
                     {
                         // PlanNode: check if exists first (CreatePlanNodeAsync throws on duplicate)
                         var existing = await client.GetNodeAsync(id, ct);
@@ -161,6 +166,11 @@ public sealed class DagStore
                         {
                             _logger.LogDebug("PlanNode {NodeId} already exists, skipping upsert.", id);
                         }
+                    }
+                    else if (n.Kind == SraDagNodeKind.Plan)
+                    {
+                        // Reject Plan node creation from non-milestone sources
+                        _logger.LogWarning("Rejected Plan node creation for {NodeId} - only milestone mutations can create Plan nodes.", id);
                     }
                     else
                     {
@@ -207,15 +217,12 @@ public sealed class DagStore
                     var existing = await client.GetNodeAsync(id, ct);
                     if (existing != null) continue;
 
-                    // For plan nodes, create as PlanNode; for others, create as KnowledgeNode
+                    // For plan nodes: DO NOT create placeholders - plan nodes should only be created during brief generation.
+                    // If a referenced plan node doesn't exist, skip it (the edge will be orphaned but that's better than creating unwanted plan nodes).
                     if (id.StartsWith("plan_", StringComparison.OrdinalIgnoreCase))
                     {
-                        await client.CreatePlanNodeAsync(
-                            nodeId: id,
-                            coreDescription: id,
-                            detailedDescription: $"Placeholder for plan node: {id}",
-                            methodology: null,
-                            cancellationToken: ct);
+                        _logger.LogDebug("Skipping placeholder creation for missing plan node {NodeId} - plan nodes should only exist from brief generation.", id);
+                        continue;
                     }
                     else
                     {
@@ -377,6 +384,7 @@ public sealed class DagStore
                             Label = label,
                             Proof = proof,
                             SessionId = currentSessionId,
+                            PlanStatus = MapPlanNodeStatus(pn.Status),  // Include plan status for frontend
                             UpdatedAt = Timestamp.FromDateTime(DateTime.SpecifyKind(ts.UtcDateTime, DateTimeKind.Utc))
                         });
                     }
@@ -402,7 +410,9 @@ public sealed class DagStore
                 .Select(a => new { pubkey = a.Pubkey ?? "", signature = a.Signature ?? "" })
                 .ToList(),
             updatedAt = n.UpdatedAt?.ToDateTime().ToUniversalTime().ToString("O") ?? "",
-            sessionId = n.SessionId ?? ""  // Source session ID for cross-session rendering
+            sessionId = n.SessionId ?? "",  // Source session ID for cross-session rendering
+            // Plan status for frontend to show Active milestone as orange
+            planStatus = n.Kind == SraDagNodeKind.Plan ? n.PlanStatus.ToString() : null
         }).ToList();
 
         var edges = snap.Edges.Take(MaxEdgesForList).Select(e => new
@@ -710,6 +720,7 @@ public sealed class DagStore
                     Label = label,
                     Proof = proof,
                     SessionId = pn.SessionId ?? "",
+                    PlanStatus = MapPlanNodeStatus(pn.Status),  // Expose plan status to frontend
                     UpdatedAt = Timestamp.FromDateTime(DateTime.SpecifyKind(ts.UtcDateTime, DateTimeKind.Utc))
                 });
                 // PlanNodes don't have attestations
@@ -769,6 +780,15 @@ public sealed class DagStore
             SraDagNodeType.Hypothesis => KnowledgeNodeType.ResearchHypothesis,
             SraDagNodeType.Assumption => KnowledgeNodeType.Note,
             _ => KnowledgeNodeType.Generic
+        };
+
+    private static SraDagPlanStatus MapPlanNodeStatus(PlanNodeStatus s) =>
+        s switch
+        {
+            PlanNodeStatus.Pending => SraDagPlanStatus.Pending,
+            PlanNodeStatus.Active => SraDagPlanStatus.Active,
+            PlanNodeStatus.Completed => SraDagPlanStatus.Completed,
+            _ => SraDagPlanStatus.Unspecified
         };
 
     private static SraDagNodeType MapKnowledgeNodeType(KnowledgeNodeType t) =>

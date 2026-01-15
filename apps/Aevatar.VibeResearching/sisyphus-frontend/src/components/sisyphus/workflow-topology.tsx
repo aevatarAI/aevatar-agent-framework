@@ -489,6 +489,8 @@ function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: Workflo
           attestations: n.attestations,
           attestationsCount: n.attestationsCount,
           sessionId: n.sessionId,  // Include sessionId for cross-session rendering
+          // Map plan_status from API to planStatus for Plan nodes
+          planStatus: n.planStatus as 'Pending' | 'Active' | 'Completed' | undefined,
         }))
         const edges = (snapshot.edges || []).map(e => ({
           source: e.fromId,

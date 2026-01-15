@@ -1170,6 +1170,24 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
         }, SessionId, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<string>> GetOrphanedKnowledgeNodesAsync(CancellationToken cancellationToken = default)
+    {
+        var knowledgeNodes = await _store.GetAllKnowledgeNodesAsync(SessionId, cancellationToken);
+        var edges = await _store.GetAllEdgesAsync(SessionId, cancellationToken);
+
+        // Find knowledge node IDs that have a MOTIVATED_BY edge
+        var nodesWithMotivatedBy = edges
+            .Where(e => e.RelationshipType == RelationshipType.MotivatedBy)
+            .Select(e => e.FromId)
+            .ToHashSet(StringComparer.Ordinal);
+
+        // Return knowledge nodes that do NOT have a MOTIVATED_BY edge
+        return knowledgeNodes
+            .Where(n => !nodesWithMotivatedBy.Contains(n.Id))
+            .Select(n => n.Id)
+            .ToList();
+    }
+
     // ========== Node Explanation (US4) ==========
 
     public async Task<NodeExplanation> ExplainNodeAsync(

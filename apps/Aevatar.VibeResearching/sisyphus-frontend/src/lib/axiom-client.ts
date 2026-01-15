@@ -314,6 +314,7 @@ export interface DagNode {
   updatedAt?: string
   tags?: Record<string, string>
   sessionId?: string  // Source session ID for cross-session rendering
+  planStatus?: string  // Plan node execution status: "Pending" | "Active" | "Completed"
 }
 
 /**

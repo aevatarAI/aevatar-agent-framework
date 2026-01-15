@@ -571,6 +571,33 @@ public partial class JsonOutputParser : IOutputParser<object>
                 // Likely a partial duplicate with JSON field names, return only the first complete object
                 return firstObject;
             }
+            
+            // Check for patterns like: }"status": "running"} or }status": "running"}
+            // This indicates the last field of the JSON object is being repeated
+            if (remaining.Contains("\"status\"") || 
+                remaining.Contains("status\"") ||
+                remaining.Contains("\"done\"") ||
+                remaining.Contains("\"iteration\"") ||
+                remaining.Contains("\"history\"") ||
+                remaining.Contains("\"last_judgement\"") ||
+                remaining.Contains("\"last_b_pool\"") ||
+                remaining.Contains("\"last_worker_verdicts\"") ||
+                remaining.Contains("\"last_candidate\""))
+            {
+                // Likely a partial duplicate with the last field(s) of the JSON object, return only the first complete object
+                return firstObject;
+            }
+            
+            // Check for patterns like: }"running"} or }"completed"}
+            // This indicates just the value of the last field is being repeated
+            if (remaining.Contains("\"running\"") || 
+                remaining.Contains("\"completed\"") ||
+                remaining.Contains("\"failed\"") ||
+                remaining.Contains("\"limit\""))
+            {
+                // Likely a partial duplicate with status values, return only the first complete object
+                return firstObject;
+            }
         }
         
         return trimmed;

@@ -79,6 +79,16 @@ Discover novel non-trivial implications and conjectures from O1–O5. Each step 
 
 added axioms:
 O5: Let $\\OO$ denote the real octonion algebra.\nWrite an octonion in the standard basis as\n$\nx=x_0+\\sum_{i=1}^7 x_i e_i\n$\nwith $x_i\\in\\RR$.\nDefine octonionic conjugation by\n$\n\\bar{x}:=x_0-\\sum_{i=1}^7 x_i e_i\n$\nand the norm by\n$\nN(x):=x\\bar{x}=\\bar{x}x\\in\\RR_{\\ge 0}.\n$\nDefine $\\|x\\|:=\\sqrt{N(x)}$ and the unit sphere\n$\nS^7:=\\{u\\in\\OO:\\ N(u)=1\\}.$
+O6: Let $E_8\subset\RR^8$ be the root lattice
+$$
+E_8:=\Big\{v\in\ZZ^8:\ \sum_{i=0}^7 v_i\equiv 0\ (\mathrm{mod}\ 2)\Big\}\ \cup\
+\Big\{v\in\big(\ZZ+\tfrac12\big)^8:\ \sum_{i=0}^7 v_i\equiv 0\ (\mathrm{mod}\ 2)\Big\}.
+$$
+Let $\OHur\subset\OO$ be a maximal order (integral octonions). As a Euclidean lattice with respect to the octonion norm $N$, $\OHur$ is isometric to the scaled lattice $\frac{1}{\sqrt{2}}E_8$ (equivalently, $\sqrt{2}\,\OHur$ is an $E_8$ root lattice). This $\OHur$ is often called the octavian integers.
+O7: For a rational prime $p\in\PP$, define the norm-$p$ shell
+$$
+\OO_p:=\{\pi\in\OHur:\ N(\pi)=p\}.
+$$
 
 added hypothesis:
 H3: Let $\OO$ denote the real octonion algebra. Write an octonion in the standard basis as
@@ -96,6 +106,10 @@ N(x):=x\bar{x}=\bar{x}x\in\RR_{\ge 0}.
 $ For all $x,y\in\OO$ one has
 $$
 N(xy)=N(x)N(y).
+$$
+H4: For every rational prime $p$ one has
+$$
+|\OO_p| = 240(1+p^3).
 $$
 
 
@@ -164,3 +178,5 @@ $$
 | `e9087239be77` | 2026-01-14 10:14:14 UTC | Failed | hypothesis_promotion_loop_hpa |
 | `7e3fcc437574` | 2026-01-15 01:24:59 UTC | Failed | hypothesis_promotion_loop_hpa |
 | `ba7558fda8a3` | 2026-01-15 02:02:13 UTC | Failed | hypothesis_promotion_loop_hpa |
+| `62efede47319` | 2026-01-15 02:25:44 UTC | Failed | hypothesis_promotion_loop_hpa |
+| `ead2a74a8606` | 2026-01-15 02:42:43 UTC | Failed | hypothesis_promotion_loop_hpa |

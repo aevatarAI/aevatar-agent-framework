@@ -230,9 +230,14 @@ steps:
           - If no ExistingHypothesis is provided, seed an initial hypothesis (current_hypothesis) that is plausibly derivable.
             - Avoid conditional premises like "if G is finite / if boundary area is finite / assume ...".
             - If you notice a missing lemma in motivation, that means the hypothesis is NOT suitable as the seed.
-          - Return ONLY JSON (no markdown, no code blocks, no commentary).
-          - Output the JSON object EXACTLY ONCE. Do NOT repeat any fields or values.
-          - CRITICAL: Output only ONE complete JSON object. Do NOT append duplicate fields or fragments after the closing brace.
+          CRITICAL OUTPUT REQUIREMENTS:
+          - Return ONLY valid JSON (no markdown, no code blocks, no commentary, no ```json tags).
+          - Output the JSON object EXACTLY ONCE. Do NOT repeat any fields, values, or fragments.
+          - Do NOT append anything after the closing brace } of the JSON object.
+          - Do NOT include duplicate closing braces like }}.
+          - Do NOT include any text, numbers, or characters after the JSON object ends.
+          - CRITICAL: Do NOT repeat the last field (status) or any other field after the closing brace.
+          - The JSON object MUST end with a single closing brace }. Nothing should come after it.
 
           raw_task:
           {{ task }}
@@ -272,7 +277,7 @@ steps:
 
           (Note: The text "ContinueOnFailure:" is NOT included because it's the next header)
 
-          Output JSON schema:
+          Output JSON schema (output EXACTLY ONCE, no duplicates):
           {
             "focus": string,
             "seed_hypothesis": string,
@@ -308,6 +313,9 @@ steps:
             "done": bool,
             "status": "running" | "completed" | "failed" | "limit"
           }
+
+          REMINDER: Output only ONE complete JSON object. Do NOT repeat any part of it. Do NOT append anything after the closing brace.
+          CRITICAL: After outputting the closing brace }, STOP immediately. Do NOT output "status": "running"} or any other field/value after the closing brace.
 
           Constraints (MANDATORY - all must be satisfied):
           - iteration MUST start at 0.
@@ -406,7 +414,7 @@ steps:
           - Output the JSON object EXACTLY ONCE. Do NOT repeat any fields or values.
           - You MUST select ONE hypothesis from state.existing_hypothesis (parse it if it's a multi-line string or JSON array).
           - If the selected hypothesis lacks depends_on or factor_sequence, infer them from the statement and available axioms/theorems.
-          - If existing_hypothesis is empty or all hypotheses are already seen, return an error message in the statement field.
+          - If existing_hypothesis is empty, return an error message in the statement field.
           - CRITICAL: Output only ONE complete JSON object. Do NOT append duplicate fields or fragments after the closing brace.
 
           Axioms:
@@ -507,8 +515,10 @@ steps:
 
         HPA operating rules (Factorization → Projection):
         - Factorization: you MUST report depends_on + factor_sequence (ordered reasoning path).
-        - Projection / gap δ: you must NOT add hidden assumptions. Any missing lemma/assumption is a gap δ:
-          put it in gap_or_counterexample and set accept=false.
+        - Projection / gap δ: 
+          * CORRECT missing lemma/assumption: If a missing lemma/assumption is logically correct and derivable from provided axioms/facts, it is ALLOWED and should NOT be reported as gap δ.
+          * INCORRECT missing lemma/assumption (gap δ): Only report as gap δ if the missing lemma/assumption is INCORRECT, contradicts the hypothesis, or cannot be derived from provided axioms/facts.
+          * When gap δ exists: put it in gap_or_counterexample and set accept=false.
         - Non-associativity signal: factor_sequence MUST reflect your actual reasoning order (path dependence matters).
 
         CRITICAL OUTPUT REQUIREMENTS:
@@ -521,10 +531,11 @@ steps:
         Rules:
         - Use ONLY the axioms + assumptions + relevant facts provided.
         - If accept=true: provide a short proof (<= 10 steps), with each step citing used IDs like [O1,T2].
-        - If accept=false: provide the minimal gap δ or a counterexample (one short paragraph).
+        - If accept=false: provide minimal gap δ (only for INCORRECT missing lemma/assumption) or counterexample (one short paragraph).
+          Note: CORRECT missing lemma/assumption that can be derived from axioms/facts should NOT cause accept=false.
         - strong_refutation=true ONLY if you can state an explicit fatal counterexample/contradiction
-          derived from provided axioms/facts with NO extra assumptions. If it's merely "missing lemma",
-          set strong_refutation=false and put that lemma in gap_or_counterexample as gap δ.
+          derived from provided axioms/facts with NO extra assumptions. If it's merely "missing lemma" (and the lemma is CORRECT),
+          set strong_refutation=false. Only put INCORRECT missing lemma/assumption in gap_or_counterexample as gap δ.
         - Do NOT invent IDs. depends_on must be a subset of available axiom/theorem/assumption IDs.
 
         Axioms:
@@ -778,7 +789,8 @@ steps:
 
                 HPA protocol (Factorization → Projection):
                 - Treat "proof" as projection: every step must be grounded in cited dependencies; no hidden assumptions.
-                - If any step requires an unstated lemma/assumption, declare it as GAP δ and STOP (do not proceed).
+                - If any step requires an unstated lemma/assumption that CANNOT be inferred from provided axioms/theorems, declare it as GAP δ and STOP (do not proceed).
+                - If a step follows logically from given premises through standard inference rules (modus ponens, transitivity, algebra, etc.), it is NOT considered a GAP δ and you may proceed.
                 - Factorization: keep a minimal depends_on list and an ordered factor_sequence that matches your step order.
 
                 Hypothesis A:

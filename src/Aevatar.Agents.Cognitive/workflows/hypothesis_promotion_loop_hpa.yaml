@@ -644,8 +644,10 @@ steps:
 
             HPA operating rules (Factorization → Projection):
             - Factorization: you MUST report depends_on + factor_sequence (ordered reasoning path).
-            - Projection / gap δ: do NOT add hidden assumptions. Any missing lemma/assumption is a gap δ:
-              put it in gap_or_counterexample and set accept=false.
+            - Projection / gap δ: 
+              * CORRECT missing lemma/assumption: If a missing lemma/assumption is logically correct and derivable from provided axioms/facts, it is ALLOWED and should NOT be reported as gap δ.
+              * INCORRECT missing lemma/assumption (gap δ): Only report as gap δ if the missing lemma/assumption is INCORRECT, contradicts the hypothesis, or cannot be derived from provided axioms/facts.
+              * When gap δ exists: put it in gap_or_counterexample and set accept=false.
             - Non-associativity signal: factor_sequence MUST reflect your actual reasoning order (path dependence matters).
 
             CRITICAL OUTPUT REQUIREMENTS:
@@ -660,7 +662,8 @@ steps:
             - If accept=true: provide a short proof SKETCH (<= 10 steps), each step cites used IDs like [O1,T2].
               It can be high-level, but MUST stay within provided axioms/facts and MUST NOT introduce new assumptions.
               If you're uncertain but see no refutation and the sketch is plausible, you may still set accept=true with lower confidence.
-            - If accept=false: provide minimal gap δ or counterexample. Do NOT propose alternative hypotheses (leave proposed_b empty).
+            - If accept=false: provide minimal gap δ (only for INCORRECT missing lemma/assumption) or counterexample. Do NOT propose alternative hypotheses (leave proposed_b empty).
+              Note: CORRECT missing lemma/assumption that can be derived from axioms/facts should NOT cause accept=false.
             - strong_refutation=true ONLY for an explicit fatal counterexample/contradiction with no extra assumptions.
             - Do NOT invent IDs. depends_on must be a subset of available axiom/theorem/assumption IDs.
 
@@ -832,10 +835,14 @@ steps:
                 - Output factor_sequence: ordered list of dependency IDs matching the proof's citation order.
                 - Do NOT invent IDs. Use only axiom IDs, assumption IDs, and theorem IDs present in RelevantFacts.
 
+                CRITICAL OUTPUT REQUIREMENTS:
+                - Return ONLY valid JSON (no markdown, no code blocks, no commentary, no ```json tags).
+                - Output the JSON object EXACTLY ONCE. Do NOT repeat any fields, values, or fragments.
+                - Do NOT append anything after the closing brace } of the JSON object.
+                - Do NOT include duplicate closing braces like }}.
+                - Do NOT include any text, numbers, or characters after the JSON object ends.
+
                 Rules:
-                - Return ONLY JSON (no markdown, no code blocks, no commentary).
-                - Output the JSON object EXACTLY ONCE. Do NOT repeat any fields or values.
-                - CRITICAL: Output only ONE complete JSON object. Do NOT append duplicate fields or fragments after the closing brace.
 
                 Axioms:
                 {{ state.axioms | json }}
@@ -857,7 +864,7 @@ steps:
                 MAKER solution:
                 {{ maker_solution }}
 
-                Output JSON schema:
+                Output JSON schema (output EXACTLY ONCE, no duplicates):
                 {
                   "proved": bool,
                   "reason": string,
@@ -865,6 +872,8 @@ steps:
                   "depends_on": [string],
                   "factor_sequence": [string]
                 }
+
+                REMINDER: Output only ONE complete JSON object. Do NOT repeat any part of it. Do NOT append anything after the closing brace.
 
                 Language: {{language}}
               output: json

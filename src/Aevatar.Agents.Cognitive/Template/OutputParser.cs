@@ -473,7 +473,10 @@ public partial class JsonOutputParser : IOutputParser<object>
     
     /// <summary>
     /// Remove duplicate JSON fragments that appear after a valid JSON object.
-    /// Handles cases like: {"all_proven": true}all_proven": true} or {"key": "value"}{"key": "value"}
+    /// Handles cases like: 
+    /// - {"all_proven": true}all_proven": true}
+    /// - {"key": "value"}{"key": "value"}
+    /// - Partial duplicates like: }"key": "value"} or }``` the exclusion of 1.", "depends_on": ["O1"], "factor_sequence": ["O1"]}
     /// </summary>
     private static string RemoveDuplicateJsonFragments(string json)
     {
@@ -537,10 +540,35 @@ public partial class JsonOutputParser : IOutputParser<object>
             var remaining = trimmed[(firstObjectEnd + 1)..].Trim();
             
             // Check if remaining content looks like a duplicate JSON fragment
-            // Common patterns: }key": value} or {"key": value}
+            // Common patterns: 
+            // 1. }key": value} or {"key": value}
+            // 2. }``` text...", "key": value} (partial duplicate with markdown code block)
+            // 3. }"key": value} (partial duplicate starting with closing brace and quote)
             if (remaining.StartsWith('}') || remaining.StartsWith('{'))
             {
                 // Likely a duplicate fragment, return only the first complete object
+                return firstObject;
+            }
+            
+            // Check for partial duplicates that start with closing brace and quote or markdown
+            // Pattern: }"key": value} or }``` text...", "key": value}
+            if (remaining.Length > 2 && 
+                (remaining.StartsWith("}\"") || 
+                 remaining.StartsWith("}```") ||
+                 remaining.StartsWith("}`")))
+            {
+                // Likely a partial duplicate fragment, return only the first complete object
+                return firstObject;
+            }
+            
+            // Check for patterns like: } the exclusion of 1.", "depends_on": ["O1"], "factor_sequence": ["O1"]}
+            // This indicates a partial duplicate where the end of a string field is repeated
+            if (remaining.Contains("\"depends_on\"") || 
+                remaining.Contains("\"factor_sequence\"") ||
+                remaining.Contains("\"statement\"") ||
+                remaining.Contains("\"motivation\""))
+            {
+                // Likely a partial duplicate with JSON field names, return only the first complete object
                 return firstObject;
             }
         }

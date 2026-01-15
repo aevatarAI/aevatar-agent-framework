@@ -230,7 +230,9 @@ steps:
           - If no ExistingHypothesis is provided, seed an initial hypothesis (current_hypothesis) that is plausibly derivable.
             - Avoid conditional premises like "if G is finite / if boundary area is finite / assume ...".
             - If you notice a missing lemma in motivation, that means the hypothesis is NOT suitable as the seed.
-          - Return ONLY JSON (no markdown).
+          - Return ONLY JSON (no markdown, no code blocks, no commentary).
+          - Output the JSON object EXACTLY ONCE. Do NOT repeat any fields or values.
+          - CRITICAL: Output only ONE complete JSON object. Do NOT append duplicate fields or fragments after the closing brace.
 
           raw_task:
           {{ task }}
@@ -400,10 +402,12 @@ steps:
              - If you suspect an extra lemma is needed, weaken/narrow the statement instead of smuggling assumptions.
 
           Selection requirements:
-          - Return ONLY JSON (no markdown).
+          - Return ONLY JSON (no markdown, no code blocks, no commentary).
+          - Output the JSON object EXACTLY ONCE. Do NOT repeat any fields or values.
           - You MUST select ONE hypothesis from state.existing_hypothesis (parse it if it's a multi-line string or JSON array).
           - If the selected hypothesis lacks depends_on or factor_sequence, infer them from the statement and available axioms/theorems.
           - If existing_hypothesis is empty or all hypotheses are already seen, return an error message in the statement field.
+          - CRITICAL: Output only ONE complete JSON object. Do NOT append duplicate fields or fragments after the closing brace.
 
           Axioms:
           {{ state.axioms | json }}
@@ -507,9 +511,15 @@ steps:
           put it in gap_or_counterexample and set accept=false.
         - Non-associativity signal: factor_sequence MUST reflect your actual reasoning order (path dependence matters).
 
+        CRITICAL OUTPUT REQUIREMENTS:
+        - Return ONLY valid JSON (no markdown, no code blocks, no commentary, no ```json tags).
+        - Output the JSON object EXACTLY ONCE. Do NOT repeat any fields, values, or fragments.
+        - Do NOT append anything after the closing brace } of the JSON object.
+        - Do NOT include duplicate closing braces like }}.
+        - Do NOT include any text, numbers, or characters after the JSON object ends.
+
         Rules:
         - Use ONLY the axioms + assumptions + relevant facts provided.
-        - Return ONLY valid JSON (no markdown).
         - If accept=true: provide a short proof (<= 10 steps), with each step citing used IDs like [O1,T2].
         - If accept=false: provide the minimal gap δ or a counterexample (one short paragraph).
         - strong_refutation=true ONLY if you can state an explicit fatal counterexample/contradiction
@@ -535,7 +545,7 @@ steps:
         Hypothesis A:
         {{ candidate | json }}
 
-        Output JSON schema:
+        Output JSON schema (output EXACTLY ONCE, no duplicates):
         {
           "worker_id": "{{item.id}}",
           "accept": bool,
@@ -550,6 +560,8 @@ steps:
           ]
         }
         IMPORTANT: For this task, always set proposed_b = [] (empty array). Do NOT propose any alternative hypotheses.
+
+        REMINDER: Output only ONE complete JSON object. Do NOT repeat any part of it. Do NOT append anything after the closing brace.
 
         Language: {{language}}
       output: json
@@ -636,9 +648,15 @@ steps:
               put it in gap_or_counterexample and set accept=false.
             - Non-associativity signal: factor_sequence MUST reflect your actual reasoning order (path dependence matters).
 
+            CRITICAL OUTPUT REQUIREMENTS:
+            - Return ONLY valid JSON (no markdown, no code blocks, no commentary, no ```json tags).
+            - Output the JSON object EXACTLY ONCE. Do NOT repeat any fields, values, or fragments.
+            - Do NOT append anything after the closing brace } of the JSON object.
+            - Do NOT include duplicate closing braces like }}.
+            - Do NOT include any text, numbers, or characters after the JSON object ends.
+
             Rules:
             - Use ONLY the axioms + assumptions + relevant facts provided.
-            - Return ONLY valid JSON (no markdown).
             - If accept=true: provide a short proof SKETCH (<= 10 steps), each step cites used IDs like [O1,T2].
               It can be high-level, but MUST stay within provided axioms/facts and MUST NOT introduce new assumptions.
               If you're uncertain but see no refutation and the sketch is plausible, you may still set accept=true with lower confidence.
@@ -667,7 +685,7 @@ steps:
             Hypothesis A:
             {{ candidate | json }}
 
-            Output JSON schema:
+            Output JSON schema (output EXACTLY ONCE, no duplicates):
             {
               "worker_id": "{{item.id}}",
               "accept": bool,
@@ -681,6 +699,8 @@ steps:
                 { "statement": string, "motivation": string, "depends_on": [string], "factor_sequence": [string] }
               ]  # MUST always be empty for this task
             }
+
+            REMINDER: Output only ONE complete JSON object. Do NOT repeat any part of it. Do NOT append anything after the closing brace.
 
             Language: {{language}}
           output: json
@@ -813,7 +833,9 @@ steps:
                 - Do NOT invent IDs. Use only axiom IDs, assumption IDs, and theorem IDs present in RelevantFacts.
 
                 Rules:
-                - Return ONLY JSON (no markdown).
+                - Return ONLY JSON (no markdown, no code blocks, no commentary).
+                - Output the JSON object EXACTLY ONCE. Do NOT repeat any fields or values.
+                - CRITICAL: Output only ONE complete JSON object. Do NOT append duplicate fields or fragments after the closing brace.
 
                 Axioms:
                 {{ state.axioms | json }}

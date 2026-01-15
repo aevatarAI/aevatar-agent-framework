@@ -40,7 +40,8 @@ public class ResearchAgent : AIGAgentBase
             "- Never fabricate tool results. Prefer executable verification when possible.\n" +
             "\n" +
             "Planning:\n" +
-            "- If the user asks to change/adjust the research plan, you MAY call create_plan to create Plan nodes in the knowledge graph.\n" +
+            "- The research plan (milestones) is fixed at session start. Focus on executing the current milestone.\n" +
+            "- Use get_research_plan to view the plan. Use update_plan_status to mark progress.\n" +
             "- If the user intent is ambiguous, ask a clarification question instead of writing.";
     }
 
@@ -57,10 +58,13 @@ public class ResearchAgent : AIGAgentBase
         // Keep framework built-ins (state query / event publisher / memory / skills tools, etc.)
         await base.RegisterToolsAsync(cancellationToken);
 
-        // Optional: plan editing tools (writes Plan nodes to KnowledgeGraph).
+        // Plan tools: Only register read/status tools, NOT create tool.
+        // Plan nodes are created during brief generation (milestones), not during research execution.
+        // This ensures milestones remain fixed once the session starts.
         if (_graphAccess != null)
         {
-            await RegisterToolAsync(new CreatePlanTool(_graphAccess), cancellationToken: cancellationToken);
+            // Disabled: CreatePlanTool - we don't want agents creating new Plan nodes during execution
+            // await RegisterToolAsync(new CreatePlanTool(_graphAccess), cancellationToken: cancellationToken);
             await RegisterToolAsync(new UpdatePlanStatusTool(_graphAccess), cancellationToken: cancellationToken);
             await RegisterToolAsync(new GetPlanTool(_graphAccess), cancellationToken: cancellationToken);
         }

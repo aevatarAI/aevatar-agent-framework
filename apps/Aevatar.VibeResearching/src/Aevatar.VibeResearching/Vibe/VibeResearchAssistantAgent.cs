@@ -126,7 +126,8 @@ public sealed class VibeResearchAssistantAgent : VibeAgentBase
         if (_graphAccess != null)
         {
             // Plan management tools (FR-007)
-            await RegisterToolAsync(new CreatePlanTool(_graphAccess), cancellationToken: cancellationToken);
+            // Disabled: CreatePlanTool - Plan nodes are created during brief generation, not during execution
+            // await RegisterToolAsync(new CreatePlanTool(_graphAccess), cancellationToken: cancellationToken);
             await RegisterToolAsync(new UpdatePlanStatusTool(_graphAccess), cancellationToken: cancellationToken);
             await RegisterToolAsync(new GetPlanTool(_graphAccess), cancellationToken: cancellationToken);
 
@@ -135,9 +136,9 @@ public sealed class VibeResearchAssistantAgent : VibeAgentBase
             await RegisterToolAsync(new GetKnowledgeTool(_graphAccess), cancellationToken: cancellationToken);
             await RegisterToolAsync(new LinkKnowledgeToPlanTool(_graphAccess), cancellationToken: cancellationToken);
 
-            // Pivot tools (US6)
-            await RegisterToolAsync(new CanDeletePlanTool(_graphAccess), cancellationToken: cancellationToken);
-            await RegisterToolAsync(new DeletePlanTool(_graphAccess), cancellationToken: cancellationToken);
+            // Pivot tools (US6) - Disabled to prevent Plan modifications during execution
+            // await RegisterToolAsync(new CanDeletePlanTool(_graphAccess), cancellationToken: cancellationToken);
+            // await RegisterToolAsync(new DeletePlanTool(_graphAccess), cancellationToken: cancellationToken);
             await RegisterToolAsync(new CreatePivotSnapshotTool(_graphAccess), cancellationToken: cancellationToken);
             await RegisterToolAsync(new GetPivotSnapshotsTool(_graphAccess), cancellationToken: cancellationToken);
         }

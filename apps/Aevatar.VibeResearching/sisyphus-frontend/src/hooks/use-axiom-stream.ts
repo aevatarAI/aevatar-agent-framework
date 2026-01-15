@@ -797,22 +797,32 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     // Milestone Started - Highlight the active plan node
     stream.onCustom("aevatar.vibe.milestone_started", (event) => {
       addRawEvent(event)
-      const data = event.value as { milestoneNodeId?: string; milestoneIndex?: number; totalMilestones?: number }
+      const data = event.value as {
+        sessionId?: string
+        milestoneNodeId?: string
+        milestoneIndex?: number
+        totalMilestones?: number
+      }
       console.log("[AxiomStream] Milestone started:", data)
       if (data.milestoneNodeId) {
         const { setActiveMilestoneNodeId } = useSisyphusStore.getState()
-        setActiveMilestoneNodeId(data.milestoneNodeId)
+        // Pass sessionId to store milestone per-session
+        setActiveMilestoneNodeId(data.milestoneNodeId, data.sessionId || sessionId)
       }
     })
 
     // Milestone Finished - Clear the active highlight
     stream.onCustom("aevatar.vibe.milestone_finished", (event) => {
       addRawEvent(event)
-      const data = event.value as { milestoneNodeId?: string; milestoneIndex?: number }
+      const data = event.value as {
+        sessionId?: string
+        milestoneNodeId?: string
+        milestoneIndex?: number
+      }
       console.log("[AxiomStream] Milestone finished:", data)
-      // Clear the active milestone highlight
+      // Clear the active milestone highlight for this session
       const { setActiveMilestoneNodeId } = useSisyphusStore.getState()
-      setActiveMilestoneNodeId(null)
+      setActiveMilestoneNodeId(null, data.sessionId || sessionId)
     })
 
     // Catch-all handler - extract worker data from ProgressEvent

@@ -31,7 +31,7 @@ const transformDagData = (rawData: unknown): DAGGraph | null => {
 };
 
 const App: React.FC = () => {
-  const { currentSessionId, isConnected, setSessions, setCurrentSession, resetForNewSession, setDag, updateWorker } = useSisyphusStore();
+  const { currentSessionId, isConnected, setSessions, setCurrentSession, resetForNewSession, setDag, updateWorker, restoreMilestoneForSession } = useSisyphusStore();
   
   // Resizable panel state
   const [leftPanelWidth, setLeftPanelWidth] = useState(DEFAULT_LEFT_WIDTH);
@@ -166,6 +166,9 @@ const App: React.FC = () => {
 
     if (!sessionId) return;
 
+    // Restore the active milestone for this session (if any)
+    restoreMilestoneForSession(sessionId);
+
     // Parallelize DAG and events fetching for better performance
     try {
       const [rawDag, eventsText] = await Promise.all([
@@ -213,7 +216,7 @@ const App: React.FC = () => {
       }
       console.warn('[App] Failed to load session data:', err);
     }
-  }, [currentSessionId, resetForNewSession, setCurrentSession, setDag, updateWorker]);
+  }, [currentSessionId, resetForNewSession, setCurrentSession, setDag, updateWorker, restoreMilestoneForSession]);
 
   // Create session handler - creates new session and switches to it
   const handleCreateSession = useCallback(async () => {

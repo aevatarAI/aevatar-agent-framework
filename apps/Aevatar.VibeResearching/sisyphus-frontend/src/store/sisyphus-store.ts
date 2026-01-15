@@ -165,7 +165,10 @@ interface SisyphusState {
 
   // Active Milestone (currently executing plan node)
   activeMilestoneNodeId: string | null
-  setActiveMilestoneNodeId: (nodeId: string | null) => void
+  // Per-session milestone storage (persists across session switches)
+  sessionMilestones: Record<string, string | null>
+  setActiveMilestoneNodeId: (nodeId: string | null, sessionId?: string) => void
+  restoreMilestoneForSession: (sessionId: string) => void
 
   // Chat Messages
   messages: ChatMessage[]
@@ -380,7 +383,29 @@ export const useSisyphusStore = create<SisyphusState>((set) => ({
 
   // Active Milestone
   activeMilestoneNodeId: null,
-  setActiveMilestoneNodeId: (nodeId) => set({ activeMilestoneNodeId: nodeId }),
+  sessionMilestones: {},
+  setActiveMilestoneNodeId: (nodeId, sessionId) => set((state) => {
+    // Update current active milestone
+    const updates: Partial<SisyphusState> = { activeMilestoneNodeId: nodeId }
+    // Also persist to session map if sessionId is provided
+    if (sessionId) {
+      updates.sessionMilestones = {
+        ...state.sessionMilestones,
+        [sessionId]: nodeId,
+      }
+    } else if (state.currentSessionId) {
+      // Use current session ID if not explicitly provided
+      updates.sessionMilestones = {
+        ...state.sessionMilestones,
+        [state.currentSessionId]: nodeId,
+      }
+    }
+    return updates
+  }),
+  restoreMilestoneForSession: (sessionId) => set((state) => {
+    const storedMilestone = state.sessionMilestones[sessionId] ?? null
+    return { activeMilestoneNodeId: storedMilestone }
+  }),
 
   // === Chat Messages ===
   messages: [],

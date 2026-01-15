@@ -550,7 +550,11 @@ function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: Workflo
       }
     }
 
-    const nodes: Node[] = dag.nodes.slice(0, 200).map((node) => {
+    // First pass: determine which nodes will be rendered (limit to 200 for performance)
+    const renderedDagNodes = dag.nodes.slice(0, 200)
+    const visibleNodeIds = new Set(renderedDagNodes.map(n => n.id))
+
+    const nodes: Node[] = renderedDagNodes.map((node) => {
       const isSelected = node.id === selectedNodeId
       const isHighlighted = highlightedNodeIds.includes(node.id)
       const isDimmed = isHighlighting && !isSelected && !isHighlighted && node.id !== selectedNodeId
@@ -580,31 +584,36 @@ function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: Workflo
       }
     })
 
-    const edges: Edge[] = (dag.edges || []).slice(0, 400).map((edge, i) => {
-      // Different styles for different edge types
-      const isMotivatedBy = edge.type === 'motivated_by'
-      const edgeColor = isMotivatedBy ? '#f59e0b' : '#00f0ff'  // Orange for motivated_by, Cyan for depends_on
+    // Filter edges to only include those where BOTH source and target are visible
+    // This ensures edges are properly rendered (React Flow can't render edges to non-existent nodes)
+    const edges: Edge[] = (dag.edges || [])
+      .filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target))
+      .slice(0, 400)
+      .map((edge, i) => {
+        // Different styles for different edge types
+        const isMotivatedBy = edge.type === 'motivated_by'
+        const edgeColor = isMotivatedBy ? '#f59e0b' : '#00f0ff'  // Orange for motivated_by, Cyan for depends_on
 
-      return {
-        id: `e-${edge.source}-${edge.target}-${i}`,
-        source: edge.source,
-        target: edge.target,
-        animated: true,
-        style: {
-          stroke: edgeColor,
-          strokeWidth: isMotivatedBy ? 1.5 : 2,
-          strokeDasharray: isMotivatedBy ? '5 3' : undefined,  // Dashed line for motivated_by
-        },
-        markerEnd: {
-          type: MarkerType.ArrowClosed,
-          color: edgeColor,
-          width: isMotivatedBy ? 16 : 20,
-          height: isMotivatedBy ? 16 : 20,
-        },
-        label: isMotivatedBy ? '✨' : undefined,  // Small indicator for motivated_by
-        labelStyle: isMotivatedBy ? { fontSize: 10 } : undefined,
-      }
-    })
+        return {
+          id: `e-${edge.source}-${edge.target}-${i}`,
+          source: edge.source,
+          target: edge.target,
+          animated: true,
+          style: {
+            stroke: edgeColor,
+            strokeWidth: isMotivatedBy ? 1.5 : 2,
+            strokeDasharray: isMotivatedBy ? '5 3' : undefined,  // Dashed line for motivated_by
+          },
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: edgeColor,
+            width: isMotivatedBy ? 16 : 20,
+            height: isMotivatedBy ? 16 : 20,
+          },
+          label: isMotivatedBy ? '✨' : undefined,  // Small indicator for motivated_by
+          labelStyle: isMotivatedBy ? { fontSize: 10 } : undefined,
+        }
+      })
 
     return getLayoutedElements(nodes, edges, 'TB')
   }, [dag, selectedNodeId, highlightMode, highlightedNodeIds, sessionId, activeMilestoneNodeId])

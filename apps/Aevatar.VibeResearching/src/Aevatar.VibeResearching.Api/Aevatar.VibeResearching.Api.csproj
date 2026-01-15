@@ -17,8 +17,8 @@
         <ProjectReference Include="../../../../src/Aevatar.Agents.Cognitive.Streaming/Aevatar.Agents.Cognitive.Streaming.csproj" />
         <ProjectReference Include="../../../../apps/Aevatar.CognitiveMesh/src/Aevatar.CognitiveMesh/Aevatar.CognitiveMesh.csproj" />
         <!-- Reference the existing CLI project to reuse ResearchAgent (or we can move Agent to shared lib, but linking file is easier for demo) -->
-        <ProjectReference Include="../VibeResearching/VibeResearching.csproj" />
-        <ProjectReference Include="../VibeResearching.Contracts/VibeResearching.Contracts.csproj" />
+        <ProjectReference Include="../Aevatar.VibeResearching/Aevatar.VibeResearching.csproj" />
+        <ProjectReference Include="../Aevatar.VibeResearching.Contracts/Aevatar.VibeResearching.Contracts.csproj" />
     </ItemGroup>
 
     <ItemGroup>

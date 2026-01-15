@@ -17,7 +17,7 @@ Console.WriteLine("╚═══════════════════�
 Console.WriteLine();
 
 // ============ Backend API ============
-var api = builder.AddProject<Projects.ScientificResearchAssistant_Api>("sra-api")
+var api = builder.AddProject<Projects.Aevatar_VibeResearching_Api>("sra-api")
     .WithEnvironment("ASPNETCORE_URLS", apiUrl)
     .WithExternalHttpEndpoints();
 

@@ -1298,6 +1298,11 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
         return _store.GetAllKnowledgeNodesGlobalAsync(cancellationToken);
     }
 
+    public Task<IReadOnlyList<PlanNode>> GetAllPlanNodesGlobalAsync(CancellationToken cancellationToken = default)
+    {
+        return _store.GetAllPlanNodesGlobalAsync(cancellationToken);
+    }
+
     public Task<IReadOnlyList<(KnowledgeEdge Edge, string SessionId)>> GetAllEdgesGlobalAsync(CancellationToken cancellationToken = default)
     {
         return _store.GetAllEdgesGlobalAsync(cancellationToken);

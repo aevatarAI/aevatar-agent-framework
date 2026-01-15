@@ -5,6 +5,7 @@ using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.Core.Runtime;
 using Aevatar.Agents.Knowledge.Graph;
 using Aevatar.Agents.Knowledge.Graph.Exceptions;
+using Aevatar.Agents.Knowledge.Graph.Models;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Options;
 using ScientificResearchAssistant.Api.Facts;
@@ -724,7 +725,8 @@ internal static class ResearchSessionsApi
             var dagId = session.EffectiveDagId;
             _ = await dag.LoadSnapshotAsync(dagId, ct);
 
-            var client = graph.CreateClient(dagId);
+            // Use session.Id for Knowledge Graph queries (nodes are stored with actual session ID)
+            var client = graph.CreateClient(session.Id);
             var snapshot = await client.GetGraphSnapshotAsync(ct);
             return Results.Json(new { ok = true, sessionId = session.Id, dagId, graph = snapshot });
         });
@@ -748,7 +750,8 @@ internal static class ResearchSessionsApi
             var dagId = session.EffectiveDagId;
             _ = await dag.LoadSnapshotAsync(dagId, ct);
 
-            var client = graph.CreateClient(dagId);
+            // Use session.Id for Knowledge Graph queries (nodes are stored with actual session ID)
+            var client = graph.CreateClient(session.Id);
             try
             {
                 var details = await client.GetKnowledgeChainDetailsAsync(nodeId, ct);
@@ -769,6 +772,8 @@ internal static class ResearchSessionsApi
         });
 
         // Node Explanation API (US4) - called by frontend workflow-topology.tsx
+        // This API searches for nodes GLOBALLY across all sessions, since the frontend
+        // displays a global DAG containing nodes from multiple sessions.
         app.MapGet("/api/sessions/{sessionId}/graph/{nodeId}/explain", async (
             string sessionId,
             string nodeId,
@@ -788,36 +793,71 @@ internal static class ResearchSessionsApi
             var dagId = session.EffectiveDagId;
             _ = await dag.LoadSnapshotAsync(dagId, ct);
 
-            var client = graph.CreateClient(dagId);
+            // GLOBAL NODE LOOKUP:
+            // The frontend DAG shows nodes from ALL sessions (global DAG).
+            // When user clicks a node, it may be from any session, not just the current one.
+            // We need to find the node globally and use its actual sessionId for Explain().
+
+            // Strategy:
+            // 1. First try current session (most common case, fast path)
+            // 2. If not found, search globally in KnowledgeNodes and PlanNodes
+            // 3. Once found, use the node's actual sessionId to call Explain()
+
+            var client = graph.CreateClient(session.Id);
+
+            // Fast path: try current session first
             try
             {
                 var explanation = await client.ExplainNodeAsync(nodeId, ct);
-
-                // Map backend NodeExplanation to frontend expected shape.
-                // Frontend expects "kind" but backend returns "NodeType".
-                return Results.Json(new
-                {
-                    ok = true,
-                    sessionId = session.Id,
-                    dagId,
-                    explanation = new
-                    {
-                        nodeId = explanation.NodeId,
-                        title = explanation.Title,
-                        kind = explanation.NodeType, // Frontend expects "kind", not "nodeType"
-                        markdownContent = explanation.MarkdownContent,
-                        directDependencies = explanation.DirectDependencies,
-                        fullChainNodeIds = Array.Empty<string>(), // Not in backend model; keep empty for compatibility
-                        dependents = explanation.Dependents,
-                        createdAt = explanation.CreatedAt.ToString("O"),
-                        updatedAt = explanation.UpdatedAt.ToString("O")
-                    }
-                }, Json);
+                return BuildExplainResponse(explanation, session.Id, dagId);
             }
-            catch (NodeNotFoundException ex)
+            catch (NodeNotFoundException)
             {
-                return Results.NotFound(new { error = "node not found", nodeId = ex.NodeId });
+                // Not in current session, search globally
             }
+
+            // Search globally in all KnowledgeNodes
+            var allKnowledge = await client.GetAllKnowledgeNodesGlobalAsync(ct);
+            var knowledgeNode = allKnowledge.FirstOrDefault(n =>
+                string.Equals(n.Id, nodeId, StringComparison.Ordinal));
+
+            if (knowledgeNode != null)
+            {
+                // Found! Use the node's actual sessionId
+                var nodeClient = graph.CreateClient(knowledgeNode.SessionId);
+                try
+                {
+                    var explanation = await nodeClient.ExplainNodeAsync(nodeId, ct);
+                    return BuildExplainResponse(explanation, knowledgeNode.SessionId, dagId);
+                }
+                catch (NodeNotFoundException ex)
+                {
+                    return Results.NotFound(new { error = "node found but explain failed", nodeId = ex.NodeId });
+                }
+            }
+
+            // Search globally in all PlanNodes
+            var allPlans = await client.GetAllPlanNodesGlobalAsync(ct);
+            var planNode = allPlans.FirstOrDefault(n =>
+                string.Equals(n.Id, nodeId, StringComparison.Ordinal));
+
+            if (planNode != null)
+            {
+                // Found! Use the node's actual sessionId
+                var nodeClient = graph.CreateClient(planNode.SessionId);
+                try
+                {
+                    var explanation = await nodeClient.ExplainNodeAsync(nodeId, ct);
+                    return BuildExplainResponse(explanation, planNode.SessionId, dagId);
+                }
+                catch (NodeNotFoundException ex)
+                {
+                    return Results.NotFound(new { error = "node found but explain failed", nodeId = ex.NodeId });
+                }
+            }
+
+            // Node not found anywhere
+            return Results.NotFound(new { error = "node not found", nodeId });
         });
 
         app.MapGet("/api/sessions/{sessionId}/graph/paper", async (
@@ -834,7 +874,8 @@ internal static class ResearchSessionsApi
             var dagId = session.EffectiveDagId;
             _ = await dag.LoadSnapshotAsync(dagId, ct);
 
-            var client = graph.CreateClient(dagId);
+            // Use session.Id for Knowledge Graph queries (nodes are stored with actual session ID)
+            var client = graph.CreateClient(session.Id);
             var markdown = await client.GenerateFullPaperAsync(ct);
             return Results.Json(new { ok = true, sessionId = session.Id, dagId, markdown });
         });
@@ -848,6 +889,31 @@ internal static class ResearchSessionsApi
     private sealed record DagBindingPutInDto
     {
         public string? DagId { get; init; } // empty => unbind (per-session)
+    }
+
+    /// <summary>
+    /// Builds the JSON response for node explanation.
+    /// </summary>
+    private static IResult BuildExplainResponse(NodeExplanation explanation, string nodeSessionId, string dagId)
+    {
+        return Results.Json(new
+        {
+            ok = true,
+            sessionId = nodeSessionId,  // The actual session where the node resides
+            dagId,
+            explanation = new
+            {
+                nodeId = explanation.NodeId,
+                title = explanation.Title,
+                kind = explanation.NodeType, // Frontend expects "kind", not "nodeType"
+                markdownContent = explanation.MarkdownContent,
+                directDependencies = explanation.DirectDependencies,
+                fullChainNodeIds = Array.Empty<string>(), // Not in backend model; keep empty for compatibility
+                dependents = explanation.Dependents,
+                createdAt = explanation.CreatedAt.ToString("O"),
+                updatedAt = explanation.UpdatedAt.ToString("O")
+            }
+        }, Json);
     }
 
     private static void MapInput(WebApplication app)

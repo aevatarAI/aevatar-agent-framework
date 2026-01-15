@@ -173,6 +173,9 @@ internal sealed class VibeMilestoneLoopRunner
                     StepName = stepName
                 });
 
+                // The current milestone number is milestonesExecuted + 1 (1-based, accounting for initial round)
+                var currentMilestoneNum = milestonesExecuted + 1;
+
                 session.Events.Publish(new CustomEvent
                 {
                     Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
@@ -182,7 +185,7 @@ internal sealed class VibeMilestoneLoopRunner
                         sessionId = session.Id,
                         dagId,
                         milestoneNodeId,  // For UI to highlight the active plan node
-                        milestoneIndex = i + 1,
+                        milestoneIndex = currentMilestoneNum,
                         totalMilestones,
                         roundIndex = milestone.RoundIndex,
                         expectedOutput = milestone.ExpectedOutput
@@ -191,9 +194,9 @@ internal sealed class VibeMilestoneLoopRunner
 
                 // Update milestone status to Active
                 await TryUpdateMilestoneStatusAsync(graphClient, milestoneNodeId, PlanNodeStatus.Active,
-                    $"Starting research for milestone {i + 1}/{totalMilestones}", ct);
+                    $"Starting research for milestone {currentMilestoneNum}/{totalMilestones}", ct);
 
-                emitAssistantDelta($"\n## Milestone {i + 1}/{totalMilestones} (Round {milestone.RoundIndex})\n\n");
+                emitAssistantDelta($"\n## Milestone {currentMilestoneNum}/{totalMilestones} (Round {milestone.RoundIndex})\n\n");
                 emitAssistantDelta($"**Goal**: {milestone.ExpectedOutput}\n\n");
 
                 try
@@ -227,7 +230,7 @@ internal sealed class VibeMilestoneLoopRunner
                         var iterationPrompt = BuildDeepResearchPrompt(
                             question,
                             milestone.ExpectedOutput,
-                            i + 1,
+                            currentMilestoneNum,
                             totalMilestones,
                             iterationCount,
                             maxIterationsPerMilestone,
@@ -269,17 +272,17 @@ internal sealed class VibeMilestoneLoopRunner
                         }
                     }
 
-                    // Update milestone status to Completed
-                    await TryUpdateMilestoneStatusAsync(graphClient, milestoneNodeId, PlanNodeStatus.Completed,
-                        $"Completed milestone {i + 1}/{totalMilestones} after {iterationCount} iterations", ct);
-
                     milestonesExecuted++;
 
-                    emitAssistantDelta($"\n\n**Milestone {i + 1} completed.**\n\n---\n");
+                    // Update milestone status to Completed
+                    await TryUpdateMilestoneStatusAsync(graphClient, milestoneNodeId, PlanNodeStatus.Completed,
+                        $"Completed milestone {milestonesExecuted}/{totalMilestones} after {iterationCount} iterations", ct);
+
+                    emitAssistantDelta($"\n\n**Milestone {milestonesExecuted}/{totalMilestones} completed.**\n\n---\n");
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    _logger.LogError(ex, "[MilestoneLoop] Milestone {Index} failed: {Message}", i + 1, ex.Message);
+                    _logger.LogError(ex, "[MilestoneLoop] Milestone {Index} failed: {Message}", currentMilestoneNum, ex.Message);
 
                     session.Events.Publish(new CustomEvent
                     {
@@ -288,13 +291,13 @@ internal sealed class VibeMilestoneLoopRunner
                         Value = new
                         {
                             sessionId = session.Id,
-                            milestoneIndex = i + 1,
+                            milestoneIndex = currentMilestoneNum,
                             roundIndex = milestone.RoundIndex,
                             error = ex.Message
                         }
                     });
 
-                    emitAssistantDelta($"\n\n**Milestone {i + 1} encountered an error: {ex.Message}**\n\nContinuing to next milestone...\n\n---\n");
+                    emitAssistantDelta($"\n\n**Milestone {currentMilestoneNum}/{totalMilestones} encountered an error: {ex.Message}**\n\nContinuing to next milestone...\n\n---\n");
 
                     // Continue to next milestone even if this one failed
                     milestonesExecuted++;
@@ -316,7 +319,7 @@ internal sealed class VibeMilestoneLoopRunner
                         sessionId = session.Id,
                         dagId,
                         milestoneNodeId,  // For UI to clear the active highlight
-                        milestoneIndex = i + 1,
+                        milestoneIndex = milestonesExecuted,  // Use actual executed count (already incremented)
                         totalMilestones,
                         roundIndex = milestone.RoundIndex,
                         milestonesExecuted,

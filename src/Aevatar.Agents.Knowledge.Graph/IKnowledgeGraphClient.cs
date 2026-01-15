@@ -314,6 +314,11 @@ public interface IKnowledgeGraphClient
     Task<IReadOnlyList<KnowledgeNode>> GetAllKnowledgeNodesGlobalAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Gets ALL plan nodes across all sessions.
+    /// </summary>
+    Task<IReadOnlyList<PlanNode>> GetAllPlanNodesGlobalAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Gets ALL edges across all sessions (for migration purposes).
     /// </summary>
     Task<IReadOnlyList<(KnowledgeEdge Edge, string SessionId)>> GetAllEdgesGlobalAsync(CancellationToken cancellationToken = default);

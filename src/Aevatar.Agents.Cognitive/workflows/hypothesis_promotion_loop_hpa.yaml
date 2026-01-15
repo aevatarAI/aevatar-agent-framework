@@ -39,7 +39,7 @@ defaults:
       Core triad (Rotation → Factorization → Projection):
       - Rotation (scan Θ): "time" is the iteration/access-order; irrational rotation is used to avoid resonance (golden branch α=φ^{-1}).
       - Factorization: represent claims by explicit generators (axiom/theorem IDs) and an ordered reasoning path.
-      - Projection/readout: only accept closed arguments; any missing lemma/assumption is a residual gap δ and must be stated explicitly.
+      - Projection/readout: only accept closed arguments; any missing lemma/assumption that is UNJUSTIFIED or NOT DERIVABLE from given facts, or physically implausible or contradictory is a residual gap δ and must be stated explicitly.
 
       Key constructs you must respect (paper-aligned):
       - Embedding: Z(n)=ρ(n)·exp(i·θ×(n)); θ× is additive under multiplication (homomorphic phase).
@@ -516,8 +516,8 @@ steps:
         HPA operating rules (Factorization → Projection):
         - Factorization: you MUST report depends_on + factor_sequence (ordered reasoning path).
         - Projection / gap δ: 
-          * CORRECT missing lemma/assumption: If a missing lemma/assumption is logically correct and derivable from provided axioms/facts, it is ALLOWED and should NOT be reported as gap δ.
-          * INCORRECT missing lemma/assumption (gap δ): Only report as gap δ if the missing lemma/assumption is INCORRECT, contradicts the hypothesis, or cannot be derived from provided axioms/facts.
+          * CORRECT missing lemma/assumption: If a missing lemma/assumption is logically correct, derivable from provided axioms/facts, or physically plausible, it is ALLOWED and should NOT be reported as gap δ.
+          * INCORRECT missing lemma/assumption (gap δ): Only report as gap δ if the missing lemma/assumption is INCORRECT, contradicts the hypothesis, physically implausible or contradictory, or cannot be derived from provided axioms/facts.
           * When gap δ exists: put it in gap_or_counterexample and set accept=false.
         - Non-associativity signal: factor_sequence MUST reflect your actual reasoning order (path dependence matters).
 
@@ -532,7 +532,7 @@ steps:
         - Use ONLY the axioms + assumptions + relevant facts provided.
         - If accept=true: provide a short proof (<= 10 steps), with each step citing used IDs like [O1,T2].
         - If accept=false: provide minimal gap δ (only for INCORRECT missing lemma/assumption) or counterexample (one short paragraph).
-          Note: CORRECT missing lemma/assumption that can be derived from axioms/facts should NOT cause accept=false.
+          Note: CORRECT missing lemma/assumption that can be derived from axioms/facts or is physically plausibleshould NOT cause accept=false.
         - strong_refutation=true ONLY if you can state an explicit fatal counterexample/contradiction
           derived from provided axioms/facts with NO extra assumptions. If it's merely "missing lemma" (and the lemma is CORRECT),
           set strong_refutation=false. Only put INCORRECT missing lemma/assumption in gap_or_counterexample as gap δ.
@@ -656,7 +656,7 @@ steps:
             HPA operating rules (Factorization → Projection):
             - Factorization: you MUST report depends_on + factor_sequence (ordered reasoning path).
             - Projection / gap δ: 
-              * CORRECT missing lemma/assumption: If a missing lemma/assumption is logically correct and derivable from provided axioms/facts, it is ALLOWED and should NOT be reported as gap δ.
+              * CORRECT missing lemma/assumption: If a missing lemma/assumption is logically correct, physically plausible, or derivable from provided axioms/facts, it is ALLOWED and should NOT be reported as gap δ.
               * INCORRECT missing lemma/assumption (gap δ): Only report as gap δ if the missing lemma/assumption is INCORRECT, contradicts the hypothesis, or cannot be derived from provided axioms/facts.
               * When gap δ exists: put it in gap_or_counterexample and set accept=false.
             - Non-associativity signal: factor_sequence MUST reflect your actual reasoning order (path dependence matters).
@@ -789,7 +789,7 @@ steps:
 
                 HPA protocol (Factorization → Projection):
                 - Treat "proof" as projection: every step must be grounded in cited dependencies; no hidden assumptions.
-                - If any step requires an unstated lemma/assumption that CANNOT be inferred from provided axioms/theorems, declare it as GAP δ and STOP (do not proceed).
+                - If any step requires an unstated lemma/assumption that CANNOT be inferred from provided axioms/theorems declare it as GAP δ and STOP (do not proceed).
                 - If a step follows logically from given premises through standard inference rules (modus ponens, transitivity, algebra, etc.), it is NOT considered a GAP δ and you may proceed.
                 - Factorization: keep a minimal depends_on list and an ordered factor_sequence that matches your step order.
 

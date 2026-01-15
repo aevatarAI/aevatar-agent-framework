@@ -27,7 +27,6 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     addMessage,
     updateStats,
     addRawEvent,
-    resetForNewSession,
     setTools,
     setCurrentRun,
     updateAgentMessage,
@@ -91,8 +90,8 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
       streamRef.current = null
     }
 
-    // Reset state for new session
-    resetForNewSession()
+    // Note: resetForNewSession() is called in App.tsx before session switch
+    // Avoid duplicate reset here to prevent race conditions
 
     // Create new stream
     const stream = createAxiomEventStream(sessionId)
@@ -118,11 +117,74 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
 
     // === Standard AG-UI Events ===
 
-    // Messages Snapshot - marks connection as established
+    // Messages Snapshot - marks connection as established and restores streaming content
     stream.on("MESSAGES_SNAPSHOT", (event) => {
       markConnected()
       addRawEvent(event)
-      console.log("[AxiomStream] MESSAGES_SNAPSHOT received")
+
+      // Restore messages from snapshot - this is crucial for session switching
+      // When user switches back to a session that's still streaming, we need to
+      // restore the accumulated content immediately
+      const messages = (event as { messages?: Array<{ id: string; role: string; content: string }> }).messages || []
+      console.log(`[AxiomStream] MESSAGES_SNAPSHOT received with ${messages.length} messages`)
+
+      for (const msg of messages) {
+        if (!msg.id || !msg.content) continue
+
+        // Parse messageId format: msg:{sessionId}:{role/agent}:{runId}
+        const parts = msg.id.split(":")
+        if (parts.length < 4) continue
+
+        const role = parts[2]
+
+        // Only restore assistant messages (streaming content)
+        if (role === "assistant" || (role && role !== "user" && !role.startsWith("worker"))) {
+          const agentName = role === "assistant" ? "research_assistant" : role
+          const parsed = parseMessageId(msg.id)
+
+          // Restore worker streaming content
+          if (parsed.workerId) {
+            flushSync(() => {
+              useSisyphusStore.setState((state) => {
+                const existingWorker = state.workers[parsed.workerId]
+                // Only restore if worker doesn't exist or has no content yet
+                if (!existingWorker || !existingWorker.streamContent) {
+                  return {
+                    workers: {
+                      ...state.workers,
+                      [parsed.workerId]: {
+                        // Base defaults
+                        id: parsed.workerId,
+                        name: parsed.workerId === "coordinator" ? "Coordinator" : `Worker ${parsed.workerId}`,
+                        status: "streaming" as const,
+                        streaming: true,
+                        lastResponse: "",
+                        tokenIndex: 0,
+                        history: [],
+                        // Override with restored streaming content
+                        streamContent: msg.content,
+                      },
+                    },
+                  }
+                }
+                return state
+              })
+            })
+          }
+
+          // Restore agent message
+          flushSync(() => {
+            updateAgentMessage(agentName, {
+              agent: agentName,
+              isStreaming: true, // Assume still streaming, TEXT_MESSAGE_END will finalize
+              isFinal: false,
+              content: msg.content, // Set full content (not delta) - store will handle
+            })
+          })
+
+          console.log(`[AxiomStream] Restored message for agent=${agentName}, content.length=${msg.content.length}`)
+        }
+      }
     })
 
     // Run Started
@@ -833,7 +895,8 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
       stream.disconnect()
       setConnected(false)
     }
-  }, [sessionId, enabled, setConnected, updateSession, updateWorker, appendWorkerHistory, addMessage, updateStats, addRawEvent, resetForNewSession, appendWorkerStream, setTools, upsertToolOutput])
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- Store functions are stable, only sessionId/enabled should trigger reconnect
+  }, [sessionId, enabled])
 
   return {
     isConnected: useSisyphusStore((s) => s.isConnected),

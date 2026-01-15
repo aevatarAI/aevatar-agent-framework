@@ -101,83 +101,134 @@ public sealed class KnowledgeNode : IGraphNode
 
         var sb = new StringBuilder();
 
-        // Title
-        sb.AppendLine($"# {CoreDescription}");
+        // ============================================================
+        // Section 1: Knowledge Info (Table)
+        // ============================================================
+        sb.AppendLine("## Knowledge Info");
+        sb.AppendLine();
+        sb.AppendLine("| Property | Value |");
+        sb.AppendLine("|----------|-------|");
+        sb.AppendLine($"| **Id** | `{Id}` |");
+        sb.AppendLine($"| **Session Id** | `{SessionId}` |");
+        sb.AppendLine($"| **Type** | {NodeType} |");
+        sb.AppendLine($"| **Core Description** | {EscapeTableCell(CoreDescription)} |");
+        sb.AppendLine($"| **References** | {FormatReferencesForTable()} |");
+        sb.AppendLine($"| **Resource Uri** | {(string.IsNullOrWhiteSpace(ResourceUri) ? "*None*" : $"[Download]({ResourceUri})")} |");
+        sb.AppendLine($"| **Attestations** | {FormatAttestationsForTable()} |");
+        sb.AppendLine($"| **Owner** | {(string.IsNullOrWhiteSpace(Owner) ? "*Not specified*" : $"`{Owner}`")} |");
+        sb.AppendLine($"| **Created At** | {CreatedAt:yyyy-MM-dd HH:mm:ss UTC} |");
         sb.AppendLine();
 
-        // Meta info
-        sb.AppendLine($"**Type**: {NodeType}");
-        sb.AppendLine($"**Node ID**: `{Id}`");
+        // ============================================================
+        // Section 2: Knowledge Details
+        // ============================================================
+        sb.AppendLine("## Knowledge Details");
         sb.AppendLine();
 
-        // Description
-        sb.AppendLine("## Description");
+        sb.AppendLine("### Detailed Description");
         sb.AppendLine();
         sb.AppendLine(DetailedDescription);
         sb.AppendLine();
 
-        // Derivation process
+        if (!string.IsNullOrWhiteSpace(Proof))
+        {
+            sb.AppendLine("### Proof");
+            sb.AppendLine();
+            sb.AppendLine(Proof);
+            sb.AppendLine();
+        }
+
         if (!string.IsNullOrWhiteSpace(DerivationProcess))
         {
-            sb.AppendLine("## Derivation Process");
+            sb.AppendLine("### Derivation Process");
             sb.AppendLine();
             sb.AppendLine(DerivationProcess);
             sb.AppendLine();
         }
 
-        // References
-        if (References.Count > 0)
-        {
-            sb.AppendLine("## References");
-            sb.AppendLine();
-            foreach (var reference in References)
-            {
-                sb.AppendLine($"- {reference}");
-            }
-            sb.AppendLine();
-        }
-
-        // Dependencies (what this knowledge is derived from)
-        if (directDeps.Count > 0)
-        {
-            sb.AppendLine("## Derived From");
-            sb.AppendLine();
-            foreach (var depId in directDeps)
-            {
-                var node = snapshot.GetNode(depId);
-                var label = node != null ? $"{node.CoreDescription} (`{depId}`)" : $"`{depId}`";
-                sb.AppendLine($"- {label}");
-            }
-            sb.AppendLine();
-        }
-
-        // Dependents (what depends on this knowledge)
-        if (dependents.Count > 0)
-        {
-            sb.AppendLine("## Used By");
-            sb.AppendLine();
-            foreach (var depId in dependents)
-            {
-                var node = snapshot.GetNode(depId);
-                var label = node != null ? $"{node.CoreDescription} (`{depId}`)" : $"`{depId}`";
-                sb.AppendLine($"- {label}");
-            }
-            sb.AppendLine();
-        }
-
-        // Resource link
-        if (!string.IsNullOrWhiteSpace(ResourceUri))
-        {
-            sb.AppendLine("## Resources");
-            sb.AppendLine();
-            sb.AppendLine($"[Download Resources]({ResourceUri})");
-            sb.AppendLine();
-        }
-
-        // Timestamps
-        sb.AppendLine("---");
+        // ============================================================
+        // Section 3: Knowledge Derivation Chain
+        // ============================================================
+        sb.AppendLine("## Knowledge Derivation Chain");
         sb.AppendLine();
-        sb.AppendLine($"*Created: {CreatedAt:yyyy-MM-dd HH:mm:ss UTC}*");
+        sb.AppendLine("*This section shows the complete derivation chain of knowledge nodes that this knowledge is based on.*");
+        sb.AppendLine();
+
+        // Build derivation chain - only include KnowledgeNodes, not PlanNodes
+        var derivationLevels = BuildDerivationChain(snapshot);
+
+        if (derivationLevels.Count == 0)
+        {
+            sb.AppendLine("*This is a foundational knowledge node with no upstream dependencies.*");
+            sb.AppendLine();
+        }
+        else
+        {
+            foreach (var (level, nodes) in derivationLevels)
+            {
+                sb.AppendLine($"### Derivation Level {level}");
+                sb.AppendLine();
+
+                foreach (var node in nodes)
+                {
+                    var anchor = SanitizeAnchor(node.Id);
+                    sb.AppendLine($"#### {node.CoreDescription}");
+                    sb.AppendLine();
+                    sb.AppendLine($"<a id=\"{anchor}\"></a>");
+                    sb.AppendLine();
+                    sb.AppendLine("| Property | Value |");
+                    sb.AppendLine("|----------|-------|");
+                    sb.AppendLine($"| **Id** | `{node.Id}` |");
+                    sb.AppendLine($"| **Session Id** | `{node.SessionId}` |");
+                    sb.AppendLine($"| **Core Description** | {EscapeTableCell(node.CoreDescription)} |");
+                    sb.AppendLine();
+
+                    if (!string.IsNullOrWhiteSpace(node.DetailedDescription))
+                    {
+                        sb.AppendLine("**Detailed Description:**");
+                        sb.AppendLine();
+                        sb.AppendLine(node.DetailedDescription);
+                        sb.AppendLine();
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(node.Proof))
+                    {
+                        sb.AppendLine("**Proof:**");
+                        sb.AppendLine();
+                        sb.AppendLine(node.Proof);
+                        sb.AppendLine();
+                    }
+
+                    if (node.References.Count > 0)
+                    {
+                        sb.AppendLine("**References:**");
+                        sb.AppendLine();
+                        foreach (var reference in node.References)
+                        {
+                            sb.AppendLine($"- {reference}");
+                        }
+                        sb.AppendLine();
+                    }
+
+                    // Based On List - links to parent nodes in this document
+                    var parentKnowledgeNodes = GetParentKnowledgeNodes(node, snapshot);
+                    if (parentKnowledgeNodes.Count > 0)
+                    {
+                        sb.AppendLine("**Based On:**");
+                        sb.AppendLine();
+                        foreach (var parent in parentKnowledgeNodes)
+                        {
+                            var parentAnchor = SanitizeAnchor(parent.Id);
+                            sb.AppendLine($"- [{parent.CoreDescription}](#{parentAnchor})");
+                        }
+                        sb.AppendLine();
+                    }
+
+                    sb.AppendLine("---");
+                    sb.AppendLine();
+                }
+            }
+        }
 
         return new NodeExplanation
         {
@@ -190,5 +241,95 @@ public sealed class KnowledgeNode : IGraphNode
             CreatedAt = CreatedAt,
             UpdatedAt = UpdatedAt
         };
+    }
+
+    // ========== Helper methods for Explain() ==========
+
+    private string FormatReferencesForTable()
+    {
+        if (References.Count == 0) return "*None*";
+        if (References.Count == 1) return References[0];
+        return string.Join(", ", References.Take(3)) + (References.Count > 3 ? $" (+{References.Count - 3} more)" : "");
+    }
+
+    private string FormatAttestationsForTable()
+    {
+        if (Attestations.Count == 0) return "*None*";
+        return $"{Attestations.Count} attestation(s)";
+    }
+
+    private static string EscapeTableCell(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return "*None*";
+        // Escape pipe characters and newlines for table cells
+        return text.Replace("|", "\\|").Replace("\n", " ").Replace("\r", "");
+    }
+
+    private static string SanitizeAnchor(string id)
+    {
+        // Create a valid HTML anchor from node ID
+        return id.Replace("_", "-").Replace(" ", "-").ToLowerInvariant();
+    }
+
+    private List<(int Level, List<KnowledgeNode> Nodes)> BuildDerivationChain(GraphSnapshot snapshot)
+    {
+        var result = new List<(int Level, List<KnowledgeNode> Nodes)>();
+        var visited = new HashSet<string>(StringComparer.Ordinal) { Id };
+        var currentLevel = new List<string>(DependsOn);
+        var level = 1;
+
+        while (currentLevel.Count > 0)
+        {
+            var levelNodes = new List<KnowledgeNode>();
+            var nextLevel = new List<string>();
+
+            foreach (var nodeId in currentLevel)
+            {
+                if (visited.Contains(nodeId)) continue;
+                visited.Add(nodeId);
+
+                var node = snapshot.GetNode(nodeId);
+                // Only include KnowledgeNodes, skip PlanNodes
+                if (node is KnowledgeNode kn)
+                {
+                    levelNodes.Add(kn);
+                    // Add this node's dependencies for the next level
+                    foreach (var depId in kn.DependsOn)
+                    {
+                        if (!visited.Contains(depId))
+                        {
+                            nextLevel.Add(depId);
+                        }
+                    }
+                }
+            }
+
+            if (levelNodes.Count > 0)
+            {
+                result.Add((level, levelNodes));
+            }
+
+            currentLevel = nextLevel;
+            level++;
+
+            // Safety: prevent infinite loops (max 10 levels)
+            if (level > 10) break;
+        }
+
+        return result;
+    }
+
+    private static List<KnowledgeNode> GetParentKnowledgeNodes(KnowledgeNode node, GraphSnapshot snapshot)
+    {
+        var result = new List<KnowledgeNode>();
+        foreach (var depId in node.DependsOn)
+        {
+            var parent = snapshot.GetNode(depId);
+            if (parent is KnowledgeNode kn)
+            {
+                result.Add(kn);
+            }
+        }
+        return result;
     }
 }

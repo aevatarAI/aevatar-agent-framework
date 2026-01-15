@@ -103,6 +103,52 @@ export function useDagInteractions() {
   )
 
   /**
+   * Get upstream nodes organized by level (depth from current node)
+   * Level 0 = direct parents, Level 1 = grandparents, etc.
+   * Used by SubGraphViewer for view level filtering.
+   *
+   * @param nodeId - The starting node ID
+   * @param graph - The DAG graph data
+   * @param maxLevel - Optional max level to traverse (undefined = all levels)
+   * @returns Map of nodeId -> level
+   */
+  const getUpstreamNodesByLevel = useCallback(
+    (nodeId: string, graph: DAGGraph | null, maxLevel?: number): Map<string, number> => {
+      if (!graph?.nodes || !graph?.edges) return new Map()
+
+      const result = new Map<string, number>()
+      const visited = new Set<string>()
+      const queue: Array<{ id: string; level: number }> = []
+
+      // Find direct parents (level 0)
+      const directParents = graph.edges
+        .filter((e) => e.target === nodeId)
+        .map((e) => e.source)
+
+      directParents.forEach((id) => queue.push({ id, level: 0 }))
+
+      while (queue.length > 0) {
+        const { id, level } = queue.shift()!
+        if (visited.has(id)) continue
+        if (maxLevel !== undefined && level > maxLevel) continue
+
+        visited.add(id)
+        result.set(id, level)
+
+        // Find parents of current node
+        const parents = graph.edges
+          .filter((e) => e.target === id)
+          .map((e) => e.source)
+
+        parents.forEach((parentId) => queue.push({ id: parentId, level: level + 1 }))
+      }
+
+      return result
+    },
+    []
+  )
+
+  /**
    * Set highlight mode and compute highlighted nodes
    */
   const setHighlight = useCallback(
@@ -185,6 +231,7 @@ export function useDagInteractions() {
     getUpstreamNodeIds,
     getDownstreamNodeIds,
     getFullChainNodeIds,
+    getUpstreamNodesByLevel,
     setHighlight,
     clearHighlight,
     isNodeHighlighted,

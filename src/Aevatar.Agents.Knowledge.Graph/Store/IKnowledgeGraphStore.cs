@@ -102,6 +102,11 @@ internal interface IKnowledgeGraphStore
     Task<IReadOnlyList<KnowledgeNode>> GetAllKnowledgeNodesGlobalAsync(CancellationToken cancellationToken);
 
     /// <summary>
+    /// Gets ALL plan nodes across all sessions.
+    /// </summary>
+    Task<IReadOnlyList<PlanNode>> GetAllPlanNodesGlobalAsync(CancellationToken cancellationToken);
+
+    /// <summary>
     /// Gets ALL edges across all sessions (for migration purposes).
     /// </summary>
     Task<IReadOnlyList<(KnowledgeEdge Edge, string SessionId)>> GetAllEdgesGlobalAsync(CancellationToken cancellationToken);

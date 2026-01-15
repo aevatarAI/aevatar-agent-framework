@@ -665,6 +665,12 @@ internal sealed class GraphClientBackedStore : IKnowledgeGraphStore
         return nodes.Select(ToKnowledgeNode).ToList();
     }
 
+    public async Task<IReadOnlyList<PlanNode>> GetAllPlanNodesGlobalAsync(CancellationToken cancellationToken)
+    {
+        var nodes = await _graphClient.QueryAsync(new NodeQuery { Type = PlanNodeGraphType });
+        return nodes.Select(ToPlanNode).ToList();
+    }
+
     public async Task<IReadOnlyList<(KnowledgeEdge Edge, string SessionId)>> GetAllEdgesGlobalAsync(CancellationToken cancellationToken)
     {
         var edges = await _graphClient.QueryAsync(new EdgeQuery { Type = EdgeType });

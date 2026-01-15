@@ -1,6 +1,7 @@
-import { useState } from 'react'
-import ReactMarkdown from 'react-markdown'
+import { useState, useRef, useCallback } from 'react'
+import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import rehypeRaw from 'rehype-raw'
 import { Copy, Download, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -12,6 +13,8 @@ import { cn } from '@/lib/utils'
 interface MarkdownPreviewProps {
   content: string
   title?: string
+  /** Custom filename for download (without extension). If not provided, uses sanitized title. */
+  downloadFilename?: string
   className?: string
   maxHeight?: string
 }
@@ -19,10 +22,35 @@ interface MarkdownPreviewProps {
 export function MarkdownPreview({
   content,
   title = 'content',
+  downloadFilename,
   className,
   maxHeight = 'max-h-[60vh]'
 }: MarkdownPreviewProps) {
   const [copied, setCopied] = useState(false)
+  const contentRef = useRef<HTMLDivElement>(null)
+
+  // Handle internal anchor link clicks - scroll within the container
+  const handleAnchorClick = useCallback((e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+    if (href.startsWith('#')) {
+      e.preventDefault()
+      const targetId = href.slice(1) // Remove the '#'
+      const container = contentRef.current
+      if (!container) return
+
+      // Find the target element by id
+      const targetElement = container.querySelector(`#${CSS.escape(targetId)}`) ||
+                           container.querySelector(`[id="${targetId}"]`) ||
+                           container.querySelector(`a[id="${targetId}"]`)
+
+      if (targetElement) {
+        // Scroll the target into view within the container
+        targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        // Add a brief highlight effect
+        targetElement.classList.add('anchor-highlight')
+        setTimeout(() => targetElement.classList.remove('anchor-highlight'), 2000)
+      }
+    }
+  }, [])
 
   const handleCopy = async () => {
     try {
@@ -39,7 +67,9 @@ export function MarkdownPreview({
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.md`
+    // Use custom filename if provided, otherwise sanitize title
+    const filename = downloadFilename || title.replace(/[^a-z0-9]/gi, '_').toLowerCase()
+    a.download = filename.endsWith('.md') ? filename : `${filename}.md`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -89,10 +119,13 @@ export function MarkdownPreview({
       </div>
 
       {/* Markdown Content */}
-      <div className={cn(
-        "p-4 overflow-auto",
-        maxHeight
-      )}>
+      <div
+        ref={contentRef}
+        className={cn(
+          "p-4 overflow-auto scroll-smooth",
+          maxHeight
+        )}
+      >
         <div className="prose prose-sm prose-invert max-w-none leading-relaxed
           prose-headings:text-neon-cyan prose-headings:font-display prose-headings:text-sm
           prose-h1:text-base prose-h2:text-sm prose-h3:text-xs
@@ -106,7 +139,42 @@ export function MarkdownPreview({
           prose-th:text-text-primary prose-th:bg-surface-elevated prose-th:px-2 prose-th:py-1
           prose-td:text-text-secondary prose-td:px-2 prose-td:py-1
         ">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            rehypePlugins={[rehypeRaw]}
+            components={{
+              a: ({ href, children, ...props }) => {
+                const hrefStr = href || ''
+                // Handle internal anchor links
+                if (hrefStr.startsWith('#')) {
+                  return (
+                    <a
+                      {...props}
+                      href={hrefStr}
+                      onClick={(e) => handleAnchorClick(e, hrefStr)}
+                      className="text-neon-cyan hover:underline cursor-pointer"
+                    >
+                      {children}
+                    </a>
+                  )
+                }
+                // External links open in new tab
+                return (
+                  <a
+                    {...props}
+                    href={hrefStr}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-neon-cyan hover:underline"
+                  >
+                    {children}
+                  </a>
+                )
+              },
+            } as Components}
+          >
+            {content}
+          </ReactMarkdown>
         </div>
       </div>
     </div>

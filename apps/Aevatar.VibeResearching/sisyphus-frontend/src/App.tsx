@@ -2,7 +2,7 @@ import React, { useEffect, useCallback, useState, useRef } from 'react';
 import { Header, Sidebar, InteractionStream, WorkflowTopology, StatusBar, SettingsPanel } from '@/components/sisyphus';
 import { useSisyphusStore } from '@/store/sisyphus-store';
 import { useAxiomStream } from '@/hooks/use-axiom-stream';
-import { listSessions, createSession, getDagSnapshot, getSessionEvents, parseWorkersFromEvents, type AxiomSession } from '@/lib/axiom-client';
+import { listSessions, createSession, getDagSnapshot, getSessionEvents, parseWorkersFromEvents, abortCurrentSessionRequests, type AxiomSession } from '@/lib/axiom-client';
 import type { DAGGraph } from '@/types';
 import { cn } from '@/lib/utils';
 
@@ -157,47 +157,61 @@ const App: React.FC = () => {
   // Handle session selection - reset workers and data for new session
   const handleSelectSession = useCallback(async (sessionId: string | null) => {
     if (sessionId !== currentSessionId) {
+      // Abort any pending requests from previous session first
+      abortCurrentSessionRequests();
       // Reset workers, DAG, messages when switching sessions
       resetForNewSession();
     }
     setCurrentSession(sessionId);
-    
+
     if (!sessionId) return;
-    
-    // Fetch DAG data for the selected session
+
+    // Parallelize DAG and events fetching for better performance
     try {
-      const rawDag = await getDagSnapshot(sessionId);
-      const dagData = transformDagData(rawDag);
-      if (dagData) {
-        setDag(dagData);
+      const [rawDag, eventsText] = await Promise.all([
+        getDagSnapshot(sessionId).catch(err => {
+          console.warn('[App] Failed to fetch DAG for session:', sessionId, err);
+          return null;
+        }),
+        getSessionEvents(sessionId).catch(err => {
+          console.warn('[App] Failed to load historical events:', err);
+          return '';
+        }),
+      ]);
+
+      // Process DAG data
+      if (rawDag) {
+        const dagData = transformDagData(rawDag);
+        if (dagData) {
+          setDag(dagData);
+        }
+      }
+
+      // Process historical workers
+      if (eventsText) {
+        const workersMap = parseWorkersFromEvents(eventsText);
+        console.log('[App] Parsed workers:', workersMap.size);
+        workersMap.forEach((worker) => {
+          updateWorker({
+            id: worker.id,
+            name: worker.name,
+            status: worker.status,
+            provider: worker.provider,
+            stepId: worker.stepId,
+            stepType: worker.stepType,
+            tokenIndex: worker.tokenIndex,
+            lastResponse: worker.lastResponse,
+            history: worker.history,
+          });
+        });
       }
     } catch (err) {
-      console.warn('[App] Failed to fetch DAG for session:', sessionId, err);
-    }
-    
-    // Always try to restore workers from historical events
-    // SSE will handle real-time updates for running sessions
-    try {
-      console.log('[App] Loading historical workers for session:', sessionId);
-      const eventsText = await getSessionEvents(sessionId);
-      const workersMap = parseWorkersFromEvents(eventsText);
-      
-      console.log('[App] Parsed workers:', workersMap.size);
-      workersMap.forEach((worker) => {
-        updateWorker({
-          id: worker.id,
-          name: worker.name,
-          status: worker.status,
-          provider: worker.provider,
-          stepId: worker.stepId,
-          stepType: worker.stepType,
-          tokenIndex: worker.tokenIndex,
-          lastResponse: worker.lastResponse,
-          history: worker.history,
-        });
-      });
-    } catch (err) {
-      console.warn('[App] Failed to load historical workers:', err);
+      // AbortError is expected when switching sessions quickly
+      if (err instanceof Error && err.name === 'AbortError') {
+        console.log('[App] Session switch request aborted (expected)');
+        return;
+      }
+      console.warn('[App] Failed to load session data:', err);
     }
   }, [currentSessionId, resetForNewSession, setCurrentSession, setDag, updateWorker]);
 

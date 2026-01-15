@@ -44,21 +44,125 @@ export interface RunResult {
 // Production: set VITE_AXIOM_API_BASE to full backend URL
 const API_BASE = import.meta.env.VITE_AXIOM_API_BASE || ""
 
-// === Fetch Helper ===
-async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      ...init?.headers,
-    },
-  })
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`API Error ${res.status}: ${text}`)
+// === Request Caching & Deduplication ===
+interface CacheEntry<T> {
+  data: T
+  timestamp: number
+}
+
+interface PendingRequest<T> {
+  promise: Promise<T>
+  abortController: AbortController
+}
+
+// Cache with TTL (5 seconds default)
+const requestCache = new Map<string, CacheEntry<unknown>>()
+const CACHE_TTL_MS = 5000
+
+// Pending requests for deduplication
+const pendingRequests = new Map<string, PendingRequest<unknown>>()
+
+// Current session abort controller - for cancelling all requests when switching sessions
+let currentSessionAbortController: AbortController | null = null
+
+/**
+ * Get or create AbortController for the current session
+ */
+export function getSessionAbortController(): AbortController {
+  if (!currentSessionAbortController) {
+    currentSessionAbortController = new AbortController()
   }
-  return res.json()
+  return currentSessionAbortController
+}
+
+/**
+ * Abort all pending requests for the current session and create a new controller
+ */
+export function abortCurrentSessionRequests(): void {
+  if (currentSessionAbortController) {
+    currentSessionAbortController.abort()
+  }
+  currentSessionAbortController = new AbortController()
+  // Clear pending requests map since they're all aborted
+  pendingRequests.clear()
+  console.log('[axiom-client] Aborted all pending session requests')
+}
+
+/**
+ * Clear the request cache (useful when data may have changed)
+ */
+export function clearRequestCache(): void {
+  requestCache.clear()
+}
+
+// === Fetch Helper ===
+async function fetchJson<T>(
+  path: string,
+  init?: RequestInit,
+  options?: { cache?: boolean; cacheTtl?: number }
+): Promise<T> {
+  const cacheKey = `${init?.method || 'GET'}:${path}`
+  const useCaching = options?.cache !== false && (!init?.method || init.method === 'GET')
+  const ttl = options?.cacheTtl ?? CACHE_TTL_MS
+
+  // Check cache first
+  if (useCaching) {
+    const cached = requestCache.get(cacheKey) as CacheEntry<T> | undefined
+    if (cached && Date.now() - cached.timestamp < ttl) {
+      console.log(`[axiom-client] Cache hit: ${path}`)
+      return cached.data
+    }
+  }
+
+  // Check for pending identical request (deduplication)
+  if (useCaching && pendingRequests.has(cacheKey)) {
+    console.log(`[axiom-client] Dedup hit: ${path}`)
+    return pendingRequests.get(cacheKey)!.promise as Promise<T>
+  }
+
+  // Create abort controller linked to session controller
+  const abortController = new AbortController()
+  const sessionController = getSessionAbortController()
+
+  // Link to session abort
+  const abortHandler = () => abortController.abort()
+  sessionController.signal.addEventListener('abort', abortHandler)
+
+  const fetchPromise = (async () => {
+    try {
+      const res = await fetch(`${API_BASE}${path}`, {
+        ...init,
+        signal: abortController.signal,
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          ...init?.headers,
+        },
+      })
+      if (!res.ok) {
+        const text = await res.text()
+        throw new Error(`API Error ${res.status}: ${text}`)
+      }
+      const data = await res.json() as T
+
+      // Store in cache
+      if (useCaching) {
+        requestCache.set(cacheKey, { data, timestamp: Date.now() })
+      }
+
+      return data
+    } finally {
+      sessionController.signal.removeEventListener('abort', abortHandler)
+      pendingRequests.delete(cacheKey)
+    }
+  })()
+
+  // Store pending request for deduplication
+  if (useCaching) {
+    pendingRequests.set(cacheKey, { promise: fetchPromise, abortController })
+  }
+
+  return fetchPromise
 }
 
 // === API Functions ===
@@ -289,8 +393,10 @@ export async function getSessionEvents(sessionId: string | null | undefined): Pr
     console.warn('[axiom-client] getSessionEvents called with invalid sessionId:', sessionId);
     return '';
   }
+  const sessionController = getSessionAbortController()
   const res = await fetch(`${API_BASE}/api/sessions/${sessionId}/agui/events`, {
     headers: { Accept: "text/event-stream" },
+    signal: sessionController.signal,
   })
   if (!res.ok) {
     throw new Error(`Failed to fetch events: ${res.statusText}`)

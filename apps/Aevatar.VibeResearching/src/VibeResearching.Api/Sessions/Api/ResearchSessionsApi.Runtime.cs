@@ -2,6 +2,7 @@ using System.Linq;
 using Aevatar.Agents.AGUI;
 using Aevatar.Agents.Knowledge.Graph;
 using Aevatar.Agents.Knowledge.Graph.Exceptions;
+using Aevatar.Agents.Knowledge.Graph.Models;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using VibeResearching.Api.Vibe;
@@ -239,7 +240,8 @@ internal static partial class ResearchSessionsApi
             var dagId = session.EffectiveDagId;
             _ = await dag.LoadSnapshotAsync(dagId, ct);
 
-            var client = graph.CreateClient(dagId);
+            // 使用 session.Id 查询知识图谱（节点以真实 sessionId 存储）。
+            var client = graph.CreateClient(session.Id);
             var snapshot = await client.GetGraphSnapshotAsync(ct);
             return Results.Json(new { ok = true, sessionId = session.Id, dagId, graph = snapshot });
         });
@@ -263,7 +265,8 @@ internal static partial class ResearchSessionsApi
             var dagId = session.EffectiveDagId;
             _ = await dag.LoadSnapshotAsync(dagId, ct);
 
-            var client = graph.CreateClient(dagId);
+            // 使用 session.Id 查询知识图谱（节点以真实 sessionId 存储）。
+            var client = graph.CreateClient(session.Id);
             try
             {
                 var details = await client.GetKnowledgeChainDetailsAsync(nodeId, ct);
@@ -284,6 +287,7 @@ internal static partial class ResearchSessionsApi
         });
 
         // Node Explanation API (US4) - called by frontend workflow-topology.tsx
+        // 该 API 需要跨 session 全局搜索，因为前端 DAG 是全局视图。
         app.MapGet("/api/sessions/{sessionId}/graph/{nodeId}/explain", async (
             string sessionId,
             string nodeId,
@@ -303,36 +307,62 @@ internal static partial class ResearchSessionsApi
             var dagId = session.EffectiveDagId;
             _ = await dag.LoadSnapshotAsync(dagId, ct);
 
-            var client = graph.CreateClient(dagId);
+            // 使用 session.Id 查询知识图谱（节点以真实 sessionId 存储）。
+            var client = graph.CreateClient(session.Id);
+
+            // 快路径：先查当前 session
             try
             {
                 var explanation = await client.ExplainNodeAsync(nodeId, ct);
-
-                // Map backend NodeExplanation to frontend expected shape.
-                // Frontend expects "kind" but backend returns "NodeType".
-                return Results.Json(new
-                {
-                    ok = true,
-                    sessionId = session.Id,
-                    dagId,
-                    explanation = new
-                    {
-                        nodeId = explanation.NodeId,
-                        title = explanation.Title,
-                        kind = explanation.NodeType, // Frontend expects "kind", not "nodeType"
-                        markdownContent = explanation.MarkdownContent,
-                        directDependencies = explanation.DirectDependencies,
-                        fullChainNodeIds = Array.Empty<string>(), // Not in backend model; keep empty for compatibility
-                        dependents = explanation.Dependents,
-                        createdAt = explanation.CreatedAt.ToString("O"),
-                        updatedAt = explanation.UpdatedAt.ToString("O")
-                    }
-                }, Json);
+                return BuildExplainResponse(explanation, session.Id, dagId);
             }
-            catch (NodeNotFoundException ex)
+            catch (NodeNotFoundException)
             {
-                return Results.NotFound(new { error = "node not found", nodeId = ex.NodeId });
+                // 当前 session 未找到，进入全局搜索
             }
+
+            // 全局搜索 KnowledgeNodes
+            var allKnowledge = await client.GetAllKnowledgeNodesGlobalAsync(ct);
+            var knowledgeNode = allKnowledge.FirstOrDefault(n =>
+                string.Equals(n.Id, nodeId, StringComparison.Ordinal));
+
+            if (knowledgeNode != null)
+            {
+                // 命中后用节点实际 sessionId
+                var nodeClient = graph.CreateClient(knowledgeNode.SessionId);
+                try
+                {
+                    var explanation = await nodeClient.ExplainNodeAsync(nodeId, ct);
+                    return BuildExplainResponse(explanation, knowledgeNode.SessionId, dagId);
+                }
+                catch (NodeNotFoundException ex)
+                {
+                    return Results.NotFound(new { error = "node found but explain failed", nodeId = ex.NodeId });
+                }
+            }
+
+            // 全局搜索 PlanNodes
+            var allPlans = await client.GetAllPlanNodesGlobalAsync(ct);
+            var planNode = allPlans.FirstOrDefault(n =>
+                string.Equals(n.Id, nodeId, StringComparison.Ordinal));
+
+            if (planNode != null)
+            {
+                // 命中后用节点实际 sessionId
+                var nodeClient = graph.CreateClient(planNode.SessionId);
+                try
+                {
+                    var explanation = await nodeClient.ExplainNodeAsync(nodeId, ct);
+                    return BuildExplainResponse(explanation, planNode.SessionId, dagId);
+                }
+                catch (NodeNotFoundException ex)
+                {
+                    return Results.NotFound(new { error = "node found but explain failed", nodeId = ex.NodeId });
+                }
+            }
+
+            // 全局未找到
+            return Results.NotFound(new { error = "node not found", nodeId });
         });
 
         app.MapGet("/api/sessions/{sessionId}/graph/paper", async (
@@ -349,10 +379,36 @@ internal static partial class ResearchSessionsApi
             var dagId = session.EffectiveDagId;
             _ = await dag.LoadSnapshotAsync(dagId, ct);
 
-            var client = graph.CreateClient(dagId);
+            // 使用 session.Id 查询知识图谱（节点以真实 sessionId 存储）。
+            var client = graph.CreateClient(session.Id);
             var markdown = await client.GenerateFullPaperAsync(ct);
             return Results.Json(new { ok = true, sessionId = session.Id, dagId, markdown });
         });
+    }
+
+    /// <summary>
+    /// 构建节点解释的 JSON 响应。
+    /// </summary>
+    private static IResult BuildExplainResponse(NodeExplanation explanation, string nodeSessionId, string dagId)
+    {
+        return Results.Json(new
+        {
+            ok = true,
+            sessionId = nodeSessionId, // The actual session where the node resides
+            dagId,
+            explanation = new
+            {
+                nodeId = explanation.NodeId,
+                title = explanation.Title,
+                kind = explanation.NodeType, // Frontend expects "kind", not "nodeType"
+                markdownContent = explanation.MarkdownContent,
+                directDependencies = explanation.DirectDependencies,
+                fullChainNodeIds = Array.Empty<string>(), // Not in backend model; keep empty for compatibility
+                dependents = explanation.Dependents,
+                createdAt = explanation.CreatedAt.ToString("O"),
+                updatedAt = explanation.UpdatedAt.ToString("O")
+            }
+        }, Json);
     }
 
     private sealed record PlanEditInDto

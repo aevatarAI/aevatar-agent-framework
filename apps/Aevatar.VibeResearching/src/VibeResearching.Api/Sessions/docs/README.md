@@ -7,7 +7,14 @@
 ```
 Sessions/
   ResearchSessionManager.cs            # In-memory session registry + server-side message log
-  ResearchSessionsApi.cs               # Minimal APIs + SSE /agui/events
+  ResearchSessionsApi.cs               # API entry (partials in Api/)
+  Api/
+    ResearchSessionsApi.Core.cs        # /api/sessions create/list
+    ResearchSessionsApi.Runtime.cs     # dag/graph/compute/uploads
+    ResearchSessionsApi.StatusAndDeliverables.cs
+    ResearchSessionsApi.InputAndFacts.cs
+    ResearchSessionsApi.MeshAndFiles.cs
+    ResearchSessionsApi.AgUiEvents.cs  # SSE /agui/events
   ResearchRunExecutor.cs               # 执行单次 run（chat / vibe）
   ResearchApiDtos.cs                   # API DTOs
   ResearchWorkspaceState.cs            # STATE_SNAPSHOT payload (UI workspace inspector)
@@ -29,5 +36,10 @@ Sessions/
   - `aevatar.ui.tools_snapshot`
   - `aevatar.ui.run_steps_snapshot`
 - **best-effort**：任何落盘失败不得影响 run（只记日志/忽略）。
+
+## 迁移说明
+
+- Sessions API 已统一放在 `apps/Aevatar.VibeResearching/src/VibeResearching.Api/Sessions/`。
+- 旧的 `scientific-research-assistant` 路径已不再作为入口。
 
 

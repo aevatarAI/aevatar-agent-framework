@@ -611,4 +611,46 @@
   .animate-ring-pulse {
     animation: ring-pulse 2s ease-in-out infinite;
   }
+
+  /* === Selected Node Glow for SubGraphViewer === */
+  /* Uses CSS custom property --glow-color set inline */
+  @keyframes selected-node-glow {
+    0%, 100% {
+      filter: drop-shadow(0 0 8px var(--glow-color, rgba(34, 197, 94, 0.8)));
+      transform: scale(1);
+    }
+    50% {
+      filter:
+        drop-shadow(0 0 16px var(--glow-color, rgba(34, 197, 94, 0.8)))
+        drop-shadow(0 0 24px var(--glow-color, rgba(34, 197, 94, 0.8)));
+      transform: scale(1.05);
+    }
+  }
+
+  .animate-selected-glow {
+    animation: selected-node-glow 1.5s ease-in-out infinite;
+  }
+
+  /* Anchor highlight for internal link navigation */
+  @keyframes anchor-highlight-pulse {
+    0% {
+      background-color: rgba(0, 240, 255, 0.3);
+      box-shadow: 0 0 8px rgba(0, 240, 255, 0.5);
+    }
+    50% {
+      background-color: rgba(0, 240, 255, 0.15);
+      box-shadow: 0 0 4px rgba(0, 240, 255, 0.3);
+    }
+    100% {
+      background-color: transparent;
+      box-shadow: none;
+    }
+  }
+
+  .anchor-highlight {
+    animation: anchor-highlight-pulse 2s ease-out forwards;
+    border-radius: 4px;
+    padding: 2px 4px;
+    margin: -2px -4px;
+  }
 }

@@ -90,97 +90,125 @@ public sealed class PlanNode : IGraphNode
     {
         var directDeps = DependsOn.ToList();
         var dependents = snapshot.GetDependents(Id).ToList();
-        var motivatedKnowledge = snapshot.GetKnowledgeMotivatedByPlan(Id).ToList();
 
         var sb = new StringBuilder();
 
-        // Title with status badge
-        var statusEmoji = Status switch
-        {
-            PlanNodeStatus.Pending => "\u23f3",  // hourglass
-            PlanNodeStatus.Active => "\ud83d\udd04",   // arrows rotating
-            PlanNodeStatus.Completed => "\u2705", // check mark
-            _ => "\u2753"  // question mark
-        };
-        sb.AppendLine($"# {statusEmoji} {CoreDescription}");
+        // ============================================================
+        // Section 1: Plan Info (Table)
+        // ============================================================
+        sb.AppendLine("## Plan Info");
+        sb.AppendLine();
+        sb.AppendLine("| Property | Value |");
+        sb.AppendLine("|----------|-------|");
+        sb.AppendLine($"| **Id** | `{Id}` |");
+        sb.AppendLine($"| **Session Id** | `{SessionId}` |");
+        sb.AppendLine($"| **Core Description** | {EscapeTableCell(CoreDescription)} |");
+        sb.AppendLine($"| **Status** | {FormatStatusBadge(Status)} |");
+        sb.AppendLine($"| **Progress** | {(string.IsNullOrWhiteSpace(ProgressText) ? "*Not started*" : EscapeTableCell(ProgressText))} |");
+        sb.AppendLine($"| **Step Order** | #{SequentialOrder} |");
+        sb.AppendLine($"| **Owner** | {(string.IsNullOrWhiteSpace(Owner) ? "*Not specified*" : $"`{Owner}`")} |");
+        sb.AppendLine($"| **Created At** | {CreatedAt:yyyy-MM-dd HH:mm:ss UTC} |");
         sb.AppendLine();
 
-        // Meta info
-        sb.AppendLine($"**Status**: {Status}");
-        sb.AppendLine($"**Step**: #{SequentialOrder}");
-        sb.AppendLine($"**Node ID**: `{Id}`");
+        // ============================================================
+        // Section 2: Methodology
+        // ============================================================
+        sb.AppendLine("## Methodology");
         sb.AppendLine();
 
-        // Progress
-        if (!string.IsNullOrWhiteSpace(ProgressText))
-        {
-            sb.AppendLine("## Progress");
-            sb.AppendLine();
-            sb.AppendLine(ProgressText);
-            sb.AppendLine();
-        }
-
-        // Description
-        sb.AppendLine("## Description");
-        sb.AppendLine();
-        sb.AppendLine(DetailedDescription);
-        sb.AppendLine();
-
-        // Methodology
         if (!string.IsNullOrWhiteSpace(Methodology))
         {
-            sb.AppendLine("## Methodology");
-            sb.AppendLine();
             sb.AppendLine(Methodology);
-            sb.AppendLine();
         }
-
-        // Knowledge produced
-        if (motivatedKnowledge.Count > 0)
+        else if (!string.IsNullOrWhiteSpace(DetailedDescription))
         {
-            sb.AppendLine("## Knowledge Produced");
-            sb.AppendLine();
-            foreach (var knowledgeId in motivatedKnowledge)
-            {
-                var node = snapshot.KnowledgeNodes.FirstOrDefault(n => n.Id == knowledgeId);
-                var label = node != null ? $"{node.CoreDescription} (`{knowledgeId}`)" : $"`{knowledgeId}`";
-                sb.AppendLine($"- {label}");
-            }
-            sb.AppendLine();
+            sb.AppendLine(DetailedDescription);
         }
-
-        // Dependencies
-        if (directDeps.Count > 0)
+        else
         {
-            sb.AppendLine("## Dependencies");
-            sb.AppendLine();
-            foreach (var depId in directDeps)
-            {
-                var node = snapshot.GetNode(depId);
-                var label = node != null ? $"{node.CoreDescription} (`{depId}`)" : $"`{depId}`";
-                sb.AppendLine($"- {label}");
-            }
-            sb.AppendLine();
+            sb.AppendLine("*No methodology specified for this plan step.*");
         }
-
-        // Dependents (what depends on this)
-        if (dependents.Count > 0)
-        {
-            sb.AppendLine("## Used By");
-            sb.AppendLine();
-            foreach (var depId in dependents)
-            {
-                var node = snapshot.GetNode(depId);
-                var label = node != null ? $"{node.CoreDescription} (`{depId}`)" : $"`{depId}`";
-                sb.AppendLine($"- {label}");
-            }
-            sb.AppendLine();
-        }
-
-        // Timestamps
-        sb.AppendLine("---");
         sb.AppendLine();
-        sb.AppendLine($"*Created: {CreatedAt:yyyy-MM-dd HH:mm:ss UTC}*");
+
+        // ============================================================
+        // Section 3: Plan Chain
+        // ============================================================
+        sb.AppendLine("## Plan Chain");
+        sb.AppendLine();
+        sb.AppendLine("*This section shows all milestones in the research plan with their execution status.*");
+        sb.AppendLine();
+
+        // Get all plan nodes in this session, sorted by sequential order
+        var planChain = GetPlanChain(snapshot);
+
+        if (planChain.Count == 0)
+        {
+            sb.AppendLine("*No plan chain available.*");
+            sb.AppendLine();
+        }
+        else
+        {
+            foreach (var planNode in planChain)
+            {
+                var isCurrent = planNode.Id == Id;
+                var statusIndicator = GetStatusIndicator(planNode.Status);
+                var anchor = SanitizeAnchor(planNode.Id);
+
+                // Highlight current node
+                if (isCurrent)
+                {
+                    sb.AppendLine($"### {statusIndicator} **Milestone {planNode.SequentialOrder}: {planNode.CoreDescription}** (Current)");
+                }
+                else
+                {
+                    sb.AppendLine($"### {statusIndicator} Milestone {planNode.SequentialOrder}: {planNode.CoreDescription}");
+                }
+                sb.AppendLine();
+                sb.AppendLine($"<a id=\"{anchor}\"></a>");
+                sb.AppendLine();
+
+                sb.AppendLine("| Property | Value |");
+                sb.AppendLine("|----------|-------|");
+                sb.AppendLine($"| **Id** | `{planNode.Id}` |");
+                sb.AppendLine($"| **Status** | {FormatStatusBadge(planNode.Status)} |");
+
+                if (!string.IsNullOrWhiteSpace(planNode.ProgressText))
+                {
+                    sb.AppendLine($"| **Progress** | {EscapeTableCell(planNode.ProgressText)} |");
+                }
+                sb.AppendLine();
+
+                // Show methodology summary for non-current nodes (brief)
+                if (!isCurrent && !string.IsNullOrWhiteSpace(planNode.Methodology))
+                {
+                    var methodologySummary = planNode.Methodology.Length > 200
+                        ? planNode.Methodology.Substring(0, 200) + "..."
+                        : planNode.Methodology;
+                    sb.AppendLine("**Methodology:**");
+                    sb.AppendLine();
+                    sb.AppendLine(EscapeTableCell(methodologySummary));
+                    sb.AppendLine();
+                }
+
+                // Show knowledge produced by this milestone
+                var knowledgeProduced = snapshot.GetKnowledgeMotivatedByPlan(planNode.Id).ToList();
+                if (knowledgeProduced.Count > 0)
+                {
+                    sb.AppendLine("**Knowledge Produced:**");
+                    sb.AppendLine();
+                    foreach (var knowledgeId in knowledgeProduced)
+                    {
+                        var knowledgeNode = snapshot.KnowledgeNodes.FirstOrDefault(n => n.Id == knowledgeId);
+                        var label = knowledgeNode != null ? knowledgeNode.CoreDescription : knowledgeId;
+                        sb.AppendLine($"- {label}");
+                    }
+                    sb.AppendLine();
+                }
+
+                sb.AppendLine("---");
+                sb.AppendLine();
+            }
+        }
 
         return new NodeExplanation
         {
@@ -193,5 +221,51 @@ public sealed class PlanNode : IGraphNode
             CreatedAt = CreatedAt,
             UpdatedAt = UpdatedAt
         };
+    }
+
+    // ========== Helper methods for Explain() ==========
+
+    private static string FormatStatusBadge(PlanNodeStatus status)
+    {
+        return status switch
+        {
+            PlanNodeStatus.Pending => "Pending",
+            PlanNodeStatus.Active => "**Active**",
+            PlanNodeStatus.Completed => "Completed",
+            _ => "Unknown"
+        };
+    }
+
+    private static string GetStatusIndicator(PlanNodeStatus status)
+    {
+        return status switch
+        {
+            PlanNodeStatus.Completed => "[x]",
+            PlanNodeStatus.Active => "[>]",
+            PlanNodeStatus.Pending => "[ ]",
+            _ => "[?]"
+        };
+    }
+
+    private static string EscapeTableCell(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return "*None*";
+        // Escape pipe characters and newlines for table cells
+        return text.Replace("|", "\\|").Replace("\n", " ").Replace("\r", "");
+    }
+
+    private static string SanitizeAnchor(string id)
+    {
+        // Create a valid HTML anchor from node ID
+        return id.Replace("_", "-").Replace(" ", "-").ToLowerInvariant();
+    }
+
+    private List<PlanNode> GetPlanChain(GraphSnapshot snapshot)
+    {
+        // Get all plan nodes in this session, sorted by sequential order
+        return snapshot.PlanNodes
+            .Where(p => p.SessionId == SessionId)
+            .OrderBy(p => p.SequentialOrder)
+            .ToList();
     }
 }

@@ -53,7 +53,7 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
         />
         {/* Content wrapper */}
         <div className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none">
-          <div className="pointer-events-auto max-h-[90vh] w-full max-w-2xl animate-scale-in">
+          <div className="pointer-events-auto max-h-[90vh] animate-scale-in">
             {children}
           </div>
         </div>

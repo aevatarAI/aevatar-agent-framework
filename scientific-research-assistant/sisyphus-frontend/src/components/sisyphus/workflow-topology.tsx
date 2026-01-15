@@ -13,7 +13,7 @@ import {
   type Edge,
 } from '@xyflow/react'
 import dagre from 'dagre'
-import { Network, GitBranch, RefreshCw, FileText, ArrowUpCircle, ArrowDownCircle, Link2 } from 'lucide-react'
+import { Network, GitBranch, RefreshCw, FileText } from 'lucide-react'
 import { useSisyphusStore } from '@/store/sisyphus-store'
 import { useDagInteractions } from '@/hooks/use-dag-interactions'
 import type { DAGNode, NodeKind } from '@/types'
@@ -22,6 +22,7 @@ import { MarkdownPreview } from '@/components/ui/markdown-preview'
 import { cn } from '@/lib/utils'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogCloseButton } from '@/components/ui/dialog'
 import { SummaryModal } from './summary-modal'
+import { SubGraphViewer } from './sub-graph-viewer'
 import '@xyflow/react/dist/style.css'
 
 // ============================================================
@@ -390,7 +391,8 @@ function NodeDetailsPanel({ sessionId }: NodeDetailsPanelProps) {
         <MarkdownPreview
           content={nodeExplanation.markdownContent}
           title={nodeExplanation.title || selectedNode.id}
-          maxHeight="max-h-[50vh]"
+          downloadFilename={selectedNode.id}
+          maxHeight="max-h-[45vh]"
         />
       )}
 
@@ -446,7 +448,7 @@ function NodeDetailsPanel({ sessionId }: NodeDetailsPanelProps) {
 
 function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: WorkflowTopologyProps) {
   const { dag, selectedNodeId, setDag, setSelectedNode, isConnected, activeMilestoneNodeId } = useSisyphusStore()
-  const { setHighlight, clearHighlight, highlightMode, highlightedNodeIds, dagStats } = useDagInteractions()
+  const { clearHighlight, highlightMode, highlightedNodeIds, dagStats } = useDagInteractions()
   const reactFlowInstance = useRef<ReturnType<typeof import('@xyflow/react').useReactFlow> | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(false)
@@ -733,7 +735,7 @@ function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: Workflo
         </div>
       </div>
 
-      {/* Node details modal (on node click) */}
+      {/* Node details modal (on node click) - Split layout with SubGraph + Markdown */}
       <Dialog
         open={detailsOpen}
         onOpenChange={(open) => {
@@ -744,7 +746,7 @@ function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: Workflo
           }
         }}
       >
-        <DialogContent className="bg-bg-surface/95 backdrop-blur-md border border-border-default rounded-xl shadow-lg text-text-primary overflow-hidden">
+        <DialogContent className="bg-bg-surface/95 backdrop-blur-md border border-border-default rounded-xl shadow-lg text-text-primary overflow-hidden max-w-7xl w-[90vw]">
           <DialogHeader>
             <div className="min-w-0">
               <DialogTitle>Node details</DialogTitle>
@@ -759,66 +761,30 @@ function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: Workflo
             <DialogCloseButton />
           </DialogHeader>
 
-          <div className="p-4 overflow-y-auto max-h-[60vh]">
-            <NodeDetailsPanel sessionId={sessionId} />
+          {/* Split Panel Layout */}
+          <div className="flex min-h-[450px] max-h-[70vh]">
+            {/* Left Panel - Sub-graph Visualization */}
+            <div className="flex-1 min-w-[300px] max-w-[400px] border-r border-border-subtle">
+              {selectedNodeId && dag && (
+                <SubGraphViewer
+                  dag={dag}
+                  selectedNodeId={selectedNodeId}
+                  selectedNodeKind={(selectedNodeForDialog?.kind as 'Plan' | 'Knowledge') || 'Knowledge'}
+                  nodeExplanation={useSisyphusStore.getState().nodeExplanation}
+                  onNodeSelect={(nodeId) => {
+                    setSelectedNode(nodeId)
+                    // The useEffect in NodeDetailsPanel will trigger API call
+                  }}
+                />
+              )}
+            </div>
 
-            {/* Highlight controls */}
-            {selectedNodeId && (
-              <div className="mt-4 pt-4 border-t border-border-subtle">
-                <div className="text-xs text-text-muted mb-2">Highlight related nodes:</div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    onClick={() => setHighlight(selectedNodeId, 'upstream')}
-                    className={cn(
-                      "flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded-md border transition-all",
-                      highlightMode === 'upstream'
-                        ? "bg-neon-cyan/20 border-neon-cyan/40 text-neon-cyan"
-                        : "border-border-subtle text-text-muted hover:text-text-secondary hover:border-border-default"
-                    )}
-                  >
-                    <ArrowUpCircle className="size-3" />
-                    Upstream
-                  </button>
-                  <button
-                    onClick={() => setHighlight(selectedNodeId, 'downstream')}
-                    className={cn(
-                      "flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded-md border transition-all",
-                      highlightMode === 'downstream'
-                        ? "bg-neon-gold/20 border-neon-gold/40 text-neon-gold"
-                        : "border-border-subtle text-text-muted hover:text-text-secondary hover:border-border-default"
-                    )}
-                  >
-                    <ArrowDownCircle className="size-3" />
-                    Downstream
-                  </button>
-                  <button
-                    onClick={() => setHighlight(selectedNodeId, 'chain')}
-                    className={cn(
-                      "flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded-md border transition-all",
-                      highlightMode === 'chain'
-                        ? "bg-neon-green/20 border-neon-green/40 text-neon-green"
-                        : "border-border-subtle text-text-muted hover:text-text-secondary hover:border-border-default"
-                    )}
-                  >
-                    <Link2 className="size-3" />
-                    Full Chain
-                  </button>
-                  {highlightMode !== 'none' && (
-                    <button
-                      onClick={clearHighlight}
-                      className="px-3 py-1.5 text-xs font-mono rounded-md border border-border-subtle text-text-muted hover:text-neon-rose hover:border-neon-rose/40 transition-all"
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
-                {highlightMode !== 'none' && (
-                  <div className="mt-2 text-[10px] text-text-dimmed">
-                    Highlighting {highlightedNodeIds.length} {highlightMode} node(s)
-                  </div>
-                )}
+            {/* Right Panel - Markdown & Details */}
+            <div className="flex-[1.5] min-w-[350px] overflow-y-auto">
+              <div className="p-4">
+                <NodeDetailsPanel sessionId={sessionId} />
               </div>
-            )}
+            </div>
           </div>
         </DialogContent>
       </Dialog>

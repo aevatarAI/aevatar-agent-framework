@@ -23,6 +23,7 @@ import { getDagSnapshot } from '@/lib/axiom-client'
 import { cn } from '@/lib/utils'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogCloseButton } from '@/components/ui/dialog'
 import { SummaryModal } from '../summary-modal'
+import { SubGraphViewer } from '../sub-graph-viewer'
 import '@xyflow/react/dist/style.css'
 
 import { type NodeFilterMode } from './dag-node-styles'
@@ -385,9 +386,9 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
         <NodeLegend filterMode={filterMode} onFilterChange={setFilterMode} />
       </div>
 
-      {/* Node details modal */}
+      {/* Node details modal - Split Panel Layout with SubGraph + Details */}
       <Dialog open={detailsOpen} onOpenChange={(open) => { setDetailsOpen(open); if (!open) { setSelectedNode(null); clearHighlight() } }}>
-        <DialogContent className="bg-bg-surface/95 backdrop-blur-md border border-border-default rounded-xl shadow-lg text-text-primary overflow-hidden">
+        <DialogContent className="bg-bg-surface/95 backdrop-blur-md border border-border-default rounded-xl shadow-lg text-text-primary overflow-hidden max-w-7xl w-[90vw]">
           <DialogHeader>
             <div className="min-w-0">
               <DialogTitle>Node details</DialogTitle>
@@ -397,30 +398,50 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
             </div>
             <DialogCloseButton />
           </DialogHeader>
-          <div className="p-4 overflow-y-auto max-h-[60vh]">
-            <NodeDetailsPanel sessionId={sessionId} />
-            {selectedNodeId && (
-              <div className="mt-4 pt-4 border-t border-border-subtle">
-                <div className="text-xs text-text-muted mb-2">Highlight related nodes:</div>
-                <div className="flex flex-wrap gap-2">
-                  <button onClick={() => setHighlight(selectedNodeId, 'upstream')} className={cn("flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded-md border transition-all", highlightMode === 'upstream' ? "bg-neon-cyan/20 border-neon-cyan/40 text-neon-cyan" : "border-border-subtle text-text-muted hover:text-text-secondary hover:border-border-default")}>
-                    <ArrowUpCircle className="size-3" />Upstream
-                  </button>
-                  <button onClick={() => setHighlight(selectedNodeId, 'downstream')} className={cn("flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded-md border transition-all", highlightMode === 'downstream' ? "bg-neon-gold/20 border-neon-gold/40 text-neon-gold" : "border-border-subtle text-text-muted hover:text-text-secondary hover:border-border-default")}>
-                    <ArrowDownCircle className="size-3" />Downstream
-                  </button>
-                  <button onClick={() => setHighlight(selectedNodeId, 'chain')} className={cn("flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded-md border transition-all", highlightMode === 'chain' ? "bg-neon-green/20 border-neon-green/40 text-neon-green" : "border-border-subtle text-text-muted hover:text-text-secondary hover:border-border-default")}>
-                    <Link2 className="size-3" />Full Chain
-                  </button>
-                  {highlightMode !== 'none' && (
-                    <button onClick={clearHighlight} className="px-3 py-1.5 text-xs font-mono rounded-md border border-border-subtle text-text-muted hover:text-neon-rose hover:border-neon-rose/40 transition-all">Clear</button>
-                  )}
-                </div>
-                {highlightMode !== 'none' && (
-                  <div className="mt-2 text-[10px] text-text-dimmed">Highlighting {highlightedNodeIds.length} {highlightMode} node(s)</div>
+
+          {/* Split Panel Layout */}
+          <div className="flex min-h-[450px] max-h-[70vh]">
+            {/* Left Panel - Sub-graph Visualization */}
+            <div className="flex-1 min-w-[300px] max-w-[400px] border-r border-border-subtle">
+              {selectedNodeId && dag && (
+                <SubGraphViewer
+                  dag={dag}
+                  selectedNodeId={selectedNodeId}
+                  selectedNodeKind={(selectedNodeForDialog?.kind as 'Plan' | 'Knowledge') || 'Knowledge'}
+                  nodeExplanation={useSisyphusStore.getState().nodeExplanation}
+                  onNodeSelect={(nodeId) => setSelectedNode(nodeId)}
+                />
+              )}
+            </div>
+
+            {/* Right Panel - Details & Highlight Controls */}
+            <div className="flex-[1.5] min-w-[350px] overflow-y-auto">
+              <div className="p-4">
+                <NodeDetailsPanel sessionId={sessionId} />
+                {selectedNodeId && (
+                  <div className="mt-4 pt-4 border-t border-border-subtle">
+                    <div className="text-xs text-text-muted mb-2">Highlight related nodes:</div>
+                    <div className="flex flex-wrap gap-2">
+                      <button onClick={() => setHighlight(selectedNodeId, 'upstream')} className={cn("flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded-md border transition-all", highlightMode === 'upstream' ? "bg-neon-cyan/20 border-neon-cyan/40 text-neon-cyan" : "border-border-subtle text-text-muted hover:text-text-secondary hover:border-border-default")}>
+                        <ArrowUpCircle className="size-3" />Upstream
+                      </button>
+                      <button onClick={() => setHighlight(selectedNodeId, 'downstream')} className={cn("flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded-md border transition-all", highlightMode === 'downstream' ? "bg-neon-gold/20 border-neon-gold/40 text-neon-gold" : "border-border-subtle text-text-muted hover:text-text-secondary hover:border-border-default")}>
+                        <ArrowDownCircle className="size-3" />Downstream
+                      </button>
+                      <button onClick={() => setHighlight(selectedNodeId, 'chain')} className={cn("flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded-md border transition-all", highlightMode === 'chain' ? "bg-neon-green/20 border-neon-green/40 text-neon-green" : "border-border-subtle text-text-muted hover:text-text-secondary hover:border-border-default")}>
+                        <Link2 className="size-3" />Full Chain
+                      </button>
+                      {highlightMode !== 'none' && (
+                        <button onClick={clearHighlight} className="px-3 py-1.5 text-xs font-mono rounded-md border border-border-subtle text-text-muted hover:text-neon-rose hover:border-neon-rose/40 transition-all">Clear</button>
+                      )}
+                    </div>
+                    {highlightMode !== 'none' && (
+                      <div className="mt-2 text-[10px] text-text-dimmed">Highlighting {highlightedNodeIds.length} {highlightMode} node(s)</div>
+                    )}
+                  </div>
                 )}
               </div>
-            )}
+            </div>
           </div>
         </DialogContent>
       </Dialog>

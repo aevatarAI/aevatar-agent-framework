@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { cn } from '@/lib/utils'
 import { useSisyphusStore, type InputMode } from '@/store/sisyphus-store'
-import { sendMessage } from '@/lib/axiom-client'
+import { sendMessage, uploadWithExtraction } from '@/lib/axiom-client'
 
 // ============================================================
 //  Composer - Enhanced message input with mode switch,
@@ -105,12 +105,16 @@ const Composer: React.FC<ComposerProps> = ({ sessionId, connected }) => {
     setToAgents(prev => prev.includes("*") ? [] : ["*"])
   }
 
+  // State for upload progress
+  const [uploadStatus, setUploadStatus] = useState<string | null>(null)
+
   // Send message
   const handleSend = useCallback(async () => {
     const trimmed = text.trim()
     if (!sessionId || !connected || isSending || !trimmed) return
 
     setIsSending(true)
+    setUploadStatus(null)
 
     // Add user message to store immediately
     addMessage({
@@ -123,29 +127,65 @@ const Composer: React.FC<ComposerProps> = ({ sessionId, connected }) => {
     setCurrentRun(`pending-${Date.now()}`, trimmed)
 
     try {
-      // Build payload
+      // Step 1: Process file uploads if any (extract knowledge to graph)
+      if (files.length > 0) {
+        setUploadStatus(`Uploading ${files.length} file(s)...`)
+
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i]
+          setUploadStatus(`Extracting knowledge from ${file.name} (${i + 1}/${files.length})...`)
+
+          const uploadResult = await uploadWithExtraction(sessionId, file)
+
+          if (!uploadResult.ok) {
+            console.warn(`Failed to extract from ${file.name}:`, uploadResult.error)
+            // Add system message about failed extraction
+            addMessage({
+              role: "system",
+              content: `⚠️ Failed to extract knowledge from ${file.name}: ${uploadResult.error}`,
+            })
+          } else if (uploadResult.extractedNodes && uploadResult.extractedNodes.length > 0) {
+            // Add system message about successful extraction
+            const nodeCount = uploadResult.extractedNodes.length
+            const titles = uploadResult.extractedNodes.map(n => n.title).join(", ")
+            addMessage({
+              role: "system",
+              content: `📚 Extracted ${nodeCount} knowledge point(s) from ${file.name}: ${titles}`,
+            })
+          } else {
+            addMessage({
+              role: "system",
+              content: `📄 Processed ${file.name} but no distinct knowledge points were identified.`,
+            })
+          }
+        }
+
+        setUploadStatus(null)
+      }
+
+      // Step 2: Send the message
       const payload = {
         text: trimmed,
         mode: inputMode,
         toAgents: toAgents.length > 0 ? toAgents : undefined,
-        // files: files.length > 0 ? files : undefined,  // TODO: file upload API
       }
 
       const result = await sendMessage(sessionId, payload)
-      
+
       // Update runId from response if available
       if (result.ok && (result as { runId?: string }).runId) {
         setCurrentRun((result as { runId?: string }).runId!, trimmed)
       }
-      
+
       setText("")
       setFiles([])
     } catch (e) {
       console.error("Failed to send message:", e)
     } finally {
       setIsSending(false)
+      setUploadStatus(null)
     }
-  }, [sessionId, connected, isSending, text, inputMode, toAgents, setIsSending, addMessage])
+  }, [sessionId, connected, isSending, text, inputMode, toAgents, files, setIsSending, addMessage])
 
   // Handle enter key
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -300,13 +340,23 @@ const Composer: React.FC<ComposerProps> = ({ sessionId, connected }) => {
           {/* Spacer */}
           <div className="flex-1" />
 
+          {/* Upload status indicator */}
+          {uploadStatus && (
+            <div className="flex items-center gap-1.5 text-[10px] text-neon-cyan font-mono animate-pulse">
+              <svg className="size-3 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              <span className="truncate max-w-[180px]">{uploadStatus}</span>
+            </div>
+          )}
+
           {/* File indicator */}
-          {files.length > 0 && (
+          {files.length > 0 && !uploadStatus && (
             <div className="flex items-center gap-1 text-[10px] text-neon-gold font-mono">
               <svg className="size-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
               </svg>
-              <span>{files.length}</span>
+              <span>{files.length} file(s)</span>
               <button onClick={() => setFiles([])} className="text-neon-red hover:brightness-125">×</button>
             </div>
           )}

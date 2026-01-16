@@ -516,8 +516,22 @@ steps:
         HPA operating rules (Factorization → Projection):
         - Factorization: you MUST report depends_on + factor_sequence (ordered reasoning path).
         - Projection / gap δ: 
-          * CORRECT missing lemma/assumption: If a missing lemma/assumption is logically correct, derivable from provided axioms/facts, or physically plausible, it is ALLOWED and should NOT be reported as gap δ.
-          * INCORRECT missing lemma/assumption (gap δ): Only report as gap δ if the missing lemma/assumption is INCORRECT, contradicts the hypothesis, physically implausible or contradictory, or cannot be derived from provided axioms/facts.
+          * SIMPLE RULE: accept=true if hypothesis A can be DERIVED from given axioms/facts
+              
+              * What constitutes a valid derivation:
+                1. Direct application of axioms/theorems
+                2. Logical inferences (modus ponens, transitivity, etc.)
+                3. Mathematical operations based on definitions
+                4. Reasonable implicit steps that follow obviously, physically plausible or logically correct
+              
+              * What constitutes gap δ (accept=false):
+                1. Explicit contradiction with axioms/facts
+                2. Counterexample exists
+                3. Crucial logical step has NO BASIS in given information, physically implausible or contraditor
+              
+              * CRITICAL: Do NOT confuse:
+                - "Step not explicitly written" (allowed in proof sketch)
+                - "Step not justifiable from axioms" (gap δ)
           * When gap δ exists: put it in gap_or_counterexample and set accept=false.
         - Non-associativity signal: factor_sequence MUST reflect your actual reasoning order (path dependence matters).
 
@@ -656,8 +670,22 @@ steps:
             HPA operating rules (Factorization → Projection):
             - Factorization: you MUST report depends_on + factor_sequence (ordered reasoning path).
             - Projection / gap δ: 
-              * CORRECT missing lemma/assumption: If a missing lemma/assumption is logically correct, physically plausible, or derivable from provided axioms/facts, it is ALLOWED and should NOT be reported as gap δ.
-              * INCORRECT missing lemma/assumption (gap δ): Only report as gap δ if the missing lemma/assumption is INCORRECT, contradicts the hypothesis, or cannot be derived from provided axioms/facts.
+               * SIMPLE RULE: accept=true if hypothesis A can be DERIVED from given axioms/facts
+              
+              * What constitutes a valid derivation:
+                1. Direct application of axioms/theorems
+                2. Logical inferences (modus ponens, transitivity, etc.)
+                3. Mathematical operations based on definitions
+                4. Reasonable implicit steps that follow obviously, physically plausible or logically correct
+              
+              * What constitutes gap δ (accept=false):
+                1. Explicit contradiction with axioms/facts
+                2. Counterexample exists
+                3. Crucial logical step has NO BASIS in given information, physically implausible or contraditor
+              
+              * CRITICAL: Do NOT confuse:
+                - "Step not explicitly written" (allowed in proof sketch)
+                - "Step not justifiable from axioms" (gap δ)
               * When gap δ exists: put it in gap_or_counterexample and set accept=false.
             - Non-associativity signal: factor_sequence MUST reflect your actual reasoning order (path dependence matters).
 
@@ -674,7 +702,7 @@ steps:
               It can be high-level, but MUST stay within provided axioms/facts and MUST NOT introduce new assumptions.
               If you're uncertain but see no refutation and the sketch is plausible, you may still set accept=true with lower confidence.
             - If accept=false: provide minimal gap δ (only for INCORRECT missing lemma/assumption) or counterexample. Do NOT propose alternative hypotheses (leave proposed_b empty).
-              Note: CORRECT missing lemma/assumption that can be derived from axioms/facts should NOT cause accept=false.
+              Note: CORRECT missing lemma/assumption that can be derived from axioms/facts, is physically plausible or logically correct should NOT cause accept=false.
             - strong_refutation=true ONLY for an explicit fatal counterexample/contradiction with no extra assumptions.
             - Do NOT invent IDs. depends_on must be a subset of available axiom/theorem/assumption IDs.
 

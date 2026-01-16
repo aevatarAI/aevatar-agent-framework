@@ -109,7 +109,23 @@ internal sealed class VibeMilestoneLoopRunner
 
                 if (totalMilestones == 0)
                 {
-                    _logger.LogWarning("[MilestoneLoop] Still no milestones after planning round. Research complete.");
+                    _logger.LogWarning(
+                        "[MilestoneLoop] Still no milestones after planning round. " +
+                        "Possible causes: LLM did not generate milestones in Brief, Brief generation failed, or question is too simple. " +
+                        "Research complete.");
+                    
+                    emitAssistantDelta(
+                        "\n\n## ⚠️ Research Plan Not Generated\n\n" +
+                        "The system was unable to generate a research plan with milestones. " +
+                        "This may happen if:\n" +
+                        "- The question is too simple and doesn't require multi-step research\n" +
+                        "- The LLM provider is not configured correctly\n" +
+                        "- The Brief generation failed\n\n" +
+                        "You can try:\n" +
+                        "1. Rephrasing your question to be more specific\n" +
+                        "2. Using a different LLM provider\n" +
+                        "3. Using 'chat' mode instead of 'vibe' mode for simpler questions\n\n");
+                    
                     return new MilestoneLoopResult
                     {
                         Ok = true,

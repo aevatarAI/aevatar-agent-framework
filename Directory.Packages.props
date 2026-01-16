@@ -50,7 +50,7 @@
     <PackageVersion Include="Orleans.Streams.Kafka" Version="8.0.3-serializer.2" />
     <!-- Protobuf & gRPC -->
     <PackageVersion Include="Google.Protobuf" Version="3.33.0" />
-    <PackageVersion Include="Grpc.Tools" Version="2.72.0" />
+    <PackageVersion Include="Grpc.Tools" Version="2.76.0" />
     <!-- Proto.Actor -->
     <PackageVersion Include="Proto.Actor" Version="1.8.0" />
     <PackageVersion Include="Proto.Remote" Version="1.8.0" />

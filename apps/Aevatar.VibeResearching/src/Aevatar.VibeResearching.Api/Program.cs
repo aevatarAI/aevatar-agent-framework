@@ -148,7 +148,7 @@ builder.Services.AddSingleton<BriefStore>();
 // - 这里默认用 InMemory 图后端（开发/测试最快，无外部依赖）
 // - DagStore 会把图快照同步落盘到 artifacts/dag/snapshot.json，保证可审阅/可恢复
 // ==========================================
-builder.Services.AddAevatarGraphNeo4j();
+builder.Services.AddAevatarGraphInMemory();
 builder.Services.AddKnowledgeGraph();
 
 // Vibe: DAG/Graph store (SSoT: KnowledgeGraph + file snapshot mirror)

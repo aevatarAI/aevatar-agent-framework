@@ -156,19 +156,22 @@ export function SubGraphViewer({
   const { getUpstreamNodesByLevel } = useDagInteractions()
   const reactFlowInstance = useRef<ReactFlowInstance | null>(null)
 
-  // Compute sub-graph nodes based on view level
-  const { nodes, edges } = useMemo(() => {
-    if (!dag || !selectedNodeId) return { nodes: [], edges: [] }
+  // ── Single BFS computation for both nodes/edges AND maxLevel ──
+  const { nodes, edges, maxLevel } = useMemo(() => {
+    if (!dag || !selectedNodeId) return { nodes: [], edges: [], maxLevel: 0 }
 
-    // Get parent nodes by level (viewLevel - 1 because viewLevel 1 = direct parents = level 0)
-    const parentsByLevel = getUpstreamNodesByLevel(selectedNodeId, dag, viewLevel > 0 ? viewLevel - 1 : -1)
+    // Get ALL parent nodes (no level limit) - single BFS traversal
+    const allParentsByLevel = getUpstreamNodesByLevel(selectedNodeId, dag)
+    
+    // Compute maxLevel from full traversal
+    const computedMaxLevel = allParentsByLevel.size === 0 
+      ? 0 
+      : Math.max(0, ...Array.from(allParentsByLevel.values())) + 1
 
-    // Build visible node set - always include selected node
+    // Build visible node set based on current viewLevel
     const visibleNodeIds = new Set<string>([selectedNodeId])
-
-    // Add parent nodes up to viewLevel - 1
     if (viewLevel > 0) {
-      parentsByLevel.forEach((level, nodeId) => {
+      allParentsByLevel.forEach((level, nodeId) => {
         if (level < viewLevel) {
           visibleNodeIds.add(nodeId)
         }
@@ -196,7 +199,7 @@ export function SubGraphViewer({
         label: node.label || node.id,
         kind: getNodeKind(node.id),
         isSelectedNode: node.id === selectedNodeId,
-        level: parentsByLevel.get(node.id) ?? -1,
+        level: allParentsByLevel.get(node.id) ?? -1,
       } as MiniNodeData,
       position: { x: 0, y: 0 },
     }))
@@ -213,17 +216,9 @@ export function SubGraphViewer({
       }))
 
     // Apply dagre layout
-    return applyDagreLayout(flowNodes, flowEdges)
+    const layouted = applyDagreLayout(flowNodes, flowEdges)
+    return { ...layouted, maxLevel: computedMaxLevel }
   }, [dag, selectedNodeId, selectedNodeKind, viewLevel, getUpstreamNodesByLevel])
-  // Note: nodeExplanation is passed as prop but not needed for sub-graph computation
-
-  // Compute max possible level for level control bounds
-  const maxLevel = useMemo(() => {
-    if (!dag || !selectedNodeId) return 0
-    const allParents = getUpstreamNodesByLevel(selectedNodeId, dag)
-    if (allParents.size === 0) return 0
-    return Math.max(0, ...Array.from(allParents.values())) + 1
-  }, [dag, selectedNodeId, getUpstreamNodesByLevel])
 
   // Handle node click in sub-graph
   const handleNodeClick = useCallback(

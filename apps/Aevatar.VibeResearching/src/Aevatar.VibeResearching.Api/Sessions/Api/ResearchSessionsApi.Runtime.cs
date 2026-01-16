@@ -162,6 +162,18 @@ internal static partial class ResearchSessionsApi
 
     private static void MapDag(WebApplication app)
     {
+        // ============================================================
+        //  Global DAG API - No sessionId required
+        //  Returns ALL nodes across ALL sessions
+        // ============================================================
+        app.MapGet("/api/dag/global", async (
+            DagStore dag,
+            CancellationToken ct) =>
+        {
+            var snap = await dag.GetSnapshotForListAsync(ResearchSession.GlobalDagId, ct);
+            return Results.Json(new { ok = true, dagId = ResearchSession.GlobalDagId, dag = snap });
+        });
+
         app.MapGet("/api/sessions/{sessionId}/dag", async (
             string sessionId,
             ResearchSessionManager sessions,

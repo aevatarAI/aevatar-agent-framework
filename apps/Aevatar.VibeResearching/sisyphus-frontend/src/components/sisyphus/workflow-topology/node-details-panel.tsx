@@ -2,7 +2,7 @@
 //  NodeDetailsPanel - Node Details with Markdown Explanation
 // ============================================================
 
-import { useMemo, useEffect } from 'react'
+import { useMemo, useEffect, memo } from 'react'
 import { useSisyphusStore } from '@/store/sisyphus-store'
 import { getNodeExplanation } from '@/lib/axiom-client'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'
@@ -12,22 +12,21 @@ interface NodeDetailsPanelProps {
   sessionId: string
 }
 
-export function NodeDetailsPanel({ sessionId }: NodeDetailsPanelProps) {
-  const {
-    dag,
-    selectedNodeId,
-    nodeExplanation,
-    dagLoading,
-    dagError,
-    setNodeExplanation,
-    setDagLoading,
-    setDagError,
-  } = useSisyphusStore()
-
-  const selectedNode = useMemo(() => {
-    if (!selectedNodeId || !dag?.nodes) return null
-    return dag.nodes.find(n => n.id === selectedNodeId)
-  }, [dag, selectedNodeId])
+export const NodeDetailsPanel = memo(function NodeDetailsPanel({ sessionId }: NodeDetailsPanelProps) {
+  // ── Fine-grained subscriptions to minimize re-renders ──
+  const selectedNodeId = useSisyphusStore((s) => s.selectedNodeId)
+  const nodeExplanation = useSisyphusStore((s) => s.nodeExplanation)
+  const dagLoading = useSisyphusStore((s) => s.dagLoading)
+  const dagError = useSisyphusStore((s) => s.dagError)
+  const setNodeExplanation = useSisyphusStore((s) => s.setNodeExplanation)
+  const setDagLoading = useSisyphusStore((s) => s.setDagLoading)
+  const setDagError = useSisyphusStore((s) => s.setDagError)
+  
+  // Only subscribe to dag.nodes for finding selected node
+  const selectedNode = useSisyphusStore((s) => {
+    if (!selectedNodeId || !s.dag?.nodes) return null
+    return s.dag.nodes.find(n => n.id === selectedNodeId) ?? null
+  })
 
   // Load node explanation when node selected
   useEffect(() => {
@@ -150,4 +149,4 @@ export function NodeDetailsPanel({ sessionId }: NodeDetailsPanelProps) {
       )}
     </div>
   )
-}
+})

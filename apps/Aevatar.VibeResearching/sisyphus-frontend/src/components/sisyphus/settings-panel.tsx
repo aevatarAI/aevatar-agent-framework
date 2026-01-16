@@ -520,6 +520,19 @@ const ProvidersTab: React.FC<ProvidersTabProps> = ({ defaultProvider: initialDef
     setBusy(true);
     setMsg(null);
     try {
+      // If user has entered a new API key, save it first before testing
+      if (apiKey.trim()) {
+        setMsg({ kind: 'ok', text: 'Saving key before test...' });
+        await setLlmApiKey(selected, apiKey.trim());
+        setHasKey(true);
+        setApiKey('');
+        setKeyShown(false);
+        // Refresh masked key
+        const keyRes = await getApiKeyStatus(selected);
+        setKeyMasked(keyRes?.masked || '');
+      }
+      
+      // Now test with saved credentials
       const res = await testLlmProvider(selected);
       const latency = res?.latencyMs ? ` (${res.latencyMs}ms)` : '';
       const modelsInfo = res?.modelsCount ? ` | ${res.modelsCount} models` : '';
@@ -531,7 +544,7 @@ const ProvidersTab: React.FC<ProvidersTabProps> = ({ defaultProvider: initialDef
       setMsg({ kind: 'err', text: e?.message || 'Test failed' });
     }
     setBusy(false);
-  }, [selected, busy]);
+  }, [selected, apiKey, busy]);
 
   const handleDelete = useCallback(async () => {
     if (!selected || busy) return;
@@ -602,6 +615,11 @@ const ProvidersTab: React.FC<ProvidersTabProps> = ({ defaultProvider: initialDef
           {currentDefault && (
             <div className="mt-1 text-[10px] font-mono text-neon-cyan">
               Current: {currentDefault}
+            </div>
+          )}
+          {configuredProviders.length === 0 && !loading && (
+            <div className="mt-1 text-[10px] font-mono text-neon-gold">
+              Configure a provider API key below first
             </div>
           )}
           {defaultMsg && (

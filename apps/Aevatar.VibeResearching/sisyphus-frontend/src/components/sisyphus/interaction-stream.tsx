@@ -719,15 +719,15 @@ const InteractionStream: React.FC<InteractionStreamProps> = ({ sessionId }) => {
         {/* Chat Messages View - Only research_assistant / user / system */}
         {filteredMessages.length === 0 && !raMessage ? (
           <div className="flex flex-col items-center justify-center h-full text-center py-12">
-            <div className="size-16 rounded-lg bg-surface-elevated flex items-center justify-center mb-4 border border-border-subtle cyber-corners">
-              <svg className="size-8 text-text-dimmed" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="size-16 rounded-lg bg-surface-elevated flex items-center justify-center mb-4 border border-border-default cyber-corners">
+              <svg className="size-8 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
               </svg>
             </div>
-            <p className="text-sm text-text-muted mb-2 font-display text-balance">
+            <p className="text-sm text-text-secondary mb-2 font-display text-balance">
               No messages yet
             </p>
-            <p className="text-xs text-text-dimmed max-w-xs text-pretty">
+            <p className="text-xs text-text-muted max-w-xs text-pretty">
               Start a conversation with Sisyphus to explore research topics
             </p>
           </div>

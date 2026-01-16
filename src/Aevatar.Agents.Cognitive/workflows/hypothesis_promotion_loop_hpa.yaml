@@ -527,7 +527,7 @@ steps:
               * What constitutes gap δ (accept=false):
                 1. Explicit contradiction with axioms/facts
                 2. Counterexample exists
-                3. Crucial logical step has NO BASIS in given information, physically implausible or contraditor
+                3. Crucial logical step is physically implausible or contraditor
               
               * CRITICAL: Do NOT confuse:
                 - "Step not explicitly written" (allowed in proof sketch)
@@ -671,7 +671,7 @@ steps:
             HPA operating rules (Factorization → Projection):
             - Factorization: you MUST report depends_on + factor_sequence (ordered reasoning path).
             - Projection / gap δ: 
-               * SIMPLE RULE: accept=true if hypothesis A can be DERIVED from given axioms/facts
+               * SIMPLE RULE: accept=true if hypothesis A can be DERIVED from given axioms/facts with some implicit steps that are physically plausible
               
               * What constitutes a valid derivation:
                 1. Direct application of axioms/theorems
@@ -682,7 +682,7 @@ steps:
               * What constitutes gap δ (accept=false):
                 1. Explicit contradiction with axioms/facts
                 2. Counterexample exists
-                3. Crucial logical step has NO BASIS in given information, physically implausible or contraditor
+                3. Crucial logical step is physically implausible or contraditor
               
               * CRITICAL: Do NOT confuse:
                 - "Step not explicitly written" (allowed in proof sketch)
@@ -818,7 +818,7 @@ steps:
 
                 HPA protocol (Factorization → Projection):
                 - Treat "proof" as projection: every step must be grounded in cited dependencies; no hidden assumptions.
-                - If any step requires an unstated lemma/assumption that CANNOT be inferred from provided axioms/theorems declare it as GAP δ and STOP (do not proceed).
+                - If any step requires an unstated lemma/assumption that CANNOT be inferred from provided axioms/theorems with implicit steps that are physically plausible declare it as GAP δ and STOP (do not proceed).
                 - If a step follows logically from given premises through standard inference rules (modus ponens, transitivity, algebra, etc.), it is NOT considered a GAP δ and you may proceed.
                 - Factorization: keep a minimal depends_on list and an ordered factor_sequence that matches your step order.
 

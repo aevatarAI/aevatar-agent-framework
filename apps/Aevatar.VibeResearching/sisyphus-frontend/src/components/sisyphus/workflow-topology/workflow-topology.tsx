@@ -273,20 +273,58 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
     setDetailsOpen(true)
   }, [setSelectedNode, clearHighlight])
 
-  // Toggle fullscreen mode
-  const toggleFullscreen = useCallback(() => {
-    setIsFullscreen(prev => {
-      const newValue = !prev
-      // Re-layout and focus after fullscreen transition
-      setTimeout(() => {
-        if (reactFlowInstance.current) {
-          reactFlowInstance.current.fitView({ padding: 0.2, duration: 300 })
+  // Reference to the container for native fullscreen
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  // Toggle fullscreen mode - use native browser fullscreen API
+  const toggleFullscreen = useCallback(async () => {
+    console.log('[DAG] toggleFullscreen called, current isFullscreen:', isFullscreen)
+
+    if (!isFullscreen) {
+      // Enter fullscreen using native API
+      try {
+        if (containerRef.current) {
+          await containerRef.current.requestFullscreen()
+          setIsFullscreen(true)
+          console.log('[DAG] Entered native fullscreen')
         }
-        setTimeout(smartFocus, 350)
-      }, 100)
-      return newValue
-    })
-  }, [smartFocus])
+      } catch (err) {
+        // Fallback to CSS-based fullscreen if native fails
+        console.log('[DAG] Native fullscreen failed, using CSS fallback:', err)
+        setIsFullscreen(true)
+      }
+    } else {
+      // Exit fullscreen
+      try {
+        if (document.fullscreenElement) {
+          await document.exitFullscreen()
+        }
+        setIsFullscreen(false)
+        console.log('[DAG] Exited fullscreen')
+      } catch (err) {
+        console.log('[DAG] Exit fullscreen error:', err)
+        setIsFullscreen(false)
+      }
+    }
+
+    // Re-layout after transition
+    setTimeout(() => {
+      if (reactFlowInstance.current) {
+        reactFlowInstance.current.fitView({ padding: 0.2, duration: 300 })
+      }
+    }, 200)
+  }, [isFullscreen])
+
+  // Listen for native fullscreen changes (e.g., user presses ESC)
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isNowFullscreen = !!document.fullscreenElement
+      console.log('[DAG] fullscreenchange event, isFullscreen:', isNowFullscreen)
+      setIsFullscreen(isNowFullscreen)
+    }
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  }, [])
 
   // Handle ESC key to exit fullscreen
   useEffect(() => {
@@ -315,8 +353,21 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
   // Empty state
   if (!dag?.nodes || dag.nodes.length === 0) {
     return (
-      <div className={cn("card flex flex-col", fullHeight && "h-full")}>
-        <TopologyHeader onLayout={onLayout} onRefresh={handleRefresh} refreshing={refreshing} nodeCount={0} edgeCount={0} activeMilestone={activeMilestoneNodeId} />
+      <div
+        ref={containerRef}
+        className={cn(
+          "flex flex-col overflow-hidden transition-all duration-300",
+          isFullscreen
+            ? "fixed inset-0 z-[9999] bg-[#0a0c10] border-4 border-neon-cyan/50"
+            : "card",
+          fullHeight && !isFullscreen && "h-full"
+        )}
+      >
+        <TopologyHeader
+          onLayout={onLayout} onRefresh={handleRefresh} refreshing={refreshing}
+          nodeCount={0} edgeCount={0} activeMilestone={activeMilestoneNodeId}
+          onFullscreenToggle={toggleFullscreen} isFullscreen={isFullscreen}
+        />
         <div className="flex-1 flex flex-col items-center justify-center py-8 text-center min-h-[300px]">
           <div className="relative">
             <div className="absolute inset-0 rounded-full bg-accent-emerald blur-2xl opacity-20 animate-pulse" />
@@ -337,13 +388,16 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
   }
 
   return (
-    <div className={cn(
-      "flex flex-col overflow-hidden transition-all duration-300",
-      isFullscreen 
-        ? "fixed inset-0 z-[9999] bg-[#0c0f14]" 
-        : "card",
-      fullHeight && !isFullscreen && "h-full"
-    )}>
+    <div
+      ref={containerRef}
+      className={cn(
+        "flex flex-col overflow-hidden transition-all duration-300",
+        isFullscreen
+          ? "fixed inset-0 z-[9999] bg-[#0a0c10] border-4 border-neon-cyan/50"
+          : "card",
+        fullHeight && !isFullscreen && "h-full"
+      )}
+    >
       {/* Header - always on top */}
       <div className="relative z-30 flex-shrink-0 bg-[#0c0f14]">
         <TopologyHeader

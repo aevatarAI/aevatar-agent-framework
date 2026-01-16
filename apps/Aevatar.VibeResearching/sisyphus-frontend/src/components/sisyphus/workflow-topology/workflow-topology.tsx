@@ -83,41 +83,60 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
     setTimeout(() => { isProgrammaticMove.current = false }, 600)
   }, [])
 
-  // ── Smart Focus: prioritize Active milestone > fitView ──
+  // ── Focus on active milestone only ──
+  const focusOnActiveMilestone = useCallback(() => {
+    if (activeMilestoneNodeId) focusOnNode(activeMilestoneNodeId)
+  }, [activeMilestoneNodeId, focusOnNode])
+
+  // ── Smart Focus: prioritize Active Milestone > Plan > Knowledge > Other ──
   const smartFocus = useCallback(() => {
     if (!reactFlowInstance.current || !dag?.nodes || dag.nodes.length === 0) return
 
-    // Priority 1: Find Active milestone directly from DAG data (most reliable)
-    const activeMilestone = dag.nodes.find(
-      n => n.kind === 'Plan' && n.planStatus === 'Active'
-    )
-    if (activeMilestone) {
-      console.log('[DAG] smartFocus: focusing on Active milestone:', activeMilestone.id)
-      focusOnNode(activeMilestone.id)
+    // Priority 1: Active milestone (currently executing plan node)
+    if (activeMilestoneNodeId) {
+      focusOnNode(activeMilestoneNodeId)
       return
     }
 
-    // Priority 2: Use store's activeMilestoneNodeId as fallback
-    if (activeMilestoneNodeId) {
-      const nodeExists = dag.nodes.some(n => n.id === activeMilestoneNodeId)
-      if (nodeExists) {
-        console.log('[DAG] smartFocus: focusing on store activeMilestoneNodeId:', activeMilestoneNodeId)
-        focusOnNode(activeMilestoneNodeId)
-        return
-      }
+    // Priority 2: Plan nodes in current session (prefer last one as "newest")
+    const currentSessionPlanNodes = dag.nodes.filter(
+      n => n.kind === 'Plan' && (!n.sessionId || n.sessionId === sessionId)
+    )
+    if (currentSessionPlanNodes.length > 0) {
+      const lastPlan = currentSessionPlanNodes[currentSessionPlanNodes.length - 1]
+      focusOnNode(lastPlan.id)
+      return
     }
 
-    // Priority 3: fitView to show all nodes (most reliable fallback)
-    console.log('[DAG] smartFocus: no active milestone, using fitView')
-    isProgrammaticMove.current = true
-    reactFlowInstance.current.fitView({ padding: 0.2, duration: 500 })
-    setTimeout(() => { isProgrammaticMove.current = false }, 600)
-  }, [dag, activeMilestoneNodeId, focusOnNode])
+    // Priority 3: Any Plan node (from other sessions)
+    const anyPlanNode = dag.nodes.find(n => n.kind === 'Plan')
+    if (anyPlanNode) {
+      focusOnNode(anyPlanNode.id)
+      return
+    }
 
-  const focusOnActiveMilestone = useCallback(() => {
-    // Always use smartFocus - it finds the Active milestone from DAG data directly
-    smartFocus()
-  }, [smartFocus])
+    // Priority 4: Knowledge nodes in current session (prefer last one)
+    const currentSessionKnowledgeNodes = dag.nodes.filter(
+      n => n.kind === 'Knowledge' && (!n.sessionId || n.sessionId === sessionId)
+    )
+    if (currentSessionKnowledgeNodes.length > 0) {
+      const lastKnowledge = currentSessionKnowledgeNodes[currentSessionKnowledgeNodes.length - 1]
+      focusOnNode(lastKnowledge.id)
+      return
+    }
+
+    // Priority 5: Any Knowledge node (from other sessions)
+    const anyKnowledgeNode = dag.nodes.find(n => n.kind === 'Knowledge')
+    if (anyKnowledgeNode) {
+      focusOnNode(anyKnowledgeNode.id)
+      return
+    }
+
+    // Priority 6: First node as fallback (Other types)
+    if (dag.nodes.length > 0) {
+      focusOnNode(dag.nodes[0].id)
+    }
+  }, [dag, activeMilestoneNodeId, sessionId, focusOnNode])
 
   // ── Handle filter change ──
   const handleFilterChange = useCallback((newMode: NodeFilterMode) => {

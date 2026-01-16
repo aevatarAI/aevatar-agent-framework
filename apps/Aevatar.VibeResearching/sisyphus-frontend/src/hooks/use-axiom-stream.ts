@@ -80,12 +80,16 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
 
   useEffect(() => {
     if (!sessionId || !enabled) {
+      console.log(`[useAxiomStream] Disabled or no sessionId: sessionId=${sessionId}, enabled=${enabled}`)
       setConnected(false)
       return
     }
 
+    console.log(`[useAxiomStream] Setting up stream for session: ${sessionId}`)
+
     // Clean up previous stream
     if (streamRef.current) {
+      console.log(`[useAxiomStream] Cleaning up previous stream`)
       streamRef.current.disconnect()
       streamRef.current = null
     }
@@ -97,20 +101,33 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     const stream = createAxiomEventStream(sessionId)
     streamRef.current = stream
 
+    // Fallback: Set connected when we receive any event (first event = connected)
+    let hasReceivedEvent = false
+    
+    // Connection timeout: if no event received in 10 seconds, log warning
+    const connectionTimeout = setTimeout(() => {
+      if (!hasReceivedEvent) {
+        console.warn(`[useAxiomStream] No events received after 10s for session ${sessionId}. Check backend connection.`)
+      }
+    }, 10000)
+
     // === Status Change ===
     // Note: stream.onStatusChange may not work as expected with @aevatar/kit-protocol
     // We'll set connected = true when we receive the first event
     stream.onStatusChange((status) => {
       console.log(`[useAxiomStream] Status changed: ${status}`)
       setConnected(status === "connected")
+      if (status === "connected") {
+        hasReceivedEvent = true
+        clearTimeout(connectionTimeout)
+      }
     })
 
-    // Fallback: Set connected when we receive any event (first event = connected)
-    let hasReceivedEvent = false
     const markConnected = () => {
       if (!hasReceivedEvent) {
         hasReceivedEvent = true
         console.log(`[useAxiomStream] First event received, marking connected`)
+        clearTimeout(connectionTimeout)
         setConnected(true)
       }
     }
@@ -900,6 +917,7 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     stream.connect()
 
     return () => {
+      clearTimeout(connectionTimeout)
       stream.disconnect()
       setConnected(false)
     }

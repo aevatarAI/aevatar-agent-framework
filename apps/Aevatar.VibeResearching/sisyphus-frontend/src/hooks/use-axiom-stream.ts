@@ -827,8 +827,6 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
 
     // Catch-all handler - extract worker data from ProgressEvent
     stream.onAny((event) => {
-      console.log("[AxiomStream] Event:", event.type, event)
-      
       // Handle ProgressEvent to extract worker data (like reference project)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const eventData = event as any

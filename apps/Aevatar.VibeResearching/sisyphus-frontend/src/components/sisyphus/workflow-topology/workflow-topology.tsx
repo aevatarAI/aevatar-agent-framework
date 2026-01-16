@@ -48,7 +48,7 @@ export interface WorkflowTopologyProps {
 // ─────────────────────────────────────────────────────────────
 
 export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: WorkflowTopologyProps) {
-  const { dag, selectedNodeId, setDag, setSelectedNode, isConnected, activeMilestoneNodeId, setActiveMilestoneNodeId } = useSisyphusStore()
+  const { dag, selectedNodeId, setDag, setSelectedNode, isConnected, activeMilestoneNodeId, setActiveMilestoneNodeId, nodeExplanation } = useSisyphusStore()
   const { setHighlight, clearHighlight, highlightMode, highlightedNodeIds, dagStats } = useDagInteractions()
   const reactFlowInstance = useRef<ReactFlowInstance | null>(null)
   const [refreshing, setRefreshing] = useState(false)
@@ -477,8 +477,8 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
                   dag={dag}
                   selectedNodeId={selectedNodeId}
                   selectedNodeKind={(selectedNodeForDialog?.kind as 'Plan' | 'Knowledge') || 'Knowledge'}
-                  nodeExplanation={useSisyphusStore.getState().nodeExplanation}
-                  onNodeSelect={(nodeId) => setSelectedNode(nodeId)}
+                  nodeExplanation={nodeExplanation}
+                  onNodeSelect={setSelectedNode}
                 />
               )}
             </div>

@@ -516,7 +516,7 @@ steps:
         HPA operating rules (Factorization → Projection):
         - Factorization: you MUST report depends_on + factor_sequence (ordered reasoning path).
         - Projection / gap δ: 
-          * SIMPLE RULE: accept=true if hypothesis A can be DERIVED from given axioms/facts with some implicit steps that are physically plausible
+          * SIMPLE RULE: accept=true if hypothesis A can be DERIVED from given axioms/facts and some implicit steps that are physically plausible
               
               * What constitutes a valid derivation:
                 1. Direct application of axioms/theorems
@@ -867,7 +867,7 @@ steps:
                 Decide whether Hypothesis A is PROVED given axioms + assumptions + relevant facts, based on the MAKER solution.
 
                 HPA judgement rules (Projection / gap δ):
-                - proved=true if the argument is internally consistent and stays within provided axioms/facts with implicit steps that are physically plausible.
+                - proved=true if the argument is internally consistent and stays within provided axioms/facts and any implicit steps that are physically plausible.
                 - Be pragmatic: allow standard inference steps (algebra/rewriting) as long as they do NOT introduce new assumptions.
                 - Mark proved=false ONLY when you can point to a concrete concrete step that is physically implausible or contradictory, or counterexample (gap δ).
 

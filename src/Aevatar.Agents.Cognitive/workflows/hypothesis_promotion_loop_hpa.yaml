@@ -516,7 +516,7 @@ steps:
         HPA operating rules (Factorization → Projection):
         - Factorization: you MUST report depends_on + factor_sequence (ordered reasoning path).
         - Projection / gap δ: 
-          * SIMPLE RULE: accept=true if hypothesis A can be DERIVED from given axioms/facts
+          * SIMPLE RULE: accept=true if hypothesis A can be DERIVED from given axioms/facts with some implicit steps that are physically plausible
               
               * What constitutes a valid derivation:
                 1. Direct application of axioms/theorems
@@ -531,7 +531,7 @@ steps:
               
               * CRITICAL: Do NOT confuse:
                 - "Step not explicitly written" (allowed in proof sketch)
-                - "Step not justifiable from axioms" (gap δ)
+                - "Step not justifiable from axioms and physically implausible" (gap δ)
           * When gap δ exists: put it in gap_or_counterexample and set accept=false.
         - Non-associativity signal: factor_sequence MUST reflect your actual reasoning order (path dependence matters).
 
@@ -541,6 +541,7 @@ steps:
         - Do NOT append anything after the closing brace } of the JSON object.
         - Do NOT include duplicate closing braces like }}.
         - Do NOT include any text, numbers, or characters after the JSON object ends.
+        - Validate your JSON structure before outputting
 
         Rules:
         - Use ONLY the axioms + assumptions + relevant facts provided.
@@ -868,7 +869,7 @@ steps:
                 HPA judgement rules (Projection / gap δ):
                 - proved=true if the argument is internally consistent and stays within provided axioms/facts.
                 - Be pragmatic: allow standard inference steps (algebra/rewriting) as long as they do NOT introduce new assumptions.
-                - Mark proved=false ONLY when you can point to a concrete missing lemma/assumption/counterexample (gap δ).
+                - Mark proved=false ONLY when you can point to a concrete concrete step that is physically implausible or contradictory, or counterexample (gap δ).
 
                 Factorization rules:
                 - Output depends_on: minimal set of dependency IDs actually used.
@@ -881,6 +882,7 @@ steps:
                 - Do NOT append anything after the closing brace } of the JSON object.
                 - Do NOT include duplicate closing braces like }}.
                 - Do NOT include any text, numbers, or characters after the JSON object ends.
+                - Validate your JSON structure before outputting
 
                 Rules:
 

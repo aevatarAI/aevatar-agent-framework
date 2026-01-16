@@ -1095,5 +1095,101 @@ export async function getPivotSnapshots(
   }
 }
 
+// ============================================================================
+//  File Upload with Knowledge Extraction
+// ============================================================================
+
+/**
+ * Extracted knowledge node returned from upload extraction
+ */
+export interface ExtractedKnowledgeNode {
+  id: string
+  title: string
+  content: string
+  keywords: string[]
+}
+
+/**
+ * Upload extraction response
+ */
+export interface UploadExtractionResponse {
+  ok: boolean
+  sessionId?: string
+  fileName?: string
+  filePath?: string
+  message?: string
+  error?: string
+  extractedNodes?: ExtractedKnowledgeNode[]
+}
+
+/**
+ * Upload a file and extract ALL knowledge points to create KnowledgeNodes in the graph.
+ * Uses LLM to thoroughly analyze the file content and extract as many distinct
+ * knowledge points as possible, which are then stored in the global DAG.
+ *
+ * @param sessionId - The session ID
+ * @param file - The file to upload (supports .txt, .md, .json, .csv, .pdf)
+ * @param options - Optional configuration
+ * @param options.providerName - Optional LLM provider to use
+ * @param options.maxKnowledgePoints - Optional limit (default: 0 = unlimited, extract all)
+ * @returns Extraction result with created knowledge nodes
+ */
+export async function uploadWithExtraction(
+  sessionId: string | null | undefined,
+  file: File,
+  options?: {
+    providerName?: string
+    /** Max points to extract. 0 or undefined = unlimited (extract all) */
+    maxKnowledgePoints?: number
+  }
+): Promise<UploadExtractionResponse> {
+  if (!sessionId) {
+    console.warn('[axiom-client] uploadWithExtraction called with invalid sessionId:', sessionId)
+    return { ok: false, error: 'Invalid sessionId' }
+  }
+
+  if (!file) {
+    console.warn('[axiom-client] uploadWithExtraction called with no file')
+    return { ok: false, error: 'No file provided' }
+  }
+
+  const formData = new FormData()
+  formData.append('file', file)
+
+  // Build query params for options
+  const params = new URLSearchParams()
+  if (options?.providerName) {
+    params.set('providerName', options.providerName)
+  }
+  if (options?.maxKnowledgePoints) {
+    params.set('maxKnowledgePoints', String(options.maxKnowledgePoints))
+  }
+
+  const queryString = params.toString()
+  const url = `${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}/uploads/extract${queryString ? `?${queryString}` : ''}`
+
+  try {
+    const sessionController = getSessionAbortController()
+    const res = await fetch(url, {
+      method: 'POST',
+      body: formData,
+      signal: sessionController.signal,
+      // Note: Don't set Content-Type header - browser will set it with boundary for FormData
+    })
+
+    if (!res.ok) {
+      const text = await res.text()
+      return { ok: false, error: `Upload failed: ${res.status} ${text}` }
+    }
+
+    const result = await res.json() as UploadExtractionResponse
+    return result
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    console.error('[axiom-client] uploadWithExtraction error:', message)
+    return { ok: false, error: message }
+  }
+}
+
 // === Export API Base for Vite proxy configuration ===
 export { API_BASE }

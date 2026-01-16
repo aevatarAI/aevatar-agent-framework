@@ -2,7 +2,7 @@
 //  TopologyHeader - DAG Visualization Controls
 // ============================================================
 
-import { Network, RefreshCw, FileText, Maximize2, Minimize2 } from 'lucide-react'
+import { Network, RefreshCw, FileText, Maximize2, Minimize2, Crosshair } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
 
@@ -12,12 +12,14 @@ export interface TopologyHeaderProps {
   onCollapse?: () => void
   onSummary?: () => void
   onFullscreenToggle?: () => void
+  onFocusActive?: () => void
   refreshing: boolean
   nodeCount: number
   edgeCount: number
   planCount?: number
   knowledgeCount?: number
   isFullscreen?: boolean
+  activeMilestone?: string | null
 }
 
 export function TopologyHeader({
@@ -26,12 +28,14 @@ export function TopologyHeader({
   onCollapse,
   onSummary,
   onFullscreenToggle,
+  onFocusActive,
   refreshing,
   nodeCount,
   edgeCount,
   planCount = 0,
   knowledgeCount = 0,
   isFullscreen = false,
+  activeMilestone,
 }: TopologyHeaderProps) {
   return (
     <TooltipProvider delayDuration={200}>
@@ -64,6 +68,28 @@ export function TopologyHeader({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Focus Active Node */}
+          {onFocusActive && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={onFocusActive}
+                  aria-label="Focus on active node"
+                  className={cn(
+                    "flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] font-mono rounded-md border transition-all",
+                    activeMilestone
+                      ? "border-orange-400/40 bg-orange-400/10 text-orange-400 hover:bg-orange-400/20 hover:border-orange-400/60"
+                      : "border-border-subtle text-text-muted hover:text-neon-cyan hover:border-neon-cyan/40"
+                  )}
+                >
+                  <Crosshair className="size-3" />
+                  <span>Focus</span>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{activeMilestone ? "Focus on active milestone" : "Smart focus (plan nodes)"}</TooltipContent>
+            </Tooltip>
+          )}
+
           {/* Summary */}
           {onSummary && nodeCount > 0 && (
             <Tooltip>

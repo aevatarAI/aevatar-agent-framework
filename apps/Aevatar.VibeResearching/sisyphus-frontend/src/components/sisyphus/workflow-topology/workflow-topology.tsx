@@ -83,59 +83,41 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
     setTimeout(() => { isProgrammaticMove.current = false }, 600)
   }, [])
 
-  const focusOnActiveMilestone = useCallback(() => {
-    if (activeMilestoneNodeId) focusOnNode(activeMilestoneNodeId)
-  }, [activeMilestoneNodeId, focusOnNode])
-
-  // ── Smart Focus: prioritize Active Milestone > Plan > Knowledge > Other ──
+  // ── Smart Focus: prioritize Active milestone > fitView ──
   const smartFocus = useCallback(() => {
-    if (!reactFlowInstance.current || !dag?.nodes) return
+    if (!reactFlowInstance.current || !dag?.nodes || dag.nodes.length === 0) return
 
-    // Priority 1: Active milestone (currently executing plan node)
+    // Priority 1: Find Active milestone directly from DAG data (most reliable)
+    const activeMilestone = dag.nodes.find(
+      n => n.kind === 'Plan' && n.planStatus === 'Active'
+    )
+    if (activeMilestone) {
+      console.log('[DAG] smartFocus: focusing on Active milestone:', activeMilestone.id)
+      focusOnNode(activeMilestone.id)
+      return
+    }
+
+    // Priority 2: Use store's activeMilestoneNodeId as fallback
     if (activeMilestoneNodeId) {
-      focusOnNode(activeMilestoneNodeId)
-      return
+      const nodeExists = dag.nodes.some(n => n.id === activeMilestoneNodeId)
+      if (nodeExists) {
+        console.log('[DAG] smartFocus: focusing on store activeMilestoneNodeId:', activeMilestoneNodeId)
+        focusOnNode(activeMilestoneNodeId)
+        return
+      }
     }
 
-    // Priority 2: Plan nodes in current session (prefer last one as "newest")
-    const currentSessionPlanNodes = dag.nodes.filter(
-      n => n.kind === 'Plan' && (!n.sessionId || n.sessionId === sessionId)
-    )
-    if (currentSessionPlanNodes.length > 0) {
-      const lastPlan = currentSessionPlanNodes[currentSessionPlanNodes.length - 1]
-      focusOnNode(lastPlan.id)
-      return
-    }
+    // Priority 3: fitView to show all nodes (most reliable fallback)
+    console.log('[DAG] smartFocus: no active milestone, using fitView')
+    isProgrammaticMove.current = true
+    reactFlowInstance.current.fitView({ padding: 0.2, duration: 500 })
+    setTimeout(() => { isProgrammaticMove.current = false }, 600)
+  }, [dag, activeMilestoneNodeId, focusOnNode])
 
-    // Priority 3: Any Plan node (from other sessions)
-    const anyPlanNode = dag.nodes.find(n => n.kind === 'Plan')
-    if (anyPlanNode) {
-      focusOnNode(anyPlanNode.id)
-      return
-    }
-
-    // Priority 4: Knowledge nodes in current session (prefer last one)
-    const currentSessionKnowledgeNodes = dag.nodes.filter(
-      n => n.kind === 'Knowledge' && (!n.sessionId || n.sessionId === sessionId)
-    )
-    if (currentSessionKnowledgeNodes.length > 0) {
-      const lastKnowledge = currentSessionKnowledgeNodes[currentSessionKnowledgeNodes.length - 1]
-      focusOnNode(lastKnowledge.id)
-      return
-    }
-
-    // Priority 5: Any Knowledge node (from other sessions)
-    const anyKnowledgeNode = dag.nodes.find(n => n.kind === 'Knowledge')
-    if (anyKnowledgeNode) {
-      focusOnNode(anyKnowledgeNode.id)
-      return
-    }
-
-    // Priority 6: First node as fallback (Other types)
-    if (dag.nodes.length > 0) {
-      focusOnNode(dag.nodes[0].id)
-    }
-  }, [dag, activeMilestoneNodeId, sessionId, focusOnNode])
+  const focusOnActiveMilestone = useCallback(() => {
+    // Always use smartFocus - it finds the Active milestone from DAG data directly
+    smartFocus()
+  }, [smartFocus])
 
   // ── Handle filter change ──
   const handleFilterChange = useCallback((newMode: NodeFilterMode) => {
@@ -220,8 +202,9 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
       if (filterMode === 'all') return true
       const isOtherSession = node.sessionId ? node.sessionId !== sessionId : false
       const isCurrentSession = !isOtherSession
-      const isActiveMilestone = node.id === activeMilestoneNodeId
-      if (filterMode === 'PlanActive') return isActiveMilestone
+      // Check both: store's activeMilestoneNodeId OR node's planStatus from API
+      const isActiveMilestone = node.id === activeMilestoneNodeId || node.planStatus === 'Active'
+      if (filterMode === 'PlanActive') return isActiveMilestone && node.kind === 'Plan'
       if (filterMode === 'Plan') return node.kind === 'Plan' && isCurrentSession
       if (filterMode === 'Knowledge') return node.kind === 'Knowledge' && isCurrentSession
       if (filterMode === 'OtherSession') return isOtherSession
@@ -303,20 +286,58 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
     setDetailsOpen(true)
   }, [setSelectedNode, clearHighlight])
 
-  // Toggle fullscreen mode
-  const toggleFullscreen = useCallback(() => {
-    setIsFullscreen(prev => {
-      const newValue = !prev
-      // Re-layout and focus after fullscreen transition
-      setTimeout(() => {
-        if (reactFlowInstance.current) {
-          reactFlowInstance.current.fitView({ padding: 0.2, duration: 300 })
+  // Reference to the container for native fullscreen
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  // Toggle fullscreen mode - use native browser fullscreen API
+  const toggleFullscreen = useCallback(async () => {
+    console.log('[DAG] toggleFullscreen called, current isFullscreen:', isFullscreen)
+
+    if (!isFullscreen) {
+      // Enter fullscreen using native API
+      try {
+        if (containerRef.current) {
+          await containerRef.current.requestFullscreen()
+          setIsFullscreen(true)
+          console.log('[DAG] Entered native fullscreen')
         }
-        setTimeout(smartFocus, 350)
-      }, 100)
-      return newValue
-    })
-  }, [smartFocus])
+      } catch (err) {
+        // Fallback to CSS-based fullscreen if native fails
+        console.log('[DAG] Native fullscreen failed, using CSS fallback:', err)
+        setIsFullscreen(true)
+      }
+    } else {
+      // Exit fullscreen
+      try {
+        if (document.fullscreenElement) {
+          await document.exitFullscreen()
+        }
+        setIsFullscreen(false)
+        console.log('[DAG] Exited fullscreen')
+      } catch (err) {
+        console.log('[DAG] Exit fullscreen error:', err)
+        setIsFullscreen(false)
+      }
+    }
+
+    // Re-layout after transition
+    setTimeout(() => {
+      if (reactFlowInstance.current) {
+        reactFlowInstance.current.fitView({ padding: 0.2, duration: 300 })
+      }
+    }, 200)
+  }, [isFullscreen])
+
+  // Listen for native fullscreen changes (e.g., user presses ESC)
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isNowFullscreen = !!document.fullscreenElement
+      console.log('[DAG] fullscreenchange event, isFullscreen:', isNowFullscreen)
+      setIsFullscreen(isNowFullscreen)
+    }
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  }, [])
 
   // Handle ESC key to exit fullscreen
   useEffect(() => {
@@ -382,8 +403,22 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
   // Empty state
   if (!dag?.nodes || dag.nodes.length === 0) {
     return (
-      <div className={cn("card flex flex-col", fullHeight && "h-full")}>
-        <TopologyHeader onLayout={onLayout} onRefresh={handleRefresh} refreshing={refreshing} nodeCount={0} edgeCount={0} activeMilestone={activeMilestoneNodeId} />
+      <div
+        ref={containerRef}
+        className={cn(
+          "flex flex-col overflow-hidden transition-all duration-300",
+          isFullscreen
+            ? "fixed inset-0 z-[9999] bg-[#0a0c10] border-4 border-neon-cyan/50"
+            : "card",
+          fullHeight && !isFullscreen && "h-full"
+        )}
+      >
+        <TopologyHeader
+          onLayout={onLayout} onRefresh={handleRefresh} refreshing={refreshing}
+          nodeCount={0} edgeCount={0} activeMilestone={activeMilestoneNodeId}
+          onFullscreenToggle={toggleFullscreen} isFullscreen={isFullscreen}
+          onFocusActive={focusOnActiveMilestone}
+        />
         <div className="flex-1 flex flex-col items-center justify-center py-8 text-center min-h-[300px]">
           <div className="relative">
             <div className="absolute inset-0 rounded-full bg-accent-emerald blur-2xl opacity-20 animate-pulse" />
@@ -404,21 +439,26 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
   }
 
   return (
-    <div className={cn(
-      "flex flex-col overflow-hidden transition-all duration-300",
-      isFullscreen 
-        ? "fixed inset-0 z-[9999] bg-[#0c0f14]" 
-        : "card",
-      fullHeight && !isFullscreen && "h-full"
-    )}>
+    <div
+      ref={containerRef}
+      className={cn(
+        "flex flex-col overflow-hidden transition-all duration-300",
+        isFullscreen
+          ? "fixed inset-0 z-[9999] bg-[#0a0c10] border-4 border-neon-cyan/50"
+          : "card",
+        fullHeight && !isFullscreen && "h-full"
+      )}
+    >
       {/* Header - always on top */}
       <div className="relative z-30 flex-shrink-0 bg-[#0c0f14]">
         <TopologyHeader
           onLayout={onLayout} onRefresh={handleRefresh} onCollapse={isFullscreen ? undefined : onCollapse}
           onSummary={() => setSummaryOpen(true)}
           onFullscreenToggle={toggleFullscreen} isFullscreen={isFullscreen}
+          onFocusActive={focusOnActiveMilestone}
           refreshing={refreshing} nodeCount={nodeCount} edgeCount={edgeCount}
           planCount={dagStats.planCount} knowledgeCount={dagStats.knowledgeCount}
+          activeMilestone={activeMilestoneNodeId}
         />
       </div>
 

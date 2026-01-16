@@ -152,6 +152,8 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
           id: n.id, label: n.label || n.id, status: 'completed', type: n.type || 'node',
           kind: n.kind as NodeKind | undefined, owner: n.owner, proof: n.proof,
           attestations: n.attestations, attestationsCount: n.attestationsCount, sessionId: n.sessionId,
+          // Map planStatus from API for Plan nodes (Active milestone detection)
+          planStatus: n.planStatus as 'Pending' | 'Active' | 'Completed' | undefined,
         }))
         const edges = (snapshot.edges || []).map(e => ({ source: e.fromId, target: e.toId, type: e.type }))
         setDag({ nodes, edges })

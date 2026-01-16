@@ -39,7 +39,7 @@ defaults:
       Core triad (Rotation → Factorization → Projection):
       - Rotation (scan Θ): "time" is the iteration/access-order; irrational rotation is used to avoid resonance (golden branch α=φ^{-1}).
       - Factorization: represent claims by explicit generators (axiom/theorem IDs) and an ordered reasoning path.
-      - Projection/readout: only accept closed arguments; any missing lemma/assumption that is UNJUSTIFIED or NOT DERIVABLE from given facts, or physically implausible or contradictory is a residual gap δ and must be stated explicitly.
+      - Projection/readout: only accept closed arguments; any implicity step/assumption that is physically implausible or contradictory, or is UNJUSTIFIED or NOT DERIVABLE from given facts with implicit steps that are physically plausible is a residual gap δ and must be stated explicitly.
 
       Key constructs you must respect (paper-aligned):
       - Embedding: Z(n)=ρ(n)·exp(i·θ×(n)); θ× is additive under multiplication (homomorphic phase).
@@ -867,7 +867,7 @@ steps:
                 Decide whether Hypothesis A is PROVED given axioms + assumptions + relevant facts, based on the MAKER solution.
 
                 HPA judgement rules (Projection / gap δ):
-                - proved=true if the argument is internally consistent and stays within provided axioms/facts.
+                - proved=true if the argument is internally consistent and stays within provided axioms/facts with implicit steps that are physically plausible.
                 - Be pragmatic: allow standard inference steps (algebra/rewriting) as long as they do NOT introduce new assumptions.
                 - Mark proved=false ONLY when you can point to a concrete concrete step that is physically implausible or contradictory, or counterexample (gap δ).
 

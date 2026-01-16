@@ -1,5 +1,5 @@
 ---
-description: Aevatar System Scaffold Protocol - Create a new AI system folder (backend+frontend) using AG-UI + configurable LLMProviders + Aspire AppHost + start.sh + docs
+description: Aevatar System Scaffold Protocol - Create a new AI system folder (backend+frontend) using AG-UI + configurable LLMProviders + Aspire AppHost + boot.sh + docs
 ---
 
 ## User Input
@@ -19,7 +19,7 @@ $ARGUMENTS
 
 ### 1) Root-level System Directory
 
-- 在仓库根目录创建一个新子目录：命名风格参考 `novel/`、`notebook/`、`trade/`，要求：
+- 在仓库根目录创建一个新子目录：命名风格参考 `experimental/novel/`、`experimental/notebook/`、`apps/trade/`，要求：
   - 全小写、言简意赅、建议 kebab-case
   - 如用户未指定名称：你给出 2~3 个候选并选一个最合适的落地
 
@@ -29,11 +29,11 @@ $ARGUMENTS
 
 - `<system>/README.md`：一页说明系统构成、如何运行、关键配置入口
 - `<system>/docs/`：必须详细说明架构/功能/实现/运行方式/配置说明（不是空壳）
-- `<system>/start.sh`：一键同时启动前后端
+- `<system>/boot.sh`：一键同时启动前后端
 - `<system>/frontend/`：前端工程（默认 React + Vite + TS；如需求更适合桌面端可选 Tauri，但必须在 docs 解释原因）
 - `<system>/src/`：.NET 项目（至少 Core + Api）
 - `<system>/<SystemName>.AppHost/`：Aspire AppHost（同时启动前后端）
-- 根目录新增 `aevatar-<system>-system.slnx`：格式参考 `aevatar-trade-system.slnx`，把该系统项目与 docs 文件纳入
+- 在 `<system>/` 内新增 `aevatar-<system>-system.slnx`：把该系统项目与 docs 文件纳入
 
 ### 3) Frontend/Backend Communication via AG-UI (Mandatory)
 
@@ -51,7 +51,10 @@ $ARGUMENTS
 - Provider 配置必须走 `LLMProviders`（见 `Aevatar.Agents.AI.Abstractions.Configuration.LLMProvidersConfig`）
 - 默认 provider 从 `LLMProviders:Default` 选取
 - 允许请求级覆盖（例如创建 session 时传 `providerName`）
-- Secrets 放在 `appsettings.secrets.json`（可选但推荐），并提供 `.example` 文件；不要提交真实密钥到 git
+- Secrets 必须支持 **全局 user secrets（加密，推荐）+ 项目级覆盖**：
+  - **全局（推荐）**：`~/.aevatar/secrets.json`（加密；用 `src/Aevatar.Agents.SecretsCli` 写入；可用 `AEVATAR_SECRETS_PATH/AEVATAR_SECRETS_DIR` 覆盖）
+  - **项目级（可选）**：`appsettings.secrets.json`（gitignored，用于覆盖/团队模板），并提供 `.example` 文件
+  - 后端启动时配置源顺序建议：`appsettings.json` → `AddAevatarUserSecrets()` → `appsettings.secrets.json` → 环境变量
 
 ### 5) Aspire AppHost (Mandatory)
 
@@ -59,12 +62,12 @@ $ARGUMENTS
 - 使用 Aspire 同时启动后端与前端：
   - 后端：`builder.AddProject<Projects.<System>_Api>(...)`
   - 前端：`builder.AddExecutable(..., "npm", <frontendDir>, "run", "dev")`
-  - 参考 `trade/Aevatar.Trade.AppHost/Program.cs` 的 `AddProject + AddExecutable + WithHttpEndpoint` 模式
+  - 参考 `apps/trade/Aevatar.Trade.AppHost/Program.cs` 的 `AddProject + AddExecutable + WithHttpEndpoint` 模式
 - 不要引入不必要的 NuGet；版本按 `Directory.Packages.props` 统一管理
 
-### 6) start.sh (Mandatory)
+### 6) boot.sh (Mandatory)
 
-脚本行为参考 `novel/dev.sh`（稳健、可维护）：
+脚本行为参考 `experimental/novel/boot.sh`（稳健、可维护）：
 
 - 默认端口：后端 5678、前端 5173（可通过环境变量覆盖）
 - 可选 kill 端口（macOS/Linux 用 lsof），并在退出时清理子进程
@@ -74,12 +77,13 @@ $ARGUMENTS
 ## Reference Patterns (You MUST reuse these)
 
 - **AG-UI 规范与最佳实践**：`docs/AGUI_INTEGRATION_GUIDE.md`
-- **AG-UI 代码参考**：`cognitive-mesh/Aevatar.AxiomReasoning/AgUi/*`
+- **AG-UI 代码参考**：`apps/Aevatar.AxiomReasoning/src/Aevatar.AxiomReasoning/EventStreaming/AgUi/*`
   - `AxiomAgUiBootstrap`：构建快照（messages/status/state）
   - `AxiomAgUiEventStream`：把业务事件流投影成 AG-UI 事件（RUN/STEP/TEXT/STATE + CUSTOM）
-- **LLMProviders 配置模式**：`notebook/README.md` + `src/Aevatar.Agents.AI.*`
-- **Aspire 编排前后端**：`trade/Aevatar.Trade.AppHost/Program.cs`
-- **一键启动脚本**：`novel/dev.sh`
+- **LLMProviders 配置模式**：`experimental/notebook/README.md` + `src/Aevatar.Agents.AI.*`
+- **User Secrets（全局加密密钥）**：`src/Aevatar.Agents.Core/docs/UserSecrets.md`
+- **Aspire 编排前后端**：`apps/trade/Aevatar.Trade.AppHost/Program.cs`
+- **一键启动脚本**：`experimental/novel/boot.sh`
 
 ## Backend Minimal Deliverables (Must be runnable)
 
@@ -123,10 +127,10 @@ $ARGUMENTS
   - 模块边界（Core/Api/Agents/Frontend/AppHost）
   - 事件流（用户输入 → Agent 执行 → AG-UI SSE）
   - AG-UI 数据流与重连策略（快照优先）
-  - 运行方式（start.sh / AppHost / 分别启动）
+  - 运行方式（boot.sh / AppHost / 分别启动）
   - 关键权衡（为何选择该前端栈/为何该事件模型）
 - `<system>/docs/CONFIGURATION.md`
-  - `LLMProviders` 配置（含 secrets 示例）
+  - `LLMProviders` 配置（含 user secrets + 项目级 secrets 示例与优先级）
   - 运行时（Local/Orleans）如何切换（如支持）
   - 端口与 env 变量
 - `<system>/docs/DEVELOPMENT.md`
@@ -137,9 +141,9 @@ $ARGUMENTS
 1) 解析 `$ARGUMENTS`，用 5~10 行复述系统目标与关键需求。
 2) 若需求不完整：最多问 3~6 个“最关键澄清问题”（优先：数据源/隐私/部署约束/是否桌面端/是否多用户/是否需要持久化）。
 3) 直接落地创建目录与工程（不要只给方案不写代码）。
-4) 严格按本文件的硬性要求补齐：AG-UI SSE、LLMProviders 配置、Aspire AppHost、start.sh、docs、slnx。
+4) 严格按本文件的硬性要求补齐：AG-UI SSE、LLMProviders 配置、Aspire AppHost、boot.sh、docs、slnx。
 5) 最后输出：
-   - `start.sh` 使用方式
+   - `boot.sh` 使用方式
    - AppHost 启动方式
    - 分别启动方式
    - 访问地址（明确端口；不得出现 5000）

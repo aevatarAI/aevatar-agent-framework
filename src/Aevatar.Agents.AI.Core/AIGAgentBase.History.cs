@@ -20,11 +20,11 @@ public abstract partial class AIGAgentBase
     //  中文 + ASCII:
     //  - Layer 1: State.History (sliding window, optional)
     //  - Layer 2: State.Context["history_summary"] (rolling summary, optional)
-    //  - Concurrency: RepeatedField<T> is NOT thread-safe, protect with _historyLock.
+    //  - Concurrency: RepeatedField<T> is NOT thread-safe; lock is owned by HistoryRuntime.
     // ============================================================
 
-    private readonly object _historyLock = new();
-    private readonly SemaphoreSlim _historyCompactionSemaphore = new(1, 1);
+    private HistoryRuntime? _historyRuntime;
+    private HistoryRuntime History => _historyRuntime ??= new HistoryRuntime(this);
 
     /// <summary>
     /// Switch (default: false):
@@ -63,115 +63,19 @@ public abstract partial class AIGAgentBase
     /// </summary>
     public int ChatHistorySummaryMaxChars { get; set; } = 4000;
 
-    [field: AllowNull, MaybeNull]
-    protected ConversationHistoryManager ConversationHistory =>
-        field ??= CreateConversationHistoryManager();
-
-    protected virtual ConversationHistoryManager CreateConversationHistoryManager()
-    {
-        return new ConversationHistoryManager(State.History);
-    }
-
     protected virtual void AddMessageToHistory(string content, AevatarChatRole role, string? name = null)
     {
-        // NOTE:
-        // - Cognitive / Vote may run multiple LLM calls concurrently inside the same agent instance.
-        // - RepeatedField<T> is NOT thread-safe; protect State.History modifications with a lock.
-        lock (_historyLock)
-        {
-            ConversationHistory.AddMessage(content, role, name);
-        }
+        History.AddMessage(content, role, name);
     }
 
     protected virtual void AddMessageToHistory(AevatarChatMessage message)
     {
-        lock (_historyLock)
-        {
-            ConversationHistory.AddMessage(message);
-        }
+        History.AddMessage(message);
     }
 
     protected virtual async Task CompactChatHistoryIfNeededAsync(CancellationToken cancellationToken = default)
     {
-        if (!EnableChatHistoryInState || !EnableChatHistoryCompaction)
-            return;
-
-        if (ChatHistoryMaxMessages <= 0)
-            return;
-
-        int historyCount;
-        lock (_historyLock)
-        {
-            historyCount = State.History?.Count ?? 0;
-        }
-
-        if (historyCount <= ChatHistoryMaxMessages)
-            return;
-
-        await _historyCompactionSemaphore.WaitAsync(cancellationToken);
-        try
-        {
-            List<AevatarChatMessage> removed;
-            string? existingSummary;
-
-            lock (_historyLock)
-            {
-                var history = State.History;
-                if (history == null)
-                {
-                    return;
-                }
-
-                var count = history.Count;
-                if (count <= ChatHistoryMaxMessages)
-                {
-                    return;
-                }
-
-                var toRemove = count - ChatHistoryMaxMessages;
-                removed = new List<AevatarChatMessage>(toRemove);
-                for (var i = 0; i < toRemove; i++)
-                {
-                    removed.Add(history[i].Clone());
-                }
-
-                var kept = new List<AevatarChatMessage>(ChatHistoryMaxMessages);
-                for (var i = toRemove; i < count; i++)
-                {
-                    kept.Add(history[i].Clone());
-                }
-
-                history.Clear();
-                history.AddRange(kept);
-
-                existingSummary = State.Context.TryGetValue(AIGAgentKeys.HistorySummary, out var s) ? s : null;
-            }
-
-            if (removed.Count == 0)
-            {
-                return;
-            }
-
-            var updatedSummary = await UpdateHistorySummaryAsync(existingSummary, removed, cancellationToken);
-            if (string.IsNullOrWhiteSpace(updatedSummary))
-            {
-                updatedSummary = BuildFallbackHistorySummary(existingSummary, removed);
-            }
-
-            if (ChatHistorySummaryMaxChars > 0 && updatedSummary.Length > ChatHistorySummaryMaxChars)
-            {
-                updatedSummary = updatedSummary[..ChatHistorySummaryMaxChars];
-            }
-
-            lock (_historyLock)
-            {
-                State.Context[AIGAgentKeys.HistorySummary] = updatedSummary;
-            }
-        }
-        finally
-        {
-            _historyCompactionSemaphore.Release();
-        }
+        await History.CompactIfNeededAsync(cancellationToken);
     }
 
     private string BuildEffectiveSystemPromptWithSummary()
@@ -186,154 +90,9 @@ public abstract partial class AIGAgentBase
                 ? toolBlock
                 : $"{basePrompt}\n\n{toolBlock}";
 
-        if (!EnableChatHistoryInState || !EnableChatHistoryCompaction)
-            return mergedPrompt;
-
-        string? summary;
-        lock (_historyLock)
-        {
-            summary = State.Context.TryGetValue(AIGAgentKeys.HistorySummary, out var s) ? s : null;
-        }
-
-        if (string.IsNullOrWhiteSpace(summary))
-            return mergedPrompt;
-
-        // Keep it explicit and stable; avoid fancy formatting that the model may misinterpret.
-        return $"{mergedPrompt}\n\nConversation summary (memory):\n{summary}\n";
+        return History.AppendSummaryToSystemPrompt(mergedPrompt);
     }
 
-    protected virtual async Task<string?> UpdateHistorySummaryAsync(
-        string? existingSummary,
-        IReadOnlyList<AevatarChatMessage> newlyArchivedMessages,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            var transcript = BuildTranscriptForSummarization(newlyArchivedMessages, maxChars: 12000);
-
-            var prev = string.IsNullOrWhiteSpace(existingSummary)
-                ? "(none)"
-                : existingSummary.Trim();
-
-            var prompt = $"""
-                          You maintain a compact, factual memory summary of a conversation.
-
-                          Existing summary:
-                          {prev}
-
-                          New conversation messages to merge:
-                          {transcript}
-
-                          Update the summary. Rules:
-                          - Be factual. Do NOT invent.
-                          - Keep it concise.
-                          - Use this structure exactly:
-
-                          Facts:
-                          - ...
-
-                          Decisions:
-                          - ...
-
-                          Constraints:
-                          - ...
-
-                          Open questions:
-                          - ...
-                          """;
-
-            var modelId = !string.IsNullOrWhiteSpace(Config.Model)
-                ? Config.Model
-                : AevatarAIDefaults.DefaultModel;
-
-            var summarizeRequest = new AevatarLLMRequest
-            {
-                SystemPrompt = "You are a precise conversation memory summarizer.",
-                UserPrompt = prompt,
-                Settings = new AevatarLLMSettings
-                {
-                    ModelId = modelId,
-                    Temperature = 0,
-                    MaxTokens = 512
-                }
-            };
-
-            var response = await GenerateLLMWithHooksAsync(
-                requestId: "history_summary::" + Guid.NewGuid().ToString("N"),
-                llmRequest: summarizeRequest,
-                cancellationToken: cancellationToken);
-            return response.Content?.Trim();
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "History summarization failed; falling back to heuristic summary.");
-            return null;
-        }
-    }
-
-    private static string BuildTranscriptForSummarization(
-        IReadOnlyList<AevatarChatMessage> messages,
-        int maxChars)
-    {
-        var sb = new StringBuilder();
-
-        foreach (var m in messages)
-        {
-            var role = m.Role.ToString().ToLowerInvariant();
-            var content = (m.Content ?? string.Empty).Replace("\r", "").Trim();
-            if (content.Length > 800)
-                content = content[..800] + "…";
-
-            sb.Append(role);
-            sb.Append(": ");
-            sb.AppendLine(content);
-        }
-
-        var text = sb.ToString().Trim();
-        if (maxChars > 0 && text.Length > maxChars)
-        {
-            // Keep the tail of archived chunk (usually more relevant than the beginning of the chunk).
-            text = text[^maxChars..];
-        }
-
-        return text;
-    }
-
-    private static string BuildFallbackHistorySummary(
-        string? existingSummary,
-        IReadOnlyList<AevatarChatMessage> archived)
-    {
-        var sb = new StringBuilder();
-
-        if (!string.IsNullOrWhiteSpace(existingSummary))
-        {
-            sb.AppendLine(existingSummary.Trim());
-            sb.AppendLine();
-        }
-
-        sb.AppendLine("Archived notes:");
-
-        var take = Math.Min(archived.Count, 8);
-        var start = Math.Max(0, archived.Count - take);
-        for (var i = start; i < archived.Count; i++)
-        {
-            var m = archived[i];
-            var role = m.Role.ToString().ToLowerInvariant();
-            var content = (m.Content ?? string.Empty).Replace("\r", "").Trim();
-            if (content.Length > 200)
-                content = content[..200] + "…";
-
-            sb.Append("- ");
-            sb.Append(role);
-            sb.Append(": ");
-            sb.AppendLine(content);
-        }
-
-        if (archived.Count > take)
-        {
-            sb.AppendLine($"- ... ({archived.Count - take} more)");
-        }
-
-        return sb.ToString().Trim();
-    }
+    protected virtual IReadOnlyList<AevatarChatMessage> SnapshotChatHistoryMessages()
+        => History.SnapshotHistoryMessages();
 }

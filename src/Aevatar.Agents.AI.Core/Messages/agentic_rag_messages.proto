@@ -1,0 +1,123 @@
+syntax = "proto3";
+
+package aevatar.agents.ai.core;
+option csharp_namespace = "Aevatar.Agents.AI.Core.Messages";
+
+import "google/protobuf/timestamp.proto";
+import "memory.proto";
+
+// ============================================================
+//  Agentic RAG (Framework-level) - Contracts
+//
+//  WHY:
+//  - Agentic RAG runs a bounded loop: plan -> retrieve -> synthesize -> critique.
+//  - Cross-runtime state/events must be Protobuf (repo hard rule).
+//
+//  NOTE:
+//  - Keep all payloads bounded. Do NOT dump large raw documents into state/events.
+// ============================================================
+
+// ============================
+//  State / Config
+// ============================
+
+message AgenticRagState {
+  // Last completed run id (best-effort, for diagnostics).
+  string last_run_id = 1;
+
+  // How many iterations executed in the last run.
+  int32 last_iterations = 2;
+
+  // Human-readable stop reason (MVP; can evolve to enum later).
+  string last_stop_reason = 3;
+
+  // Bounded evidence summaries from the last run (snippets + citations only).
+  repeated RagEvidenceSummary last_evidence = 4;
+}
+
+message AgenticRagConfig {
+  // ----------------------------
+  // Budgets / stop conditions
+  // ----------------------------
+  int32 max_iterations = 1;
+  int32 max_evidence_items = 2;
+
+  // Per-evidence snippet bound (characters). Retriever/synthesizer must respect this.
+  int32 max_evidence_chars = 3;
+
+  // Best-effort prompt assembly bound (characters).
+  int32 max_context_chars = 4;
+
+  // Per-LLM-call timeout (best-effort).
+  int32 call_timeout_ms = 5;
+
+  // If true, emit a bounded ExecutionTrace for each run (best-effort).
+  bool enable_execution_trace = 6;
+
+  // ----------------------------
+  // Default retrieval scope (for memory-based retriever)
+  // ----------------------------
+  Aevatar.Agents.Memory.MemoryScopeType scope_type = 10;
+  string scope_id = 11;
+
+  // Optional explicit memory id (otherwise derived from scope).
+  string memory_id = 12;
+}
+
+// ============================
+//  Evidence / Citations
+// ============================
+
+message RagEvidenceSummary {
+  string evidence_id = 1;
+
+  // Bounded snippet for display/debug (NOT full document content).
+  string snippet = 2;
+
+  RagCitation citation = 3;
+
+  // Optional ranking score (e.g., cosine similarity).
+  double score = 4;
+
+  // Small metadata only (strings). Never put secrets or large blobs here.
+  map<string, string> tags = 100;
+}
+
+message RagCitation {
+  oneof ref {
+    MemoryEntryCitation memory_entry = 1;
+    UriCitation uri = 2;
+  }
+
+  map<string, string> tags = 100;
+}
+
+message MemoryEntryCitation {
+  string memory_id = 1;
+  string entry_id = 2;
+  Aevatar.Agents.Memory.MemoryScope scope = 3;
+}
+
+message UriCitation {
+  string uri = 1;
+  int32 start = 2;
+  int32 end = 3;
+  string fragment = 4;
+}
+
+// ============================
+//  Output Event
+// ============================
+
+message AgenticRagAnswerEvent {
+  string request_id = 1;
+  string run_id = 2;
+  string answer = 3;
+  repeated RagEvidenceSummary evidence = 4;
+  google.protobuf.Timestamp timestamp = 5;
+
+  // Bounded diagnostics (strings only).
+  map<string, string> diagnostics = 100;
+}
+
+

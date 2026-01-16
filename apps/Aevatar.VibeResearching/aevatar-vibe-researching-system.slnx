@@ -1,0 +1,44 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src\Aevatar.VibeResearching\Aevatar.VibeResearching.csproj" />
+    <Project Path="src\Aevatar.VibeResearching.Api\Aevatar.VibeResearching.Api.csproj" />
+    <Project Path="src\Aevatar.VibeResearching.Contracts\Aevatar.VibeResearching.Contracts.csproj" />
+    <Project Path="src\Aevatar.VibeResearching.AppHost\Aevatar.VibeResearching.AppHost.csproj" />
+    <File Path="README.md" />
+    <File Path="boot.sh" />
+  </Folder>
+
+  <Folder Name="/docs/">
+    <File Path="docs\INTEGRATION_GUIDE.md" />
+    <File Path="docs\ARCHITECTURE.md" />
+    <File Path="docs\VIBE_RESEARCHING.md" />
+    <File Path="docs\CONFIGURATION.md" />
+    <File Path="docs\DEVELOPMENT.md" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test\Aevatar.VibeResearching.Tests\Aevatar.VibeResearching.Tests.csproj" />
+    <Project Path="test\Aevatar.VibeResearching.Api.Tests\Aevatar.VibeResearching.Api.Tests.csproj" />
+  </Folder>
+
+  <Folder Name="/framework/">
+    <Project Path="../Aevatar.CognitiveMesh/src/Aevatar.CognitiveMesh/Aevatar.CognitiveMesh.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.AGUI\Aevatar.Agents.AGUI.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.AI\Aevatar.Agents.AI.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.AI.MEAI\Aevatar.Agents.AI.MEAI.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Knowledge.Graph\Aevatar.Agents.Knowledge.Graph.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Persistence.InMemory.Graph\Aevatar.Agents.Persistence.InMemory.Graph.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Persistence.Neo4j.Graph\Aevatar.Agents.Persistence.Neo4j.Graph.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Cognitive.Streaming\Aevatar.Agents.Cognitive.Streaming.csproj" />
+  </Folder>
+
+  <Folder Name="/root/">
+    <File Path="..\..\AGENTS.md" />
+    <File Path="..\..\Directory.Packages.props" />
+  </Folder>
+</Solution>
+
+

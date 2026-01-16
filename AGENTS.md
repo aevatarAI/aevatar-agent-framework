@@ -66,13 +66,13 @@ dotnet build src/Aevatar.Agents.Core/
 ### Aspire 应用启动
 ```bash
 # Paper Review 系统
-cd apps/PaperReview.AppHost && dotnet run
+cd apps/Aevatar.PaperReview/PaperReview.AppHost && dotnet run
 
 # Maker 系统
-cd apps/MakerSystem.AppHost && dotnet run
+cd apps/Aevatar.MakerSystem/MakerSystem.AppHost && dotnet run
 
 # Cognitive Mesh
-cd apps/CognitiveMesh.AppHost && dotnet run
+cd apps/Aevatar.CognitiveMesh/CognitiveMesh.AppHost && dotnet run
 ```
 
 ---
@@ -88,24 +88,34 @@ src/                          # 核心库
 ├── Aevatar.Agents.Runtime.ProtoActor/ # ProtoActor 运行时 (高性能)
 ├── Aevatar.Agents.AI.*/            # AI 集成 (MEAI, LLMTornado)
 ├── Aevatar.Agents.Maker/           # MAKER 框架
-└── Aevatar.Agents.Cognitive/       # 认知推理 Agent
+├── Aevatar.Agents.Cognitive/       # 认知推理 Agent
+├── Aevatar.Agents.Cognitive.Core/  # 认知策略与执行模型
+├── Aevatar.Agents.Cognitive.Content/ # 内容加载/项目存储
+├── Aevatar.Agents.Cognitive.Streaming/ # 流式广播工具
+└── Aevatar.CognitiveMesh.Dsl/      # Cognitive DSL 编译器
 
 agents/                       # 业务 Agent 实现
 ├── Aevatar.Agents.Chat/
 ├── Aevatar.Agents.Twitter/
 └── Aevatar.Agents.Workflow/
 
-cognitive-mesh/               # 认知网格系统
+apps/                         # 稳定应用
+├── Aevatar.Trading/
+├── Aevatar.VibeResearching/
+├── Aevatar.AxiomReasoning/
 ├── Aevatar.CognitiveMesh/
-├── Aevatar.CognitiveMesh.Abstractions/
-├── Aevatar.CognitiveMesh.Dsl/
-└── Aevatar.PaperReview/      # Paper Review 应用
+└── Aevatar.PaperReview/
+
+experimental/                 # 规划/开发中应用
+├── notebook/
+├── learning/
+├── novel/
+└── aevatar-kit/
 
 examples/                     # 示例项目
 ├── SimpleDemo/               # 5分钟入门
 ├── EventSourcingDemo/        # EventSourcing 示例
 ├── AIAgentWithToolDemo/      # AI Tool Calling
-├── MakerSystem/              # MAKER 框架演示
 └── Demo.Agents/              # 各类 Agent 实现
 
 test/                         # 测试项目
@@ -299,15 +309,15 @@ dotnet build --no-incremental
 | [docs/AEVATAR_FRAMEWORK_GUIDE.md](docs/AEVATAR_FRAMEWORK_GUIDE.md) | **主指南**: 架构、开发、AI、运行时 |
 | [docs/ARCHITECTURE_REFERENCE.md](docs/ARCHITECTURE_REFERENCE.md) | 深度架构参考 |
 | [docs/CONSTITUTION.md](docs/CONSTITUTION.md) | 设计哲学 |
-| [cognitive-mesh/docs/](cognitive-mesh/docs/) | Cognitive Mesh 系统文档 |
+| [apps/Aevatar.CognitiveMesh/docs/](apps/Aevatar.CognitiveMesh/docs/) | Cognitive Mesh 系统文档 |
 
 ---
 
 ## 大型 Monorepo 导航
 
 如果在子项目中工作，优先查看该目录下的 README.md：
-- `cognitive-mesh/README.md` - Cognitive Mesh 系统入口
-- `examples/MakerSystem/README.md` - MAKER 框架说明
+- `apps/Aevatar.CognitiveMesh/README.md` - Cognitive Mesh 系统入口
+- `apps/Aevatar.MakerSystem/examples/MakerSystem/README.md` - MAKER 框架说明
 - `src/Aevatar.Agents.Maker/docs/` - MAKER 详细设计
 
 ---

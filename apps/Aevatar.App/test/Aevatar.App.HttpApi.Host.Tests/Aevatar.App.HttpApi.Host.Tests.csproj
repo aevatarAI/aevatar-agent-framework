@@ -22,6 +22,7 @@
     <ProjectReference Include="..\Aevatar.App.Application.Tests\Aevatar.App.Application.Tests.csproj" />
     <ProjectReference Include="..\..\src\Aevatar.App.HttpApi.Host\Aevatar.App.HttpApi.Host.csproj" />
     <ProjectReference Include="..\Aevatar.App.MongoDB.Tests\Aevatar.App.MongoDB.Tests.csproj" />
+    <ProjectReference Include="..\..\..\..\src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

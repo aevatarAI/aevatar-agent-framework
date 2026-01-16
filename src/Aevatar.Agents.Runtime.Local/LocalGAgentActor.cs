@@ -25,6 +25,16 @@ public class LocalGAgentActor : GAgentActorBase
     private IMessageStreamSubscription? _selfStreamSubscription;
     private IMessageStreamSubscription? _parentStreamSubscription;
 
+    // ============================================================
+    //  Actor mailbox gate (Local runtime)
+    //
+    //  中文说明：
+    //  - Local runtime 可能同时从多个 stream（self + parent + external provider）回调进入同一个 Agent。
+    //  - 这会破坏 Actor 的单线程语义，导致 State / pending events 出现并发修改。
+    //  - 这里用一个 gate 强制同一个 actor 串行处理事件（Mailbox semantics）。
+    // ============================================================
+    private readonly SemaphoreSlim _eventGate = new(1, 1);
+
     // Cache for other actors' streams (when using external provider)
     private readonly ConcurrentDictionary<string, IMessageStream> _externalActorStreams = new();
 
@@ -132,8 +142,16 @@ public class LocalGAgentActor : GAgentActorBase
                 {
                     try
                     {
-                        // Direct call - no reflection needed since IGAgent defines HandleEventAsync
-                        await Agent.HandleEventAsync(envelope, ct);
+                        await _eventGate.WaitAsync(ct);
+                        try
+                        {
+                            // Route through ActorBase handler to keep propagation semantics consistent.
+                            await HandleEventAsync(envelope, ct);
+                        }
+                        finally
+                        {
+                            _eventGate.Release();
+                        }
 
                         if (envelope.Direction == EventDirection.Down)
                         {
@@ -202,7 +220,15 @@ public class LocalGAgentActor : GAgentActorBase
                 {
                     Logger.LogDebug("[SUBSCRIPTION] Agent {AgentId} received event {EventId} from stream", Id,
                         envelope.Id);
+                    await _eventGate.WaitAsync(ct);
+                    try
+                    {
                     await HandleEventAsync(envelope, ct);
+                    }
+                    finally
+                    {
+                        _eventGate.Release();
+                    }
                 },
                 null,
                 ct);

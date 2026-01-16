@@ -18,8 +18,8 @@ namespace Aevatar.Agents.Persistence.Neo4j.MemoryGraph.DependencyInjection;
 public static class Neo4jMemoryGraphServiceCollectionExtensions
 {
     /// <summary>
-    /// 注册 Neo4j MemoryGraphStore（便捷重载）。
-    /// <para>注意：该方法会复用/注册 Neo4j Driver 基础设施。</para>
+    /// Register Neo4j MemoryGraphStore (convenience overload).
+    /// <para>Note: This method will reuse/register Neo4j Driver infrastructure.</para>
     /// </summary>
     public static IServiceCollection AddAevatarMemoryGraphNeo4j(
         this IServiceCollection services,
@@ -36,7 +36,7 @@ public static class Neo4jMemoryGraphServiceCollectionExtensions
     }
 
     /// <summary>
-    /// 注册 Neo4j MemoryGraphStore（高级配置）。
+    /// Register Neo4j MemoryGraphStore (advanced configuration).
     /// </summary>
     public static IServiceCollection AddAevatarMemoryGraphNeo4j(
         this IServiceCollection services,
@@ -51,7 +51,7 @@ public static class Neo4jMemoryGraphServiceCollectionExtensions
     }
 
     /// <summary>
-    /// 强制替换 IMemoryGraphStore 为 Neo4j 版本（不依赖调用顺序）。
+    /// Force replace IMemoryGraphStore with Neo4j version (independent of call order).
     /// </summary>
     public static IServiceCollection ReplaceAevatarMemoryGraphStoreWithNeo4j(
         this IServiceCollection services)

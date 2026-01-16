@@ -4,8 +4,9 @@ using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.MEAI;
-using Aevatar.Agents.AI.WithTool.Abstractions;
-using Aevatar.Agents.AI.WithTool.Tools;
+using Aevatar.Agents.AI.Tool.Abstractions;
+using Aevatar.Agents.AI.Tool.Tools;
+using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Runtime.Local;
 using MCPToolDemo;
 using Microsoft.Extensions.Configuration;
@@ -20,6 +21,7 @@ var host = Host.CreateDefaultBuilder(args)
     .ConfigureAppConfiguration((context, config) =>
     {
         config.AddJsonFile("appsettings.json", optional: true)
+              .AddAevatarUserConfig()
               .AddJsonFile("appsettings.secrets.json", optional: true); // Load secrets
         config.AddEnvironmentVariables();
     })
@@ -63,7 +65,7 @@ try
     var agent = (MCPAgent) actor.GetAgent();
     
     // Initialize AI with configured LLM provider
-    // Note: Ensure "DeepSeek" or your preferred provider is configured in appsettings.secrets.json
+    // Note: Ensure provider is configured via ~/.aevatar/secrets.json (recommended) or appsettings.secrets.json
     await agent.InitializeAsync(
         AevatarAgentsConstants.DefaultProviderName, 
         config =>

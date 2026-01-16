@@ -329,6 +329,12 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
                 "retrieve_facts" => await ExecuteRetrieveFactsAsync(step),
                 "hpa" => await ExecuteHpaAsync(step),
 
+                // Deterministic workspace primitives (coordinator-only)
+                "workspace_read_file" => await ExecuteWorkspaceReadFileAsync(step),
+                "workspace_code_search" => await ExecuteWorkspaceCodeSearchAsync(step),
+                "workspace_apply_patch" => await ExecuteWorkspaceApplyPatchAsync(step),
+                "sandbox_command" => await ExecuteSandboxCommandAsync(step),
+
                 _ => PrimitiveResult.Fail($"Unknown step type: {step.Type}")
             };
 

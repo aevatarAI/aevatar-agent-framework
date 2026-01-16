@@ -19,6 +19,12 @@ public static class AgentSkillsEmbeddingsIndex
     public const int CurrentVersion = 1;
 
     /// <summary>
+    /// Some embedding providers enforce strict per-request input limits (e.g. <= 10 texts).
+    /// Keep a safe default, but allow override for providers that support larger batches.
+    /// </summary>
+    public const string EmbeddingBatchSizeEnv = "AEVATAR_AGENT_SKILLS_EMBEDDINGS_BATCH_SIZE";
+
+    /// <summary>
     /// If set, overrides the default index directory.
     /// </summary>
     public const string IndexDirEnv = "AEVATAR_AGENT_SKILLS_INDEX_DIR";
@@ -94,7 +100,8 @@ public static class AgentSkillsEmbeddingsIndex
         EmbeddingGenerationOptions? embeddingOptions,
         string? indexBaseDirOverride,
         ILogger? logger,
-        CancellationToken cancellationToken)
+        Func<string, CancellationToken, Task>? progress = null,
+        CancellationToken cancellationToken = default)
     {
         if (documents == null)
             throw new ArgumentNullException(nameof(documents));
@@ -104,16 +111,27 @@ public static class AgentSkillsEmbeddingsIndex
         Directory.CreateDirectory(Path.GetDirectoryName(indexPath)!);
 
         // Batch embeddings to keep requests bounded.
-        const int BatchSize = 32;
+        // NOTE: some providers reject batch sizes > 10 (see EmbeddingBatchSizeEnv).
+        var batchSize = GetEmbeddingBatchSize(logger);
+        var totalBatches = documents.Count == 0 ? 0 : (int)Math.Ceiling(documents.Count / (double)batchSize);
+
+        await SafeProgressAsync(progress,
+            $"skills.index: build start (docs={documents.Count}, batchSize={batchSize}, batches={totalBatches})",
+            cancellationToken);
 
         var entries = new List<AgentSkillsEmbeddingsIndexEntry>(documents.Count);
 
-        for (var i = 0; i < documents.Count; i += BatchSize)
+        for (var i = 0; i < documents.Count; i += batchSize)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var batch = documents.Skip(i).Take(BatchSize).ToList();
+            var batch = documents.Skip(i).Take(batchSize).ToList();
             var inputs = batch.Select(d => d.TextToEmbed ?? string.Empty).ToList();
+
+            var batchIndex = i / batchSize + 1;
+            await SafeProgressAsync(progress,
+                $"skills.index: embedding batch {batchIndex}/{Math.Max(1, totalBatches)} (items={batch.Count})",
+                cancellationToken);
 
             IReadOnlyList<Embedding<float>> embeds;
             try
@@ -158,6 +176,7 @@ public static class AgentSkillsEmbeddingsIndex
 
         try
         {
+            await SafeProgressAsync(progress, "skills.index: write index file", cancellationToken);
             var json = JsonSerializer.Serialize(data, JsonOptions);
             await File.WriteAllTextAsync(indexPath, json, cancellationToken);
         }
@@ -167,7 +186,33 @@ public static class AgentSkillsEmbeddingsIndex
             // still return data
         }
 
+        await SafeProgressAsync(progress, "skills.index: build done", cancellationToken);
         return data;
+    }
+
+    private static int GetEmbeddingBatchSize(ILogger? logger)
+    {
+        // Safe default for providers with strict limits (e.g. DashScope: max 10).
+        const int defaultBatchSize = 10;
+
+        try
+        {
+            var raw = (Environment.GetEnvironmentVariable(EmbeddingBatchSizeEnv) ?? string.Empty).Trim();
+            if (raw.Length == 0)
+                return defaultBatchSize;
+
+            if (!int.TryParse(raw, out var parsed))
+                return defaultBatchSize;
+
+            // Keep sane bounds.
+            parsed = Math.Clamp(parsed, 1, 256);
+            return parsed;
+        }
+        catch (Exception ex)
+        {
+            logger?.LogDebug(ex, "Failed to read {Env}; using default batch size.", EmbeddingBatchSizeEnv);
+            return defaultBatchSize;
+        }
     }
 
     public static async Task<AgentSkillsEmbeddingsIndexData?> EnsureIndexAsync(
@@ -177,7 +222,8 @@ public static class AgentSkillsEmbeddingsIndex
         EmbeddingGenerationOptions? embeddingOptions,
         string? indexBaseDirOverride,
         ILogger? logger,
-        CancellationToken cancellationToken)
+        Func<string, CancellationToken, Task>? progress = null,
+        CancellationToken cancellationToken = default)
     {
         var root = Path.GetFullPath(skillsRootDirectory);
         var indexPath = GetIndexFilePathForRoot(root, indexBaseDirOverride);
@@ -185,6 +231,7 @@ public static class AgentSkillsEmbeddingsIndex
         var docs = await discoverDocumentsAsync(cancellationToken);
         if (docs.Count == 0)
         {
+            await SafeProgressAsync(progress, "skills.index: no docs; using cached index if any", cancellationToken);
             return await TryLoadAsync(indexPath, logger, cancellationToken);
         }
 
@@ -193,17 +240,37 @@ public static class AgentSkillsEmbeddingsIndex
             existing.IsFreshFor(root) &&
             existing.IsCompatibleWithDocs(docs))
         {
+            await SafeProgressAsync(progress, "skills.index: cache hit (fresh)", cancellationToken);
             return existing;
         }
 
         try
         {
-            return await BuildAsync(root, docs, embeddingGenerator, embeddingOptions, indexBaseDirOverride, logger, cancellationToken);
+            await SafeProgressAsync(progress, "skills.index: cache miss; rebuilding", cancellationToken);
+            return await BuildAsync(root, docs, embeddingGenerator, embeddingOptions, indexBaseDirOverride, logger, progress, cancellationToken);
         }
         catch (Exception ex)
         {
             logger?.LogWarning(ex, "Failed to build skills embeddings index (best-effort). Root={Root}", root);
             return existing;
+        }
+    }
+
+    private static async Task SafeProgressAsync(
+        Func<string, CancellationToken, Task>? progress,
+        string message,
+        CancellationToken cancellationToken)
+    {
+        if (progress == null)
+            return;
+
+        try
+        {
+            await progress(message, cancellationToken);
+        }
+        catch
+        {
+            // best-effort only
         }
     }
 

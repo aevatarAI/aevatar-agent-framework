@@ -1,0 +1,36 @@
+<Solution>
+  <Folder Name="/apps/Aevatar.PaperReview/">
+    <Project Path="src\Aevatar.PaperReview\Aevatar.PaperReview.csproj" />
+    <Project Path="PaperReview.AppHost\PaperReview.AppHost.csproj" />
+    <File Path="docs\TECH_DEBT.md" />
+    <File Path="src\Aevatar.PaperReview\README.md" />
+  </Folder>
+  <Folder Name="/apps/Aevatar.PaperReview/docs/">
+    <File Path="docs\structure.md" />
+    <File Path="docs\TECH_DEBT.md" />
+  </Folder>
+  <Folder Name="/apps/Aevatar.PaperReview/src/docs/">
+    <File Path="src\Aevatar.PaperReview\docs\ARCHITECTURE.md" />
+    <File Path="src\Aevatar.PaperReview\docs\PRD.md" />
+  </Folder>
+  <Folder Name="/apps/Aevatar.PaperReview/test/">
+    <Project Path="test\Aevatar.PaperReview.Tests\Aevatar.PaperReview.Tests.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="..\..\src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.AGUI\Aevatar.Agents.AGUI.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.AI.MEAI\Aevatar.Agents.AI.MEAI.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Cognitive.Core\Aevatar.Agents.Cognitive.Core.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Cognitive.Content\Aevatar.Agents.Cognitive.Content.csproj" />
+    <Project Path="..\..\src\Aevatar.CognitiveMesh.Dsl\Aevatar.CognitiveMesh.Dsl.csproj" />
+  </Folder>
+  <Folder Name="/root/">
+    <File Path="..\..\AGENTS.md" />
+    <File Path="..\..\Directory.Packages.props" />
+  </Folder>
+</Solution>
+
+

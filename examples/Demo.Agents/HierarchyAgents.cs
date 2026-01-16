@@ -5,14 +5,14 @@ using Microsoft.Extensions.Logging;
 
 namespace Demo.Agents;
 
-// 管理者Agent
+// Manager agent
 public class ManagerAgent : GAgentBase<ManagerState>
 {
     
     [AllEventHandler]
     public Task HandleManagementEvent(EventEnvelope envelope)
     {
-        // proto中没有EventsReceived字段，使用TeamSize代替
+        // EventsReceived field does not exist in proto, using TeamSize instead
         State.TeamSize++;
         Logger?.LogInformation("Manager {Id} handling management event", Id);
         return Task.CompletedTask;
@@ -24,16 +24,16 @@ public class ManagerAgent : GAgentBase<ManagerState>
     }
 }
 
-// ManagerState 已在 demo_messages.proto 中定义
+// ManagerState is defined in demo_messages.proto
 
-// 员工Agent
+// Employee agent
 public class EmployeeAgent : GAgentBase<EmployeeState>
 {
     
     [AllEventHandler]
     public Task HandleWorkEvent(EventEnvelope envelope)
     {
-        // proto中没有TasksCompleted字段
+        // TasksCompleted field does not exist in proto
         State.Role = "Working";
         Logger?.LogInformation("Employee {Id} working on task", Id);
         return Task.CompletedTask;
@@ -45,16 +45,16 @@ public class EmployeeAgent : GAgentBase<EmployeeState>
     }
 }
 
-// EmployeeState 已在 demo_messages.proto 中定义
+// EmployeeState is defined in demo_messages.proto
 
-// 层级Agent
+// Hierarchy agent
 public class HierarchyAgent : GAgentBase<HierarchyState>
 {
     
     [EventHandler]
     public Task HandleHierarchyMessage(HierarchyMessage message)
     {
-        // proto中没有MessagesReceived和LastMessageDirection字段
+        // MessagesReceived and LastMessageDirection fields do not exist in proto
         State.Level++;
         Logger?.LogInformation("HierarchyAgent {Id} received hierarchy message: {Content}", 
             Id, message.Content);
@@ -67,4 +67,4 @@ public class HierarchyAgent : GAgentBase<HierarchyState>
     }
 }
 
-// HierarchyState 已在 demo_messages.proto 中定义
+// HierarchyState is defined in demo_messages.proto

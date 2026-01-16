@@ -19,6 +19,8 @@ test/
 └── Aevatar.Agents.Orleans.MongoDB.Tests/  # MongoDB repository tests
 ```
 
+App-level tests live under each app's `test/` directory (for example `apps/Aevatar.PaperReview/test/`).
+
 ---
 
 ## ✅ Unified Testing Approach

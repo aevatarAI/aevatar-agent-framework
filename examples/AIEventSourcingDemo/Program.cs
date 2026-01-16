@@ -7,6 +7,7 @@ using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.MEAI;
 using Aevatar.Agents.Core.EventRouting;
 using Aevatar.Agents.Core.EventSourcing;
+using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Runtime.Local;
 using AIEventSourcingDemo;
 using Google.Protobuf.WellKnownTypes;
@@ -23,6 +24,7 @@ var host = Host.CreateDefaultBuilder(args)
     .ConfigureAppConfiguration((context, config) =>
     {
         config.AddJsonFile("appsettings.json", optional: true)
+            .AddAevatarUserConfig()
             .AddJsonFile("appsettings.secrets.json", optional: true);
         config.AddEnvironmentVariables();
     })

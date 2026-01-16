@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core.Utils;
-using Aevatar.Agents.AI.WithTool.Messages;
+using Aevatar.Agents.AI.Tool.Messages;
 
 namespace Aevatar.Agents.AI.Core.Hooks;
 

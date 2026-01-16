@@ -11,11 +11,11 @@ using MemoryGraphNodeMessage = global::Aevatar.Agents.Abstractions.Memory.Memory
 using MemoryGraphEdgeMessage = global::Aevatar.Agents.Abstractions.Memory.MemoryGraphEdge;
 
 /// <summary>
-/// 将 <see cref="MemoryGraph"/> 落到 Neo4j 的实现。
+/// Implementation to persist <see cref="MemoryGraph"/> to Neo4j.
 /// <para>
-/// 设计取舍：
-/// - 节点/边都以“固定 label/relType + 属性 type/label”的方式存储，避免动态类型注入风险。
-/// - 每次 Save 视为“全量覆盖”：先按 graphId 删除旧子图，再批量写入新 nodes/edges。
+/// Design trade-offs:
+/// - Nodes/edges are stored with "fixed label/relType + properties type/label" approach to avoid dynamic type injection risks.
+/// - Each Save is treated as "full overwrite": first delete the old subgraph by graphId, then batch write new nodes/edges.
 /// </para>
 /// </summary>
 public sealed class Neo4jMemoryGraphStore : IMemoryGraphStore

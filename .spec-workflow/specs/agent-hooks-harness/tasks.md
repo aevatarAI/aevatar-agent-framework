@@ -14,7 +14,7 @@
   - Add a context object carrying: AgentId/AgentType/RequestId, LLM request/response, tool name/args/result, metadata, and policy snapshot (AllowInternalTools/AllowDangerousTools + budgets)
   - Ensure policy is read-only so hooks cannot widen permissions
   - Purpose: Provide a safe data plane between core agent flow and hooks
-  - _Leverage: `src/Aevatar.Agents.AI.Core/WithTool/Abstractions/ToolExecutionContext.cs`, `src/Aevatar.Agents.AI.Core/AIGAgentBase.Tools.cs`_
+  - _Leverage: `src/Aevatar.Agents.AI.Core/Tool/Abstractions/ToolExecutionContext.cs`, `src/Aevatar.Agents.AI.Core/AIGAgentBase.Tools.cs`_
   - _Requirements: 1, 4, 5_
   - _Prompt: Implement the task for spec agent-hooks-harness, first run spec-workflow-guide to get the workflow guide then implement the task: Role: C# API designer | Task: Create `AevatarAgentHookContext` with minimal fields needed by hooks, plus a read-only `Policy` snapshot to enforce “hooks can only restrict”. Include a `Metadata` dictionary for traceable flags. | Restrictions: No cross-boundary config/state unless proto; keep allocations bounded; keep file under 400 lines. | _Leverage: ToolExecutionContext semantics for Allow* flags | _Requirements: 1,4,5 | Success: Context compiles, is easy to consume, and makes it impossible (by design) for hooks to bypass safety flags.
 

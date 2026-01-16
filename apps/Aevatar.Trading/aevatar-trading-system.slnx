@@ -1,0 +1,39 @@
+<Solution>
+  <Folder Name="/apps/Aevatar.Trading/">
+    <Project Path="Aevatar.Trade\Aevatar.Trade.csproj" />
+    <Project Path="Aevatar.Trade.Api\Aevatar.Trade.Api.csproj" />
+    <Project Path="Aevatar.Trade.AppHost\Aevatar.Trade.AppHost.csproj" />
+    <File Path="README.md" />
+  </Folder>
+  <Folder Name="/apps/Aevatar.Trading/docs/">
+    <File Path="docs\ARCHITECTURE.md" />
+    <File Path="docs\COGNITIVE_MESH_PLAN.md" />
+  </Folder>
+  <Folder Name="/apps/Aevatar.CognitiveMesh/">
+    <Project Path="..\..\src\Aevatar.Agents.Cognitive.Core\Aevatar.Agents.Cognitive.Core.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Cognitive.Content\Aevatar.Agents.Cognitive.Content.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Cognitive.Streaming\Aevatar.Agents.Cognitive.Streaming.csproj" />
+    <Project Path="..\..\src\Aevatar.CognitiveMesh.Dsl\Aevatar.CognitiveMesh.Dsl.csproj" />
+    <Project Path="..\Aevatar.CognitiveMesh\src\Aevatar.CognitiveMesh\Aevatar.CognitiveMesh.csproj" />
+    <File Path="..\Aevatar.CognitiveMesh\README.md" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="..\..\src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Runtime.Orleans\Aevatar.Agents.Runtime.Orleans.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Runtime.ProtoActor\Aevatar.Agents.Runtime.ProtoActor.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.AI.MEAI\Aevatar.Agents.AI.MEAI.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Cognitive\Aevatar.Agents.Cognitive.csproj" />
+  </Folder>
+  <Folder Name="/src/Aevatar.Agents.Cognitive/workflows/">
+    <File Path="..\..\src\Aevatar.Agents.Cognitive\workflows\maker-v2.yaml" />
+  </Folder>
+  <Folder Name="/root/">
+    <File Path="..\..\AGENTS.md" />
+    <File Path="..\..\Directory.Packages.props" />
+  </Folder>
+</Solution>
+
+

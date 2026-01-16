@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/agentic-rag-gagent/design.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-07T10:15:56.812Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767780956802_i9c8o7dic",
+      "approvalTitle": "agentic-rag-gagent — approve design.md"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-07T10:33:31.752Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767780956802_i9c8o7dic",
+      "approvalTitle": "agentic-rag-gagent — approve design.md"
+    }
+  ]
+}

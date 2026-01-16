@@ -1,5 +1,7 @@
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
+using Aevatar.Agents.Core.StateProtection;
+using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.AI.Core;
 
@@ -29,18 +31,50 @@ public abstract class AIGAgentBase<TCustomState, TCustomConfig> : AIGAgentBase<T
 
     protected override async Task OnActivateAsync(CancellationToken ct = default)
     {
-        Config.CustomConfig = Any.Pack(CustomConfig);
+        // IMPORTANT: follow repo convention - base first.
+        // We still must ensure CustomConfig is a typed Any before other flows try to Unpack it.
+        using var initScope = StateProtectionContext.BeginInitializationScope();
+
         await base.OnActivateAsync(ct);
+
+        // Persist any CustomConfig mutations performed by derived agents in their OnActivateAsync,
+        // while also ensuring a typed Any exists for future Unpack<TCustomConfig>() calls.
+        Config.CustomConfig = Any.Pack(CustomConfig);
+
+        // base OnActivateAsync already saves Config once; we changed it, so persist again (best-effort).
+        if (ConfigStore != null)
+        {
+            await ConfigStore.SaveAsync(GetType(), Id, Config, ct);
+        }
     }
 
     protected override void ConfigAI(AevatarAIAgentConfig config)
     {
         base.ConfigAI(config);
-        ConfigCustom(config.CustomConfig.Unpack<TCustomConfig>());
+
+        // Ensure typed Any exists and persist any modifications made by ConfigCustom().
+        var custom = TryUnpackCustomConfig(config.CustomConfig) ?? new TCustomConfig();
+        ConfigCustom(custom);
+        config.CustomConfig = Any.Pack(custom);
     }
 
     protected virtual void ConfigCustom(TCustomConfig customConfig)
     {
 
+    }
+
+    private TCustomConfig? TryUnpackCustomConfig(Any any)
+    {
+        try
+        {
+            return any.Unpack<TCustomConfig>();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex,
+                "Invalid CustomConfig Any payload for agent {AgentId} ({AgentType}); resetting to default {ConfigType} (best-effort).",
+                Id, GetType().Name, typeof(TCustomConfig).Name);
+            return null;
+        }
     }
 }

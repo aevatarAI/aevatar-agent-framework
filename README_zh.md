@@ -336,7 +336,6 @@ examples/
 ├── AIEventSourcingDemo/         # AI + EventSourcing
 ├── MCPToolDemo/                 # Model Context Protocol示例
 ├── CreativeSystem/              # 创意推理Web应用
-├── MakerSystem/                 # MAKER框架示例
 ├── MongoDBEventStoreDemo/       # MongoDB持久化
 ├── KafkaStreamDemo/             # Kafka流集成
 ├── Demo.Agents/                 # 各种Agent实现

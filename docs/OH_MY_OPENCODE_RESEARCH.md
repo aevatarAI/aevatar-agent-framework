@@ -161,7 +161,7 @@ README 片段的 experimental 配置（摘录）：
   - `skills_list` / `skills_load` 工具与 `AEVATAR_AGENT_SKILLS_DIRS`（`AIGAgentBase.AgentSkills.cs`）
   - `allowed-tools` allowlist 会在 `skills_load` 后动态下发到请求上下文（`AIGAgentBase.Tools.cs`）
 - **MCP 已有官方 SDK 集成**（npx/uvx/http + 工具发现/适配）  
-  - 见 `src/Aevatar.Agents.AI.Core/WithTool/MCP/*`（`MCPClientWrapper` / `MCPToolAdapter` / `MCPToolManagerExtensions` / `MCPServerConfig`）
+  - 见 `src/Aevatar.Agents.AI.Core/Tool/MCP/*`（`MCPClientWrapper` / `MCPToolAdapter` / `MCPToolManagerExtensions` / `MCPServerConfig`）
 - **兼容性修复“handler/hook”已存在样例**  
   - `DeepSeekThinkingModeFixHandler` 是一个典型的“在 HTTP 层补齐协议差异”的 best-effort hook（`src/Aevatar.Agents.AI.MEAI/Internal/DeepSeekThinkingModeFixHandler.cs`）
 - **本仓库已明确 coding-agent roadmap**  

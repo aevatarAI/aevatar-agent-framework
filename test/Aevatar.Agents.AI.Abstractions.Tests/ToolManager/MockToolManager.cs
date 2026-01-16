@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
-using Aevatar.Agents.AI.WithTool.Abstractions;
-using Aevatar.Agents.AI.WithTool.Messages;
+using Aevatar.Agents.AI.Tool.Abstractions;
+using Aevatar.Agents.AI.Tool.Messages;
 
 namespace Aevatar.Agents.AI.Abstractions.Tests.ToolManager;
 

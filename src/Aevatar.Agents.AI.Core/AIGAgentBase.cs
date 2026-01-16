@@ -1,11 +1,13 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Threading;
 using Aevatar.Agents.Abstractions.Helpers;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Core.Embeddings;
 using Aevatar.Agents.AI.Core.Messages;
+using Aevatar.Agents.AI.Tool.Abstractions;
 using Aevatar.Agents.Core;
 using Aevatar.Agents.Core.StateProtection;
 using Google.Protobuf;
@@ -25,12 +27,17 @@ public abstract partial class AIGAgentBase : GAgentBase<AevatarAIAgentState, Aev
 {
     #region Fields
 
+    private const string NotInitializedExceptionMessage =
+        "AI Agent must be initialized before use. Call InitializeAsync() first.";
+
     protected IAevatarLLMProvider? _llmProvider;
     protected bool _isInitialized;
     protected ILLMProviderFactory? LLMProviderFactory { get; set; }
     protected IAIAgentEmbeddingFactory? EmbeddingFactory { get; set; }
     private IEmbeddingGenerator<string, Embedding<float>>? _embeddingGenerator;
     private LLMProviderConfig? _activeProviderConfig;
+
+    private readonly SemaphoreSlim _initializationSemaphore = new(1, 1);
 
     #endregion
 
@@ -56,9 +63,7 @@ public abstract partial class AIGAgentBase : GAgentBase<AevatarAIAgentState, Aev
     {
         get
         {
-            if (!_isInitialized)
-                throw new InvalidOperationException(
-                    "AI Agent must be initialized before use. Call InitializeAsync() first.");
+            EnsureInitialized();
             return _llmProvider!;
         }
     }
@@ -70,9 +75,61 @@ public abstract partial class AIGAgentBase : GAgentBase<AevatarAIAgentState, Aev
         _embeddingGenerator ?? throw new InvalidOperationException(
             "Embedding generator is not configured. Ensure LLM provider Embeddings settings are provided and IAIAgentEmbeddingFactory is registered.");
 
+    /// <summary>
+    /// Internal logger access for extracted runtime components (e.g. AgentSkillsRuntime).
+    /// Keep it internal to avoid widening the public surface area.
+    /// </summary>
+    internal ILogger InternalLogger => Logger;
+
+    // ------------------------------------------------------------
+    // Internal wrappers for extracted runtime components
+    // ------------------------------------------------------------
+
+    internal LLMProviderConfig? InternalActiveProviderConfig => ActiveProviderConfig;
+
+    internal bool InternalTryGetEmbeddingGenerator(
+        [NotNullWhen(true)] out IEmbeddingGenerator<string, Embedding<float>>? generator)
+        => TryGetEmbeddingGenerator(out generator);
+
+    internal EmbeddingGenerationOptions InternalBuildDefaultEmbeddingOptions()
+        => BuildDefaultEmbeddingOptions();
+
+    internal Task<Embedding<float>?> InternalGenerateEmbeddingAsync(
+        string input,
+        CancellationToken cancellationToken)
+        => GenerateEmbeddingAsync(input, cancellationToken: cancellationToken);
+
+    internal IAevatarToolManager InternalToolManager => ToolManager;
+
+    internal Task InternalInitializeToolsAsync(CancellationToken ct) => InitializeToolsAsync(ct);
+
+    internal Task InternalRefreshToolCachesAsync(CancellationToken ct) => RefreshToolCachesAsync(ct);
+
+    // ------------------------------------------------------------
+    // Internal config access for in-assembly helpers (e.g. YAML appliers)
+    // ------------------------------------------------------------
+    internal AevatarAIAgentConfig InternalConfig => Config;
+
     #endregion
 
     #region Initialization
+
+    protected void EnsureInitialized()
+    {
+        if (_isInitialized)
+            return;
+
+        throw new InvalidOperationException(NotInitializedExceptionMessage);
+    }
+
+    protected (string ProviderType, string ModelId) GetProviderAndModelForTelemetry()
+    {
+        var provider = _activeProviderConfig?.ProviderType ?? "unknown";
+        var model = !string.IsNullOrWhiteSpace(Config.Model)
+            ? Config.Model
+            : AevatarAIDefaults.DefaultModel;
+        return (provider, model);
+    }
 
     /// <summary>
     /// Helper method to load and configure state and configuration during initialization.
@@ -120,28 +177,18 @@ public abstract partial class AIGAgentBase : GAgentBase<AevatarAIAgentState, Aev
         Action<AevatarAIAgentConfig>? configAI = null,
         CancellationToken cancellationToken = default)
     {
-        if (_isInitialized)
-            return;
+        ArgumentException.ThrowIfNullOrWhiteSpace(providerName);
 
-        // Use InitializationScope to allow State and Config modifications during initialization
-        using var initScope = StateProtectionContext.BeginInitializationScope();
-
-        await InitializeStateAndConfigAsync(configAI, cancellationToken);
-
-        var providerFactory = RequireLLMProviderFactory();
-        _activeProviderConfig = providerFactory.GetProviderConfig(providerName);
-
-        // Create LLM Provider from factory using provider name
-        _llmProvider = await CreateLLMProviderFromFactoryAsync(providerName, cancellationToken);
-
-        await InitializeEmbeddingGeneratorAsync(_activeProviderConfig, cancellationToken);
-
-        // Tool system is now part of the core base: every AI agent is tool-capable.
-        await InitializeToolsAsync(cancellationToken);
-
-        _isInitialized = true;
-
-        Logger.LogInformation("AI Agent {AgentId} initialized with LLM provider '{ProviderName}'", Id, providerName);
+        await InitializeAsyncCore(
+            createProvider: async ct =>
+            {
+                var providerFactory = RequireLLMProviderFactory();
+                var cfg = providerFactory.GetProviderConfig(providerName);
+                var provider = await CreateLLMProviderFromFactoryAsync(providerName, ct);
+                return (Provider: provider, ProviderConfig: cfg, ProviderForLog: providerName);
+            },
+            configAI,
+            cancellationToken);
     }
 
     /// <summary>
@@ -156,28 +203,58 @@ public abstract partial class AIGAgentBase : GAgentBase<AevatarAIAgentState, Aev
         Action<AevatarAIAgentConfig>? configAI = null,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(providerConfig);
+
+        await InitializeAsyncCore(
+            createProvider: async ct =>
+            {
+                var provider = await CreateLLMProviderFromConfigAsync(providerConfig, ct);
+                var providerForLog = string.IsNullOrWhiteSpace(providerConfig.ProviderType)
+                    ? "custom"
+                    : providerConfig.ProviderType;
+                return (Provider: provider, ProviderConfig: providerConfig, ProviderForLog: providerForLog);
+            },
+            configAI,
+            cancellationToken);
+    }
+
+    private async Task InitializeAsyncCore(
+        Func<CancellationToken, Task<(IAevatarLLMProvider Provider, LLMProviderConfig? ProviderConfig, string ProviderForLog)>>
+            createProvider,
+        Action<AevatarAIAgentConfig>? configAI,
+        CancellationToken cancellationToken)
+    {
         if (_isInitialized)
             return;
 
-        // Use InitializationScope to allow State and Config modifications during initialization
-        using var initScope = StateProtectionContext.BeginInitializationScope();
+        await _initializationSemaphore.WaitAsync(cancellationToken);
+        try
+        {
+            if (_isInitialized)
+                return;
 
-        await InitializeStateAndConfigAsync(configAI, cancellationToken);
+            // Use InitializationScope to allow State and Config modifications during initialization.
+            using var initScope = StateProtectionContext.BeginInitializationScope();
 
-        _activeProviderConfig = providerConfig;
+            await InitializeStateAndConfigAsync(configAI, cancellationToken);
 
-        // Create LLM Provider from custom config
-        _llmProvider = await CreateLLMProviderFromConfigAsync(providerConfig, cancellationToken);
+            var (provider, providerConfig, providerForLog) = await createProvider(cancellationToken);
+            _activeProviderConfig = providerConfig;
+            _llmProvider = provider;
 
-        await InitializeEmbeddingGeneratorAsync(_activeProviderConfig, cancellationToken);
+            await InitializeEmbeddingGeneratorAsync(_activeProviderConfig, cancellationToken);
 
-        // Tool system is now part of the core base: every AI agent is tool-capable.
-        await InitializeToolsAsync(cancellationToken);
+            // Tool system is now part of the core base: every AI agent is tool-capable.
+            await InitializeToolsAsync(cancellationToken);
 
-        _isInitialized = true;
+            _isInitialized = true;
 
-        Logger.LogInformation("AI Agent {AgentId} initialized with custom LLM provider '{ProviderType}'",
-            Id, providerConfig.ProviderType);
+            Logger.LogInformation("AI Agent {AgentId} initialized with LLM provider '{ProviderName}'", Id, providerForLog);
+        }
+        finally
+        {
+            _initializationSemaphore.Release();
+        }
     }
 
     #endregion

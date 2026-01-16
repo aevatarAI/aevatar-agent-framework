@@ -7,10 +7,23 @@ namespace Aevatar.Agents.Persistence.Neo4j.DependencyInjection;
 
 /// <summary>
 /// Neo4j 基础设施 DI 扩展（Driver/Session/Client）。
-/// <para>不包含任何“业务能力”（例如 Graph 编译/执行）。</para>
+/// <para>不包含任何"业务能力"（例如 Graph 编译/执行）。</para>
 /// </summary>
 public static class Neo4jServiceCollectionExtensions
 {
+    /// <summary>
+    /// 从环境变量读取配置并注册 Neo4j（推荐用于生产环境）。
+    /// <para>支持的环境变量：NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, NEO4J_DATABASE</para>
+    /// </summary>
+    public static IServiceCollection AddAevatarNeo4j(this IServiceCollection services) =>
+        services.AddAevatarNeo4j(options =>
+        {
+            options.Uri = Environment.GetEnvironmentVariable("NEO4J_URI") ?? "bolt://localhost:7687";
+            options.Username = Environment.GetEnvironmentVariable("NEO4J_USERNAME") ?? "neo4j";
+            options.Password = Environment.GetEnvironmentVariable("NEO4J_PASSWORD") ?? string.Empty;
+            options.Database = Environment.GetEnvironmentVariable("NEO4J_DATABASE") ?? "neo4j";
+        });
+
     /// <summary>
     /// 便捷注册：Neo4j Driver + SessionFactory + Neo4jClient。
     /// </summary>

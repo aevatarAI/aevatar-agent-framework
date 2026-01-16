@@ -7,7 +7,7 @@ using System.Text.Json.Nodes;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.MEAI.Telemetry;
-using Aevatar.Agents.AI.WithTool;
+using Aevatar.Agents.AI.Tool;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
@@ -384,28 +384,42 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
 
     private static JsonElement ConvertParametersToJsonSchema(Dictionary<string, AevatarParameterDefinition> parameters)
     {
+        static JsonObject ConvertParamDefToSchema(AevatarParameterDefinition def)
+        {
+            var schema = new JsonObject
+            {
+                ["type"] = def.Type,
+                ["description"] = def.Description
+            };
+
+            if (def.Enum is { Count: > 0 })
+            {
+                var enumArray = new JsonArray();
+                foreach (var val in def.Enum)
+                {
+                    enumArray.Add(val);
+                }
+                schema["enum"] = enumArray;
+            }
+
+            // OpenAI-compatible: arrays MUST include items schema.
+            if (string.Equals(def.Type, "array", StringComparison.OrdinalIgnoreCase))
+            {
+                schema["items"] = def.Items != null
+                    ? ConvertParamDefToSchema(def.Items)
+                    : new JsonObject { ["type"] = "string" };
+            }
+
+            return schema;
+        }
+
         var properties = new JsonObject();
         var required = new JsonArray();
 
         foreach (var param in parameters)
         {
             var paramDef = param.Value;
-            var property = new JsonObject
-            {
-                ["type"] = paramDef.Type,
-                ["description"] = paramDef.Description
-            };
-
-            if (paramDef.Enum != null && paramDef.Enum.Count > 0)
-            {
-                var enumArray = new JsonArray();
-                foreach (var val in paramDef.Enum)
-                {
-                    enumArray.Add(val);
-                }
-
-                property["enum"] = enumArray;
-            }
+            var property = ConvertParamDefToSchema(paramDef);
 
             properties[param.Key] = property;
 

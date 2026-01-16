@@ -34,7 +34,7 @@
 - **`LLMTornadoProviderFactory` / `LLMProviderFactoryBase`**  
   复用 provider factory 的配置装配方式：由 `LLMProviderConfig.ProviderType` 决定创建哪一个 `IAevatarLLMProvider`。
 
-- **`DotNetFileSkillRunner`**（`src/Aevatar.Agents.AI.Core/WithTool/Tools/CustomTools/DotNetFileSkillTool.cs` 内部）  
+- **`DotNetFileSkillRunner`**（`src/Aevatar.Agents.AI.Core/Tool/Tools/CustomTools/DotNetFileSkillTool.cs` 内部）  
   复用其关键经验：
   - `ProcessStartInfo` + `RedirectStandard{In,Out,Error}`
   - 超时/取消时 `Kill(entireProcessTree:true)`

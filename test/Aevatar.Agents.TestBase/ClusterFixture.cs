@@ -4,6 +4,7 @@ using System.Linq;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.EventSourcing;
 using Aevatar.Agents.AI.Core;
+using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Runtime.Orleans.EventSourcing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -66,6 +67,7 @@ public class ClusterFixture : IDisposable
         {
             var configuration = new ConfigurationBuilder()
                 .AddJsonFile("appsettings.json", optional: true)
+                .AddAevatarUserConfig()
                 .AddJsonFile("appsettings.secrets.json", optional: true)
                 .Build();
 

@@ -30,9 +30,7 @@ public class TreeOfThoughtsProcessingStrategy : IAevatarAIProcessingStrategy
         
         // Suitable for creative problems or problems with multiple solutions
         var question = context.Question?.ToLower() ?? string.Empty;
-        return question.Contains("探索") || question.Contains("方案") ||
-               question.Contains("可能性") || question.Contains("选项") ||
-               question.Contains("explore") || question.Contains("solutions") ||
+        return question.Contains("explore") || question.Contains("solutions") ||
                question.Contains("possibilities") || question.Contains("options");
     }
     

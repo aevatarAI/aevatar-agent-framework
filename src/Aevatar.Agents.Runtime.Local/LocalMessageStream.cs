@@ -130,11 +130,14 @@ public class LocalMessageStream : IMessageStream
     {
         await foreach (var envelope in _channel.Reader.ReadAllAsync(_cts.Token))
         {
-            // Concurrently call all active subscribers
+            // Dispatch to all active subscribers.
+            //
+            // 中文说明：
+            // - 之前这里用 Task.Run 强制线程池并发，会制造额外调度开销，也更容易引入“同一 Actor 被并发回调”的错觉。
+            // - 正确姿势：直接生成 async task 并 WhenAll；是否串行/并发由订阅者自身的 mailbox gate 决定（例如 LocalGAgentActor）。
             var tasks = _subscriptions.Values
                 .Where(sub => sub.IsActive)
-                .Select(subscription =>
-                    Task.Run(async () =>
+                .Select(async subscription =>
                     {
                         try
                         {
@@ -144,7 +147,7 @@ public class LocalMessageStream : IMessageStream
                         {
                             // Ignore subscriber errors, don't affect other subscribers
                         }
-                    }));
+                });
 
             await Task.WhenAll(tasks);
         }

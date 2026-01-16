@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Aevatar.App.HttpApi.Client\Aevatar.App.HttpApi.Client.csproj" />
+    <ProjectReference Include="..\..\..\..\src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

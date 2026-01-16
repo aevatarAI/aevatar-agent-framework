@@ -1,0 +1,33 @@
+<Solution>
+  <Folder Name="/apps/Aevatar.AxiomReasoning/">
+    <Project Path="src\Aevatar.AxiomReasoning\Aevatar.AxiomReasoning.csproj" />
+    <Project Path="AxiomReasoning.AppHost\AxiomReasoning.AppHost.csproj" />
+    <File Path="docs\TECH_DEBT.md" />
+    <File Path="src\Aevatar.AxiomReasoning\README.md" />
+  </Folder>
+  <Folder Name="/apps/Aevatar.AxiomReasoning/docs/">
+    <File Path="docs\TECH_DEBT.md" />
+  </Folder>
+  <Folder Name="/apps/Aevatar.AxiomReasoning/src/docs/">
+    <File Path="src\Aevatar.AxiomReasoning\docs\ARCHITECTURE.md" />
+    <File Path="src\Aevatar.AxiomReasoning\docs\axioms.md" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="..\..\src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.AGUI\Aevatar.Agents.AGUI.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.AI.MEAI\Aevatar.Agents.AI.MEAI.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Cognitive.Core\Aevatar.Agents.Cognitive.Core.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Cognitive.Content\Aevatar.Agents.Cognitive.Content.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Cognitive.Streaming\Aevatar.Agents.Cognitive.Streaming.csproj" />
+    <Project Path="..\..\src\Aevatar.CognitiveMesh.Dsl\Aevatar.CognitiveMesh.Dsl.csproj" />
+  </Folder>
+  <Folder Name="/root/">
+    <File Path="..\..\AGENTS.md" />
+    <File Path="..\..\Directory.Packages.props" />
+  </Folder>
+</Solution>
+
+

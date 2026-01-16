@@ -27,9 +27,7 @@ public class ChainOfThoughtProcessingStrategy : IAevatarAIProcessingStrategy
         
         // Check if question requires reasoning
         var question = context.Question?.ToLower() ?? string.Empty;
-        return question.Contains("为什么") || question.Contains("怎么") || 
-               question.Contains("分析") || question.Contains("解释") ||
-               question.Contains("why") || question.Contains("how") || 
+        return question.Contains("why") || question.Contains("how") || 
                question.Contains("analyze") || question.Contains("explain");
     }
     

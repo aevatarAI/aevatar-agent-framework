@@ -1,0 +1,26 @@
+<Solution>
+  <Folder Name="/examples/">
+    <Project Path="AIAgentWithToolDemo\AIAgentWithToolDemo.csproj" />
+    <Project Path="AIEventSourcingDemo\AIEventSourcingDemo.csproj" />
+    <Project Path="AgentContextDemo\AgentContextDemo.csproj" />
+    <Project Path="AgenticRagDemo\AgenticRagDemo.csproj" />
+    <Project Path="CQRSDemo\CQRSDemo.csproj" />
+    <Project Path="ClaudeAgentSdkProviderDemo\ClaudeAgentSdkProviderDemo.csproj" />
+    <Project Path="CreativeSystem\CreativeSystem.csproj" />
+    <Project Path="Demo.Agents\Demo.Agents.csproj" />
+    <Project Path="Demo.Api\Demo.Api.csproj" />
+    <Project Path="Demo.AppHost\Demo.AppHost.csproj" />
+    <Project Path="DotNetFileSkillDemo\DotNetFileSkillDemo.csproj" />
+    <Project Path="EventSourcingDemo\EventSourcingDemo.csproj" />
+    <Project Path="GraphNeo4jDemo\GraphNeo4jDemo.csproj" />
+    <Project Path="InterruptibleChatWebDemo\InterruptibleChatWebDemo.csproj" />
+    <Project Path="InterruptibleRunsDemo\InterruptibleRunsDemo.csproj" />
+    <Project Path="LlmTornadoDemo\LlmTornadoDemo.csproj" />
+    <Project Path="MCPToolDemo\MCPToolDemo.csproj" />
+    <Project Path="MemoryDemo\MemoryDemo.csproj" />
+    <Project Path="MongoDBEventStoreDemo\MongoDBEventStoreDemo.csproj" />
+    <Project Path="SimpleDemo\SimpleDemo.csproj" />
+    <Project Path="SkillsMCPUnifiedDemo\SkillsMCPUnifiedDemo.csproj" />
+    <Project Path="StateStoreDemo\StateStoreDemo.csproj" />
+  </Folder>
+</Solution>

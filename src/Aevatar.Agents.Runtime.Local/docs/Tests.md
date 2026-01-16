@@ -8,7 +8,7 @@
 - `test/Aevatar.Agents.Local.Tests/Aevatar.Agents.Local.Tests.csproj`
 - `test/Aevatar.Agents.Twitter.Tests/Aevatar.Agents.Twitter.Tests.csproj`
 - `test/Aevatar.Agents.Workflow.Tests/Aevatar.Agents.Workflow.Tests.csproj`
-- `test/Aevatar.PaperReview.Tests/Aevatar.PaperReview.Tests.csproj`
+- `apps/Aevatar.PaperReview/test/Aevatar.PaperReview.Tests/Aevatar.PaperReview.Tests.csproj`
 
 ## 覆盖面矩阵（按功能点）
 
@@ -18,7 +18,7 @@
 | 事件/订阅/流 | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.Core.Tests/EventHandlerTests.cs`, `test/Aevatar.Agents.Core.Tests/EventPublishingTests.cs`, `test/Aevatar.Agents.Core.Tests/GAgentActorBaseTests.cs`, `test/Aevatar.Agents.Core.Tests/PointToPointCommunicationTests.cs`, `test/Aevatar.Agents.Core.Tests/GAgentBaseTests.cs`, `test/Aevatar.Agents.Core.Tests/ExceptionHandlerTests.cs` … |
 | 序列化/Protobuf | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.Core.Tests/EventHandlerTests.cs`, `test/Aevatar.Agents.Core.Tests/ParentChildRelationshipTests.cs`, `test/Aevatar.Agents.Core.Tests/EventPublishingTests.cs`, `test/Aevatar.Agents.Core.Tests/GAgentActorBaseTests.cs`, `test/Aevatar.Agents.Core.Tests/PointToPointCommunicationTests.cs`, `test/Aevatar.Agents.Core.Tests/GAgentBaseTests.cs` … |
 | 持久化/存储 | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.Core.Tests/EventHandlerTests.cs`, `test/Aevatar.Agents.Core.Tests/ParentChildRelationshipTests.cs`, `test/Aevatar.Agents.Core.Tests/EventPublishingTests.cs`, `test/Aevatar.Agents.Core.Tests/GAgentActorBaseTests.cs`, `test/Aevatar.Agents.Core.Tests/PointToPointCommunicationTests.cs`, `test/Aevatar.Agents.Core.Tests/GAgentBaseTests.cs` … |
-| AI/LLM | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.Core.Tests/Memory/FileMemoryVectorIndexTests.cs`, `test/Aevatar.Agents.Core.Tests/Fixtures/CoreTestFixture.cs`, `test/Aevatar.Agents.Workflow.Tests/WorkerTestGAgentTests.cs`, `test/Aevatar.PaperReview.Tests/PaperReviewIntegrationTests.cs`, `test/Aevatar.PaperReview.Tests/ReviewEventBridgeTests.cs`, `test/Aevatar.PaperReview.Tests/PhaseMapperTests.cs` … |
+| AI/LLM | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.Core.Tests/Memory/FileMemoryVectorIndexTests.cs`, `test/Aevatar.Agents.Core.Tests/Fixtures/CoreTestFixture.cs`, `test/Aevatar.Agents.Workflow.Tests/WorkerTestGAgentTests.cs`, `apps/Aevatar.PaperReview/test/Aevatar.PaperReview.Tests/PaperReviewIntegrationTests.cs`, `apps/Aevatar.PaperReview/test/Aevatar.PaperReview.Tests/ReviewEventBridgeTests.cs`, `apps/Aevatar.PaperReview/test/Aevatar.PaperReview.Tests/PhaseMapperTests.cs` … |
 | 工具调用 | 不适用 | N/A | — |
 | Hooks/观测 | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.Core.Tests/ExceptionHandlerTests.cs`, `test/Aevatar.Agents.Core.Tests/BaseSubscriptionManagerTests.cs`, `test/Aevatar.Agents.Core.Tests/Tracing/ProjectingExecutionTraceStoreTests.cs`, `test/Aevatar.Agents.Core.Tests/MemoryGraph/ExecutionTraceMemoryProjectorTests.cs` |
 | CQRS/EventSourcing | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.Core.Tests/InMemoryEventStoreTests.cs`, `test/Aevatar.Agents.Core.Tests/EventSourcingProtectionTests.cs`, `test/Aevatar.Agents.Core.Tests/DependencyInjection/AevatarBuilderTests.cs`, `test/Aevatar.Agents.Core.Tests/MemoryGraph/ExecutionTraceMemoryProjectorTests.cs` |

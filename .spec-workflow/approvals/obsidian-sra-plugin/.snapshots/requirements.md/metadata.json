@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/obsidian-sra-plugin/requirements.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-09T02:03:22.688Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767924202645_2uq4mlz1v",
+      "approvalTitle": "Approve requirements for obsidian-sra-plugin (Obsidian desktop plugin integrating SRA via HTTP/SSE, writes to Vault/SRA)"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-09T02:06:58.551Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767924202645_2uq4mlz1v",
+      "approvalTitle": "Approve requirements for obsidian-sra-plugin (Obsidian desktop plugin integrating SRA via HTTP/SSE, writes to Vault/SRA)"
+    }
+  ]
+}

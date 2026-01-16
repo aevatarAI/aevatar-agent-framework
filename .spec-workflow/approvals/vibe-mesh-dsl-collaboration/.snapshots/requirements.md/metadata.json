@@ -1,0 +1,14 @@
+{
+  "filePath": ".spec-workflow/specs/vibe-mesh-dsl-collaboration/requirements.md",
+  "currentVersion": 1,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-12T11:57:43.848Z",
+      "trigger": "initial",
+      "approvalId": "approval_1768219063822_pp80dk8oo",
+      "approvalTitle": "Review requirements.md for Mesh DSL–driven SRA collaboration (Option B)"
+    }
+  ]
+}

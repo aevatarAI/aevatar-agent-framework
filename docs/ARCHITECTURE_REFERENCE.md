@@ -153,7 +153,7 @@ Aevatar.Agents.AI.Core/
 ├── AIGAgentFactory.cs                # AI Agent 工厂
 ├── ConversationHistoryManager.cs     # 对话历史管理
 ├── Embeddings/                       # Embedding 支持
-├── WithTool/                         # 工具系统（原 Aevatar.Agents.AI.WithTool，已并入 AI.Core）
+├── Tool/                         # 工具系统（原 Aevatar.Agents.AI.Tool，已并入 AI.Core）
 │   ├── Abstractions/                 # 工具接口 & 定义
 │   ├── Tools/                        # ToolManager + 内置/核心/自定义工具
 │   ├── MCP/                          # Model Context Protocol 支持
@@ -161,8 +161,8 @@ Aevatar.Agents.AI.Core/
 └── ai_messages.proto
 
 NOTE:
-- 为了保持兼容性，工具相关类型仍使用命名空间 `Aevatar.Agents.AI.WithTool.*`，
-  但它们现在由 `Aevatar.Agents.AI.Core` 程序集提供（不再存在独立的 `Aevatar.Agents.AI.WithTool` 工程）。
+- 为了保持兼容性，工具相关类型仍使用命名空间 `Aevatar.Agents.AI.Tool.*`，
+  但它们现在由 `Aevatar.Agents.AI.Core` 程序集提供（不再存在独立的 `Aevatar.Agents.AI.Tool` 工程）。
 
 Aevatar.Agents.AI.WithProcessStrategy/
 ├── AIGAgentWithProcessStrategy.cs    # 带处理策略的 AI Agent

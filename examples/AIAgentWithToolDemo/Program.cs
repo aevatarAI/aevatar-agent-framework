@@ -4,6 +4,7 @@ using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.MEAI;
+using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Runtime.Local;
 using AIAgentWithToolDemo;
 using Microsoft.Extensions.AI;
@@ -41,6 +42,7 @@ var host = Host.CreateDefaultBuilder(args)
     .ConfigureAppConfiguration((context, config) =>
     {
         config.AddJsonFile("appsettings.json", optional: true)
+            .AddAevatarUserConfig()
             .AddJsonFile("appsettings.secrets.json", optional: true);
         config.AddEnvironmentVariables();
     })

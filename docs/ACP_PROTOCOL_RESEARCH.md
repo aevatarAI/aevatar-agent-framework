@@ -28,7 +28,7 @@
 仓库里 MCP 的集成路径是：
 
 - `AIGAgentBase` 的 tool system：统一注册/缓存/执行 tools（支持 allowlist + dangerous gating）
-- `src/Aevatar.Agents.AI.Core/WithTool/MCP/`：
+- `src/Aevatar.Agents.AI.Core/Tool/MCP/`：
   - `MCPClientWrapper`：对接官方 `ModelContextProtocol.Core` SDK（stdio/http/stream）
   - `MCPToolAdapter`：把 MCP tools 转成 Aevatar `ToolDefinition`
   - `MCPToolManagerExtensions`：`ToolManager.RegisterMCPServer...` 的便捷入口
@@ -58,9 +58,9 @@
 优点：复用现有 MCP 体系（discover tools + schema + call），最省心。  
 缺点：依赖 bridge 的稳定性与安全性。
 
-### 路线 B（可控）：新增 `WithTool/ACP`（把 ACP 做成一组一等 Tools）
+### 路线 B（可控）：新增 `Tool/ACP`（把 ACP 做成一组一等 Tools）
 
-当你确定 ACP 的“对象模型 + 端点/动作集合”后，推荐做一层专用适配，形态参考 `WithTool/MCP`：
+当你确定 ACP 的“对象模型 + 端点/动作集合”后，推荐做一层专用适配，形态参考 `Tool/MCP`：
 
 - `ACPServerConfig`：baseUrl / auth / timeout / headers…
 - `IACPClient`：对 ACP 的核心动作封装（例如：listAgents/sendMessage/stream… 或 productFeed/checkout…）

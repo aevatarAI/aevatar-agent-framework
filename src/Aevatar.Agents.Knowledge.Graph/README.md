@@ -6,9 +6,12 @@ A session-scoped knowledge graph library designed for scientific research assist
 
 This library provides a directed acyclic graph (DAG) structure for managing scientific knowledge with:
 
+- **Plan Nodes**: Represent research plan steps with status tracking (Pending/Active/Completed)
 - **Knowledge Nodes**: Represent pieces of scientific knowledge (axioms, theorems, experiments, definitions, etc.)
-- **Inference Edges**: Connect nodes via dependency relationships (A depends on B means A is derived from B)
+- **Edge Types**: Connect nodes via typed relationships (DependsOn, MotivatedBy, Promotes, CrossSessionReference)
 - **Session Isolation**: Each session maintains its own isolated knowledge graph
+- **Cross-Session References**: Reference knowledge from other sessions via `IGlobalKnowledgeIndex`
+- **Pivot Operations**: Support for research direction changes with node preservation
 - **Paper Generation**: Automatically generate mini research papers from knowledge chains
 
 Typical use cases:
@@ -38,13 +41,39 @@ Knowledge graphs must remain acyclic to maintain valid logical inference chains:
 - Circular dependencies are automatically detected and rejected
 - This ensures all knowledge can be traced back to foundational axioms
 
-### 3. Pluggable Storage Backend
+### 3. Node Types: Plan vs Knowledge
+
+The graph supports two primary node types, both implementing `IGraphNode`:
+
+- **PlanNode**: Represents a research plan step with execution status
+  - States: Pending → Active → Completed
+  - Tracks methodology and progress
+  - Can promote goals or other nodes
+
+- **KnowledgeNode**: Represents asserted scientific knowledge
+  - Has a specific `KnowledgeNodeType` (MathAxiom, MathTheorem, etc.)
+  - Can have attestations (pubkey, signature pairs)
+  - Tracks derivation process and references
+
+### 4. Edge Type System
+
+The library uses typed edges via `IGraphEdge`:
+
+| Edge Type | Description |
+|-----------|-------------|
+| `PlanDependsOnPlan` | Plan step depends on another plan step |
+| `KnowledgeDependsOnKnowledge` | Knowledge derived from other knowledge |
+| `KnowledgeMotivatedByPlan` | Knowledge produced by executing a plan |
+| `PlanPromotesGoal` | Plan promotes achieving a goal |
+| `CrossSessionReference` | References knowledge from another session |
+
+### 5. Pluggable Storage Backend
 
 The library uses `IGraphClient` from `Aevatar.Agents.Persistence.Graph` as its storage backend:
 - **In-Memory**: Fast, ephemeral storage for testing or transient sessions
 - **Neo4j**: Persistent graph database for production use
 
-### 4. Optional Resource Storage
+### 6. Optional Resource Storage
 
 Knowledge nodes can have associated files (datasets, proofs, figures):
 - Files are automatically zipped and uploaded to S3-compatible storage
@@ -58,12 +87,20 @@ Aevatar.Agents.Knowledge.Graph/
 ├── IKnowledgeGraphClient.cs       # Main public API interface
 ├── KnowledgeGraphClient.cs        # Implementation + Factory
 ├── Models/
-│   ├── KnowledgeNode.cs           # Node data model
-│   ├── KnowledgeEdge.cs           # Edge data model
-│   ├── KnowledgeNodeType.cs       # Node type enumeration
-│   ├── KnowledgeSnapshot.cs           # Complete graph state
+│   ├── IGraphNode.cs              # Base interface for all nodes
+│   ├── PlanNode.cs                # Plan step node
+│   ├── KnowledgeNode.cs           # Knowledge node
+│   ├── IGraphEdge.cs              # Base interface for all edges
+│   ├── KnowledgeEdge.cs           # Legacy edge (deprecated)
+│   ├── KnowledgeNodeType.cs       # Knowledge node type enum
+│   ├── PlanNodeStatus.cs          # Plan execution status
+│   ├── PivotNodeStatus.cs         # Pivot operation status
+│   ├── GraphSnapshot.cs           # Complete graph state
 │   ├── KnowledgeChain.cs          # Inference chain structure
 │   └── KnowledgeChainDetails.cs   # Chain + Markdown description
+├── Services/
+│   ├── IGlobalKnowledgeIndex.cs   # Cross-session knowledge search
+│   └── GlobalKnowledgeIndex.cs    # Implementation
 ├── Exceptions/
 │   ├── NodeNotFoundException.cs   # Node doesn't exist
 │   ├── DuplicateNodeException.cs  # Node ID already exists
@@ -106,9 +143,35 @@ var factory = serviceProvider.GetRequiredService<IKnowledgeGraphClientFactory>()
 var client = factory.CreateClient("research-session-001");
 ```
 
-### Adding Knowledge Nodes
+### Creating Plan Nodes
 
 ```csharp
+// Create a research plan step
+var planNode = await client.CreatePlanNodeAsync(
+    nodeId: "plan-1",
+    coreDescription: "Literature review on quantum computing",
+    detailedDescription: "Survey recent papers on quantum error correction",
+    methodology: "Search arXiv, filter by date and citations",
+    sequentialOrder: 1);
+
+// Update plan status
+await client.UpdatePlanNodeStatusAsync("plan-1", PlanNodeStatus.Active, "Starting search...");
+await client.UpdatePlanNodeStatusAsync("plan-1", PlanNodeStatus.Completed, "Found 15 relevant papers");
+```
+
+### Creating Knowledge Nodes
+
+```csharp
+// Add knowledge derived from plan execution
+var knowledge = await client.CreateKnowledgeNodeAsync(
+    nodeId: "knowledge-1",
+    nodeType: KnowledgeNodeType.ResearchAnalysis,
+    coreDescription: "Quantum error correction requires redundancy",
+    detailedDescription: "Analysis shows that logical qubits need multiple physical qubits...",
+    derivationProcess: "Synthesized findings from 15 papers",
+    references: ["arXiv:2301.00234", "arXiv:2302.01567"],
+    motivatedByPlanNodeId: "plan-1");
+
 // Add a foundational axiom (no dependencies)
 var axiom = await client.AddNodeAsync(
     nodeId: "empty-set",
@@ -116,30 +179,48 @@ var axiom = await client.AddNodeAsync(
     coreDescription: "The empty set exists",
     detailedDescription: "There exists a set with no elements, denoted as {} or ∅.");
 
-// Add a definition that depends on the axiom
-var definition = await client.AddNodeAsync(
-    nodeId: "natural-zero",
-    nodeType: KnowledgeNodeType.MathDefinition,
-    coreDescription: "Zero is defined as the empty set",
-    detailedDescription: "In von Neumann ordinals, 0 := ∅.",
-    dependsOn: ["empty-set"]);
-
-// Add a theorem with proof and resource files
+// Add knowledge that depends on other knowledge
 var theorem = await client.AddNodeAsync(
-    nodeId: "successor-function",
+    nodeId: "theorem-1",
     nodeType: KnowledgeNodeType.MathTheorem,
     coreDescription: "The successor function is well-defined",
     detailedDescription: "For any natural number n, S(n) = n ∪ {n} is also a natural number.",
     proof: "By induction on n...",
-    resourceFolderPath: "/path/to/proof-diagrams",  // Will be zipped and uploaded to S3
-    dependsOn: ["natural-zero"]);
+    dependsOn: ["empty-set", "knowledge-1"]);
+```
+
+### Cross-Session Knowledge References
+
+```csharp
+// Get the global knowledge index
+var globalIndex = serviceProvider.GetRequiredService<IGlobalKnowledgeIndex>();
+
+// Search for knowledge across all sessions
+var results = await globalIndex.SearchAsync(
+    query: "quantum error correction",
+    maxResults: 10,
+    excludeSessionId: "current-session");  // Exclude current session
+
+foreach (var result in results)
+{
+    Console.WriteLine($"Found: {result.GlobalId} - {result.Node.CoreDescription}");
+}
+
+// Create a reference to knowledge from another session
+var edge = await globalIndex.CreateCrossSessionReferenceAsync(
+    fromSessionId: "current-session",
+    fromNodeId: "my-analysis",
+    toGlobalNodeId: "other-session:their-theorem");  // Format: sessionId:nodeId
+
+// Get a specific node from another session
+var node = await globalIndex.GetNodeAsync("other-session:axiom-1");
 ```
 
 ### Getting Knowledge Chain Details
 
 ```csharp
 // Get the full derivation chain and description for a node
-var details = await client.GetKnowledgeChainDetailsAsync("successor-function");
+var details = await client.GetKnowledgeChainDetailsAsync("theorem-1");
 
 // Access the structured chain
 var chain = details.Chain;
@@ -159,11 +240,6 @@ foreach (var level in chain.Levels)
 
 // Access the Markdown description (mini research paper)
 string markdownDescription = details.Description;
-// Contains:
-// - Title and abstract
-// - Derivation path from foundations to target
-// - Full details of each node (ID, Type, CoreDescription, DetailedDescription, Proof, ResourceUri)
-// - References section
 ```
 
 ### Generating Full Research Paper
@@ -177,18 +253,32 @@ string fullPaper = await client.GenerateFullPaperAsync();
 ### Working with Graph Snapshots
 
 ```csharp
-// Get complete graph state
-var snapshot = await client.GetKnowledgeSnapshotAsync();
+// Get complete graph state (use GetGraphSnapshotAsync, not deprecated GetKnowledgeSnapshotAsync)
+var snapshot = await client.GetGraphSnapshotAsync();
 
 Console.WriteLine($"Session: {snapshot.SessionId}");
-Console.WriteLine($"Nodes: {snapshot.NodeCount}");
+Console.WriteLine($"Plan Nodes: {snapshot.PlanNodes.Count}");
+Console.WriteLine($"Knowledge Nodes: {snapshot.KnowledgeNodes.Count}");
 Console.WriteLine($"Edges: {snapshot.EdgeCount}");
 
-// Access all nodes and edges
-foreach (var node in snapshot.Nodes)
+// Access all nodes (both types)
+foreach (var node in snapshot.AllNodes)
 {
     Console.WriteLine($"{node.Id}: {node.CoreDescription}");
 }
+```
+
+### Node Explanation
+
+```csharp
+// Get detailed explanation of a node
+var explanation = await client.ExplainNodeAsync("theorem-1");
+
+Console.WriteLine($"Node: {explanation.NodeId}");
+Console.WriteLine($"Type: {explanation.NodeType}");
+Console.WriteLine(explanation.MarkdownContent);
+Console.WriteLine($"Direct Dependencies: {string.Join(", ", explanation.DirectDependencies)}");
+Console.WriteLine($"Dependents: {string.Join(", ", explanation.Dependents)}");
 ```
 
 ### Removing Nodes
@@ -196,7 +286,7 @@ foreach (var node in snapshot.Nodes)
 ```csharp
 // Removes the node and all connected edges
 // Also deletes associated S3 files
-bool removed = await client.RemoveNodeAsync("successor-function");
+bool removed = await client.RemoveNodeAsync("theorem-1");
 ```
 
 ### S3 Storage Configuration
@@ -242,6 +332,16 @@ The library provides predefined node types for various scientific domains:
 | Research | `ResearchPaper`, `ResearchDataset`, `ResearchAnalysis`, `ResearchHypothesis` |
 | Documentation | `Note`, `Summary`, `Reference` |
 
+## Edge Types
+
+| Type | From | To | Description |
+|------|------|-----|-------------|
+| `PlanDependsOnPlan` | PlanNode | PlanNode | Execution order dependency |
+| `KnowledgeDependsOnKnowledge` | KnowledgeNode | KnowledgeNode | Inference/derivation relationship |
+| `KnowledgeMotivatedByPlan` | KnowledgeNode | PlanNode | Knowledge produced by plan execution |
+| `PlanPromotesGoal` | PlanNode | Any | Plan promotes achieving a goal |
+| `CrossSessionReference` | KnowledgeNode | KnowledgeNode (other session) | Cross-session citation |
+
 ## Exception Handling
 
 ```csharp
@@ -263,6 +363,33 @@ catch (CycleDetectedException ex)
 {
     Console.WriteLine($"Would create cycle: {ex.FromNodeId} -> {ex.ToNodeId}");
 }
+```
+
+## Migration Notes
+
+### From KnowledgeSnapshot to GraphSnapshot
+
+The `GetKnowledgeSnapshotAsync` method is deprecated. Use `GetGraphSnapshotAsync` instead:
+
+```csharp
+// Old (deprecated)
+var snapshot = await client.GetKnowledgeSnapshotAsync();
+
+// New
+var snapshot = await client.GetGraphSnapshotAsync();
+```
+
+### From KnowledgeEdge to IGraphEdge
+
+Use the new typed edge system for creating edges:
+
+```csharp
+// Create edges using GraphEdgeFactory
+var edge = GraphEdgeFactory.Create(
+    sessionId: "session-1",
+    fromId: "node-a",
+    toId: "node-b",
+    type: EdgeType.KnowledgeDependsOnKnowledge);
 ```
 
 ## Thread Safety

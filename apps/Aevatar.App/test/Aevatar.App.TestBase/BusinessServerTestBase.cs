@@ -2,6 +2,7 @@
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Aevatar.Agents.Core.Extensions;
 using Volo.Abp;
 using Volo.Abp.Modularity;
 using Volo.Abp.Uow;
@@ -21,6 +22,7 @@ public abstract class AppTestBase<TStartupModule> : AbpIntegratedTest<TStartupMo
     {
         var builder = new ConfigurationBuilder();
         builder.AddJsonFile("appsettings.json", false);
+        builder.AddAevatarUserConfig();
         builder.AddJsonFile("appsettings.secrets.json", true);
         services.ReplaceConfiguration(builder.Build());
     }

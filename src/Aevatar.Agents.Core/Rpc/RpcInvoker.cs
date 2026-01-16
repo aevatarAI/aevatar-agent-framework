@@ -6,6 +6,7 @@ using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using System.Reflection;
+using System.Threading;
 
 namespace Aevatar.Agents.Core.Rpc;
 
@@ -19,7 +20,11 @@ public static class RpcInvoker
     /// <summary>
     /// Invoke RPC method on Agent
     /// </summary>
-    public static async Task<byte[]> InvokeAsync(IGAgent agent, byte[] requestBytes, ILogger? logger = null)
+    public static async Task<byte[]> InvokeAsync(
+        IGAgent agent,
+        byte[] requestBytes,
+        ILogger? logger = null,
+        CancellationToken ct = default)
     {
         var request = RpcRequest.Parser.ParseFrom(requestBytes);
         var response = new RpcResponse
@@ -35,7 +40,7 @@ public static class RpcInvoker
 
             // Pass argument count to select correct method overload
             var method = GetCachedMethod(agent.GetType(), request.MethodName, request.Args.Count);
-            var args = DeserializeArgs(request.Args, method.GetParameters());
+            var args = DeserializeArgs(request.Args, method.GetParameters(), ct);
             var result = method.Invoke(agent, args);
 
             // Handle async methods
@@ -127,11 +132,25 @@ public static class RpcInvoker
 
     private static object?[] DeserializeArgs(
         Google.Protobuf.Collections.RepeatedField<Any> protoArgs,
-        ParameterInfo[] paramInfos)
+        ParameterInfo[] paramInfos,
+        CancellationToken ct)
     {
         return paramInfos.Select((p, i) =>
-            i < protoArgs.Count ? ProtobufPacker.Unpack(protoArgs[i], p.ParameterType)
-            : p.HasDefaultValue ? p.DefaultValue : null).ToArray();
+        {
+            // Special-case: CancellationToken is not serialized via protobuf args.
+            // If the method signature includes CancellationToken (often optional), inject the provided ct.
+            if (p.ParameterType == typeof(CancellationToken))
+            {
+                return ct;
+            }
+
+            if (i < protoArgs.Count)
+            {
+                return ProtobufPacker.Unpack(protoArgs[i], p.ParameterType);
+            }
+
+            return p.HasDefaultValue ? p.DefaultValue : null;
+        }).ToArray();
     }
 
     private static object? GetTaskResult(Task task)

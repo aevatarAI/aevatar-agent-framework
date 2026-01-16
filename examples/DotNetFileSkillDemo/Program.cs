@@ -5,8 +5,9 @@ using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.MEAI;
-using Aevatar.Agents.AI.WithTool.Abstractions;
+using Aevatar.Agents.AI.Tool.Abstractions;
 using Aevatar.Agents.Runtime.Local;
+using Aevatar.Agents.Core.Extensions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -27,6 +28,7 @@ public static class Program
                 var baseDir = AppContext.BaseDirectory;
 
                 config.AddJsonFile("appsettings.json", optional: true)
+                    .AddAevatarUserConfig()
                     .AddJsonFile("appsettings.secrets.json", optional: true)
                     .AddJsonFile(Path.Combine(baseDir, "appsettings.json"), optional: true, reloadOnChange: false)
                     .AddJsonFile(Path.Combine(baseDir, "appsettings.secrets.json"), optional: true, reloadOnChange: false);
@@ -86,7 +88,7 @@ public static class Program
         catch (Exception ex)
         {
             logger.LogError(ex,
-                "LLM init failed. Add API key to examples/DotNetFileSkillDemo/appsettings.secrets.json then retry.");
+                "LLM init failed. Add API key via ~/.aevatar/secrets.json (recommended) or examples/DotNetFileSkillDemo/appsettings.secrets.json then retry.");
             return;
         }
 

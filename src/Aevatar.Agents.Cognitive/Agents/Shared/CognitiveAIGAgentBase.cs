@@ -22,18 +22,40 @@ public abstract class CognitiveAIGAgentBase<TCustomState> : AIGAgentBase<TCustom
     where TCustomState : class, IMessage<TCustomState>, new()
 {
     // ============================================================
-    //  History compaction policy (no extra LLM calls)
+    //  History policy (no extra LLM calls)
     //
     //  WHY:
-    //  - AIGAgentBase default compaction may call LLM to do summary
-    //  - Cognitive workflow has strict budget; hidden LLM calls unacceptable
+    //  - AIGAgentBase compaction (Layer 2) may call LLM to summarize history.
+    //  - Cognitive workflow has strict budget; hidden LLM calls unacceptable.
+    //
+    //  HOW:
+    //  - Keep a bounded sliding window only (Layer 1), never summarize.
     // ============================================================
-    protected override Task<string?> UpdateHistorySummaryAsync(
-        string? existingSummary,
-        IReadOnlyList<AevatarChatMessage> newlyArchivedMessages,
-        CancellationToken cancellationToken)
+
+    protected CognitiveAIGAgentBase()
     {
-        return Task.FromResult<string?>(null);
+        EnableChatHistoryInState = true;
+        EnableChatHistoryCompaction = false; // critical: avoid LLM summarization
+
+        // Keep a small window for UI hydration. Hard cap is enforced in AddMessageToHistory.
+        ChatHistoryMaxMessages = 32;
+    }
+
+    private void TrimHistoryWindowBestEffort()
+    {
+        try
+        {
+            var max = ChatHistoryMaxMessages;
+            if (max <= 0) return;
+
+            // Actor model: single-threaded per agent. Keep it simple.
+            while (State.History.Count > max)
+                State.History.RemoveAt(0);
+        }
+        catch
+        {
+            // best-effort only (history is optional)
+        }
     }
 
     // ============================================================
@@ -172,6 +194,7 @@ public abstract class CognitiveAIGAgentBase<TCustomState> : AIGAgentBase<TCustom
         if (ctx == null)
         {
             base.AddMessageToHistory(content, role, name);
+            TrimHistoryWindowBestEffort();
             return;
         }
 
@@ -188,6 +211,7 @@ public abstract class CognitiveAIGAgentBase<TCustomState> : AIGAgentBase<TCustom
         }
 
         base.AddMessageToHistory(BuildStepHistoryMessage(role, content, ctx.Metadata));
+        TrimHistoryWindowBestEffort();
     }
 
     private static AevatarChatMessage BuildStepHistoryMessage(

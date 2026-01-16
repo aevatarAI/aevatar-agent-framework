@@ -2,6 +2,7 @@
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Aevatar.Agents.Core.Extensions;
 using Volo.Abp;
 
 namespace Aevatar.App.HttpApi.Client.ConsoleTestApp;
@@ -14,6 +15,7 @@ class Program
         {
            var builder = new ConfigurationBuilder();
            builder.AddJsonFile("appsettings.json", false);
+           builder.AddAevatarUserConfig();
            builder.AddJsonFile("appsettings.secrets.json", true);
            options.Services.ReplaceConfiguration(builder.Build());
            options.UseAutofac();

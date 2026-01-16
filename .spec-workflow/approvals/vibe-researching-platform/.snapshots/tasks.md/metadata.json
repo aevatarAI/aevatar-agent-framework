@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/vibe-researching-platform/tasks.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-07T09:48:39.668Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767779319660_9xlaybj8n",
+      "approvalTitle": "Spec Phase 3: Tasks — vibe-researching-platform"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-07T09:51:58.883Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767779319660_9xlaybj8n",
+      "approvalTitle": "Spec Phase 3: Tasks — vibe-researching-platform"
+    }
+  ]
+}

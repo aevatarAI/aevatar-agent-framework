@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/vibe-mesh-dsl-collaboration/design.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-12T12:01:34.538Z",
+      "trigger": "initial",
+      "approvalId": "approval_1768219294532_5unizz9qf",
+      "approvalTitle": "Review design.md for Mesh DSL–driven SRA collaboration (Option B)"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-12T12:01:50.692Z",
+      "trigger": "approved",
+      "approvalId": "approval_1768219294532_5unizz9qf",
+      "approvalTitle": "Review design.md for Mesh DSL–driven SRA collaboration (Option B)"
+    }
+  ]
+}

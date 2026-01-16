@@ -1,0 +1,155 @@
+# Tasks Document
+
+- [x] 1. Extend Cognitive DSL YAML parser to support ralph-loop primitive parameters
+  - File: `src/Aevatar.Agents.Cognitive/Engine/WorkflowParser.cs`
+  - Add YAML fields + parameter wiring for new step types used by `ralph-loop.yaml`:
+    - `workspace_read_file`: `path`, `max_chars`
+    - `workspace_code_search`: `pattern`, `glob`, `file_type`, `max_results`, `context_lines`
+    - `workspace_apply_patch`: `patch`, `patches`
+    - `sandbox_command`: `command`, `args`, `working_dir`, `timeout_ms`, `max_output_chars`
+  - Purpose: Make DSL configs effective (avoid silent ignore due to `IgnoreUnmatchedProperties`)
+  - _Leverage: `src/Aevatar.Agents.Cognitive/Execution/RetrieveFactsExecutor.cs` (parameter patterns), `src/Aevatar.Agents.Cognitive/Engine/WorkflowParser.cs` (defaults injection)_
+  - _Requirements: 1, 4_
+  - _Prompt: Implement the task for spec ralph-loop-workflow, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Cognitive DSL runtime engineer | Task: Extend `WorkflowParser` YAML binding so ralph-loop primitive fields are parsed into `StepDefinition.Parameters` (no silent drops). Add only the minimum new fields needed; keep template-variable friendliness (store raw strings/objects; execution layer will render/evaluate). | Restrictions: Do not remove `IgnoreUnmatchedProperties`; do not break existing workflows; keep parser deterministic; avoid adding cross-boundary C# types (this is in-process only); no port 5000 references. | _Leverage: existing parser patterns for `retrieve_facts` and guardrail keys (`max_length`, `timeout_seconds`, `strict_parse`) | _Requirements: 1,4 | Success: A YAML step containing the new fields results in `StepDefinition.Parameters` containing those keys, and existing workflow parsing tests still pass. Workflow: mark this task as [-] before coding; after completion call log-implementation for task 1 and then mark it [x].
+
+- [x] 2. Add `ralph-loop.yaml` workflow definition + parser test coverage
+  - Files:
+    - `src/Aevatar.Agents.Cognitive/workflows/ralph-loop.yaml` (new)
+    - `test/Aevatar.Agents.Cognitive.Tests/WorkflowParserTests.cs` (modify)
+  - Implement bounded, recursive workflow: init_state → extract_signals (JSON) → workspace_* primitives → propose_patches (JSON) → apply_patch → sandbox_command verifier → transform update_state → stop_or_continue (workflow_call)
+  - Ensure defaults include: `max_length`, `strict_parse`, `timeout_seconds`, `idle_timeout_seconds`, and any primitive output bounds
+  - Purpose: Establish the declarative ralph-loop control plane and lock in guardrails via tests
+  - _Leverage: `src/Aevatar.Agents.Cognitive/workflows/axiom_theorem_loop.yaml` (loop/stop pattern), `src/Aevatar.Agents.Cognitive/workflows/maker-v2.yaml` (defaults/guardrails), `test/Aevatar.Agents.Cognitive.Tests/WorkflowParserTests.cs` (repo root discovery)_
+  - _Requirements: 1, 2, 5_
+  - _Prompt: Implement the task for spec ralph-loop-workflow, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Workflow author + safety engineer | Task: Create `ralph-loop.yaml` implementing a bounded objective loop with deterministic verifier gating. Add/extend tests to ensure the workflow parses and contains required guardrails (timeouts, strict_parse, max_length, and a max-iterations stop condition). | Restrictions: Keep YAML bounded and readable; do not introduce new step types beyond those in the design; no port 5000; ensure recursion has a hard cap; outputs must be bounded (no dumping full files). | _Leverage: axiom_theorem_loop stop_or_continue recursion pattern; maker-v2 defaults patterns | _Requirements: 1,2,5 | Success: `WorkflowParserTests` passes and `ralph-loop.yaml` is parseable with key parameters present for every critical step. Workflow: mark this task as [-] before coding; after completion call log-implementation for task 2 and then mark it [x].
+
+- [x] 3. Add workspace primitive step routing in CognitiveCoordinator (skeleton + workspace root guard)
+  - Files:
+    - `src/Aevatar.Agents.Cognitive/Agents/CognitiveCoordinatorGAgent.cs` (modify)
+    - `src/Aevatar.Agents.Cognitive/Agents/CognitiveCoordinatorGAgent.Workspace.cs` (new)
+    - `src/Aevatar.Agents.Cognitive/Execution/WorkspacePathGuard.cs` (new)
+  - Add new step types in `ExecuteStepAsync` switch:
+    - `workspace_read_file`, `workspace_code_search`, `workspace_apply_patch`, `sandbox_command`
+  - Implement `WorkspacePathGuard` to resolve a host-controlled workspace root (e.g., env `AEVATAR_COGNITIVE_WORKSPACE_ROOT`, fallback to repo root discovery used by tests) and enforce “within root” checks
+  - Purpose: Provide a secure, deterministic execution surface for ralph-loop primitives (no Function Calling required)
+  - _Leverage: `scientific-research-assistant/src/ScientificResearchAssistant.Api/Workspace/WorkspaceService.cs` (EnsureWithinRoot pattern), `src/Aevatar.Agents.Cognitive/Execution/TransformExecutor.cs` (token-free executor style)_
+  - _Requirements: 3, 5_
+  - _Prompt: Implement the task for spec ralph-loop-workflow, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Actor/runtime engineer | Task: Add a new partial `CognitiveCoordinatorGAgent.Workspace.cs` and route new primitive step types from `ExecuteStepAsync` into coordinator-local handlers. Implement `WorkspacePathGuard` that enforces path-within-root using a host-configured root (env var) plus a safe fallback for dev/tests. | Restrictions: No new long-lived services; do not weaken security (never accept arbitrary workspace root from workflow inputs); keep files <800 lines; no port 5000. | _Leverage: WorkspaceService root-check patterns; existing partial file splitting conventions | _Requirements: 3,5 | Success: Coordinator recognizes the new step types and fails safely with a clear error if workspace root is missing/invalid or path escapes the root. Workflow: mark this task as [-] before coding; after completion call log-implementation for task 3 and then mark it [x].
+
+- [x] 4. Implement `workspace_read_file` deterministic executor (bounded read)
+  - Files:
+    - `src/Aevatar.Agents.Cognitive/Execution/WorkspaceReadFileExecutor.cs` (new)
+    - `src/Aevatar.Agents.Cognitive/Agents/CognitiveCoordinatorGAgent.Workspace.cs` (modify)
+    - `test/Aevatar.Agents.Cognitive.Tests/WorkspaceReadFileExecutorTests.cs` (new)
+  - Read file content under workspace root with bounds (`max_chars`), return `{ ok, path, content, truncated, total_chars, kept_chars, error }` as `Dictionary<string, object>`
+  - Purpose: Provide safe context ingestion for ralph-loop without tool calling
+  - _Leverage: `src/Aevatar.Agents.Cognitive/Utilities/ProtoValueConverter.cs` (list/dict constraints), `src/Aevatar.Agents.Cognitive/Execution/RetrieveFactsExecutor.cs` (dict/list output style)_
+  - _Requirements: 1, 3, 5_
+  - _Prompt: Implement the task for spec ralph-loop-workflow, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Deterministic primitive implementer | Task: Add `WorkspaceReadFileExecutor` and wire it into `CognitiveCoordinatorGAgent.Workspace.cs`. Ensure path is validated by `WorkspacePathGuard`, reads are bounded, and outputs are Protobuf-Value friendly (Dictionary<string, object> with List<object> where needed). Add tests for path escape + truncation + missing file. | Restrictions: Never read outside workspace root; never return unbounded content; avoid `IEnumerable<string>` pitfalls (must be `List<object>` for ProtoValueConverter); no port 5000. | _Leverage: ProtoValueConverter constraints; RetrieveFactsExecutor output conventions | _Requirements: 1,3,5 | Success: Tests pass and executor returns stable bounded results with correct truncation metadata. Workflow: mark this task as [-] before coding; after completion call log-implementation for task 4 and then mark it [x].
+
+- [x] 5. Implement `workspace_code_search` deterministic executor (bounded search)
+  - Files:
+    - `src/Aevatar.Agents.Cognitive/Execution/WorkspaceCodeSearchExecutor.cs` (new)
+    - `src/Aevatar.Agents.Cognitive/Agents/CognitiveCoordinatorGAgent.Workspace.cs` (modify)
+    - `test/Aevatar.Agents.Cognitive.Tests/WorkspaceCodeSearchExecutorTests.cs` (new)
+  - Execute bounded code search within workspace root (prefer `rg` process; fallback to simple scan if unavailable)
+  - Return `{ ok, pattern, matches:[{path,line,excerpt}], truncated, error }` with caps: `max_results`, `context_lines`, `max_total_chars`
+  - Purpose: Provide fast, safe code discovery for ralph-loop
+  - _Leverage: `src/Aevatar.Agents.AI.Tool/Tools/AevatarToolManager.cs` (output formatting/bounding principles), `src/Aevatar.Agents.Cognitive/Execution/RetrieveFactsExecutor.cs` (lexical token logic as fallback inspiration)_
+  - _Requirements: 1, 3, 5_
+  - _Prompt: Implement the task for spec ralph-loop-workflow, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Systems developer (search tooling) | Task: Implement `WorkspaceCodeSearchExecutor` that searches within workspace root with strict bounds. Prefer `rg` (ProcessStartInfo) for performance; if not found, do a bounded scan. Wire into coordinator and add tests for result caps and path safety. | Restrictions: No searching outside workspace root; enforce max results and total output chars; do not rely on interactive prompts; no port 5000. | _Leverage: bounded-output patterns from AevatarToolManager + RetrieveFactsExecutor fallback mindset | _Requirements: 1,3,5 | Success: Executor returns deterministic, bounded matches and tests validate caps + safety. Workflow: mark this task as [-] before coding; after completion call log-implementation for task 5 and then mark it [x].
+
+- [x] 6. Implement `workspace_apply_patch` deterministic executor (bounded edits)
+  - Files:
+    - `src/Aevatar.Agents.Cognitive/Execution/WorkspaceApplyPatchExecutor.cs` (new)
+    - `src/Aevatar.Agents.Cognitive/Agents/CognitiveCoordinatorGAgent.Workspace.cs` (modify)
+    - `test/Aevatar.Agents.Cognitive.Tests/WorkspaceApplyPatchExecutorTests.cs` (new)
+  - Apply a bounded patch set under workspace root (MVP):
+    - Support `create_or_replace` and `replace_span` operations (line-based, 1-based lines) to avoid full diff complexity
+    - Return `{ ok, files_changed, patches_applied, error }`
+  - Purpose: Enable safe, deterministic workspace mutation for ralph-loop
+  - _Leverage: `scientific-research-assistant/src/ScientificResearchAssistant.Api/Paper/PaperService.cs` (replace-span patching patterns), `scientific-research-assistant/src/ScientificResearchAssistant.Api/Vibe/VibeOrchestrator.DeliveryApply.cs` (bounded patch ingestion)_
+  - _Requirements: 1, 3, 5_
+  - _Prompt: Implement the task for spec ralph-loop-workflow, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Deterministic patch engine implementer | Task: Implement `WorkspaceApplyPatchExecutor` to apply bounded edits under workspace root using a minimal patch schema (create_or_replace + replace_span). Wire into coordinator and add tests for span replacement, file creation, and path escape rejection. | Restrictions: Never write outside workspace root; cap patch count + patch size; keep behavior deterministic and failure messages actionable; no port 5000. | _Leverage: SRA paper replace-span patch approach; existing bounded ingestion style | _Requirements: 1,3,5 | Success: Patch executor applies edits correctly, rejects invalid spans/paths, and unit tests cover happy + error paths. Workflow: mark this task as [-] before coding; after completion call log-implementation for task 6 and then mark it [x].
+
+- [x] 7. Implement `sandbox_command` deterministic executor (verifier runner)
+  - Files:
+    - `src/Aevatar.Agents.Cognitive/Execution/SandboxCommandExecutor.cs` (new)
+    - `src/Aevatar.Agents.Cognitive/Agents/CognitiveCoordinatorGAgent.Workspace.cs` (modify)
+    - `test/Aevatar.Agents.Cognitive.Tests/SandboxCommandExecutorTests.cs` (new)
+  - Execute command with:
+    - non-interactive behavior (no stdin prompts)
+    - `timeout_ms` hard cap + kill process tree best-effort
+    - stdout/stderr bounded (truncate markers + metadata)
+    - optional command allowlist (env/config driven)
+  - Purpose: Provide deterministic verifier semantics for ralph-loop (“pass” is exit code + thresholds, not LLM self-eval)
+  - _Leverage: `scientific-research-assistant/src/ScientificResearchAssistant/Vibe/Tools/PythonExecTool.cs` (timeout + output bounding), `src/Aevatar.Agents.AI.Core/Hooks/BuiltIn/ToolOutputTruncationHook.cs` (truncation markers)_
+  - _Requirements: 2, 3, 5_
+  - _Prompt: Implement the task for spec ralph-loop-workflow, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Sandbox/Process execution engineer | Task: Implement `SandboxCommandExecutor` that runs verifier commands safely (timeout + output caps + non-interactive). Wire it into coordinator. Add tests for timeout behavior and truncation metadata. | Restrictions: Never run unbounded commands; enforce timeouts and output limits; prefer allowlist (deny by default if configured); no port 5000. | _Leverage: PythonExecTool bounded process patterns; ToolOutputTruncationHook marker style | _Requirements: 2,3,5 | Success: Executor returns `{ok, exit_code, timed_out, duration_ms, stdout, stderr, truncated}` deterministically and tests validate safety constraints. Workflow: mark this task as [-] before coding; after completion call log-implementation for task 7 and then mark it [x].
+
+- [x] 8. Cognitive integration test: ralph-loop stop/continue semantics (no real LLM)
+  - Files:
+    - `test/Aevatar.Agents.Cognitive.Tests/RalphLoopWorkflowTests.cs` (new)
+    - (optional) `test/Aevatar.Agents.Cognitive.Tests/TestDoubles/*` (new)
+  - Create a stub LLM provider / stub worker responses so:
+    - one iteration produces a patch, verifier fails
+    - next iteration produces patch, verifier passes
+  - Assert: loop stops only when verifier passes; respects `max_iterations`; outputs remain bounded
+  - Purpose: Lock down the “don’t stop until target (within budgets)” behavior deterministically
+  - _Leverage: existing `test/Aevatar.Agents.Cognitive.Tests/*` patterns; `src/Aevatar.Agents.Cognitive/Agents/CognitiveCoordinatorGAgent` execution entrypoints; `src/Aevatar.Agents.Cognitive/Utilities/ProtoValueConverter.cs`_
+  - _Requirements: 1, 2, 5_
+  - _Prompt: Implement the task for spec ralph-loop-workflow, first run spec-workflow-guide to get the workflow guide then implement the task: Role: QA engineer (workflow semantics) | Task: Add a deterministic integration test for ralph-loop that stubs LLM outputs and controls verifier results, proving the loop only completes when verifier passes and otherwise iterates until max_iterations/limit. | Restrictions: No network/real LLM; keep tests deterministic and fast; do not delete failing tests; no port usage. | _Leverage: Cognitive tests conventions and repo root discovery patterns | _Requirements: 1,2,5 | Success: Tests reliably validate stop/continue semantics and prevent regressions. Workflow: mark this task as [-] before coding; after completion call log-implementation for task 8 and then mark it [x].
+
+- [-] 9. SRA: introduce `mode=vibe_loop` and outer-loop runner skeleton
+  - Files:
+    - `scientific-research-assistant/src/ScientificResearchAssistant.Api/Sessions/ResearchApiDtos.cs` (modify)
+    - `scientific-research-assistant/src/ScientificResearchAssistant.Api/Sessions/ResearchRunExecutor.cs` (modify)
+    - `scientific-research-assistant/src/ScientificResearchAssistant.Api/Vibe/VibeGoalLoopRunner.cs` (new)
+  - Add optional DTO config for loop budgets (max iterations, max total duration)
+  - Route `SessionInputInDto.Mode == "vibe_loop"` to `VibeGoalLoopRunner` instead of single-round vibe
+  - Purpose: Enable “repeat vibe until goal is satisfied” entrypoint for SRA
+  - _Leverage: `scientific-research-assistant/src/ScientificResearchAssistant.Api/Vibe/VibeOrchestrator.cs` (single-round), `scientific-research-assistant/src/ScientificResearchAssistant.Api/Vibe/docs/README.md` (module boundaries)_
+  - _Requirements: 1, 3, 5_
+  - _Prompt: Implement the task for spec ralph-loop-workflow, first run spec-workflow-guide to get the workflow guide then implement the task: Role: SRA backend engineer | Task: Add a new run mode `vibe_loop` that invokes a new `VibeGoalLoopRunner` which repeatedly calls `VibeOrchestrator.ExecuteOneRoundAsync` under session.RunLock. Add DTO fields for loop budgets and ensure AG-UI events remain coherent (one run, multiple round steps). | Restrictions: Must remain best-effort (do not crash server); keep outputs bounded; do not use port 5000; do not introduce background daemons in this task. | _Leverage: existing `ExecuteVibeResearchingRunAsync` flow and Vibe module structure | _Requirements: 1,3,5 | Success: `mode=vibe_loop` compiles and routes correctly, and the runner enforces max_iterations/timeout at the outer loop level. Workflow: mark this task as [-] before coding; after completion call log-implementation for task 9 and then mark it [x].
+
+- [ ] 10. SRA: implement deterministic goal verifier (Delivery thresholds)
+  - Files:
+    - `scientific-research-assistant/src/ScientificResearchAssistant.Api/Vibe/VibeGoalVerifier.cs` (new)
+    - `scientific-research-assistant/src/ScientificResearchAssistant.Api/Vibe/VibeGoalLoopRunner.cs` (modify)
+  - Add `IVibeGoalVerifier` and default `DeliveryThresholdGoalVerifier` that checks File-SSoT deliverables:
+    - `deliverables/conclusions.json` min_count
+    - `deliverables/evidence.json` min_count
+    - `deliverables/tasks.json` min_count
+    - optional `deliverables/delivery_snapshot.json.changed_summary` min_chars
+  - Emit a `CustomEvent` per round with pass/fail + counters (bounded)
+  - Purpose: Make “达标”可自动验证（不依赖 LLM 自评）
+  - _Leverage: `scientific-research-assistant/src/ScientificResearchAssistant.Api/Vibe/Delivery/DeliveryCenterStore.cs` (bounded storage), `scientific-research-assistant/src/ScientificResearchAssistant.Contracts/sra_collab.proto` (delivery snapshot fields)_
+  - _Requirements: 2, 5_
+  - _Prompt: Implement the task for spec ralph-loop-workflow, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Deterministic verification engineer | Task: Implement `IVibeGoalVerifier` and `DeliveryThresholdGoalVerifier` that reads SRA delivery snapshots/stores and deterministically decides pass/fail based on thresholds. Wire it into `VibeGoalLoopRunner` and emit bounded CustomEvents for UI/traceability. | Restrictions: No LLM calls in verifier; bounded counters only (no dumping artifacts); keep behavior deterministic; no port 5000. | _Leverage: DeliveryCenterStore bounded list patterns; sra_collab.proto contract fields | _Requirements: 2,5 | Success: Verifier produces deterministic pass/fail decisions and the loop stops only when verifier passes (or budgets are exceeded). Workflow: mark this task as [-] before coding; after completion call log-implementation for task 10 and then mark it [x].
+
+- [ ] 11. SRA tests: vibe_loop continues until verifier passes (or hits limit)
+  - Files:
+    - `scientific-research-assistant/test/ScientificResearchAssistant.Api.Tests/VibeLoopRunnerTests.cs` (new)
+    - (optional) `scientific-research-assistant/test/ScientificResearchAssistant.Api.Tests/TestDoubles/*` (new)
+  - Test scenarios:
+    - verifier fails for first N-1 rounds, passes at round N → loop stops at N
+    - verifier never passes → stops at max_iterations with `limit`
+  - Purpose: Prevent regressions and ensure “don’t stop until target (within budgets)” works for SRA
+  - _Leverage: existing `scientific-research-assistant/test/ScientificResearchAssistant.Api.Tests/*` patterns; `DeliverablesStoresTests.cs` (store setup)_
+  - _Requirements: 1, 2, 5_
+  - _Prompt: Implement the task for spec ralph-loop-workflow, first run spec-workflow-guide to get the workflow guide then implement the task: Role: QA engineer (SRA) | Task: Add deterministic tests for `VibeGoalLoopRunner` verifying it loops until `IVibeGoalVerifier` passes or budget limit triggers. Use fakes/stubs for orchestrator and stores (no real LLM). | Restrictions: Deterministic; no network; do not delete failing tests; keep test runtime short; no port usage. | _Leverage: existing SRA API test patterns and store tests | _Requirements: 1,2,5 | Success: Tests pass and prove the loop semantics are stable and bounded. Workflow: mark this task as [-] before coding; after completion call log-implementation for task 11 and then mark it [x].
+
+- [ ] 12. Documentation: describe ralph-loop + SRA vibe_loop usage and safety knobs
+  - Files:
+    - `docs/` (new) `docs/RALPH_LOOP_WORKFLOW.md` (new)
+    - `scientific-research-assistant/README.md` (modify)
+  - Document:
+    - when to use ralph-loop (objective, auto-verifiable targets)
+    - budgets/timeouts/output bounds, and why “infinite” is not allowed
+    - SRA: how to call `mode=vibe_loop` + criteria examples (delivery thresholds)
+  - Purpose: Make the pattern discoverable and prevent unsafe usage
+  - _Leverage: `docs/coding-agent/TASKS.md` (safety expectations), `scientific-research-assistant/docs/VIBE_RESEARCHING.md` (existing mental model)_
+  - _Requirements: 3, 5_
+  - _Prompt: Implement the task for spec ralph-loop-workflow, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Technical writer + safety reviewer | Task: Write concise docs for ralph-loop workflow and SRA `vibe_loop` mode, focusing on deterministic verification, budgets/guardrails, and common failure modes. Update SRA README to mention the new mode and how to configure it. | Restrictions: Do not include secrets; do not mention using port 5000; keep language precise; do not promise unimplemented features. | _Leverage: coding-agent/TASKS safety notes and SRA docs | _Requirements: 3,5 | Success: Docs enable a developer to use ralph-loop/vibe_loop safely and understand guardrails and stop reasons. Workflow: mark this task as [-] before coding; after completion call log-implementation for task 12 and then mark it [x].
+
+

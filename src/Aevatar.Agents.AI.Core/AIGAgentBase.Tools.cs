@@ -4,12 +4,12 @@ using Aevatar.Agents.Abstractions.CQRS;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core.Utils;
-using Aevatar.Agents.AI.WithTool.Abstractions;
-using Aevatar.Agents.AI.WithTool.Messages;
-using Aevatar.Agents.AI.WithTool.Tools;
-using Aevatar.Agents.AI.WithTool.Tools.BuiltIn;
-using Aevatar.Agents.AI.WithTool.Tools.CustomTools;
-using Aevatar.Agents.AI.WithTool.Tools.CoreTools;
+using Aevatar.Agents.AI.Tool.Abstractions;
+using Aevatar.Agents.AI.Tool.Messages;
+using Aevatar.Agents.AI.Tool.Tools;
+using Aevatar.Agents.AI.Tool.Tools.BuiltIn;
+using Aevatar.Agents.AI.Tool.Tools.CustomTools;
+using Aevatar.Agents.AI.Tool.Tools.CoreTools;
 using Aevatar.Agents.Abstractions.Attributes;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
@@ -45,17 +45,14 @@ public abstract partial class AIGAgentBase
     protected IStateQueryService? CqrsStateQueryService { get; set; }
 
     // ============================================================
-    //  Tool system (merged from AIGAgentWithToolBase)
+    //  Tool system (now part of AIGAgentBase)
     // ============================================================
 
-    private IAevatarToolManager? _toolManager;
-    private IReadOnlyList<ToolDefinition> _registeredToolsCache = Array.Empty<ToolDefinition>();
+    private ToolingRuntime? _toolingRuntime;
+    private ToolingRuntime Tooling => _toolingRuntime ??= new ToolingRuntime(ToolingInitHost, ToolingLoopHost);
 
-    private IReadOnlyList<AevatarFunctionDefinition> _functionDefinitionsCache =
-        Array.Empty<AevatarFunctionDefinition>();
-
-    private readonly SemaphoreSlim _toolInitSemaphore = new(1, 1);
-    private bool _toolsInitialized;
+    private IReadOnlyList<ToolDefinition> RegisteredToolsCache => Tooling.RegisteredToolsCache;
+    private IReadOnlyList<AevatarFunctionDefinition> FunctionDefinitionsCache => Tooling.FunctionDefinitionsCache;
 
     /// <summary>
     /// Gets or sets the tool manager (DI injectable).
@@ -64,22 +61,17 @@ public abstract partial class AIGAgentBase
     {
         get
         {
-            EnsureToolManagerInitialized();
-            return _toolManager!;
+            return Tooling.ToolManager;
         }
         set
         {
-            _toolManager = value ?? throw new ArgumentNullException(nameof(value));
-            _toolsInitialized = false;
+            Tooling.ToolManager = value ?? throw new ArgumentNullException(nameof(value));
         }
     }
 
     private void EnsureToolManagerInitialized()
     {
-        if (_toolManager != null)
-            return;
-
-        _toolManager = CreateToolManager();
+        Tooling.EnsureToolManagerInitialized();
     }
 
     /// <summary>
@@ -96,26 +88,7 @@ public abstract partial class AIGAgentBase
     /// </summary>
     protected virtual async Task InitializeToolsAsync(CancellationToken cancellationToken = default)
     {
-        if (_toolsInitialized)
-            return;
-
-        await _toolInitSemaphore.WaitAsync(cancellationToken);
-        try
-        {
-            if (_toolsInitialized)
-                return;
-
-            EnsureToolManagerInitialized();
-
-            await RegisterToolsAsync(cancellationToken);
-            await RefreshToolCachesAsync(cancellationToken);
-
-            _toolsInitialized = true;
-        }
-        finally
-        {
-            _toolInitSemaphore.Release();
-        }
+        await Tooling.InitializeToolsAsync(cancellationToken);
     }
 
     /// <summary>
@@ -138,6 +111,9 @@ public abstract partial class AIGAgentBase
                 MemoryStore,
                 MemoryVectorIndex),
             cancellationToken: cancellationToken);
+
+        // Built-in: web search (third-party provider; best-effort + opt-in via config/DI)
+        await RegisterWebSearchToolBestEffortAsync(cancellationToken);
 
         // Agent Skills (agentskills.io) - gated by EnableAgentSkills (enabled by default in this repo)
         await RegisterAgentSkillsToolsAsync(cancellationToken);
@@ -350,6 +326,27 @@ public abstract partial class AIGAgentBase
         }
     }
 
+    private static bool LooksLikeAevatarDotNetToolFile(string filePath)
+    {
+        try
+        {
+            using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            var max = (int)Math.Min(16 * 1024, fs.Length);
+            if (max <= 0) return false;
+
+            var buf = new byte[max];
+            var read = fs.Read(buf, 0, max);
+            if (read <= 0) return false;
+
+            var head = Encoding.UTF8.GetString(buf, 0, read);
+            return head.Contains("/*aevatar_tool", StringComparison.Ordinal);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private ToolExecutionContext BuildToolExecutionContext(string sessionId, CancellationToken cancellationToken)
     {
         return new ToolExecutionContext
@@ -378,21 +375,12 @@ public abstract partial class AIGAgentBase
     /// </summary>
     protected async Task RefreshToolCachesAsync(CancellationToken cancellationToken = default)
     {
-        if (_toolManager == null)
-        {
-            _registeredToolsCache = Array.Empty<ToolDefinition>();
-            _functionDefinitionsCache = Array.Empty<AevatarFunctionDefinition>();
-            return;
-        }
-
-        _registeredToolsCache = await ToolManager.GetAvailableToolsAsync(cancellationToken) ?? [];
-        _functionDefinitionsCache = await ToolManager.GenerateFunctionDefinitionsAsync(cancellationToken) ?? [];
+        await Tooling.RefreshToolCachesAsync(cancellationToken);
     }
 
     public async Task<IReadOnlyList<ToolDefinition>> GetRegisteredToolsAsync()
     {
-        EnsureToolManagerInitialized();
-        return await ToolManager.GetAvailableToolsAsync() ?? [];
+        return await Tooling.GetRegisteredToolsAsync();
     }
 
     protected async Task<bool> HasToolsAsync()
@@ -412,6 +400,8 @@ public abstract partial class AIGAgentBase
     {
         EnsureToolManagerInitialized();
 
+        cancellationToken.ThrowIfCancellationRequested();
+
         var msgId = Guid.NewGuid().ToString("N");
         var tcId = Guid.NewGuid().ToString("N");
 
@@ -430,6 +420,12 @@ public abstract partial class AIGAgentBase
         {
             result = await ToolManager.ExecuteToolAsync(toolName, parameters, context, cancellationToken);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Expected: cooperative cancellation. Do NOT publish "error" events on cancel,
+            // and do not try to publish extra events using an already-canceled token.
+            throw;
+        }
         catch (Exception ex)
         {
             // Publish ERROR result
@@ -444,6 +440,8 @@ public abstract partial class AIGAgentBase
             }, EventDirection.Down, cancellationToken);
             throw;
         }
+
+        cancellationToken.ThrowIfCancellationRequested();
 
         // Publish SUCCESS result
         await PublishAsync(new ToolCallResultEvent
@@ -468,10 +466,10 @@ public abstract partial class AIGAgentBase
 
     private string BuildToolInstructionBlock()
     {
-        if (_registeredToolsCache.Count == 0)
+        if (RegisteredToolsCache.Count == 0)
             return string.Empty;
 
-        var visibleTools = _registeredToolsCache
+        var visibleTools = RegisteredToolsCache
             .Where(IsToolAllowedByPolicy)
             .ToList();
 
@@ -508,11 +506,11 @@ public abstract partial class AIGAgentBase
 
     private void AttachToolsToRequest(AevatarLLMRequest llmRequest)
     {
-        if (_functionDefinitionsCache.Count == 0)
+        if (FunctionDefinitionsCache.Count == 0)
             return;
 
         // Apply runtime policy: keep dangerous tools hidden unless explicitly enabled.
-        var allowedNames = _registeredToolsCache
+        var allowedNames = RegisteredToolsCache
             .Where(IsToolAllowedByPolicy)
             .Select(t => t.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -527,13 +525,13 @@ public abstract partial class AIGAgentBase
         // This keeps the model from seeing / calling tools outside the allowed set.
         if (AIGAgentKeys.TryGetToolAllowlist(llmRequest, out var allowlist) && allowlist.Count > 0)
         {
-            llmRequest.Functions = _functionDefinitionsCache
+            llmRequest.Functions = FunctionDefinitionsCache
                 .Where(d => allowlist.Contains(d.Name) && allowedNames.Contains(d.Name))
                 .ToList();
             return;
         }
 
-        llmRequest.Functions = _functionDefinitionsCache
+        llmRequest.Functions = FunctionDefinitionsCache
             .Where(d => allowedNames.Contains(d.Name))
             .ToList();
     }

@@ -1,4 +1,6 @@
+using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Context;
+using Aevatar.Agents.Core.Runtime;
 
 namespace Aevatar.Agents.Core.Context;
 
@@ -35,14 +37,28 @@ public class AgentContextPropagator
     /// </summary>
     public void InjectContext(EventEnvelope envelope)
     {
+        // 1) Business/context metadata (existing behavior)
         var context = _contextAccessor.Context;
-        if (context == null) return;
-
+        if (context != null)
+        {
         var metadata = AgentContextSerializer.Serialize(context, _options);
         foreach (var (key, value) in metadata)
         {
             envelope.ContextMetadata[key] = value;
         }
+        }
+
+        // 2) Interruptible run metadata (opt-in by ambient RunContextScope)
+        var run = RunContextScope.Value;
+        if (run == null) return;
+
+        // Do not overwrite if caller explicitly set keys.
+        envelope.ContextMetadata.TryAdd(
+            RunContextScope.MetadataKeys.RunId,
+            new ContextValue { StringValue = run.RunId });
+        envelope.ContextMetadata.TryAdd(
+            RunContextScope.MetadataKeys.RunScopeId,
+            new ContextValue { StringValue = run.ScopeId });
     }
 
     /// <summary>

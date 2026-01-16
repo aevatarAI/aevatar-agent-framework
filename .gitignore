@@ -483,27 +483,57 @@ $RECYCLE.BIN/
 # Vim temporary swap files
 *.swp
 
-old/
-ai-smart-home/
-
 appsettings.secrets.json
 appsettings.secrets.json.bak*
-
-runs/
-output/
-uploads/
-trade-audit/
 
 # Script temp files
 scripts/.pids/
 *.pid
 
-memory/
-trace/
-workspace/
+# ------------------------------------------------------------
+# Runtime-generated workspaces / traces / outputs / memory
+#
+# IMPORTANT (macOS default is case-insensitive):
+# Avoid broad patterns like `workspace/` or `trace/` (or `**/workspace/`)
+# because they may accidentally ignore real source folders such as:
+# - `src/**/Workspace/*.cs`
+# - `src/**/Trace/TraceStore.cs`
+#
+# Use anchored paths to scope the ignore to known generated directories.
+# ------------------------------------------------------------
+
+# Repo-root generated folders (safe: anchored to repo root)
+/workspace/
+/traces/
+/output/
+/outputs/
+/trace/
+/memory/
+
+# Scientific Research Assistant runtime workspace (safe: anchored)
+/apps/Aevatar.VibeResearching/workspace/
+/apps/Aevatar.VibeResearching/traces/
+/apps/Aevatar.VibeResearching/outputs/
 
 # Local skill packs (downloaded/updated at runtime)
-scientific-research-assistant/.skillpacks/
-scientific-research-assistant/skillpacks/
-scientific-research-assistant/src/ScientificResearchAssistant.Api/skillpacks.json
-scientific-research-assistant/src/ScientificResearchAssistant.Api/mcp.json
+/apps/Aevatar.VibeResearching/.skillpacks/
+/apps/Aevatar.VibeResearching/skillpacks/
+/apps/Aevatar.VibeResearching/src/Aevatar.VibeResearching.Api/skillpacks.json
+/apps/Aevatar.VibeResearching/src/Aevatar.VibeResearching.Api/mcp.json
+
+# Sisyphus Frontend (Vite/React)
+/apps/Aevatar.VibeResearching/sisyphus-frontend/node_modules/
+/apps/Aevatar.VibeResearching/sisyphus-frontend/dist/
+/apps/Aevatar.VibeResearching/sisyphus-frontend/dist-ssr/
+/apps/Aevatar.VibeResearching/sisyphus-frontend/.vite/
+/apps/Aevatar.VibeResearching/sisyphus-frontend/*.local
+
+# Cognitive apps runtime artifacts (safe: anchored)
+/apps/Aevatar.AxiomReasoning/output/
+/apps/Aevatar.CognitiveMesh/output/
+/apps/Aevatar.CognitiveMesh/uploads/
+/apps/Aevatar.PaperReview/output/
+/apps/Aevatar.PaperReview/uploads/
+/apps/Aevatar.AxiomReasoning/src/Aevatar.AxiomReasoning/output/
+/apps/Aevatar.CognitiveMesh/src/Aevatar.CognitiveMesh/output
+/apps/Aevatar.PaperReview/src/Aevatar.PaperReview/uploads/

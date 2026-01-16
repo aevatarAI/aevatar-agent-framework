@@ -13,7 +13,7 @@ using Microsoft.Extensions.Logging;
 namespace Demo.Agents;
 
 /// <summary>
-/// 演示改进的订阅机制和事件去重
+/// Demonstrate improved subscription mechanism and event deduplication
 /// </summary>
 public static class ImprovedSubscriptionDemo
 {
@@ -21,20 +21,20 @@ public static class ImprovedSubscriptionDemo
     {
         logger.LogInformation("=== Improved Subscription & Deduplication Demo ===\n");
         
-        // 1. 演示事件去重
+        // 1. Demonstrate event deduplication
         await DemonstrateEventDeduplication(logger);
         
-        // 2. 演示重试策略
+        // 2. Demonstrate retry policies
         await DemonstrateRetryPolicies(logger);
         
-        // 3. 演示订阅管理
+        // 3. Demonstrate subscription management
         await DemonstrateSubscriptionManagement(logger);
         
         logger.LogInformation("\n=== Demo Completed ===");
     }
     
     /// <summary>
-    /// 演示事件去重机制
+    /// Demonstrate event deduplication mechanism
     /// </summary>
     private static async Task DemonstrateEventDeduplication(ILogger logger)
     {

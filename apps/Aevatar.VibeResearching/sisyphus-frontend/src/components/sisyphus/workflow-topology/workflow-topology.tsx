@@ -48,7 +48,7 @@ export interface WorkflowTopologyProps {
 // ─────────────────────────────────────────────────────────────
 
 export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: WorkflowTopologyProps) {
-  const { dag, selectedNodeId, setDag, setSelectedNode, isConnected, activeMilestoneNodeId } = useSisyphusStore()
+  const { dag, selectedNodeId, setDag, setSelectedNode, isConnected, activeMilestoneNodeId, setActiveMilestoneNodeId } = useSisyphusStore()
   const { setHighlight, clearHighlight, highlightMode, highlightedNodeIds, dagStats } = useDagInteractions()
   const reactFlowInstance = useRef<ReactFlowInstance | null>(null)
   const [refreshing, setRefreshing] = useState(false)
@@ -87,39 +87,60 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
     if (activeMilestoneNodeId) focusOnNode(activeMilestoneNodeId)
   }, [activeMilestoneNodeId, focusOnNode])
 
-  // ── Smart Focus: prioritize activeMilestone > Plan nodes > center ──
+  // ── Smart Focus: prioritize Active Milestone > Plan > Knowledge > Other ──
   const smartFocus = useCallback(() => {
     if (!reactFlowInstance.current || !dag?.nodes) return
 
-    // Priority 1: Active milestone
+    // Priority 1: Active milestone (currently executing plan node)
     if (activeMilestoneNodeId) {
       focusOnNode(activeMilestoneNodeId)
       return
     }
 
-    // Priority 2: Find Plan nodes in current session (prefer last one as "newest")
+    // Priority 2: Plan nodes in current session (prefer last one as "newest")
     const currentSessionPlanNodes = dag.nodes.filter(
       n => n.kind === 'Plan' && (!n.sessionId || n.sessionId === sessionId)
     )
     if (currentSessionPlanNodes.length > 0) {
-      // Take the last Plan node (most recently added)
       const lastPlan = currentSessionPlanNodes[currentSessionPlanNodes.length - 1]
       focusOnNode(lastPlan.id)
       return
     }
 
-    // Priority 3: Any Plan node
+    // Priority 3: Any Plan node (from other sessions)
     const anyPlanNode = dag.nodes.find(n => n.kind === 'Plan')
     if (anyPlanNode) {
       focusOnNode(anyPlanNode.id)
       return
     }
 
-    // Priority 4: First node as fallback
+    // Priority 4: Knowledge nodes in current session (prefer last one)
+    const currentSessionKnowledgeNodes = dag.nodes.filter(
+      n => n.kind === 'Knowledge' && (!n.sessionId || n.sessionId === sessionId)
+    )
+    if (currentSessionKnowledgeNodes.length > 0) {
+      const lastKnowledge = currentSessionKnowledgeNodes[currentSessionKnowledgeNodes.length - 1]
+      focusOnNode(lastKnowledge.id)
+      return
+    }
+
+    // Priority 5: Any Knowledge node (from other sessions)
+    const anyKnowledgeNode = dag.nodes.find(n => n.kind === 'Knowledge')
+    if (anyKnowledgeNode) {
+      focusOnNode(anyKnowledgeNode.id)
+      return
+    }
+
+    // Priority 6: First node as fallback (Other types)
     if (dag.nodes.length > 0) {
       focusOnNode(dag.nodes[0].id)
     }
   }, [dag, activeMilestoneNodeId, sessionId, focusOnNode])
+
+  // ── Handle filter change ──
+  const handleFilterChange = useCallback((newMode: NodeFilterMode) => {
+    setFilterMode(newMode)
+  }, [])
 
   // Auto-follow active milestone (always on)
   useEffect(() => {
@@ -157,13 +178,22 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
         }))
         const edges = (snapshot.edges || []).map(e => ({ source: e.fromId, target: e.toId, type: e.type }))
         setDag({ nodes, edges })
+        
+        // Detect and update active milestone from planStatus
+        const activeNode = nodes.find(n => n.planStatus === 'Active')
+        if (activeNode && activeNode.id !== activeMilestoneNodeId) {
+          setActiveMilestoneNodeId(activeNode.id, sessionId)
+        } else if (!activeNode && activeMilestoneNodeId) {
+          // Clear if no active milestone anymore
+          setActiveMilestoneNodeId(null, sessionId)
+        }
       }
     } catch (e) {
       if ((e as Error)?.name !== 'AbortError') console.error("Failed to refresh DAG:", e)
     } finally {
       refreshInProgress.current = false
     }
-  }, [sessionId, isConnected, setDag])
+  }, [sessionId, isConnected, setDag, activeMilestoneNodeId, setActiveMilestoneNodeId])
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true)
@@ -171,11 +201,12 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
     setRefreshing(false)
   }, [silentRefresh])
 
-  // Auto-refresh every 5 seconds
+  // Auto-refresh every 10 seconds (reduced from 5s for performance)
+  // DAG updates are typically event-driven, polling is just a fallback
   useEffect(() => {
     if (!sessionId || !isConnected) return
     silentRefresh()
-    const intervalId = setInterval(silentRefresh, 5000)
+    const intervalId = setInterval(silentRefresh, 10000)
     return () => clearInterval(intervalId)
   }, [sessionId, isConnected, silentRefresh])
 
@@ -297,16 +328,53 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isFullscreen])
 
-  // Auto-focus on filtered nodes when filter changes
+  // Track previous filterMode for detecting clear action
+  const prevFilterMode = useRef<NodeFilterMode>(filterMode)
+  const clearingInProgress = useRef(false)
+
+  // Handle filterMode change (separate from nodes.length change)
+  useEffect(() => {
+    if (!reactFlowInstance.current) return
+    if (filterMode === prevFilterMode.current) return // No actual filter change
+    
+    const wasFiltered = prevFilterMode.current !== 'all'
+    const isClearing = filterMode === 'all' && wasFiltered
+    prevFilterMode.current = filterMode
+
+    if (isClearing) {
+      // Mark that we're clearing - prevent fitView from nodes.length effect
+      clearingInProgress.current = true
+      // Delay to allow nodes to re-render, then smartFocus
+      setTimeout(() => {
+        isProgrammaticMove.current = true
+        smartFocus()
+        setTimeout(() => {
+          isProgrammaticMove.current = false
+          clearingInProgress.current = false
+        }, 500)
+      }, 100)
+    } else {
+      // Applying filter → fitView to show all filtered nodes
+      setTimeout(() => {
+        isProgrammaticMove.current = true
+        reactFlowInstance.current?.fitView({ padding: 0.2, duration: 400 })
+        setTimeout(() => { isProgrammaticMove.current = false }, 500)
+      }, 50)
+    }
+  }, [filterMode, smartFocus])
+
+  // Re-fit when nodes count changes (but not during clear operation)
   useEffect(() => {
     if (!reactFlowInstance.current || !nodes.length) return
-    // Delay to allow nodes to re-render after filter
+    if (clearingInProgress.current) return // Skip during clear
+    if (filterMode === 'all') return // Don't fitView when showing all
+    
     setTimeout(() => {
       isProgrammaticMove.current = true
       reactFlowInstance.current?.fitView({ padding: 0.2, duration: 400 })
       setTimeout(() => { isProgrammaticMove.current = false }, 500)
     }, 50)
-  }, [filterMode, nodes.length])
+  }, [nodes.length, filterMode])
 
   const nodeCount = dag?.nodes?.length ?? 0
   const edgeCount = dag?.edges?.length ?? 0
@@ -384,7 +452,7 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
 
       {/* Footer - always on top */}
       <div className={cn("relative z-30 flex-shrink-0", isFullscreen && "bg-[#0c0f14]")}>
-        <NodeLegend filterMode={filterMode} onFilterChange={setFilterMode} />
+        <NodeLegend filterMode={filterMode} onFilterChange={handleFilterChange} />
       </div>
 
       {/* Node details modal - Split Panel Layout with SubGraph + Details */}

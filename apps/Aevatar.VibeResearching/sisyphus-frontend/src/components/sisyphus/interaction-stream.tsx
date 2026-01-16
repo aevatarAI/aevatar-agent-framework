@@ -1,24 +1,68 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback, memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useSisyphusStore, type AgentMessage } from '@/store/sisyphus-store';
+import { useStreamContentStore, selectAgentStream, type AgentStreamState } from '@/store/stream-content-store';
 import { cn } from '@/lib/utils';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogCloseButton } from '@/components/ui/dialog';
 import Composer from './composer';
 import ToolOutputDisplay from './tool-output-display';
 import type { ChatMessage, ToolOutput } from '@/types';
 
+// ============================================================
+//  Throttle utility for scroll optimization
+// ============================================================
+
+function throttle<T extends (...args: unknown[]) => void>(fn: T, delay: number): T {
+  let lastCall = 0;
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  
+  return ((...args: unknown[]) => {
+    const now = Date.now();
+    const remaining = delay - (now - lastCall);
+    
+    if (remaining <= 0) {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      lastCall = now;
+      fn(...args);
+    } else if (!timeoutId) {
+      timeoutId = setTimeout(() => {
+        lastCall = Date.now();
+        timeoutId = null;
+        fn(...args);
+      }, remaining);
+    }
+  }) as T;
+}
+
 interface InteractionStreamProps {
   sessionId: string;
 }
 
+// NOTE: Legacy AgentChip, AgentDetailModalContent, AllAgentsModalContent
+// have been replaced with stream-based versions below (AgentChipWithStream, etc.)
+
 // ============================================================
-//  Agent Chip (Horizontal scroll style)
+//  Agents Panel (Workers-style horizontal chips)
+//  PERFORMANCE: Uses isolated stream store for status detection
 // ============================================================
 
-const AgentChip: React.FC<{ msg: AgentMessage; onClick: () => void }> = ({ msg, onClick }) => {
-  const isStreaming = msg.isStreaming;
-  const isFinal = msg.isFinal;
+interface AgentsPanelProps {
+  agentNames: string[];
+  isVibeMode: boolean;
+  hasActiveRun: boolean;
+}
+
+// Single agent chip with isolated stream subscription
+const AgentChipWithStream: React.FC<{ agentName: string; onClick: () => void }> = memo(({ agentName, onClick }) => {
+  // FINE-GRAINED: Only re-renders when THIS agent's stream changes
+  const streamData = useStreamContentStore(selectAgentStream(agentName));
+  
+  const isStreaming = streamData?.isStreaming || false;
+  const isFinal = streamData?.isFinal || false;
   
   const statusConfig = isStreaming 
     ? { color: 'text-neon-cyan', bgColor: 'bg-neon-cyan/20', label: 'LIVE', animate: true }
@@ -38,20 +82,15 @@ const AgentChip: React.FC<{ msg: AgentMessage; onClick: () => void }> = ({ msg, 
             : "border-border-subtle bg-bg-surface/50 hover:border-border-default"
       )}
     >
-      {/* Avatar */}
       <div className={cn(
         "size-6 rounded flex items-center justify-center text-[10px] font-bold flex-shrink-0",
         statusConfig.bgColor, statusConfig.color
       )}>
-        {msg.agent.charAt(0).toUpperCase()}
+        {agentName.charAt(0).toUpperCase()}
       </div>
-      
-      {/* Name */}
       <span className="font-mono text-[10px] text-text-primary capitalize">
-        {msg.agent.replace(/_/g, ' ')}
+        {agentName.replace(/_/g, ' ')}
       </span>
-      
-      {/* Status */}
       <span className={cn(
         "text-[8px] font-mono px-1.5 py-0.5 rounded flex-shrink-0",
         statusConfig.bgColor, statusConfig.color,
@@ -61,17 +100,80 @@ const AgentChip: React.FC<{ msg: AgentMessage; onClick: () => void }> = ({ msg, 
       </span>
     </div>
   );
-};
+});
 
-// ============================================================
-//  Agent Detail Modal Content
-// ============================================================
+const AgentsPanel: React.FC<AgentsPanelProps> = memo(({ agentNames, isVibeMode, hasActiveRun }) => {
+  const [showModal, setShowModal] = useState(false);
+  const [selectedAgentName, setSelectedAgentName] = useState<string | null>(null);
+  
+  // Get streaming count from isolated store
+  const streamingCount = useStreamContentStore((s) => 
+    agentNames.filter(name => s.agentStreams[name]?.isStreaming).length
+  );
 
-const AgentDetailModalContent: React.FC<{ agent: AgentMessage | null; onBack: () => void }> = ({ agent, onBack }) => {
-  if (!agent) return null;
+  // Don't show if nothing to display
+  if (!isVibeMode || !hasActiveRun || agentNames.length === 0) return null;
 
-  const isStreaming = agent.isStreaming;
-  const isFinal = agent.isFinal;
+  const handleChipClick = (agentName: string) => {
+    setSelectedAgentName(agentName);
+    setShowModal(true);
+  };
+
+  const handleBack = () => {
+    setSelectedAgentName(null);
+  };
+
+  return (
+    <div className="mt-4 relative z-10">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <svg className="size-4 text-neon-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          <span className="text-xs font-display font-medium text-neon-gold tracking-wider">AGENTS</span>
+          <span className="text-[9px] text-text-dimmed font-mono tabular-nums">
+            <span className="text-neon-gold">{streamingCount}</span>/{agentNames.length}
+          </span>
+        </div>
+        <button
+          onClick={() => { setSelectedAgentName(null); setShowModal(true); }}
+          className="text-[9px] px-2 py-0.5 rounded border border-border-subtle text-text-muted hover:text-neon-gold hover:border-neon-gold/40 transition-colors"
+        >
+          VIEW ALL
+        </button>
+      </div>
+
+      {/* Horizontal scrolling chips - each chip has its own subscription */}
+      <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-border-subtle scrollbar-track-transparent">
+        {agentNames.map((name) => (
+          <AgentChipWithStream 
+            key={name} 
+            agentName={name}
+            onClick={() => handleChipClick(name)}
+          />
+        ))}
+      </div>
+
+      {/* Agent Detail Modal - uses isolated stream store internally */}
+      <Dialog open={showModal} onOpenChange={setShowModal}>
+        {selectedAgentName ? (
+          <AgentDetailModalWithStream agentName={selectedAgentName} onBack={handleBack} />
+        ) : (
+          <AllAgentsModalWithStream agentNames={agentNames} onSelectAgent={setSelectedAgentName} />
+        )}
+      </Dialog>
+    </div>
+  );
+});
+
+// Agent detail modal using isolated stream store
+const AgentDetailModalWithStream: React.FC<{ agentName: string; onBack: () => void }> = ({ agentName, onBack }) => {
+  const streamData = useStreamContentStore(selectAgentStream(agentName));
+  
+  if (!streamData) return null;
+
+  const { content, isStreaming, isFinal, tokenCount, providerName, stepName } = streamData;
 
   return (
     <DialogContent className="max-w-2xl mx-4 bg-bg-surface/95 backdrop-blur-md border border-border-default rounded-lg shadow-lg text-text-primary max-h-[70vh] overflow-hidden flex flex-col">
@@ -90,17 +192,17 @@ const AgentDetailModalContent: React.FC<{ agent: AgentMessage | null; onBack: ()
             "flex h-10 w-10 items-center justify-center rounded-lg text-lg font-bold",
             isStreaming ? "bg-neon-cyan/20 text-neon-cyan" : isFinal ? "bg-neon-green/20 text-neon-green" : "bg-surface-elevated text-text-muted"
           )}>
-            {agent.agent.charAt(0).toUpperCase()}
+            {agentName.charAt(0).toUpperCase()}
           </div>
           <div className="flex-1 min-w-0">
             <DialogTitle className={cn(
               "text-lg font-display font-semibold capitalize",
               isStreaming ? "text-neon-cyan" : isFinal ? "text-neon-green" : "text-text-primary"
             )}>
-              {agent.agent.replace(/_/g, ' ')}
+              {agentName.replace(/_/g, ' ')}
             </DialogTitle>
             <DialogDescription className="text-xs text-text-muted font-mono tabular-nums">
-              {agent.tokenCount}t · {isStreaming ? 'streaming' : isFinal ? 'completed' : 'waiting'}
+              {tokenCount}t · {isStreaming ? 'streaming' : isFinal ? 'completed' : 'waiting'}
             </DialogDescription>
           </div>
           {isStreaming && (
@@ -110,30 +212,28 @@ const AgentDetailModalContent: React.FC<{ agent: AgentMessage | null; onBack: ()
         <DialogCloseButton />
       </DialogHeader>
 
-      {/* Meta badges */}
-      {(agent.providerName || agent.stepName) && (
+      {(providerName || stepName) && (
         <div className="px-4 py-2 border-b border-border-default flex flex-wrap gap-2 flex-shrink-0">
-          {agent.providerName && (
+          {providerName && (
             <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-bg-elevated border border-border-subtle">
               <span className="text-[9px] text-text-subtle font-mono">PROVIDER:</span>
-              <span className="text-[10px] text-neon-violet font-mono">{agent.providerName}</span>
+              <span className="text-[10px] text-neon-violet font-mono">{providerName}</span>
             </div>
           )}
-          {agent.stepName && (
+          {stepName && (
             <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-bg-elevated border border-border-subtle">
               <span className="text-[9px] text-text-subtle font-mono">STEP:</span>
-              <span className="text-[10px] text-neon-cyan font-mono">{agent.stepName}</span>
+              <span className="text-[10px] text-neon-cyan font-mono">{stepName}</span>
             </div>
           )}
         </div>
       )}
 
-      {/* Content */}
       <div className="flex-1 overflow-y-auto p-4">
-        {agent.content ? (
+        {content ? (
           <div className="rounded-lg bg-bg-elevated p-4 border border-border-subtle">
             <pre className="text-sm text-text-primary font-mono whitespace-pre-wrap break-words leading-relaxed">
-              {agent.content}
+              {content}
               {isStreaming && <span className="animate-pulse text-neon-cyan">▌</span>}
             </pre>
           </div>
@@ -152,16 +252,15 @@ const AgentDetailModalContent: React.FC<{ agent: AgentMessage | null; onBack: ()
   );
 };
 
-// ============================================================
-//  All Agents Modal Content (List View)
-// ============================================================
-
-const AllAgentsModalContent: React.FC<{ 
-  agents: AgentMessage[]; 
-  onSelectAgent: (agent: AgentMessage) => void;
-}> = ({ agents, onSelectAgent }) => {
-  const streamingCount = agents.filter(a => a.isStreaming).length;
-  const completedCount = agents.filter(a => a.isFinal).length;
+// All agents modal using isolated stream store
+const AllAgentsModalWithStream: React.FC<{ 
+  agentNames: string[]; 
+  onSelectAgent: (name: string) => void;
+}> = ({ agentNames, onSelectAgent }) => {
+  const agentStreams = useStreamContentStore((s) => s.agentStreams);
+  
+  const streamingCount = agentNames.filter(name => agentStreams[name]?.isStreaming).length;
+  const completedCount = agentNames.filter(name => agentStreams[name]?.isFinal).length;
 
   return (
     <DialogContent className="max-w-2xl mx-4 bg-bg-surface/95 backdrop-blur-md border border-border-default rounded-lg shadow-lg text-text-primary max-h-[70vh] overflow-hidden flex flex-col">
@@ -175,7 +274,7 @@ const AllAgentsModalContent: React.FC<{
           <div>
             <DialogTitle className="text-lg font-display font-semibold text-neon-gold">All Agents</DialogTitle>
             <DialogDescription className="text-xs text-text-muted font-mono tabular-nums">
-              {agents.length} agents · {streamingCount} active · {completedCount} completed
+              {agentNames.length} agents · {streamingCount} active · {completedCount} completed
             </DialogDescription>
           </div>
         </div>
@@ -184,14 +283,15 @@ const AllAgentsModalContent: React.FC<{
 
       <div className="flex-1 overflow-y-auto p-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {agents.map((agent) => {
-            const isStreaming = agent.isStreaming;
-            const isFinal = agent.isFinal;
+          {agentNames.map((name) => {
+            const stream = agentStreams[name];
+            const isStreaming = stream?.isStreaming || false;
+            const isFinal = stream?.isFinal || false;
             
             return (
               <button
-                key={agent.agent}
-                onClick={() => onSelectAgent(agent)}
+                key={name}
+                onClick={() => onSelectAgent(name)}
                 className={cn(
                   "rounded-lg border p-3 text-left transition-all hover:scale-[1.01]",
                   isStreaming 
@@ -206,17 +306,17 @@ const AllAgentsModalContent: React.FC<{
                     "size-8 rounded flex items-center justify-center text-sm font-bold",
                     isStreaming ? "bg-neon-cyan/20 text-neon-cyan" : isFinal ? "bg-neon-green/20 text-neon-green" : "bg-surface-elevated text-text-muted"
                   )}>
-                    {agent.agent.charAt(0).toUpperCase()}
+                    {name.charAt(0).toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className={cn(
                       "text-sm font-semibold capitalize truncate",
                       isStreaming ? "text-neon-cyan" : isFinal ? "text-neon-green" : "text-text-primary"
                     )}>
-                      {agent.agent.replace(/_/g, ' ')}
+                      {name.replace(/_/g, ' ')}
                     </p>
                     <p className="text-[10px] text-text-muted font-mono">
-                      {agent.providerName || '—'} · {agent.tokenCount}t
+                      {stream?.providerName || '—'} · {stream?.tokenCount || 0}t
                     </p>
                   </div>
                   <span className={cn(
@@ -232,78 +332,6 @@ const AllAgentsModalContent: React.FC<{
         </div>
       </div>
     </DialogContent>
-  );
-};
-
-// ============================================================
-//  Agents Panel (Workers-style horizontal chips)
-// ============================================================
-
-interface AgentsPanelProps {
-  agentMessages: AgentMessage[];
-  isVibeMode: boolean;
-  hasActiveRun: boolean;
-}
-
-const AgentsPanel: React.FC<AgentsPanelProps> = ({ agentMessages, isVibeMode, hasActiveRun }) => {
-  const [showModal, setShowModal] = useState(false);
-  const [selectedAgent, setSelectedAgent] = useState<AgentMessage | null>(null);
-  
-  const streamingAgents = agentMessages.filter(m => m.isStreaming);
-
-  // Don't show if nothing to display
-  if (!isVibeMode || !hasActiveRun || agentMessages.length === 0) return null;
-
-  const handleChipClick = (agent: AgentMessage) => {
-    setSelectedAgent(agent);
-    setShowModal(true);
-  };
-
-  const handleBack = () => {
-    setSelectedAgent(null);
-  };
-
-  return (
-    <div className="mt-4 relative z-10">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <svg className="size-4 text-neon-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
-          <span className="text-xs font-display font-medium text-neon-gold tracking-wider">AGENTS</span>
-          <span className="text-[9px] text-text-dimmed font-mono tabular-nums">
-            <span className="text-neon-gold">{streamingAgents.length}</span>/{agentMessages.length}
-          </span>
-        </div>
-        <button
-          onClick={() => { setSelectedAgent(null); setShowModal(true); }}
-          className="text-[9px] px-2 py-0.5 rounded border border-border-subtle text-text-muted hover:text-neon-gold hover:border-neon-gold/40 transition-colors"
-        >
-          VIEW ALL
-        </button>
-      </div>
-
-      {/* Horizontal scrolling chips */}
-      <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-border-subtle scrollbar-track-transparent">
-        {agentMessages.map((msg) => (
-          <AgentChip 
-            key={msg.agent} 
-            msg={msg} 
-            onClick={() => handleChipClick(msg)}
-          />
-        ))}
-      </div>
-
-      {/* Agent Detail Modal */}
-      <Dialog open={showModal} onOpenChange={setShowModal}>
-        {selectedAgent ? (
-          <AgentDetailModalContent agent={selectedAgent} onBack={handleBack} />
-        ) : (
-          <AllAgentsModalContent agents={agentMessages} onSelectAgent={setSelectedAgent} />
-        )}
-      </Dialog>
-    </div>
   );
 };
 
@@ -398,25 +426,38 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, index, formatTim
 };
 
 // ============================================================
-//  Research Assistant Bubble (from agentMessages)
-//  Format inspired by original frontend ChatMessageRow
+//  Research Assistant Bubble (using isolated stream store)
+//  PERFORMANCE: Uses fine-grained selector to only re-render
+//  when research_assistant's stream content changes
 // ============================================================
 
 interface ResearchAssistantBubbleProps {
-  message: AgentMessage;
+  agentName?: string;
 }
 
-const ResearchAssistantBubble: React.FC<ResearchAssistantBubbleProps> = ({ message }) => {
+const ResearchAssistantBubble: React.FC<ResearchAssistantBubbleProps> = memo(({ agentName = 'research_assistant' }) => {
   const [collapsed, setCollapsed] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const isStreaming = message.isStreaming;
-  const isFinal = message.isFinal;
+  
+  // FINE-GRAINED SUBSCRIPTION: Only re-renders when THIS agent's stream changes
+  const streamData = useStreamContentStore(selectAgentStream(agentName));
+  
+  // Derive display values from stream data
+  const content = streamData?.content || '';
+  const isStreaming = streamData?.isStreaming || false;
+  const isFinal = streamData?.isFinal || false;
+  const tokenCount = streamData?.tokenCount || 0;
+  const providerName = streamData?.providerName;
+  const stepName = streamData?.stepName;
   
   const preview = useMemo(() => {
-    const text = (message.content || '').replace(/\s+/g, ' ').trim();
+    const text = content.replace(/\s+/g, ' ').trim();
     if (text.length <= 220) return text;
     return text.slice(0, 220) + '…';
-  }, [message.content]);
+  }, [content]);
+  
+  // Don't render if no content
+  if (!content && !isStreaming) return null;
   
   return (
     <>
@@ -426,7 +467,7 @@ const ResearchAssistantBubble: React.FC<ResearchAssistantBubbleProps> = ({ messa
           <div className="flex items-center gap-3 min-w-0">
             {/* Agent name + status */}
             <span className="text-sm font-mono font-medium text-text-primary">
-              research_assistant
+              {agentName}
             </span>
             {isStreaming ? (
               <span className="flex items-center gap-1.5 text-[10px] px-2 py-0.5 rounded bg-neon-gold/10 text-neon-gold border border-neon-gold/30">
@@ -465,15 +506,15 @@ const ResearchAssistantBubble: React.FC<ResearchAssistantBubbleProps> = ({ messa
 
         {/* Meta info row */}
         <div className="flex items-center gap-3 px-4 py-2 bg-bg-void/30 text-[11px] text-text-muted font-mono">
-          {message.providerName && (
-            <span className="text-neon-cyan">{message.providerName}</span>
+          {providerName && (
+            <span className="text-neon-cyan">{providerName}</span>
           )}
           <span>·</span>
-          <span className="tabular-nums">{message.tokenCount || 0} tokens</span>
-          {message.stepName && (
+          <span className="tabular-nums">{tokenCount} tokens</span>
+          {stepName && (
             <>
               <span>·</span>
-              <span className="text-neon-violet">{message.stepName}</span>
+              <span className="text-neon-violet">{stepName}</span>
             </>
           )}
         </div>
@@ -484,7 +525,7 @@ const ResearchAssistantBubble: React.FC<ResearchAssistantBubbleProps> = ({ messa
             {isStreaming ? (
               // Streaming: show raw pre for real-time updates
               <pre className="text-sm text-text-primary whitespace-pre-wrap break-words leading-relaxed">
-                {message.content || '…'}
+                {content || '…'}
                 <span className="animate-pulse text-neon-cyan">▌</span>
               </pre>
             ) : (
@@ -497,8 +538,8 @@ const ResearchAssistantBubble: React.FC<ResearchAssistantBubbleProps> = ({ messa
                 prose-strong:text-text-primary prose-strong:font-semibold
                 prose-ul:marker:text-neon-cyan prose-ol:marker:text-neon-cyan
               ">
-                {message.content ? (
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+                {content ? (
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
                 ) : (
                   <span className="text-text-dimmed italic">…</span>
                 )}
@@ -526,10 +567,10 @@ const ResearchAssistantBubble: React.FC<ResearchAssistantBubbleProps> = ({ messa
               </div>
               <div>
                 <DialogTitle className="text-lg font-display font-semibold text-neon-violet">
-                  research_assistant
+                  {agentName}
                 </DialogTitle>
                 <DialogDescription className="text-xs text-text-muted font-mono tabular-nums">
-                  {message.providerName || '—'} · {message.tokenCount || 0} tokens · {message.stepName || '—'}
+                  {providerName || '—'} · {tokenCount} tokens · {stepName || '—'}
                 </DialogDescription>
               </div>
               {isStreaming ? (
@@ -547,20 +588,20 @@ const ResearchAssistantBubble: React.FC<ResearchAssistantBubbleProps> = ({ messa
 
           {/* Meta badges */}
           <div className="px-4 py-2 border-b border-border-default flex flex-wrap gap-2 flex-shrink-0">
-            {message.providerName && (
+            {providerName && (
               <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-bg-elevated border border-border-subtle">
                 <span className="text-[9px] text-text-subtle font-mono">PROVIDER:</span>
-                <span className="text-[10px] text-neon-cyan font-mono">{message.providerName}</span>
+                <span className="text-[10px] text-neon-cyan font-mono">{providerName}</span>
               </div>
             )}
             <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-bg-elevated border border-border-subtle">
               <span className="text-[9px] text-text-subtle font-mono">TOKENS:</span>
-              <span className="text-[10px] text-neon-gold font-mono tabular-nums">{message.tokenCount || 0}</span>
+              <span className="text-[10px] text-neon-gold font-mono tabular-nums">{tokenCount}</span>
             </div>
-            {message.stepName && (
+            {stepName && (
               <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-bg-elevated border border-border-subtle">
                 <span className="text-[9px] text-text-subtle font-mono">STEP:</span>
-                <span className="text-[10px] text-neon-violet font-mono">{message.stepName}</span>
+                <span className="text-[10px] text-neon-violet font-mono">{stepName}</span>
               </div>
             )}
             <div className={cn(
@@ -580,7 +621,7 @@ const ResearchAssistantBubble: React.FC<ResearchAssistantBubbleProps> = ({ messa
 
           {/* Content */}
           <div className="flex-1 overflow-y-auto p-4">
-            {message.content ? (
+            {content ? (
               <div className="rounded-lg bg-bg-elevated p-4 border border-border-subtle">
                 <div className="prose prose-sm prose-invert max-w-none text-text-primary leading-relaxed
                   prose-headings:text-neon-cyan prose-headings:font-display
@@ -590,7 +631,7 @@ const ResearchAssistantBubble: React.FC<ResearchAssistantBubbleProps> = ({ messa
                   prose-strong:text-text-primary prose-strong:font-semibold
                   prose-ul:marker:text-neon-cyan prose-ol:marker:text-neon-cyan
                 ">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
                 </div>
                 {isStreaming && (
                   <span className="animate-pulse text-neon-cyan text-lg">▌</span>
@@ -611,17 +652,33 @@ const ResearchAssistantBubble: React.FC<ResearchAssistantBubbleProps> = ({ messa
       </Dialog>
     </>
   );
-};
+});
 
 // ============================================================
 //  Interaction Stream Main Component
+//  PERFORMANCE OPTIMIZATIONS:
+//  1. Throttled scroll (100ms) to prevent layout thrashing
+//  2. Fine-grained store subscriptions
+//  3. Isolated stream content store for real-time updates
 // ============================================================
 
 // Fallback roster when agents_snapshot not received (matches original frontend)
 const FALLBACK_AGENTS = ['planner', 'reasoner', 'librarian', 'verifier', 'dag_builder', 'paper_editor'];
 
 const InteractionStream: React.FC<InteractionStreamProps> = ({ sessionId }) => {
-  const { messages, researchBrief, isConnected, isSending, inputMode, currentRunId, agentMessages, agentRoster, agentProviders } = useSisyphusStore();
+  // FINE-GRAINED SUBSCRIPTIONS: Only subscribe to what we need
+  const messages = useSisyphusStore((s) => s.messages);
+  const researchBrief = useSisyphusStore((s) => s.researchBrief);
+  const isConnected = useSisyphusStore((s) => s.isConnected);
+  const isSending = useSisyphusStore((s) => s.isSending);
+  const inputMode = useSisyphusStore((s) => s.inputMode);
+  const currentRunId = useSisyphusStore((s) => s.currentRunId);
+  const agentRoster = useSisyphusStore((s) => s.agentRoster);
+  const agentProviders = useSisyphusStore((s) => s.agentProviders);
+
+  // Use isolated stream store for detecting if RA has content
+  const raStreamData = useStreamContentStore(selectAgentStream('research_assistant'));
+  const hasRaContent = Boolean(raStreamData?.content || raStreamData?.isStreaming);
 
   // Auto-switch to cards view when vibe run starts
   const isVibeMode = inputMode === 'vibe' || inputMode === 'vibe_loop';
@@ -631,64 +688,48 @@ const InteractionStream: React.FC<InteractionStreamProps> = ({ sessionId }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const scrollEndRef = useRef<HTMLDivElement>(null);
 
-  // Get research_assistant message for tracking content changes
-  const raMessage = agentMessages['research_assistant'];
+  // THROTTLED SCROLL: Prevent layout thrashing during rapid updates
+  const scrollToBottom = useCallback(
+    throttle(() => {
+      if (scrollEndRef.current) {
+        scrollEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      }
+    }, 100),  // 100ms throttle
+    []
+  );
 
-  // Auto-scroll to bottom when new content arrives
+  // Auto-scroll when content changes (uses token count change, not content string)
+  const raTokenCount = raStreamData?.tokenCount || 0;
   useEffect(() => {
-    if (scrollEndRef.current) {
-      scrollEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    }
-  }, [messages, raMessage?.content, raMessage?.tokenCount, isSending]);
+    scrollToBottom();
+  }, [messages.length, raTokenCount, isSending, scrollToBottom]);
 
-  const formatTime = (timestamp: number) => {
+  const formatTime = useCallback((timestamp: number) => {
     return new Date(timestamp).toLocaleTimeString('en-US', { 
       hour12: false, 
       hour: '2-digit', 
       minute: '2-digit',
       second: '2-digit'
     });
-  };
+  }, []);
 
-  // Filter messages: only show user messages + research_assistant (main dialogue)
+  // Filter messages: only show user messages + system messages
   const filteredMessages = useMemo(() => {
     return messages.filter(msg => 
       msg.role === 'user' || 
       msg.role === 'system' ||
-      msg.agentName === 'research_assistant' ||
       msg.agentName === 'SISYPHUS' ||
       !msg.agentName // fallback for old messages
     );
   }, [messages]);
   
-  // Get all agents (from roster + messages + fallback) except research_assistant
-  const otherAgentMessages = useMemo(() => {
-    // Start with agents from agentMessages
-    const messageAgents = Object.values(agentMessages).filter(
-      am => am.agent !== 'research_assistant'
-    );
-    const messageAgentNames = new Set(messageAgents.map(m => m.agent));
-    
-    // Use roster if available, otherwise fallback
+  // Get agents from roster for the panel (lightweight, no content needed)
+  const otherAgentNames = useMemo(() => {
     const effectiveRoster = agentRoster.length > 0 
       ? agentRoster.filter(r => r.agent !== 'research_assistant')
       : FALLBACK_AGENTS.map(a => ({ agent: a }));
-    
-    // Add agents from effective roster that don't have messages yet
-    const pendingAgents = effectiveRoster
-      .filter(r => !messageAgentNames.has(r.agent))
-      .map(r => ({
-        agent: r.agent,
-        content: '',
-        isStreaming: false,
-        isFinal: false,
-        tokenCount: 0,
-        providerName: agentProviders[r.agent] || undefined,
-        stepName: undefined,
-      } as AgentMessage));
-    
-    return [...messageAgents, ...pendingAgents];
-  }, [agentMessages, agentRoster, agentProviders]);
+    return effectiveRoster.map(r => r.agent);
+  }, [agentRoster]);
 
   return (
     <div className="card p-5 flex flex-col h-full relative overflow-hidden cyber-corners">
@@ -726,8 +767,8 @@ const InteractionStream: React.FC<InteractionStreamProps> = ({ sessionId }) => {
 
       {/* Content Area */}
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto space-y-4 pr-2 relative z-10">
-        {/* Chat Messages View - Only research_assistant / user / system */}
-        {filteredMessages.length === 0 && !raMessage ? (
+        {/* Chat Messages View - Only user / system messages + RA bubble */}
+        {filteredMessages.length === 0 && !hasRaContent ? (
           <div className="flex flex-col items-center justify-center h-full text-center py-12">
             <div className="size-16 rounded-lg bg-surface-elevated flex items-center justify-center mb-4 border border-border-default cyber-corners">
               <svg className="size-8 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -747,10 +788,8 @@ const InteractionStream: React.FC<InteractionStreamProps> = ({ sessionId }) => {
               <MessageBubble key={msg.id} message={msg} index={index} formatTime={formatTime} />
             ))}
             
-            {/* Research Assistant Message from agentMessages */}
-            {raMessage && raMessage.content && (
-              <ResearchAssistantBubble message={raMessage} />
-            )}
+            {/* Research Assistant Bubble - uses isolated stream store */}
+            <ResearchAssistantBubble agentName="research_assistant" />
           </>
         )}
 
@@ -793,9 +832,9 @@ const InteractionStream: React.FC<InteractionStreamProps> = ({ sessionId }) => {
         <div ref={scrollEndRef} className="h-px" />
       </div>
 
-      {/* Agents Panel (horizontal chips) */}
+      {/* Agents Panel (horizontal chips) - uses isolated stream store */}
       <AgentsPanel 
-        agentMessages={otherAgentMessages}
+        agentNames={otherAgentNames}
         isVibeMode={isVibeMode}
         hasActiveRun={hasActiveRun}
       />

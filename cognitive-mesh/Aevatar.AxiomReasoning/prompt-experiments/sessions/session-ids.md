@@ -186,3 +186,4 @@ $$
 | `3192534f0154` | 2026-01-16 02:18:46 UTC | Failed | hypothesis_promotion_loop_hpa |
 | `d650c655e568` | 2026-01-16 02:40:36 UTC | Failed | hypothesis_promotion_loop_hpa |
 | `63b96f5d60c6` | 2026-01-16 02:58:37 UTC | Failed | hypothesis_promotion_loop_hpa |
+| `b4e88f28c68e` | 2026-01-16 03:52:22 UTC | Failed | hypothesis_promotion_loop_hpa |

@@ -66,13 +66,18 @@ export function TopologyHeader({
       </div>
 
       <div className="flex items-center gap-2">
-        {/* Focus Active Node */}
-        {activeMilestone && onFocusActive && (
+        {/* Focus Active Node - always show if handler exists */}
+        {onFocusActive && (
           <button
             onClick={onFocusActive}
             aria-label="Focus on active node"
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] font-mono rounded-md border border-orange-400/40 bg-orange-400/10 text-orange-400 hover:bg-orange-400/20 hover:border-orange-400/60 transition-all"
-            title="Focus on active milestone"
+            className={cn(
+              "flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] font-mono rounded-md border transition-all",
+              activeMilestone
+                ? "border-orange-400/40 bg-orange-400/10 text-orange-400 hover:bg-orange-400/20 hover:border-orange-400/60"
+                : "border-border-subtle text-text-muted hover:text-neon-cyan hover:border-neon-cyan/40"
+            )}
+            title={activeMilestone ? "Focus on active milestone" : "Smart focus (plan nodes)"}
           >
             <Crosshair className="size-3" />
             <span>Focus</span>

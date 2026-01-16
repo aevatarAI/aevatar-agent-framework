@@ -220,8 +220,9 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
       if (filterMode === 'all') return true
       const isOtherSession = node.sessionId ? node.sessionId !== sessionId : false
       const isCurrentSession = !isOtherSession
-      const isActiveMilestone = node.id === activeMilestoneNodeId
-      if (filterMode === 'PlanActive') return isActiveMilestone
+      // Check both: store's activeMilestoneNodeId OR node's planStatus from API
+      const isActiveMilestone = node.id === activeMilestoneNodeId || node.planStatus === 'Active'
+      if (filterMode === 'PlanActive') return isActiveMilestone && node.kind === 'Plan'
       if (filterMode === 'Plan') return node.kind === 'Plan' && isCurrentSession
       if (filterMode === 'Knowledge') return node.kind === 'Knowledge' && isCurrentSession
       if (filterMode === 'OtherSession') return isOtherSession

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useSisyphusStore, type AgentMessage } from '@/store/sisyphus-store';
@@ -627,6 +627,20 @@ const InteractionStream: React.FC<InteractionStreamProps> = ({ sessionId }) => {
   const isVibeMode = inputMode === 'vibe' || inputMode === 'vibe_loop';
   const hasActiveRun = Boolean(currentRunId);
 
+  // Ref for auto-scroll container
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const scrollEndRef = useRef<HTMLDivElement>(null);
+
+  // Get research_assistant message for tracking content changes
+  const raMessage = agentMessages['research_assistant'];
+
+  // Auto-scroll to bottom when new content arrives
+  useEffect(() => {
+    if (scrollEndRef.current) {
+      scrollEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+  }, [messages, raMessage?.content, raMessage?.tokenCount, isSending]);
+
   const formatTime = (timestamp: number) => {
     return new Date(timestamp).toLocaleTimeString('en-US', { 
       hour12: false, 
@@ -646,10 +660,6 @@ const InteractionStream: React.FC<InteractionStreamProps> = ({ sessionId }) => {
       !msg.agentName // fallback for old messages
     );
   }, [messages]);
-
-  // Get research_assistant message for main chat
-  const raMessage = agentMessages['research_assistant'];
-  
   
   // Get all agents (from roster + messages + fallback) except research_assistant
   const otherAgentMessages = useMemo(() => {
@@ -715,7 +725,7 @@ const InteractionStream: React.FC<InteractionStreamProps> = ({ sessionId }) => {
       </div>
 
       {/* Content Area */}
-      <div className="flex-1 overflow-y-auto space-y-4 pr-2 relative z-10">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto space-y-4 pr-2 relative z-10">
         {/* Chat Messages View - Only research_assistant / user / system */}
         {filteredMessages.length === 0 && !raMessage ? (
           <div className="flex flex-col items-center justify-center h-full text-center py-12">
@@ -778,6 +788,9 @@ const InteractionStream: React.FC<InteractionStreamProps> = ({ sessionId }) => {
             <span className="text-xs text-text-muted font-mono">Sisyphus is processing...</span>
           </div>
         )}
+
+        {/* Scroll anchor - auto-scroll target */}
+        <div ref={scrollEndRef} className="h-px" />
       </div>
 
       {/* Agents Panel (horizontal chips) */}

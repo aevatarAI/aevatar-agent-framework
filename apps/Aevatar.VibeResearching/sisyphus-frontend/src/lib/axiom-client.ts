@@ -300,6 +300,15 @@ export async function getDagSnapshot(sessionId: string | null | undefined): Prom
 }
 
 /**
+ * Get Global DAG snapshot (all nodes across all sessions)
+ * No sessionId required - returns the complete knowledge graph
+ */
+export async function getGlobalDagSnapshot(): Promise<DagSnapshot | null> {
+  const result = await fetchJson<{ dag?: DagSnapshot }>("/api/dag/global")
+  return result?.dag ?? null
+}
+
+/**
  * DAG Node type
  */
 export interface DagNode {

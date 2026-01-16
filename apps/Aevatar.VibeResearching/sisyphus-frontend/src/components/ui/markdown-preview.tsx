@@ -1,9 +1,13 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useMemo, memo } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeRaw from 'rehype-raw'
 import { Copy, Download, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
+
+// ── Memoize remark/rehype plugins to prevent re-creation ──
+const remarkPlugins = [remarkGfm]
+const rehypePlugins = [rehypeRaw]
 
 // ============================================================
 //  Markdown Preview Component with Copy/Download
@@ -19,7 +23,7 @@ interface MarkdownPreviewProps {
   maxHeight?: string
 }
 
-export function MarkdownPreview({
+export const MarkdownPreview = memo(function MarkdownPreview({
   content,
   title = 'content',
   downloadFilename,
@@ -139,46 +143,60 @@ export function MarkdownPreview({
           prose-th:text-text-primary prose-th:bg-surface-elevated prose-th:px-2 prose-th:py-1
           prose-td:text-text-secondary prose-td:px-2 prose-td:py-1
         ">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeRaw]}
-            components={{
-              a: ({ href, children, ...props }) => {
-                const hrefStr = href || ''
-                // Handle internal anchor links
-                if (hrefStr.startsWith('#')) {
-                  return (
-                    <a
-                      {...props}
-                      href={hrefStr}
-                      onClick={(e) => handleAnchorClick(e, hrefStr)}
-                      className="text-neon-cyan hover:underline cursor-pointer"
-                    >
-                      {children}
-                    </a>
-                  )
-                }
-                // External links open in new tab
-                return (
-                  <a
-                    {...props}
-                    href={hrefStr}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-neon-cyan hover:underline"
-                  >
-                    {children}
-                  </a>
-                )
-              },
-            } as Components}
-          >
-            {content}
-          </ReactMarkdown>
+          <MemoizedMarkdown content={content} onAnchorClick={handleAnchorClick} />
         </div>
       </div>
     </div>
   )
-}
+})
+
+// ── Memoized inner Markdown to prevent re-parsing on parent re-render ──
+const MemoizedMarkdown = memo(function MemoizedMarkdown({
+  content,
+  onAnchorClick,
+}: {
+  content: string
+  onAnchorClick: (e: React.MouseEvent<HTMLAnchorElement>, href: string) => void
+}) {
+  // Memoize components config to prevent ReactMarkdown re-render
+  const components = useMemo<Components>(() => ({
+    a: ({ href, children, ...props }) => {
+      const hrefStr = href || ''
+      if (hrefStr.startsWith('#')) {
+        return (
+          <a
+            {...props}
+            href={hrefStr}
+            onClick={(e) => onAnchorClick(e, hrefStr)}
+            className="text-neon-cyan hover:underline cursor-pointer"
+          >
+            {children}
+          </a>
+        )
+      }
+      return (
+        <a
+          {...props}
+          href={hrefStr}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-neon-cyan hover:underline"
+        >
+          {children}
+        </a>
+      )
+    },
+  }), [onAnchorClick])
+
+  return (
+    <ReactMarkdown
+      remarkPlugins={remarkPlugins}
+      rehypePlugins={rehypePlugins}
+      components={components}
+    >
+      {content}
+    </ReactMarkdown>
+  )
+})
 
 export default MarkdownPreview

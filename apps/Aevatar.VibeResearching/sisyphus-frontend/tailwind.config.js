@@ -19,6 +19,7 @@ export default {
     },
     extend: {
       colors: {
+        /* === Core Semantic Colors === */
         background: "var(--bg-base)",
         foreground: "var(--text-primary)",
         
@@ -41,30 +42,37 @@ export default {
           strong: "var(--border-strong)",
         },
         
+        /* === Accent Colors (Nebula Warm) === */
         neon: {
           cyan: "var(--neon-cyan)",
+          sky: "var(--neon-sky)",
           gold: "var(--neon-gold)",
+          amber: "var(--neon-amber)",
           purple: "var(--neon-purple)",
           green: "var(--neon-green)",
           orange: "var(--neon-orange)",
           red: "var(--neon-red)",
         },
         
-        /* Legacy mappings for compatibility */
+        /* === Compatibility Aliases === */
         accent: {
           cyan: "var(--neon-cyan)",
           blue: "var(--neon-cyan)",
+          sky: "var(--neon-sky)",
           violet: "var(--neon-purple)",
           magenta: "var(--neon-gold)",
+          gold: "var(--neon-gold)",
+          amber: "var(--neon-amber)",
           green: "var(--neon-green)",
           emerald: "var(--neon-green)",
-          amber: "var(--neon-orange)",
+          orange: "var(--neon-orange)",
           rose: "var(--neon-red)",
         },
         
+        /* === Component Tokens === */
         primary: {
           DEFAULT: "var(--neon-cyan)",
-          foreground: "#030308",
+          foreground: "#0c0f14",
         },
         secondary: {
           DEFAULT: "var(--bg-surface)",
@@ -77,6 +85,14 @@ export default {
         destructive: {
           DEFAULT: "var(--neon-red)",
           foreground: "#FFFFFF",
+        },
+        warning: {
+          DEFAULT: "var(--neon-orange)",
+          foreground: "#0c0f14",
+        },
+        success: {
+          DEFAULT: "var(--neon-green)",
+          foreground: "#0c0f14",
         },
         card: {
           DEFAULT: "var(--bg-surface)",
@@ -108,9 +124,13 @@ export default {
         'md': 'var(--shadow-md)',
         'lg': 'var(--shadow-lg)',
         'glow-cyan': 'var(--glow-cyan)',
+        'glow-sky': 'var(--glow-cyan)',
         'glow-gold': 'var(--glow-gold)',
+        'glow-amber': 'var(--glow-gold)',
         'glow-purple': 'var(--glow-purple)',
         'glow-green': 'var(--glow-green)',
+        'glow-orange': '0 0 12px rgba(253, 186, 116, 0.5), 0 0 24px rgba(253, 186, 116, 0.25)',
+        'glow-red': '0 0 12px rgba(252, 165, 165, 0.5), 0 0 24px rgba(252, 165, 165, 0.25)',
       },
       
       keyframes: {

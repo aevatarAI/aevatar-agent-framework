@@ -41,14 +41,13 @@ const MODE_CONFIG = {
 }
 
 const Composer: React.FC<ComposerProps> = ({ sessionId, connected }) => {
-  const { 
-    inputMode, 
-    setInputMode, 
-    agentRoster, 
-    isSending, 
-    setIsSending,
-    addMessage 
-  } = useSisyphusStore()
+  // FINE-GRAINED SUBSCRIPTIONS: Only subscribe to what we need
+  const inputMode = useSisyphusStore((s) => s.inputMode)
+  const setInputMode = useSisyphusStore((s) => s.setInputMode)
+  const agentRoster = useSisyphusStore((s) => s.agentRoster)
+  const isSending = useSisyphusStore((s) => s.isSending)
+  const setIsSending = useSisyphusStore((s) => s.setIsSending)
+  const addMessage = useSisyphusStore((s) => s.addMessage)
 
   const [text, setText] = useState("")
   const [files, setFiles] = useState<File[]>([])

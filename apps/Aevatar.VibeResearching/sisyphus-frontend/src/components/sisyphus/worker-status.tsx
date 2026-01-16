@@ -172,7 +172,8 @@ const WorkerCard: React.FC<{ worker: WorkerAgent; index: number }> = ({ worker, 
 };
 
 const WorkerStatus: React.FC<WorkerStatusProps> = ({ compact = false }) => {
-  const { workers: storeWorkers } = useSisyphusStore();
+  // FINE-GRAINED SUBSCRIPTION: Only subscribe to workers
+  const storeWorkers = useSisyphusStore((s) => s.workers);
   
   const workers: WorkerAgent[] = Object.values(storeWorkers);
   const activeCount = workers.filter((w: WorkerAgent) => w.streaming || w.status === 'running').length;

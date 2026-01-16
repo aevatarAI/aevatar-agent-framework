@@ -438,12 +438,18 @@ export const useSisyphusStore = create<SisyphusState>((set) => ({
       stats: { ...state.stats, ...stats },
     })),
 
-  // === Raw Events ===
+  // === Raw Events (Development Only) ===
+  // PERFORMANCE: Disabled in production to prevent memory bloat and state churn
   rawEvents: [],
-  addRawEvent: (event) =>
-    set((state) => ({
-      rawEvents: [...state.rawEvents.slice(-99), event],
-    })),
+  addRawEvent: (event) => {
+    // Only store raw events in development mode for debugging
+    if (import.meta.env.DEV) {
+      set((state) => ({
+        rawEvents: [...state.rawEvents.slice(-49), event], // Reduced to 50
+      }))
+    }
+    // In production: no-op for maximum performance
+  },
 
   // === Reset for new session ===
   resetForNewSession: () =>

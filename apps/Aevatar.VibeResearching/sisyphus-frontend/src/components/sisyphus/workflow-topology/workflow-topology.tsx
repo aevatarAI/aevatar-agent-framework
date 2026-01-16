@@ -347,11 +347,10 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
       <div className="relative z-30 flex-shrink-0 bg-[#0c0f14]">
         <TopologyHeader
           onLayout={onLayout} onRefresh={handleRefresh} onCollapse={isFullscreen ? undefined : onCollapse}
-          onSummary={() => setSummaryOpen(true)} onFocusActive={focusOnActiveMilestone}
+          onSummary={() => setSummaryOpen(true)}
           onFullscreenToggle={toggleFullscreen} isFullscreen={isFullscreen}
           refreshing={refreshing} nodeCount={nodeCount} edgeCount={edgeCount}
           planCount={dagStats.planCount} knowledgeCount={dagStats.knowledgeCount}
-          activeMilestone={activeMilestoneNodeId}
         />
       </div>
 

@@ -542,3 +542,5 @@ scripts/.pids/
 .env.production
 
 deploy-frontend-s3.sh
+
+.playwright-mcp

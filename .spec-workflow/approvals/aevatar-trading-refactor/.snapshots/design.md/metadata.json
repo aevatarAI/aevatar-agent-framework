@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/aevatar-trading-refactor/design.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-16T13:08:53.240Z",
+      "trigger": "initial",
+      "approvalId": "approval_1768568933232_yygfta2r9",
+      "approvalTitle": "Approve design for aevatar-trading-refactor"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-16T13:09:46.215Z",
+      "trigger": "approved",
+      "approvalId": "approval_1768568933232_yygfta2r9",
+      "approvalTitle": "Approve design for aevatar-trading-refactor"
+    }
+  ]
+}

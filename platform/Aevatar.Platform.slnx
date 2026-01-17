@@ -1,0 +1,19 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Aevatar.Platform.Contracts\Aevatar.Platform.Contracts.csproj" />
+    <Project Path="src/Aevatar.Platform.Core\Aevatar.Platform.Core.csproj" />
+    <Project Path="src/Aevatar.Platform.Cli\Aevatar.Platform.Cli.csproj" />
+    <Project Path="src/Aevatar.Platform.Server\Aevatar.Platform.Server.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test\Aevatar.Platform.Tests\Aevatar.Platform.Tests.csproj" />
+  </Folder>
+  <Folder Name="/docs/">
+    <File Path="docs\ARCHITECTURE.md" />
+    <File Path="README.md" />
+  </Folder>
+  <Folder Name="/framework/">
+    <Project Path="../src/Aevatar.Agents.AI.Core/Aevatar.Agents.AI.Core.csproj" />
+    <Project Path="../src/Aevatar.CognitiveMesh.Dsl/Aevatar.CognitiveMesh.Dsl.csproj" />
+  </Folder>
+</Solution>

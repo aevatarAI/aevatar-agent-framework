@@ -13,18 +13,18 @@ export function App() {
       <div className="shell">
         <div className="topbar">
           <div className="brand">
-            <h1>WEEX AI Auto-Trading Dashboard</h1>
+            <h1>Aevatar Trading Decision Center</h1>
             <p>
-              展示 AI 策略、风控与执行闭环：决策时间线 / 当前余额 / 当前订单 / 系统健康。<span style={{ color: "var(--muted2)" }}>默认走同源代理。</span>
+              聚焦仓位、风险与 AI 决策触发：交易闭环可观测，交易所可配置切换。<span style={{ color: "var(--muted2)" }}>默认走同源代理。</span>
             </p>
           </div>
           <div className="nav">
             <div className="tabs" role="tablist" aria-label="console-tabs">
               <button className={`tab ${tab === "trading" ? "active" : ""}`} onClick={() => setTab("trading")}>
-                Auto Trading
+                Decision Center
               </button>
               <button className={`tab ${tab === "weex" ? "active" : ""}`} onClick={() => setTab("weex")}>
-                WEEX Tools（高级）
+                Exchange Tools（高级）
               </button>
               <button className={`tab ${tab === "aiwars" ? "active" : ""}`} onClick={() => setTab("aiwars")}>
                 AI Wars APIs

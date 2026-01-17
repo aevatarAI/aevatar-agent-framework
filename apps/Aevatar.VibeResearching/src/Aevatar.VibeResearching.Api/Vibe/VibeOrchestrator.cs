@@ -28,7 +28,7 @@ namespace VibeResearching.Api.Vibe;
 //
 //  Goal:
 //  - Run one vibe round end-to-end:
-//      research_assistant plan → workers → maker-v2 consensus → DAG + Trace
+//      research_assistant plan → workers → maker consensus → DAG + Trace
 //
 //  Notes:
 //  - Best-effort: never crash server due to orchestration/projection.

@@ -37,10 +37,8 @@ Aevatar.Agents.Cognitive/
 │   └── ServiceCollectionExtensions.cs
 ├── workflows/                   # 内置工作流定义
 │   ├── direct.yaml                    # 直接执行
-│   ├── maker.yaml                     # MAKER v1（分解/递归/合成）
-│   ├── maker-v2.yaml                  # MAKER 系统 v2（投票 + 红旗 + 递归）
-│   ├── uot-combinational.yaml         # UoT 组合式推理 v1
-│   ├── uot-combinational-v2.yaml      # UoT 组合式推理 v2
+│   ├── maker.yaml                     # MAKER 系统（投票 + 红旗 + 递归）
+│   ├── uot-combinational.yaml         # UoT 组合式创意推理
 │   ├── axiom_theorem_loop.yaml        # 公理 → 定理发现循环（Coordinator 提出，Workers 证明）
 │   ├── axiom_reasoning.yaml           # 公理驱动逐步推理（每步 vote 共识）
 │   ├── hypothesis_promotion_loop.yaml # 假设升级定理循环（HPL）
@@ -161,3 +159,4 @@ CognitiveCoordinatorGAgent
 - 2025-12: 新增 token-free 原语 `hpa`（HPA 几何证据层：scan/embed/gap/associator/holonomy）与工作流 `hypothesis_promotion_loop_hpa.yaml`。
 - 2025-12: Coordinator 去味：移除未被引用的 `StepEventEmitter/FanOutExecutor`，并将 `CognitiveCoordinatorGAgent` 拆分为多个 `partial` 文件以控制复杂度。
 - 2025-12: 去味：移除未被引用的 `ParameterResolver/*Primitive.cs`，补齐 DSL 数据模型（`WorkflowDefinition/StepDefinition`），并修正 Worker streaming 中间态事件的统计累加语义（只在终态累计 tokens/calls）。
+- 2026-01: 合并版本化工作流，统一为 `maker` / `uot-combinational`。

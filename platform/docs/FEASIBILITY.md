@@ -88,8 +88,8 @@ src/
 
 ```
 ~/.aevatar/
-├── config.yaml              # 主配置
-├── secrets.yaml             # 敏感信息 (gitignore)
+├── config.json              # 主配置
+├── secrets.json             # 敏感信息 (加密)
 ├── agents/                  # ✅ Agent YAML（role 配置，跨应用复用）
 │   ├── coder.yaml
 │   ├── reviewer.yaml
@@ -127,14 +127,14 @@ public class AevatarConfigLoader
     public AevatarConfig Load()
     {
         // 1. 加载主配置
-        var configPath = Path.Combine(_configDir, "config.yaml");
-        var config = LoadYaml<AevatarConfig>(configPath);
+        var configPath = Path.Combine(_configDir, "config.json");
+        var config = LoadJson<AevatarConfig>(configPath);
         
         // 2. 合并 secrets
-        var secretsPath = Path.Combine(_configDir, "secrets.yaml");
+        var secretsPath = Path.Combine(_configDir, "secrets.json");
         if (File.Exists(secretsPath))
         {
-            var secrets = LoadYaml<SecretsConfig>(secretsPath);
+            var secrets = LoadSecretsStore(secretsPath);
             MergeSecrets(config, secrets);
         }
         
@@ -172,8 +172,8 @@ public class AevatarConfigLoader
 aevatar config init
 
 # 会创建以下文件：
-# ~/.aevatar/config.yaml      (带注释的模板)
-# ~/.aevatar/secrets.yaml     (空模板，需用户填写)
+# ~/.aevatar/config.json      (默认模板)
+# ~/.aevatar/secrets.json     (加密存储，由 aevatar-config 写入)
 # ~/.aevatar/agents/          (预置 Agent 配置)
 # ~/.aevatar/workflows/       (预置工作流)
 ```
@@ -707,7 +707,7 @@ platform/
 │       └── platform.proto
 │
 ├── templates/                         # 默认配置模板
-│   ├── config.yaml
+│   ├── config.json
 │   ├── agents/
 │   └── workflows/
 │

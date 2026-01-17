@@ -12,6 +12,34 @@ using Spectre.Console;
 namespace Aevatar.Platform.Cli.Tui;
 
 // ============================================================
+//  TUI Output
+//
+//  说明：
+//  - 统一 TUI 输出接口（Console/GUI 共用）
+// ============================================================
+public interface ITuiOutput
+{
+    void Markup(string markup);
+
+    void MarkupLine(string markup);
+
+    void WriteLine(string text);
+
+    void Clear();
+}
+
+public sealed class ConsoleTuiOutput : ITuiOutput
+{
+    public void Markup(string markup) => AnsiConsole.Markup(markup);
+
+    public void MarkupLine(string markup) => AnsiConsole.MarkupLine(markup);
+
+    public void WriteLine(string text) => AnsiConsole.WriteLine(text);
+
+    public void Clear() => AnsiConsole.Clear();
+}
+
+// ============================================================
 //  TuiHandlers
 //
 //  说明：
@@ -20,6 +48,28 @@ namespace Aevatar.Platform.Cli.Tui;
 public static class TuiHandlers
 {
     private const int MaxOutputChars = 4000;
+    private const string HelpTitle = "TUI Commands";
+    private static readonly string[] HelpLines =
+    {
+        "/help          Show this help",
+        "/sessions      List sessions",
+        "/sessions show <id>  Show session",
+        "/workflow <name>     Switch workflow",
+        "/profile <name>      Switch profile",
+        "/editor        Open external editor",
+        "/clear         Clear screen",
+        "/quit          Exit",
+        "!<cmd>         Run shell command (policy controlled)",
+        "@<file>        Attach file (fuzzy match)"
+    };
+
+    public static string BuildHelpText()
+    {
+        var lines = new string[HelpLines.Length + 1];
+        lines[0] = HelpTitle;
+        Array.Copy(HelpLines, 0, lines, 1, HelpLines.Length);
+        return string.Join(Environment.NewLine, lines);
+    }
 
     public static async Task<bool> HandleCommandAsync(
         ParsedInput input,
@@ -29,6 +79,7 @@ public static class TuiHandlers
         PlatformMeshCompiler? compiler,
         WorkflowEngine? engine,
         PlatformToolPolicy policy,
+        ITuiOutput output,
         CancellationToken ct)
     {
         var command = (input.Command ?? string.Empty).Trim().ToLowerInvariant();
@@ -37,36 +88,36 @@ public static class TuiHandlers
         switch (command)
         {
             case "help":
-                PrintHelp();
+                PrintHelp(output);
                 return true;
             case "exit":
             case "quit":
                 return false;
             case "clear":
-                AnsiConsole.Clear();
+                output.Clear();
                 return true;
             case "sessions":
             case "session":
-                await HandleSessionsCommandAsync(args, runtime, sessions, ct);
+                await HandleSessionsCommandAsync(args, runtime, sessions, output, ct);
                 return true;
             case "editor":
-                await HandleEditorCommandAsync(runtime, effective, sessions, compiler, engine, policy, ct);
+                await HandleEditorCommandAsync(runtime, effective, sessions, compiler, engine, policy, output, ct);
                 return true;
             case "workflow":
                 if (!string.IsNullOrWhiteSpace(args))
                     runtime.Workflow = args.Trim();
-                AnsiConsole.MarkupLine($"Workflow: [cyan]{runtime.Workflow}[/]");
+                output.MarkupLine($"Workflow: [cyan]{Markup.Escape(runtime.Workflow)}[/]");
                 return true;
             case "profile":
                 if (!string.IsNullOrWhiteSpace(args))
                     runtime.Profile = args.Trim();
-                AnsiConsole.MarkupLine($"Profile: [cyan]{runtime.Profile}[/]");
+                output.MarkupLine($"Profile: [cyan]{Markup.Escape(runtime.Profile)}[/]");
                 return true;
             case "theme":
-                AnsiConsole.MarkupLine("theme: not implemented yet.");
+                output.MarkupLine("theme: not implemented yet.");
                 return true;
             default:
-                AnsiConsole.MarkupLine($"Unknown command: [yellow]/{command}[/]");
+                output.MarkupLine($"Unknown command: [yellow]/{Markup.Escape(command)}[/]");
                 return true;
         }
     }
@@ -79,13 +130,14 @@ public static class TuiHandlers
         PlatformMeshCompiler? compiler,
         WorkflowEngine? engine,
         PlatformToolPolicy policy,
+        ITuiOutput output,
         CancellationToken ct)
     {
-        var resolved = ResolveAttachments(input.Attachments, policy);
+        var resolved = ResolveAttachments(input.Attachments, policy, output);
         foreach (var file in resolved)
         {
             runtime.AttachedFiles.Add(file);
-            AnsiConsole.MarkupLine($"Attached: [cyan]{Markup.Escape(file)}[/]");
+            output.MarkupLine($"Attached: [cyan]{Markup.Escape(file)}[/]");
         }
 
         if (input.Text.Length == 0)
@@ -122,7 +174,65 @@ public static class TuiHandlers
         };
 
         await sessions.AppendEventAsync(runtime.SessionId, agentEvent, ct);
-        await RenderStreamingAsync(response, ct);
+        await RenderStreamingAsync(response, output, ct);
+    }
+
+    // ============================================================
+    //  GUI Chat API (OpenTUI)
+    //
+    //  说明：
+    //  - 给 OpenTUI 前端一个“最小能聊几句”的后端能力
+    //  - 复用现有 session event + workflow 执行，但直接返回 assistant 文本
+    // ============================================================
+    public static async Task<string> ChatOnceAsync(
+        ParsedInput input,
+        SessionRuntime runtime,
+        AevatarEffectiveConfig effective,
+        SessionService sessions,
+        PlatformMeshCompiler? compiler,
+        WorkflowEngine? engine,
+        PlatformToolPolicy policy,
+        CancellationToken ct)
+    {
+        var resolved = ResolveAttachments(input.Attachments, policy, new ConsoleTuiOutput());
+        foreach (var file in resolved)
+            runtime.AttachedFiles.Add(file);
+
+        if (input.Text.Length == 0)
+            return string.Empty;
+
+        var userEvent = new PlatformSessionEvent
+        {
+            Seq = ++runtime.Seq,
+            Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow),
+            UserMessage = new UserMessageEvent
+            {
+                MessageId = Guid.NewGuid().ToString("N"),
+                Text = input.Text,
+                AttachedFiles = { resolved }
+            }
+        };
+
+        await sessions.AppendEventAsync(runtime.SessionId, userEvent, ct);
+
+        var response = await TryRunWorkflowAsync(runtime, effective, compiler, engine, ct);
+        response = Truncate(response, MaxOutputChars);
+
+        var agentEvent = new PlatformSessionEvent
+        {
+            Seq = ++runtime.Seq,
+            Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow),
+            AgentOutputDelta = new AgentOutputDeltaEvent
+            {
+                Agent = "system",
+                MessageId = userEvent.UserMessage.MessageId,
+                Delta = response,
+                IsFinal = true
+            }
+        };
+
+        await sessions.AppendEventAsync(runtime.SessionId, agentEvent, ct);
+        return response;
     }
 
     public static async Task<SessionRuntime> EnsureSessionAsync(
@@ -131,6 +241,34 @@ public static class TuiHandlers
         SessionService sessions,
         CancellationToken ct)
     {
+        var requestedSessionId = (options.SessionId ?? string.Empty).Trim();
+        if (requestedSessionId.Length > 0)
+        {
+            var existing = await sessions.GetSessionStateAsync(requestedSessionId, ct);
+            if (existing != null)
+            {
+                var events = await sessions.GetSessionEventsAsync(requestedSessionId, ct);
+                var seq = (ulong)events.Count;
+                return new SessionRuntime(requestedSessionId, seq, existing.Profile, existing.ActiveWorkflow);
+            }
+
+            var newState = new PlatformSessionState
+            {
+                SessionId = requestedSessionId,
+                Profile = options.Profile ?? effective.Config.Agents.DefaultProfile,
+                ActiveWorkflow = options.Workflow ?? effective.Config.Agents.DefaultWorkflow,
+                WorkingDirectory = options.WorkingDirectory ?? Directory.GetCurrentDirectory(),
+                Provider = ModelDefaults.ResolveProvider(
+                    effective.Config.Models,
+                    options.Provider,
+                    options.Model),
+                Model = ModelDefaults.ResolveModel(effective.Config.Models, options.Model)
+            };
+
+            await sessions.CreateSessionAsync(newState, ct);
+            return new SessionRuntime(requestedSessionId, 0, newState.Profile, newState.ActiveWorkflow);
+        }
+
         if (options.Resume)
         {
             var list = await sessions.ListSessionsAsync(ct);
@@ -148,9 +286,12 @@ public static class TuiHandlers
             SessionId = string.Empty,
             Profile = options.Profile ?? effective.Config.Agents.DefaultProfile,
             ActiveWorkflow = options.Workflow ?? effective.Config.Agents.DefaultWorkflow,
-            WorkingDirectory = Directory.GetCurrentDirectory(),
-            Provider = effective.Config.Models.Default ?? string.Empty,
-            Model = options.Model ?? effective.Config.Models.Default ?? string.Empty
+            WorkingDirectory = options.WorkingDirectory ?? Directory.GetCurrentDirectory(),
+            Provider = ModelDefaults.ResolveProvider(
+                effective.Config.Models,
+                options.Provider,
+                options.Model),
+            Model = ModelDefaults.ResolveModel(effective.Config.Models, options.Model)
         };
 
         var sessionId = await sessions.CreateSessionAsync(state, ct);
@@ -168,10 +309,12 @@ public static class TuiHandlers
         };
     }
 
+
     private static async Task HandleSessionsCommandAsync(
         string args,
         SessionRuntime runtime,
         SessionService sessions,
+        ITuiOutput output,
         CancellationToken ct)
     {
         var parts = (args ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -182,14 +325,14 @@ public static class TuiHandlers
             var list = await sessions.ListSessionsAsync(ct);
             if (list.Count == 0)
             {
-                AnsiConsole.MarkupLine("(no sessions)");
+                output.MarkupLine("(no sessions)");
                 return;
             }
 
             foreach (var s in list)
             {
                 var ts = s.LastActivityUtc?.ToString("O") ?? "-";
-                AnsiConsole.MarkupLine($"{s.SessionId}\t{s.Profile}\t{s.ActiveWorkflow}\t{ts}");
+                output.MarkupLine($"{Markup.Escape(s.SessionId)}\t{Markup.Escape(s.Profile)}\t{Markup.Escape(s.ActiveWorkflow)}\t{Markup.Escape(ts)}");
             }
 
             return;
@@ -199,7 +342,7 @@ public static class TuiHandlers
         var state = await sessions.GetSessionStateAsync(sessionId, ct);
         if (state == null)
         {
-            AnsiConsole.MarkupLine($"Session '{sessionId}' not found.");
+            output.MarkupLine($"Session '{Markup.Escape(sessionId)}' not found.");
             return;
         }
 
@@ -207,7 +350,7 @@ public static class TuiHandlers
         {
             WriteIndented = true
         });
-        AnsiConsole.WriteLine(json);
+        output.WriteLine(json);
     }
 
     private static async Task HandleEditorCommandAsync(
@@ -217,6 +360,7 @@ public static class TuiHandlers
         PlatformMeshCompiler? compiler,
         WorkflowEngine? engine,
         PlatformToolPolicy policy,
+        ITuiOutput output,
         CancellationToken ct)
     {
         var editor = (Environment.GetEnvironmentVariable("EDITOR") ?? string.Empty).Trim();
@@ -225,7 +369,7 @@ public static class TuiHandlers
 
         if (editor.Length == 0)
         {
-            AnsiConsole.MarkupLine("EDITOR is not set.");
+            output.MarkupLine("EDITOR is not set.");
             return;
         }
 
@@ -244,7 +388,7 @@ public static class TuiHandlers
             using var proc = Process.Start(psi);
             if (proc == null)
             {
-                AnsiConsole.MarkupLine("Failed to start editor.");
+                output.MarkupLine("Failed to start editor.");
                 return;
             }
 
@@ -256,11 +400,11 @@ public static class TuiHandlers
 
             var parsed = InputParser.Parse(text);
             if (parsed.Kind == ParsedInputKind.Message)
-                await HandleMessageAsync(parsed, runtime, effective, sessions, compiler, engine, policy, ct);
+                await HandleMessageAsync(parsed, runtime, effective, sessions, compiler, engine, policy, output, ct);
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"Editor failed: {Markup.Escape(ex.Message)}");
+            output.MarkupLine($"Editor failed: {Markup.Escape(ex.Message)}");
         }
         finally
         {
@@ -307,7 +451,8 @@ public static class TuiHandlers
 
     private static IReadOnlyList<string> ResolveAttachments(
         IReadOnlyList<string> inputs,
-        PlatformToolPolicy policy)
+        PlatformToolPolicy policy,
+        ITuiOutput output)
     {
         if (inputs.Count == 0)
             return Array.Empty<string>();
@@ -331,13 +476,13 @@ public static class TuiHandlers
                 }
                 else if (matches.Count > 1)
                 {
-                    AnsiConsole.MarkupLine($"Fuzzy matches: {string.Join(", ", matches.Select(Markup.Escape))}");
+                    output.MarkupLine($"Fuzzy matches: {string.Join(", ", matches.Select(Markup.Escape))}");
                 }
             }
 
             if (full == null)
             {
-                AnsiConsole.MarkupLine($"Attach failed: {Markup.Escape(path)}");
+                output.MarkupLine($"Attach failed: {Markup.Escape(path)}");
                 continue;
             }
 
@@ -345,7 +490,7 @@ public static class TuiHandlers
             {
                 if (reason != "path_allowlist_empty")
                 {
-                    AnsiConsole.MarkupLine($"Attach denied: [red]{Markup.Escape(reason)}[/]");
+                    output.MarkupLine($"Attach denied: [red]{Markup.Escape(reason)}[/]");
                     continue;
                 }
             }
@@ -356,7 +501,7 @@ public static class TuiHandlers
         return list;
     }
 
-    private static async Task RenderStreamingAsync(string text, CancellationToken ct)
+    private static async Task RenderStreamingAsync(string text, ITuiOutput output, CancellationToken ct)
     {
         var chunkSize = 16;
         var delayMs = GetStreamDelayMs();
@@ -365,14 +510,14 @@ public static class TuiHandlers
         {
             var len = Math.Min(chunkSize, text.Length - i);
             var chunk = text.Substring(i, len);
-            AnsiConsole.Markup(Markup.Escape(chunk));
+            output.Markup(Markup.Escape(chunk));
             i += len;
 
             if (delayMs > 0)
                 await Task.Delay(delayMs, ct);
         }
 
-        AnsiConsole.WriteLine();
+        output.WriteLine(string.Empty);
     }
 
     private static int GetStreamDelayMs()
@@ -419,19 +564,11 @@ public static class TuiHandlers
         return value.Substring(0, max) + "...";
     }
 
-    private static void PrintHelp()
+    private static void PrintHelp(ITuiOutput output)
     {
-        AnsiConsole.MarkupLine("[bold]TUI Commands[/]");
-        AnsiConsole.MarkupLine("/help          Show this help");
-        AnsiConsole.MarkupLine("/sessions      List sessions");
-        AnsiConsole.MarkupLine("/sessions show <id>  Show session");
-        AnsiConsole.MarkupLine("/workflow <name>     Switch workflow");
-        AnsiConsole.MarkupLine("/profile <name>      Switch profile");
-        AnsiConsole.MarkupLine("/editor        Open external editor");
-        AnsiConsole.MarkupLine("/clear         Clear screen");
-        AnsiConsole.MarkupLine("/quit          Exit");
-        AnsiConsole.MarkupLine("!<cmd>         Run shell command (policy controlled)");
-        AnsiConsole.MarkupLine("@<file>        Attach file (fuzzy match)");
+        output.MarkupLine($"[bold]{HelpTitle}[/]");
+        foreach (var line in HelpLines)
+            output.MarkupLine(line);
     }
 }
 

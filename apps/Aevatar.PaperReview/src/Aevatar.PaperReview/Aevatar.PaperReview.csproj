@@ -55,8 +55,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="..\..\..\..\src\Aevatar.Agents.Cognitive\workflows\maker-v2.yaml">
-      <Link>workflows\maker-v2.yaml</Link>
+    <Content Include="..\..\..\..\src\Aevatar.Agents.Cognitive\workflows\maker.yaml">
+      <Link>workflows\maker.yaml</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="..\..\..\..\apps\Aevatar.CognitiveMesh\src\Aevatar.CognitiveMesh\projects\paper-review.yaml">

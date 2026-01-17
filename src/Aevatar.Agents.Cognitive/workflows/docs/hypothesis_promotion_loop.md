@@ -100,9 +100,9 @@
   - 每个 worker LLM call 必须有 **total timeout + idle timeout**。
   - coordinator 的完成计数必须把 **失败/超时/解析失败** 也算完成，否则一个坏 worker 会卡死全局。
 
-- **分级验证（不要一上来就跑 maker-v2）**：
+- **分级验证（不要一上来就跑 maker）**：
   - 轻量 checker（纯规则/确定性）：schema、depends_on 是否存在、是否引入新假设/新公理、引用一致性、重复命题、循环依赖等。
-  - 仅对通过轻量 checker 的 A 才进入 maker-v2 + 严格 vote 验证。
+  - 仅对通过轻量 checker 的 A 才进入 maker + 严格 vote 验证。
 
 - **强去重与防抖动（避免 A/B 震荡与重复证明）**：
   - `seen_hypotheses` 存 normalized/hash；B pool 先去重/聚类再投票；winner 若重复则跳过/回退生成新的候选。
@@ -145,7 +145,7 @@
 建议实现为三步：
 
 - `light_check_hypothesis`：纯规则/确定性检查（通过才进入 maker，避免浪费 token）
-- `maker_argumentation`：`workflow_call` 调用 `maker-v2`（context 优先用 RelevantFacts，而不是全量 axioms/theorems）  
+- `maker_argumentation`：`workflow_call` 调用 `maker`（context 优先用 RelevantFacts，而不是全量 axioms/theorems）  
   输入 task 形如：
   - RelevantFacts（axioms + top‑k theorems，可 json 附在 context）
   - 当前假设 A
@@ -194,7 +194,7 @@ flowchart TD
   D1 -- yes --> C0[Light checker rules<br/>schema/depends_on/seen/no new axioms]
   C0 --> D1b{checker pass?}
   D1b -- no --> B1
-  D1b -- yes --> V1[Verification: maker-v2 argumentation]
+  D1b -- yes --> V1[Verification: maker argumentation]
   V1 --> V2[Vote verify maker solution<br/>timeout + failures count as done]
 
   V2 --> D2{proved=true?}
@@ -218,7 +218,7 @@ flowchart TD
 sequenceDiagram
   participant C as Coordinator
   participant W as Workers fan_out
-  participant M as maker_v2 workflow
+  participant M as maker workflow
 
   Note over C: 每轮先构建 RelevantFacts（裁剪上下文）
   C->>C: build_relevant_facts, axioms, theorems
@@ -239,7 +239,7 @@ sequenceDiagram
     C->>C: light_check_hypothesis, A, seen_hypotheses, depends_on
 
     alt accept_count >= K and checker pass
-      C->>M: workflow_call maker_v2, task A, context RelevantFacts
+      C->>M: workflow_call maker, task A, context RelevantFacts
       M-->>C: maker solution
       C->>W: vote verify, solution, RelevantFacts, A
       Note over C,W: timeout
@@ -272,7 +272,7 @@ sequenceDiagram
 
 - **并行**：`fan_out`（workers）
 - **共识**：`vote`（first-to-ahead-by-k）
-- **验证阶段**：`workflow_call` → `maker-v2`，再 `vote` 做严格验证
+- **验证阶段**：`workflow_call` → `maker`，再 `vote` 做严格验证
 - **节点类型标注**：
   - Hypothesis A / candidates B：记为 `Hypothesis`
   - 验证通过后：升级为 `Theorem`
@@ -509,11 +509,11 @@ sequenceDiagram
 - **做法**：对低风险 A 用更小 N/K 快速推进；争议大/高价值 A 再提高 N/K 或升级到验证阶段。
 - **收益**：同预算下提高吞吐量，让 token 花在“更可能成功”的候选上。
 
-#### 3) 分级验证（不要一上来就跑 maker-v2）
+#### 3) 分级验证（不要一上来就跑 maker）
 
 - **做法**：验证阶段分两层：
   - 轻量验证：schema/依赖存在/是否引入新假设/引用一致性
-  - 重验证：仅对通过轻量验证的 A 才 workflow_call → maker-v2
+  - 重验证：仅对通过轻量验证的 A 才 workflow_call → maker
 - **收益**：把重预算集中在少数高潜力候选上。
 
 #### 4) 强去重与防抖动（避免 A/B 震荡与重复证明）

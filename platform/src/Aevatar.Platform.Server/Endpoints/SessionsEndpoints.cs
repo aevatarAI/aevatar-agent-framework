@@ -4,6 +4,7 @@ using System.Text.Json;
 using Aevatar.Platform;
 using Aevatar.Platform.Core.Config;
 using Aevatar.Platform.Core.Sessions;
+using Aevatar.Platform.Core.Workflow;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 
@@ -51,8 +52,8 @@ public static class SessionsEndpoints
                 Profile = request?.Profile ?? effective.Config.Agents.DefaultProfile,
                 ActiveWorkflow = request?.Workflow ?? effective.Config.Agents.DefaultWorkflow,
                 WorkingDirectory = request?.WorkingDirectory ?? Directory.GetCurrentDirectory(),
-                Provider = effective.Config.Models.Default ?? string.Empty,
-                Model = request?.Model ?? effective.Config.Models.Default ?? string.Empty
+                Provider = request?.Provider ?? effective.Config.Models.DefaultProvider ?? string.Empty,
+                Model = request?.Model ?? effective.Config.Models.DefaultModel ?? string.Empty
             };
 
             await sessions.CreateSessionAsync(state, ct);
@@ -74,25 +75,47 @@ public static class SessionsEndpoints
             string id,
             UserMessageRequest? request,
             SessionService sessions,
+            AevatarEffectiveConfig effective,
             CancellationToken ct) =>
         {
+            var state = await sessions.GetSessionStateAsync(id, ct);
+            if (state == null)
+                return Results.NotFound();
+
             var events = await sessions.GetSessionEventsAsync(id, ct);
             var seq = events.Count > 0 ? events.Max(e => e.Seq) + 1 : 1;
 
+            var messageId = Guid.NewGuid().ToString("N");
             var evt = new PlatformSessionEvent
             {
                 Seq = seq,
                 Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
                 UserMessage = new UserMessageEvent
                 {
-                    MessageId = Guid.NewGuid().ToString("N"),
+                    MessageId = messageId,
                     Text = request?.Text ?? string.Empty,
                     AttachedFiles = { request?.AttachedFiles ?? new List<string>() }
                 }
             };
 
             await sessions.AppendEventAsync(id, evt, ct);
-            return Results.Ok();
+
+            var output = await WorkflowEngine.RunWorkflowAsync(state.ActiveWorkflow, effective.ConfigDirectory, ct);
+            var agentEvent = new PlatformSessionEvent
+            {
+                Seq = ++seq,
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
+                AgentOutputDelta = new AgentOutputDeltaEvent
+                {
+                    Agent = state.Profile,
+                    MessageId = messageId,
+                    Delta = output,
+                    IsFinal = true
+                }
+            };
+
+            await sessions.AppendEventAsync(id, agentEvent, ct);
+            return Results.Ok(new { message_id = messageId, output });
         });
 
         app.MapGet("/api/sessions/{id}/stream", async (HttpContext ctx, string id, SessionService sessions) =>
@@ -156,6 +179,7 @@ public static class SessionsEndpoints
         return $"{{\"state\":{stateJson},\"last_seq\":{lastSeq}}}";
     }
 
+
     private static async Task WriteSseAsync(HttpContext ctx, string eventName, string data, CancellationToken ct)
     {
         await ctx.Response.WriteAsync($"event: {eventName}\n", ct);
@@ -165,11 +189,10 @@ public static class SessionsEndpoints
 
     public sealed record CreateSessionRequest(
         string? Profile,
+        string? Provider,
         string? Workflow,
         string? Model,
         string? WorkingDirectory);
 
     public sealed record UserMessageRequest(string? Text, List<string>? AttachedFiles);
 }
-
-

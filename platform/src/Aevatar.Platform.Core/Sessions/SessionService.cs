@@ -68,6 +68,25 @@ public sealed class SessionService
         return sessionId;
     }
 
+    public async Task UpdateSessionStateAsync(PlatformSessionState state, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+
+        var sessionId = (state.SessionId ?? string.Empty).Trim();
+        if (sessionId.Length == 0)
+            throw new ArgumentException("Session id is required.", nameof(state));
+
+        if (!SessionExists(sessionId))
+            throw new InvalidOperationException($"Session '{sessionId}' not found.");
+
+        state.SessionId = sessionId;
+        await SaveSessionStateAsync(sessionId, state, ct);
+
+        var expected = await _eventStore.GetLatestVersionAsync(sessionId, agentTypeName: null, ct);
+        var stateEvent = BuildAgentStateEvent(sessionId, state, PlatformSessionState.Descriptor.FullName);
+        await _eventStore.AppendEventsAsync(sessionId, [stateEvent], expected, agentTypeName: null, ct);
+    }
+
     public async Task AppendEventAsync(string sessionId, PlatformSessionEvent evt, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);

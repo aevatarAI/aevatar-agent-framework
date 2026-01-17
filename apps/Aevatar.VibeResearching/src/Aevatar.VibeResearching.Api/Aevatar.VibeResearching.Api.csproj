@@ -32,7 +32,7 @@
 
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
-      <_Parameter1>VibeResearching.Api.Tests</_Parameter1>
+      <_Parameter1>Aevatar.VibeResearching.Api.Tests</_Parameter1>
     </AssemblyAttribute>
   </ItemGroup>
 

@@ -1,12 +1,16 @@
 import React from "react";
-import { apiFetch, prettyJson } from "../api";
+import { apiFetch, fetchPolicy, fetchPositions, prettyJson, triggerDecision } from "../api";
 import type {
   AgentsResponse,
   AuditLatestResponse,
   BalanceInfo,
+  DecisionTriggerEvent,
+  DecisionTriggerRequest,
   MetaResponse,
   OrderInfo,
+  PositionsResponse,
   TickerResponse,
+  TradingPolicyConfig,
   TradingSystemStatus,
 } from "../types";
 import { Button } from "../components/Button";
@@ -15,7 +19,9 @@ import { StatusPill } from "../components/StatusPill";
 import { FillsViz, PositionsViz } from "../components/ExchangeViz";
 
 type CallState = { busy: boolean; error?: string };
-type SectionErrors = Partial<Record<"meta" | "status" | "ticker" | "balances" | "orders" | "positions" | "fills" | "audit", string>>;
+type SectionErrors = Partial<
+  Record<"meta" | "status" | "ticker" | "balances" | "orders" | "positions" | "fills" | "policy" | "audit", string>
+>;
 
 function useCallState() {
   const [state, setState] = React.useState<CallState>({ busy: false });
@@ -159,8 +165,9 @@ export function TradingPage() {
   const [ticker, setTicker] = React.useState<TickerResponse | null>(null);
   const [balances, setBalances] = React.useState<Array<BalanceInfo> | null>(null);
   const [orders, setOrders] = React.useState<Array<OrderInfo> | null>(null);
-  const [positionsTool, setPositionsTool] = React.useState<ToolExecResponse | null>(null);
+  const [positions, setPositions] = React.useState<PositionsResponse | null>(null);
   const [fillsTool, setFillsTool] = React.useState<ToolExecResponse | null>(null);
+  const [policy, setPolicy] = React.useState<TradingPolicyConfig | null>(null);
 
   const [audit, setAudit] = React.useState<AuditLatestResponse | null>(null);
   const [cycles, setCycles] = React.useState<Array<StrategyCycle>>([]);
@@ -173,6 +180,9 @@ export function TradingPage() {
 
   const calls = useCallState();
   const [stopReason, setStopReason] = React.useState("UI stop");
+  const [manualTriggerReason, setManualTriggerReason] = React.useState("MANUAL");
+  const [manualTriggerDeltaPct, setManualTriggerDeltaPct] = React.useState("");
+  const [manualTriggerDeltaAbs, setManualTriggerDeltaAbs] = React.useState("");
   const refreshInFlight = React.useRef(false);
 
   const refreshAll = React.useCallback(async () => {
@@ -191,18 +201,16 @@ export function TradingPage() {
       apiFetch<{ count: number; orders: Array<OrderInfo> }>(
         `/api/weex-test/open-orders?${new URLSearchParams(symbol ? { symbol } : {}).toString()}`,
       ),
-      apiFetch<ToolExecResponse>("/api/ai-wars/weex_ai_account_position_all_position?confirm=false", {
-        method: "POST",
-        body: "{}",
-      }),
+      fetchPositions(symbol ? symbol : undefined),
       apiFetch<ToolExecResponse>("/api/ai-wars/weex_ai_order_fills?confirm=false", {
         method: "POST",
         body: JSON.stringify({ symbol, limit: 100 }),
       }),
+      fetchPolicy(),
       apiFetch<AuditLatestResponse>("/api/audit/latest?maxBytes=200000"),
     ]);
 
-    const [metaRes, statusRes, agentsRes, tickerRes, balRes, ordRes, posRes, fillsRes, auditRes] = results;
+    const [metaRes, statusRes, agentsRes, tickerRes, balRes, ordRes, posRes, fillsRes, policyRes, auditRes] = results;
 
     if (metaRes.status === "fulfilled") {
       setMeta(metaRes.value);
@@ -227,11 +235,14 @@ export function TradingPage() {
     if (ordRes.status === "fulfilled") setOrders(ordRes.value.orders);
     else nextErrors.orders = String(ordRes.reason?.message ?? ordRes.reason);
 
-    if (posRes.status === "fulfilled") setPositionsTool(posRes.value);
+    if (posRes.status === "fulfilled") setPositions(posRes.value);
     else nextErrors.positions = String(posRes.reason?.message ?? posRes.reason);
 
     if (fillsRes.status === "fulfilled") setFillsTool(fillsRes.value);
     else nextErrors.fills = String(fillsRes.reason?.message ?? fillsRes.reason);
+
+    if (policyRes.status === "fulfilled") setPolicy(policyRes.value);
+    else nextErrors.policy = String(policyRes.reason?.message ?? policyRes.reason);
 
     if (auditRes.status === "fulfilled") {
       setAudit(auditRes.value);
@@ -267,14 +278,20 @@ export function TradingPage() {
 
   const executionMode = meta?.trading.executionMode ?? "-";
   const modeBadge = executionMode.toUpperCase().includes("LIVE") ? "danger" : "ok";
+  const exchangeType = meta?.exchange?.type ?? "WEEX";
+  const exchangeMode = meta?.exchange?.mode ?? meta?.weex?.mode ?? "-";
+  const triggerMeta = meta?.trigger;
+  const policySnapshot = policy ?? meta?.policy;
+  const policyTrading = policySnapshot?.trading;
+  const policyRisk = policySnapshot?.risk;
 
   return (
     <div className="dash">
       <div className="dashGrid">
         <div className="dashMain">
           <Panel
-            title="AI 自动交易 Dashboard"
-            subtitle="策略（AI 决策/风控/执行）× 账户（余额/订单）× 系统健康"
+            title="交易决策控制台"
+            subtitle="仓位 / 风险 / 决策触发为核心视角，策略闭环与系统状态可观测"
             right={
               <div className="row">
                 <Button onClick={() => calls.run(refreshAll)} disabled={calls.state.busy}>
@@ -291,11 +308,27 @@ export function TradingPage() {
           >
             <div className="statsGrid">
               <div className="statCard">
+                <div className="k">Exchange</div>
+                <div className="v mono">{exchangeType}</div>
+                <div className="s">Mode: {exchangeMode}</div>
+              </div>
+              <div className="statCard">
                 <div className="k">Execution Mode</div>
                 <div className="v">
                   <span className={`badge ${modeBadge}`}>{executionMode}</span>
                 </div>
                 <div className="s">Live 会真实下单；建议先 DryRun 观察策略。</div>
+              </div>
+              <div className="statCard">
+                <div className="k">Trigger</div>
+                <div className="v mono">
+                  {triggerMeta
+                    ? `Δ%≥${formatNum(triggerMeta.priceChangePct, 2)} / Δ≥${formatNum(triggerMeta.priceChangeAbs, 2)}`
+                    : "-"}
+                </div>
+                <div className="s">
+                  {triggerMeta ? `窗口=${triggerMeta.windowSeconds}s 冷却=${triggerMeta.cooldownSeconds}s` : "—"}
+                </div>
               </div>
               <div className="statCard">
                 <div className="k">Symbol / Interval</div>
@@ -394,11 +427,105 @@ export function TradingPage() {
           </Panel>
 
           <div className="grid cols-2-eq">
+            <Panel title="触发与策略参数" subtitle="来自 /api/policy + /api/meta">
+              {errors.policy ? (
+                <div className="kvItem" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
+                  {errors.policy}
+                </div>
+              ) : null}
+              <div className="kvGrid">
+                <div className="kvItem">
+                  <div className="k">Min Confidence</div>
+                  <div className="v mono">{policyTrading?.minConfidenceToTrade ?? "-"}</div>
+                </div>
+                <div className="kvItem">
+                  <div className="k">Max Position</div>
+                  <div className="v mono">{policyTrading?.maxPositionPct ?? "-"}%</div>
+                </div>
+                <div className="kvItem">
+                  <div className="k">Max Total Position</div>
+                  <div className="v mono">{policyTrading?.maxTotalPositionPct ?? "-"}%</div>
+                </div>
+                <div className="kvItem">
+                  <div className="k">Daily Loss Limit</div>
+                  <div className="v mono">{policyTrading?.maxDailyLoss ?? "-"}%</div>
+                </div>
+                <div className="kvItem">
+                  <div className="k">Risk Cooldown</div>
+                  <div className="v mono">{policyRisk?.cooldownMinutes ?? "-"}m</div>
+                </div>
+                <div className="kvItem">
+                  <div className="k">Trigger Window</div>
+                  <div className="v mono">{triggerMeta?.windowSeconds ?? "-"}s</div>
+                </div>
+              </div>
+            </Panel>
+
+            <Panel title="手动触发 AI 决策" subtitle="用于测试触发链路（不等于下单）">
+              <div className="dashControls">
+                <div className="row">
+                  <div className="field" style={{ minWidth: 180 }}>
+                    <label>Symbol</label>
+                    <input
+                      value={symbol}
+                      onChange={(e) => {
+                        setSymbolTouched(true);
+                        setSymbol(e.target.value);
+                      }}
+                    />
+                  </div>
+                  <div className="field" style={{ minWidth: 200 }}>
+                    <label>Reason</label>
+                    <input value={manualTriggerReason} onChange={(e) => setManualTriggerReason(e.target.value)} />
+                  </div>
+                  <div className="field" style={{ minWidth: 140 }}>
+                    <label>Δ%</label>
+                    <input value={manualTriggerDeltaPct} onChange={(e) => setManualTriggerDeltaPct(e.target.value)} />
+                  </div>
+                  <div className="field" style={{ minWidth: 140 }}>
+                    <label>ΔAbs</label>
+                    <input value={manualTriggerDeltaAbs} onChange={(e) => setManualTriggerDeltaAbs(e.target.value)} />
+                  </div>
+                  <Button
+                    variant="primary"
+                    disabled={calls.state.busy}
+                    onClick={() =>
+                      calls.run(async () => {
+                        const payload: DecisionTriggerRequest = {
+                          symbol: symbol.trim(),
+                          reason: manualTriggerReason.trim() || "MANUAL",
+                        };
+                        if (manualTriggerDeltaPct.trim()) {
+                          const pct = Number(manualTriggerDeltaPct);
+                          if (Number.isFinite(pct)) payload.deltaPct = pct;
+                        }
+                        if (manualTriggerDeltaAbs.trim()) {
+                          const abs = Number(manualTriggerDeltaAbs);
+                          if (Number.isFinite(abs)) payload.deltaAbs = abs;
+                        }
+                        const resp: DecisionTriggerEvent = await triggerDecision(payload);
+                        setManualTriggerReason(resp.reason || "MANUAL");
+                        await refreshAll();
+                      })
+                    }
+                  >
+                    Trigger
+                  </Button>
+                </div>
+              </div>
+            </Panel>
+          </div>
+
+          <div className="grid cols-2-eq">
             <Panel
               title="仓位概览"
-              subtitle="来自 /api/ai-wars/weex_ai_account_position_all_position（合约：/capi/v2/account/position/allPosition）"
+              subtitle="来自 /api/positions（交易所无关，能力不足则降级）"
             >
-              <PositionsViz raw={positionsTool} error={errors.positions} />
+              {positions?.supported === false ? (
+                <div className="muted">当前交易所未提供仓位能力。</div>
+              ) : (
+                <PositionsViz raw={positions} error={errors.positions} />
+              )}
             </Panel>
 
             <Panel title="成交概览" subtitle="来自 /api/ai-wars/weex_ai_order_fills（合约：/capi/v2/order/fills，默认 limit=100）">
@@ -689,6 +816,8 @@ export function TradingPage() {
             {status ? (
               <div className="row" style={{ gap: 8 }}>
                 <StatusPill label="DataCollector" value={status.dataCollector} />
+                <StatusPill label="Trigger" value={status.decisionTrigger} />
+                <StatusPill label="Policy" value={status.policyManager} />
                 <StatusPill label="Sentiment" value={status.sentimentAnalyst} />
                 <StatusPill label="Technical" value={status.technicalAnalyst} />
                 <StatusPill label="Coordinator" value={status.coordinator} />

@@ -17,12 +17,14 @@
 
 | Agent | 本质职责 | 输入事件 | 输出事件 | LLM | 工具（Tool）使用 |
 |---|---|---|---|---:|---|
-| `DataCollectorAgent` | 市场数据“感知层”（REST polling） | 定时轮询 WEEX 行情 | `MarketTickEvent` / `KlineUpdateEvent` | 否 | 不需要 |
+| `DataCollectorAgent` | 市场数据“感知层”（WS/REST 降级） | 交易所行情 | `MarketTickEvent` / `KlineUpdateEvent` | 否 | 不需要 |
+| `DecisionTriggerAgent` | 价格变化触发器 | `MarketTickEvent` / `TradingPolicyUpdatedEvent` | `DecisionTriggerEvent` | 否 | 不需要 |
+| `PolicyManagerAgent` | 策略参数管理与校验 | AI 工具调用 / 配置 | `TradingPolicyUpdatedEvent` | 是 | 提供 `get_trading_policy` / `update_trading_policy` |
 | `MarketSentimentAgent` | 情绪解读（LLM + 指标） | `MarketTickEvent`（聚合后触发） | `MarketSentimentAnalysisEvent` | 是 | 默认不需要（可扩展：读行情/读账户的只读技能） |
 | `TechnicalAnalystAgent` | 技术解读（指标 + LLM） | `KlineUpdateEvent`（聚合后触发） | `TechnicalAnalysisEvent` | 是 | 默认不需要（可扩展：读行情的只读技能） |
-| `TradingCoordinatorAgent` | 综合决策（把多方结论合成一个交易意图） | `MarketSentimentAnalysisEvent` + `TechnicalAnalysisEvent` + `MarketTickEvent` | `TradingDecisionEvent` + `DecisionCycle*` | 是 | 可选：可切 `CognitiveMeshDecisionEngine`（外部推理服务） |
-| `RiskManagerAgent` | 风控闸门（规则 + LLM 风险评估） | `TradingDecisionEvent` | `ApprovedTradeEvent` / `TradeRejectedEvent` | 是 | **不直接触达交易所**（默认禁用危险工具）；只输出“可执行指令” |
-| `ExecutorAgent` | **唯一交易执行面**（把指令变成交易所挂单） | `ApprovedTradeEvent` + `CircuitBreakerTriggeredEvent` | `OrderExecutedEvent` / `OrderFailedEvent` / `OrderSimulatedEvent` | 否 | 不走 LLM 工具；直接调用 `IWeexApiClient.PlaceOrderAsync` |
+| `TradingCoordinatorAgent` | 综合决策（把多方结论合成一个交易意图） | `DecisionTriggerEvent` + 分析事件 | `TradingDecisionEvent` + `DecisionCycle*` | 是 | 可选：可切 `CognitiveMeshDecisionEngine`（外部推理服务） |
+| `RiskManagerAgent` | 风控闸门（规则 + LLM 风险评估） | `TradingDecisionEvent` / `StartupRiskCheckRequestedEvent` | `ApprovedTradeEvent` / `TradeRejectedEvent` / `StartupRiskCheckResultEvent` | 是 | **不直接触达交易所**（默认禁用危险工具）；只输出“可执行指令” |
+| `ExecutorAgent` | **唯一交易执行面**（把指令变成交易所挂单） | `ApprovedTradeEvent` + `CircuitBreakerTriggeredEvent` | `OrderExecutedEvent` / `OrderFailedEvent` / `OrderSimulatedEvent` | 否 | 不走 LLM 工具；直接调用 `IExchangeTradeClient.PlaceOrderAsync` |
 | `TradeAuditAgent` | 证据链落盘（JSONL + Markdown） | 全量关键事件（通过层级订阅） | 文件落盘 +（可选）`AiWarsLogUploadRequestedEvent` | 否 | 不需要 |
 
 > **关键点**：LLM 负责“想”；Executor 负责“做”。这样才能把风险从“模型随机性”隔离出来。
@@ -33,24 +35,23 @@
 
 ### 3.1 触发时机
 
-- 当 `TradingCoordinatorAgent` 同时拿到：
-  - 最新情绪分析（`MarketSentimentAnalysisEvent`）
-  - 最新技术分析（`TechnicalAnalysisEvent`）
-  - 最新价格快照（`MarketTickEvent`）
-- 且满足最小决策间隔（默认 30s）和最小置信度阈值（配置项 `Trading:MinConfidenceToTrade`）
+- 由 `DecisionTriggerAgent` 根据价格变化阈值 + 冷却时间触发 `DecisionTriggerEvent`
+- `TradingCoordinatorAgent` 在收到 `DecisionTriggerEvent` 时拉取最新分析结果，进入决策
+- 决策仍受最小决策间隔与最小置信度阈值控制（`Policy:Trading:MinConfidenceToTrade`）
 
 ### 3.2 事件链（从“看盘”到“挂单”）
 
-1. `DataCollectorAgent` 轮询行情 → 发布 `MarketTickEvent` / `KlineUpdateEvent`
-2. 分析师 Agents 产出分析 → 发布 `MarketSentimentAnalysisEvent` / `TechnicalAnalysisEvent`
-3. `TradingCoordinatorAgent` 组合分析，调用 LLM（或 Cognitive Mesh）→ 发布 `TradingDecisionEvent`
-4. `RiskManagerAgent` 做硬规则校验 + LLM 风控评估：
+1. `DataCollectorAgent` 采集行情 → 发布 `MarketTickEvent` / `KlineUpdateEvent`
+2. `DecisionTriggerAgent` 监测价格变化 → 发布 `DecisionTriggerEvent`
+3. 分析师 Agents 产出分析 → 发布 `MarketSentimentAnalysisEvent` / `TechnicalAnalysisEvent`
+4. `TradingCoordinatorAgent` 在触发点组合分析，调用 LLM（或 Cognitive Mesh）→ 发布 `TradingDecisionEvent`
+5. `RiskManagerAgent` 做硬规则校验 + LLM 风控评估：
    - 通过：发布 `ApprovedTradeEvent`
    - 拒绝：发布 `TradeRejectedEvent`
-5. **`ExecutorAgent` 接收 `ApprovedTradeEvent`，调用 WEEX 合约 API 下单**
-   - Live：`IWeexApiClient.PlaceOrderAsync` → `POST /capi/v2/order/placeOrder`
+6. **`ExecutorAgent` 接收 `ApprovedTradeEvent`，调用交易所抽象下单**
+   - Live：`IExchangeTradeClient.PlaceOrderAsync`
    - DryRun：不触网，只发布 `OrderSimulatedEvent`
-6. `TradeAuditAgent` 记录整条链路并输出可读策略日志
+7. `TradeAuditAgent` 记录整条链路并输出可读策略日志
 
 ---
 
@@ -81,11 +82,11 @@
 
 ### 开启方式（推荐）
 
-在 `apps/Aevatar.Trading/Aevatar.Trade/appsettings.json` 和 `apps/Aevatar.Trading/Aevatar.Trade.Api/appsettings.json` 中设置：
+在 `apps/Aevatar.Trading/src/Aevatar.Trade/appsettings.json` 和 `apps/Aevatar.Trading/src/Aevatar.Trade.Api/appsettings.json` 中设置：
 
 - `TradeAudit:RequestAiwarsUpload = true`
 
-并确保你的 WEEX 鉴权环境变量已配置（系统会把 `Weex:*` bridge 到 `WEEX_*` 给 dotnet-file skill 使用）：
+并确保你的 WEEX 鉴权环境变量已配置（系统会把 `ExchangeCredentials` 中 WEEX 的凭证 bridge 到 `WEEX_*` 给 dotnet-file skill 使用）：
 
 - `WEEX_API_KEY`
 - `WEEX_API_SECRET`

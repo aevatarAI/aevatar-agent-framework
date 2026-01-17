@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <RootNamespace>Aevatar.Trade.Api</RootNamespace>
+    </PropertyGroup>
+
+    <!-- ============ ASP.NET Core ============ -->
+    <ItemGroup>
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    </ItemGroup>
+
+    <!-- ============ Orleans ============ -->
+    <ItemGroup>
+        <PackageReference Include="Microsoft.Orleans.Server" />
+    </ItemGroup>
+
+    <!-- ============ Aspire ============ -->
+    <ItemGroup>
+        <PackageReference Include="Aspire.Hosting.AppHost" />
+    </ItemGroup>
+
+    <!-- ============ OpenTelemetry ============ -->
+    <ItemGroup>
+        <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
+        <PackageReference Include="OpenTelemetry.Exporter.Prometheus.AspNetCore" />
+        <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+        <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" />
+        <PackageReference Include="OpenTelemetry.Instrumentation.Http" />
+        <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" />
+    </ItemGroup>
+
+    <!-- ============ Project References ============ -->
+    <ItemGroup>
+        <ProjectReference Include="..\..\..\..\src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
+        <ProjectReference Include="..\..\..\..\src\Aevatar.Agents.Runtime.Orleans\Aevatar.Agents.Runtime.Orleans.csproj" />
+        <ProjectReference Include="..\..\..\..\src\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
+        <ProjectReference Include="..\..\..\..\src\Aevatar.Agents.AI.MEAI\Aevatar.Agents.AI.MEAI.csproj" />
+        <ProjectReference Include="..\Aevatar.Trade\Aevatar.Trade.csproj" />
+    </ItemGroup>
+    <ItemGroup>
+      <None Include="appsettings.secrets.json" />
+    </ItemGroup>
+
+</Project>

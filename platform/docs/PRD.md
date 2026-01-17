@@ -31,7 +31,7 @@
 | 代码搜索 | ✅ 对标 | Search Agent (grep/ast-grep) |
 | MCP 支持 | ✅ 对标 | MCP Bridge |
 | 会话管理 | ✅ 对标 | Event Sourcing |
-| 配置管理 | ✅ 对标 | `~/.aevatar/config.yaml` |
+| 配置管理 | ✅ 对标 | `~/.aevatar/config.json` |
 | **多 Agent 协作** | ✅ **增强** | Cognitive Mesh DSL |
 | **可视化工作流** | ✅ **增强** | DSL + 可视化编辑器 |
 | **Agent 市场** | ✅ **增强** | 预置/自定义 Agent |
@@ -51,8 +51,8 @@
 
 ```
 ~/.aevatar/
-├── config.yaml              # 主配置文件
-├── secrets.yaml             # 敏感信息 (API Keys)
+├── config.json              # 主配置文件
+├── secrets.json             # 敏感信息 (API Keys, 加密)
 ├── agents/                  # ✅ Agent YAML（role 配置，跨应用复用）
 │   ├── coder.yaml
 │   ├── reviewer.yaml
@@ -69,69 +69,74 @@
 
 > 现状对齐：仓库里已经实现了 `~/.aevatar/agents/{role}.yaml` 的加载与应用（框架层），并支持用 YAML 控制 tools/skills/prompt/model（见“5.2 Agent 配置示例”和“实现状态”）。
 
-### 3.2 主配置文件 (`config.yaml`)
+### 3.2 主配置文件 (`config.json`)
 
-```yaml
-# ~/.aevatar/config.yaml
-version: "1.0"
-
-# AI 模型配置
-models:
-  default: "gpt-4"
-  providers:
-    openai:
-      endpoint: "https://api.openai.com/v1"
-      # API Key 在 secrets.yaml 中
-    claude:
-      endpoint: "https://api.anthropic.com"
-    ollama:
-      endpoint: "http://localhost:11434"
-      default_model: "llama3.2"
-
-# 默认 Agent 配置
-agents:
-  default_workflow: "standard"  # 使用哪个工作流
-  parallel_limit: 3             # 最大并行 Agent 数
-
-# 工具配置
-tools:
-  shell:
-    allowed_commands: ["git", "npm", "cargo", "dotnet"]
-    timeout_seconds: 120
-  filesystem:
-    allowed_paths: ["~/Code", "/tmp"]
-    
-# UI 配置
-ui:
-  theme: "dark"
-  editor: "vscode"
-  
-# 日志配置
-logging:
-  level: "info"
-  file: "~/.aevatar/logs/aevatar.log"
+```json
+{
+  "Aevatar": {
+    "Models": {
+      "DefaultProvider": "openai",
+      "DefaultModel": "gpt-4",
+      "Providers": {
+        "openai": {},
+        "claude": {},
+        "ollama": {}
+      }
+    },
+    "Agents": {
+      "DefaultWorkflow": "standard",
+      "ParallelLimit": 3
+    },
+    "Tools": {
+      "Shell": {
+        "AllowedCommands": ["git", "npm", "cargo", "dotnet"],
+        "TimeoutSeconds": 120
+      },
+      "FileSystem": {
+        "AllowedPaths": ["~/Code", "/tmp"]
+      }
+    },
+    "Ui": {
+      "Theme": "dark",
+      "Editor": "vscode"
+    },
+    "Logging": {
+      "Level": "info",
+      "File": "~/.aevatar/logs/aevatar.log"
+    }
+  }
+}
 ```
 
-### 3.3 敏感配置 (`secrets.yaml`)
+> 说明：沿用 Aevatar.Tools.Config，只需写 `secrets.json` 里已有的 provider 名称，不在这里配置 endpoint/model。
 
-```yaml
-# ~/.aevatar/secrets.yaml
-# 此文件应添加到 .gitignore
+### 3.3 敏感配置 (`secrets.json`)
 
-providers:
-  openai:
-    api_key: "sk-..."
-  claude:
-    api_key: "sk-ant-..."
-  deepseek:
-    api_key: "sk-..."
-
-# MCP 服务器凭证
-mcp:
-  github:
-    token: "ghp_..."
-  postgres:
-    connection_string: "postgresql://..."
+```json
+{
+  "LLMProviders": {
+    "Default": "openai",
+    "Providers": {
+      "openai": {
+        "ProviderType": "OpenAI",
+        "ApiKey": "sk-...",
+        "Model": "gpt-4"
+      },
+      "claude": {
+        "ProviderType": "Anthropic",
+        "ApiKey": "sk-ant-...",
+        "Model": "claude-3-5-sonnet"
+      }
+    }
+  },
+  "MCP": {
+    "Servers": {
+      "github": {
+        "Token": "ghp_..."
+      }
+    }
+  }
+}
 ```
 
 ---
@@ -412,8 +417,8 @@ You: 应用这些改动
 ├─────────────────────────────────────────────────────────────────┤
 │  Config Layer                                                    │
 │  ~/.aevatar/                                                     │
-│  ├── config.yaml    (主配置)                                     │
-│  ├── secrets.yaml   (API Keys)                                   │
+│  ├── config.json    (主配置)                                     │
+│  ├── secrets.json   (API Keys, 加密)                              │
 │  ├── agents/        (Agent 配置)                                 │
 │  └── workflows/     (DSL 工作流)                                 │
 ├─────────────────────────────────────────────────────────────────┤

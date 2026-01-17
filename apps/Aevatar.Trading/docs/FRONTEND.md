@@ -13,13 +13,13 @@ apps/Aevatar.Trading/frontend/
 ├── tsconfig.json
 ├── index.html
 └── src/
-    ├── App.tsx          # Tabs：Trading / WEEX Tools / AI Wars APIs
+    ├── App.tsx          # Tabs：Decision Center / Exchange Tools / AI Wars APIs
     ├── main.tsx         # React 入口
     ├── api.ts           # fetch 封装（统一错误处理）
     ├── types.ts         # 后端 DTO（只定义 UI 用到的字段）
     ├── styles.css       # 轻量 UI（无额外 UI 依赖）
     ├── components/      # Button / Panel / StatusPill
-    └── pages/           # TradingPage（Auto Trading Dashboard）/ WeexPage / AiWarsPage
+    └── pages/           # TradingPage（决策控制台）/ WeexPage / AiWarsPage
 ```
 
 ## 联调原则（让特殊情况消失）
@@ -36,7 +36,7 @@ apps/Aevatar.Trading/frontend/
 
 ## 页面与后端接口映射
 
-### Trading（系统控制台）
+### Decision Center（决策控制台）
 
 - `POST /api/trading/initialize`
 - `POST /api/trading/start`
@@ -45,11 +45,15 @@ apps/Aevatar.Trading/frontend/
 - `GET /api/trading/status`
 - `GET /api/agents`
 - `GET /api/meta`                      # 安全配置快照（symbol/interval/mode，无 secrets）
+- `GET /api/policy`                    # 策略参数快照
+- `POST /api/policy`                   # 策略更新（含校验）
+- `POST /api/decision/trigger`         # 手工触发决策
+- `GET /api/positions`                 # 仓位（交易所无关）
 - `GET /api/audit/latest?maxBytes=...` # 最新策略日志（Markdown tail）
 - `GET /api/audit/files`               # 审计文件列表
 - `GET /api/audit/tail?name=...`       # 读取指定文件尾部（md/jsonl）
 
-### WEEX Tools（调试工具箱）
+### Exchange Tools（调试工具箱）
 
 - `GET /api/weex-test/ticker?symbol=...`
 - `GET /api/weex-test/balances`

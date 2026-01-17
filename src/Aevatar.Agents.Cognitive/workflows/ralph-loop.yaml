@@ -10,7 +10,6 @@
 # ============================================================
 
 name: ralph-loop
-version: "1.0"
 description: "Bounded objective loop: propose -> apply -> verify -> repeat until pass"
 
 inputs:

@@ -147,6 +147,44 @@ public sealed class WorkflowEngine
             Note: "Execution stub (MVP)."));
     }
 
+    public static async Task<string> RunWorkflowAsync(
+        string workflow,
+        string configDir,
+        CancellationToken ct = default)
+    {
+        var workflowFile = ResolveWorkflowFile(workflow, configDir);
+        if (workflowFile == null)
+            return $"(workflow '{workflow}' not found, execution stub)";
+
+        try
+        {
+            var raw = await File.ReadAllTextAsync(workflowFile, ct);
+            var compiler = new PlatformMeshCompiler();
+            var engine = new WorkflowEngine();
+
+            var compile = compiler.Compile(raw);
+            if (!compile.Ok || compile.Definition == null)
+            {
+                var msg = string.Join("; ", compile.Errors.Select(e => e.Code));
+                return $"workflow compile failed: {msg}";
+            }
+
+            var plan = engine.Plan(compile.Definition);
+            if (!plan.Ok || plan.Plan == null)
+            {
+                var msg = string.Join("; ", plan.Errors.Select(e => e.Code));
+                return $"workflow plan failed: {msg}";
+            }
+
+            var result = await engine.ExecuteAsync(plan.Plan, ct);
+            return result.Note;
+        }
+        catch (Exception ex)
+        {
+            return $"workflow error: {ex.Message}";
+        }
+    }
+
     private static IReadOnlyList<string>? TopoSort(
         Dictionary<string, List<string>> outgoing,
         Dictionary<string, int> indeg)
@@ -178,6 +216,31 @@ public sealed class WorkflowEngine
         }
 
         return result.Count == outgoing.Count ? result : null;
+    }
+
+    private static string? ResolveWorkflowFile(string workflow, string configDir)
+    {
+        var name = (workflow ?? string.Empty).Trim();
+        if (name.Length == 0)
+            return null;
+
+        if (File.Exists(name))
+            return Path.GetFullPath(name);
+
+        var dir = Path.Combine(configDir, "workflows");
+        var json = Path.Combine(dir, $"{name}.json");
+        if (File.Exists(json))
+            return json;
+
+        var yaml = Path.Combine(dir, $"{name}.yaml");
+        if (File.Exists(yaml))
+            return yaml;
+
+        var yml = Path.Combine(dir, $"{name}.yml");
+        if (File.Exists(yml))
+            return yml;
+
+        return null;
     }
 }
 

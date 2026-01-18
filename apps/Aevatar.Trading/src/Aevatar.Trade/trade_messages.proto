@@ -464,6 +464,11 @@ message TradeAuditConfig {
     int32 max_markdown_bytes = 5;           // Rotate markdown when file exceeds this size. 0=use default, <0=disable
 }
 
+// Market chat config (AI chat streaming cadence)
+message MarketChatConfig {
+    int32 chat_interval_seconds = 1;        // 固定间隔输出 AI 市场分析（秒，0=禁用）
+}
+
 // WEEX AI Wars log upload configuration (skeleton)
 message AiWarsLogUploadConfig {
     bool enabled = 1;                       // Enable uploading
@@ -481,6 +486,12 @@ message DecisionEngineConfig {
     string cognitive_mesh_strategy = 3;     // "Direct" / "Maker" / "UoT" / "EUoT" / "TUoT" / "Cognitive"
     string cognitive_workflow = 4;          // e.g., "maker-v2"
     int32 timeout_seconds = 5;              // Request timeout
+}
+
+// Trading system startup behavior (API host only)
+message TradingStartupConfig {
+    bool auto_start = 1;                    // Auto start trading system on API boot
+    bool auto_start_allow_live = 2;         // Allow auto start when ExecutionMode=Live
 }
 
 // ============================================================================
@@ -524,6 +535,7 @@ message DecisionTriggerConfig {
     int32 window_seconds = 3;               // 统计窗口（秒）
     int32 cooldown_seconds = 4;             // 冷却时间（秒）
     bool trigger_on_startup = 5;            // 启动时触发风险检查
+    reserved 6;
 }
 
 // 触发事件（供 Coordinator 进入决策）
@@ -536,6 +548,15 @@ message DecisionTriggerEvent {
     double base_price = 6;                  // Window 基准价
     double latest_price = 7;                // 最新价
     google.protobuf.Timestamp timestamp = 8;
+}
+
+// 用户输入事件（UI -> MarketChatAgent）
+message UserChatMessageEvent {
+    string message_id = 1;
+    string user_id = 2;
+    string content = 3;
+    string source = 4;                      // "UI" / "API" / "SYSTEM"
+    google.protobuf.Timestamp timestamp = 5;
 }
 
 // 动态策略配置（AI 可调整）

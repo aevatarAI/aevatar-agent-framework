@@ -1,0 +1,113 @@
+# ============================================================
+#  TRADE CYCLE - Trading report -> decision JSON
+#
+#  Purpose:
+#  - Generate a structured market report first (short, auditable).
+#  - Then produce a single trading decision JSON for the trade system.
+#
+#  Notes:
+#  - This workflow intentionally does NOT call tools.
+#  - Execution (place/cancel order) must be done by Trade system agents.
+# ============================================================
+
+name: trade-cycle
+version: "1.0"
+description: "Trading: report first, then decision JSON (no tool calling)"
+
+inputs:
+  - name: task
+    type: string
+    required: true
+    description: "Trade prompt with latest snapshots (tick/analysis/config)."
+
+  - name: language
+    type: string
+    default: "Chinese"
+    description: "Human language for summaries/reasoning (JSON keys remain unchanged)."
+
+defaults:
+  llm_call:
+    # Keep outputs bounded and strictly parseable when JSON is required.
+    max_length: 8192
+    strict_parse: true
+    timeout_seconds: 120
+    idle_timeout_seconds: 30
+
+steps:
+  # --------------------------------------------------------
+  # Step 1: Market report (structured, short)
+  # --------------------------------------------------------
+  - id: write_report
+    type: llm_call
+    prompt: |
+      You are a professional quantitative trader.
+      Write a SHORT, structured market report ONLY based on the provided task text (do not invent data).
+
+      Requirements:
+      - Return ONLY a JSON object (no markdown).
+      - Be concise and audit-friendly.
+      - Use {{language}} for all text fields.
+      - If data is missing, write "N/A" (do NOT hallucinate).
+
+      Input task (authoritative):
+      {{task}}
+
+      Output JSON schema:
+      {
+        "market_snapshot": {
+          "symbol": "string",
+          "price": "string",
+          "change24h": "string",
+          "volatility_note": "string"
+        },
+        "technical": { "summary": "string", "bias": "BULL|BEAR|NEUTRAL", "confidence": 0-100 },
+        "sentiment": { "summary": "string", "bias": "BULL|BEAR|NEUTRAL", "confidence": 0-100 },
+        "news": { "summary": "string", "bias": "BULL|BEAR|NEUTRAL", "confidence": 0-100 },
+        "risk": { "summary": "string", "risk_level": "LOW|MEDIUM|HIGH|EXTREME" }
+      }
+    output: json
+    store: report
+
+  # --------------------------------------------------------
+  # Step 2: Final decision JSON (must match trade coordinator schema)
+  # --------------------------------------------------------
+  - id: make_decision
+    type: llm_call
+    prompt: |
+      You are the chief trading decision maker.
+      You MUST output exactly ONE decision JSON object that matches the required schema.
+
+      Rules:
+      - Use ONLY the report + task provided below. Do NOT invent numbers.
+      - Prefer micro-scalping: tiny probe trades (0.5~2.0% position) when not strongly bearish.
+      - HOLD should be rare; if HOLD, state clear conditions to act.
+      - If BUY/SELL, confidence MUST be >= 50.
+      - All reasoning text must be {{language}}.
+      - Keep reasoning.final_logic short (<= 8 lines).
+
+      Task:
+      {{task}}
+
+      Report (JSON):
+      {{report | json}}
+
+      Output JSON schema (STRICT):
+      {
+        "direction": "BUY|SELL|HOLD",
+        "confidence": 1-100,
+        "position_pct": 0-30,
+        "reasoning": {
+          "sentiment_factor": "string",
+          "technical_factor": "string",
+          "news_factor": "string",
+          "final_logic": "string"
+        },
+        "summary": "string"
+      }
+    output: json
+    store: decision
+
+output:
+  result: "{{decision | json}}"
+
+

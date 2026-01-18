@@ -1,6 +1,8 @@
 using Aevatar.Agents.Core.Extensions;
 using Aevatar.Trade;
+using Aevatar.Trade.AgUi;
 using Aevatar.Trade.Api;
+using Aevatar.Trade.Api.AgUi;
 using Aevatar.Trade.Api.Extensions;
 using Aevatar.Trade.Infrastructure.Exchanges;
 using Aevatar.Trade.Infrastructure.WeexApi;
@@ -102,6 +104,14 @@ builder.Services.AddMEAILLMProvider(builder.Configuration);
 // Trading system
 builder.Services.AddSingleton<TradingSystem>();
 
+// ------------------------------------------------------------
+// AG-UI Streaming（snapshot + SSE）
+// ------------------------------------------------------------
+builder.Services.AddSingleton<TradeAgUiHub>();
+builder.Services.AddSingleton<ITradeAgUiStreamSink, TradeAgUiStreamSink>();
+builder.Services.AddHostedService<TradeAgUiAuditBridge>();
+builder.Services.AddHostedService<TradingSystemAutoStarter>();
+
 // ============ Build & Configure ============
 
 var app = builder.Build();
@@ -157,6 +167,7 @@ app.UseAuthorization();
 app.UsePrometheusMetrics();
 
 app.MapControllers();
+app.MapTradeAgUiEvents();
 
 // AI Wars DotNetSkills -> HTTP endpoints (Swagger visible)
 await app.MapAiWarsSkillEndpointsAsync();

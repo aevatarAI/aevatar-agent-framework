@@ -157,7 +157,38 @@ LLM 配置只从 **用户级 secrets** 读取（默认 `~/.aevatar/secrets.json`
 
 ---
 
-## 6) 环境变量桥接（DotNet Skills）
+## 6) 市场聊天（MarketChat）
+
+固定间隔输出 AI 行情分析（用于前端流式展示），与 AGUI 传输层解耦：
+
+```json
+{
+  "MarketChat": {
+    "ChatIntervalSeconds": 300
+  }
+}
+```
+
+---
+
+## 7) 启动行为（Startup）
+
+API 启动后自动 Initialize + Start（可选）：
+
+```json
+{
+  "Startup": {
+    "AutoStart": true,
+    "AutoStartAllowLive": true
+  }
+}
+```
+
+> 建议：Live 环境如果不希望自动启动，设 `AutoStartAllowLive=false`。
+
+---
+
+## 8) 环境变量桥接（DotNet Skills）
 
 系统会在启动时把 `ExchangeCredentials` 里对应的 WEEX 凭证桥接为环境变量：
 

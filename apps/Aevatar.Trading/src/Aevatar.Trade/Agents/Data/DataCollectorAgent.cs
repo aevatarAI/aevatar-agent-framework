@@ -25,6 +25,8 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
     private int _pollingRunning;
     private DateTime _nextKlinePollUtc = DateTime.MinValue;
     private string _pollingInterval = "15m";
+    private bool _enableWebsocket = true;
+    private bool _enableRestPolling = true;
 
     public IExchangeClient ExchangeClient
     {
@@ -35,6 +37,15 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
             _capabilities = value.Capabilities;
             SetupMarketStreamHandlers();
         }
+    }
+
+    public void Configure(bool enableWebsocket, bool enableRestPolling)
+    {
+        _enableWebsocket = enableWebsocket;
+        _enableRestPolling = enableRestPolling;
+        Logger.LogInformation(
+            "[DataCollector] Config: EnableWebsocket={Ws}, EnableRestPolling={Rest}",
+            _enableWebsocket, _enableRestPolling);
     }
 
     // ============ Lifecycle ============
@@ -99,7 +110,7 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
         _pollingInterval = string.IsNullOrWhiteSpace(klineInterval) ? "15m" : klineInterval.Trim();
 
         // Connect market stream (preferred). If it fails, fall back to REST polling.
-        var canStream = _marketStream != null && _capabilities.SupportsWebSocket;
+        var canStream = _enableWebsocket && _marketStream != null && _capabilities.SupportsWebSocket;
         if (canStream)
         {
             try
@@ -110,16 +121,19 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 State.IsConnected = false;
+                _enableWebsocket = false; // Avoid reconnect storm when WS is blocked (e.g., 521)
                 Logger.LogWarning(ex,
                     "[DataCollector] Market stream connect failed; falling back to REST polling. Interval={Interval}",
                     _pollingInterval);
-                StartPolling(symbols);
+                if (_enableRestPolling)
+                    StartPolling(symbols);
             }
         }
         else
         {
             State.IsConnected = false;
-            StartPolling(symbols);
+            if (_enableRestPolling)
+                StartPolling(symbols);
         }
 
         // Subscribe to market data
@@ -429,7 +443,8 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
         Logger.LogWarning("[DataCollector] Market stream disconnected");
 
         // Attempt to reconnect
-        _ = TryReconnectAsync();
+        if (_enableWebsocket)
+            _ = TryReconnectAsync();
     }
 
     private void OnStreamError(string error)
@@ -441,7 +456,7 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
 
     private void CheckConnection()
     {
-        if (!State.IsConnected && _marketStream != null)
+        if (!State.IsConnected && _marketStream != null && _enableWebsocket)
         {
             Logger.LogWarning("[DataCollector] Connection lost, attempting reconnect...");
             _ = TryReconnectAsync();
@@ -450,7 +465,7 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
 
     private async Task TryReconnectAsync()
     {
-        if (_marketStream == null) return;
+        if (_marketStream == null || !_enableWebsocket) return;
 
         try
         {
@@ -468,6 +483,8 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
         catch (Exception ex)
         {
             Logger.LogError(ex, "[DataCollector] Reconnection failed");
+            if (_enableRestPolling)
+                StartPolling(_subscribedSymbols);
         }
     }
 }

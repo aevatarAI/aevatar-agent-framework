@@ -142,6 +142,8 @@ apps/Aevatar.Trading/
 │   │   │   └── TradingPolicyTools.cs
 │   │   ├── RiskControl/
 │   │   │   └── RiskManagerAgent.cs
+│   │   ├── Streaming/
+│   │   │   └── MarketChatAgent.cs
 │   │   └── Execution/
 │   │       └── ExecutorAgent.cs
 │   └── Infrastructure/
@@ -180,6 +182,12 @@ apps/Aevatar.Trading/
 │   ├── Program.cs
 │   ├── AiWarsSkillEndpoints.cs         # ✅ 把 Tools/DotNetSkills/ai-wars/** 映射为 HTTP endpoints（Swagger 可见）
 │   ├── appsettings.json
+│   ├── AgUi/
+│   │   ├── TradeAgUiEndpoints.cs        # /api/agui/events (SSE)
+│   │   ├── TradeAgUiAuditBridge.cs      # trade-audit -> AG-UI 事件桥
+│   │   ├── TradeAgUiHub.cs              # AG-UI 消息与事件 Hub
+│   │   ├── TradeAgUiJson.cs             # AG-UI JSON 序列化配置
+│   │   └── TradeAgUiStreamSink.cs       # Agent -> AG-UI 输出适配器
 │   ├── Controllers/
 │   │   ├── TradingController.cs         # 系统控制 + Agent 状态
 │   │   ├── PolicyController.cs          # 策略读写（交易所无关）
@@ -207,6 +215,7 @@ apps/Aevatar.Trading/
 - **2025-12-29**：TradeAudit 追加 `trade-audit/*.md` 人类可读策略日志；新增 `AuditController`/`MetaController` 供前端 Dashboard 展示策略/余额/订单闭环。
 - **2025-12-29**：新增 `AiWarsSkillEndpoints`：自动扫描 `Tools/DotNetSkills/ai-wars/**`，并将每个 endpoint 以 `/api/ai-wars/{toolName}` 暴露到 Swagger（便于“看得见、点得动”）。
 - **2026-01-17**：新增交易所抽象与 Trigger/Policy 体系（DecisionTriggerAgent / PolicyManagerAgent），并引入策略/触发/仓位 API，前端改为以仓位与决策为中心的布局。
+- **2026-01-17**：引入 AG-UI SSE：`/api/agui/events`（trade-audit → TextMessage streaming），前端支持 AGUI 方式展示 AI Chat。
 - **2026-01-17**：统一 ExchangeCredentials 解析逻辑到 `ExchangeCredentialsResolver`，消除 Program/DI 逻辑重复。
 
 ---
@@ -579,6 +588,17 @@ PENDING → SUBMITTED → PARTIAL_FILLED → FILLED
 ---
 
 ## 事件流设计
+
+### AG-UI SSE（前端流式）
+
+- **数据源**：
+  - `MarketChatAgent`（ChatStreamAsync → 实时 token 流）
+  - `trade-audit/*.md`（TradeAuditAgent 产出，补充审计摘要）
+- **事件桥**：
+  - `TradeAgUiStreamSink`：Agent → AG-UI（TextMessageStart/Content/End）
+  - `TradeAgUiAuditBridge`：Audit → AG-UI（TextMessageStart/Content/End）
+- **交互入口**：`POST /api/agui/chat`（用户输入 → MarketChatAgent）
+- **前端订阅**：`GET /api/agui/events`（snapshot-first + SSE）
 
 ### 核心事件定义 (Protobuf)
 

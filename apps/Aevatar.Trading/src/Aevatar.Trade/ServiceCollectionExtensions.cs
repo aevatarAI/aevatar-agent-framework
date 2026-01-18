@@ -27,6 +27,8 @@ public static class ServiceCollectionExtensions
         services.Configure<AnalysisWeightConfig>(configuration.GetSection("Policy:Analysis"));
         services.Configure<RiskControlConfig>(configuration.GetSection("Policy:Risk"));
         services.Configure<TradeAuditConfig>(configuration.GetSection("TradeAudit"));
+        services.Configure<MarketChatConfig>(configuration.GetSection("MarketChat"));
+        services.Configure<TradingStartupConfig>(configuration.GetSection("Startup"));
         services.Configure<AiWarsLogUploadConfig>(configuration.GetSection("AiWars"));
         services.Configure<DecisionEngineConfig>(configuration.GetSection("DecisionEngine"));
         services.Configure<DecisionTriggerConfig>(configuration.GetSection("Policy:Trigger"));

@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.Linq;
+using System.Text;
 using Aevatar.Agents.AI.Core.Configuration;
 using Aevatar.Platform;
+using Aevatar.Platform.Cli.Commands;
 using Aevatar.Platform.Core.Config;
 using Aevatar.Platform.Core.Sessions;
 using Aevatar.Platform.Core.Tools;
@@ -157,8 +159,26 @@ public static class TuiHandlers
 
         await sessions.AppendEventAsync(runtime.SessionId, userEvent, ct);
 
-        var response = await TryRunWorkflowAsync(runtime, effective, compiler, engine, ct);
-        response = Truncate(response, MaxOutputChars);
+        var delayMs = GetStreamDelayMs();
+        var (result, response) = await RunWorkflowStreamingAsync(
+            runtime,
+            effective,
+            compiler,
+            engine,
+            input.Text,
+            resolved,
+            async (chunk, token) =>
+            {
+                if (string.IsNullOrEmpty(chunk))
+                    return;
+                output.Markup(Markup.Escape(chunk));
+                if (delayMs > 0)
+                    await Task.Delay(delayMs, token);
+            },
+            ct);
+        if (!string.IsNullOrWhiteSpace(result.SelectedWorkflow))
+            runtime.Workflow = result.SelectedWorkflow!;
+        await TryUpdateSessionWorkflowAsync(runtime, sessions, ct);
 
         var agentEvent = new PlatformSessionEvent
         {
@@ -174,7 +194,7 @@ public static class TuiHandlers
         };
 
         await sessions.AppendEventAsync(runtime.SessionId, agentEvent, ct);
-        await RenderStreamingAsync(response, output, ct);
+        output.WriteLine(string.Empty);
     }
 
     // ============================================================
@@ -194,7 +214,7 @@ public static class TuiHandlers
         PlatformToolPolicy policy,
         CancellationToken ct)
     {
-        var resolved = ResolveAttachments(input.Attachments, policy, new ConsoleTuiOutput());
+        var resolved = ResolveAttachments(input.Attachments, policy, new SilentTuiOutput());
         foreach (var file in resolved)
             runtime.AttachedFiles.Add(file);
 
@@ -215,8 +235,19 @@ public static class TuiHandlers
 
         await sessions.AppendEventAsync(runtime.SessionId, userEvent, ct);
 
-        var response = await TryRunWorkflowAsync(runtime, effective, compiler, engine, ct);
-        response = Truncate(response, MaxOutputChars);
+        var result = await TryRunWorkflowAsync(
+            runtime,
+            effective,
+            compiler,
+            engine,
+            input.Text,
+            resolved,
+            ct);
+        if (!string.IsNullOrWhiteSpace(result.SelectedWorkflow))
+            runtime.Workflow = result.SelectedWorkflow!;
+        await TryUpdateSessionWorkflowAsync(runtime, sessions, ct);
+
+        var response = Truncate(result.Note, MaxOutputChars);
 
         var agentEvent = new PlatformSessionEvent
         {
@@ -235,6 +266,77 @@ public static class TuiHandlers
         return response;
     }
 
+    public static async Task<string> ChatStreamAsync(
+        ParsedInput input,
+        SessionRuntime runtime,
+        AevatarEffectiveConfig effective,
+        SessionService sessions,
+        PlatformMeshCompiler? compiler,
+        WorkflowEngine? engine,
+        PlatformToolPolicy policy,
+        Func<string, CancellationToken, Task> emitChunk,
+        CancellationToken ct)
+    {
+        var resolved = ResolveAttachments(input.Attachments, policy, new SilentTuiOutput());
+        foreach (var file in resolved)
+            runtime.AttachedFiles.Add(file);
+
+        if (input.Text.Length == 0)
+            return string.Empty;
+
+        var userEvent = new PlatformSessionEvent
+        {
+            Seq = ++runtime.Seq,
+            Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow),
+            UserMessage = new UserMessageEvent
+            {
+                MessageId = Guid.NewGuid().ToString("N"),
+                Text = input.Text,
+                AttachedFiles = { resolved }
+            }
+        };
+
+        await sessions.AppendEventAsync(runtime.SessionId, userEvent, ct);
+
+        var (result, response) = await RunWorkflowStreamingAsync(
+            runtime,
+            effective,
+            compiler,
+            engine,
+            input.Text,
+            resolved,
+            emitChunk,
+            ct);
+        if (!string.IsNullOrWhiteSpace(result.SelectedWorkflow))
+            runtime.Workflow = result.SelectedWorkflow!;
+        await TryUpdateSessionWorkflowAsync(runtime, sessions, ct);
+
+        var agentEvent = new PlatformSessionEvent
+        {
+            Seq = ++runtime.Seq,
+            Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow),
+            AgentOutputDelta = new AgentOutputDeltaEvent
+            {
+                Agent = "system",
+                MessageId = userEvent.UserMessage.MessageId,
+                Delta = response,
+                IsFinal = true
+            }
+        };
+
+        await sessions.AppendEventAsync(runtime.SessionId, agentEvent, ct);
+        return response;
+    }
+
+    // GUI 后端静默输出（避免污染 OpenTUI 屏幕）
+    private sealed class SilentTuiOutput : ITuiOutput
+    {
+        public void Markup(string markup) { }
+        public void MarkupLine(string markup) { }
+        public void WriteLine(string text) { }
+        public void Clear() { }
+    }
+
     public static async Task<SessionRuntime> EnsureSessionAsync(
         TuiOptions options,
         AevatarEffectiveConfig effective,
@@ -249,7 +351,9 @@ public static class TuiHandlers
             {
                 var events = await sessions.GetSessionEventsAsync(requestedSessionId, ct);
                 var seq = (ulong)events.Count;
-                return new SessionRuntime(requestedSessionId, seq, existing.Profile, existing.ActiveWorkflow);
+                var existingRuntime = new SessionRuntime(requestedSessionId, seq, existing.Profile, existing.ActiveWorkflow);
+                NormalizeWorkflow(existingRuntime, effective.ConfigDirectory);
+                return existingRuntime;
             }
 
             var newState = new PlatformSessionState
@@ -266,7 +370,9 @@ public static class TuiHandlers
             };
 
             await sessions.CreateSessionAsync(newState, ct);
-            return new SessionRuntime(requestedSessionId, 0, newState.Profile, newState.ActiveWorkflow);
+            var newRuntime = new SessionRuntime(requestedSessionId, 0, newState.Profile, newState.ActiveWorkflow);
+            NormalizeWorkflow(newRuntime, effective.ConfigDirectory);
+            return newRuntime;
         }
 
         if (options.Resume)
@@ -277,7 +383,9 @@ public static class TuiHandlers
             {
                 var events = await sessions.GetSessionEventsAsync(latest.SessionId, ct);
                 var seq = (ulong)events.Count;
-                return new SessionRuntime(latest.SessionId, seq, latest.Profile, latest.ActiveWorkflow);
+                var latestRuntime = new SessionRuntime(latest.SessionId, seq, latest.Profile, latest.ActiveWorkflow);
+                NormalizeWorkflow(latestRuntime, effective.ConfigDirectory);
+                return latestRuntime;
             }
         }
 
@@ -295,7 +403,9 @@ public static class TuiHandlers
         };
 
         var sessionId = await sessions.CreateSessionAsync(state, ct);
-        return new SessionRuntime(sessionId, 0, state.Profile, state.ActiveWorkflow);
+        var sessionRuntime = new SessionRuntime(sessionId, 0, state.Profile, state.ActiveWorkflow);
+        NormalizeWorkflow(sessionRuntime, effective.ConfigDirectory);
+        return sessionRuntime;
     }
 
     public static string ResolveToolPolicyPreset(string? profile)
@@ -412,16 +522,94 @@ public static class TuiHandlers
         }
     }
 
-    private static async Task<string> TryRunWorkflowAsync(
+    private static async Task<(WorkflowRunResult Result, string Response)> RunWorkflowStreamingAsync(
         SessionRuntime runtime,
         AevatarEffectiveConfig effective,
         PlatformMeshCompiler? compiler,
         WorkflowEngine? engine,
+        string userMessage,
+        IReadOnlyList<string> attachedFiles,
+        Func<string, CancellationToken, Task> emitChunk,
         CancellationToken ct)
     {
+        ArgumentNullException.ThrowIfNull(emitChunk);
+
+        var builder = new StringBuilder();
+        var truncated = false;
+
+        async Task OnDelta(string chunk, CancellationToken token)
+        {
+            if (string.IsNullOrEmpty(chunk))
+                return;
+
+            if (builder.Length < MaxOutputChars)
+            {
+                var remaining = MaxOutputChars - builder.Length;
+                var slice = chunk.Length > remaining ? chunk.Substring(0, remaining) : chunk;
+                builder.Append(slice);
+                await emitChunk(slice, token);
+                if (chunk.Length > remaining)
+                    truncated = true;
+            }
+            else
+            {
+                truncated = true;
+            }
+        }
+
+        var result = await TryRunWorkflowStreamingAsync(
+            runtime,
+            effective,
+            compiler,
+            engine,
+            userMessage,
+            attachedFiles,
+            OnDelta,
+            ct);
+
+        if (truncated)
+        {
+            builder.Append("...");
+            await emitChunk("...", ct);
+        }
+
+        return (result, builder.ToString());
+    }
+
+    private static async Task<WorkflowRunResult> TryRunWorkflowStreamingAsync(
+        SessionRuntime runtime,
+        AevatarEffectiveConfig effective,
+        PlatformMeshCompiler? compiler,
+        WorkflowEngine? engine,
+        string userMessage,
+        IReadOnlyList<string> attachedFiles,
+        Func<string, CancellationToken, Task> onDelta,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(onDelta);
+
         var workflowFile = ResolveWorkflowFile(runtime.Workflow, effective.ConfigDirectory);
+        if (workflowFile == null)
+        {
+            // 自动回退到可用 workflow，避免默认 workflow 不存在的误导
+            var fallback = PickFallbackWorkflow(effective.ConfigDirectory);
+            if (!string.IsNullOrWhiteSpace(fallback))
+            {
+                runtime.Workflow = fallback;
+                workflowFile = ResolveWorkflowFile(runtime.Workflow, effective.ConfigDirectory);
+            }
+        }
+
         if (workflowFile == null || compiler == null || engine == null)
-            return $"(workflow '{runtime.Workflow}' not found, execution stub)";
+        {
+            var stub = new WorkflowRunResult(
+                RunId: $"run_{Guid.NewGuid():N}",
+                Ok: false,
+                Note: "(no workflow found; execution stub)");
+            if (!string.IsNullOrWhiteSpace(stub.Note))
+                await onDelta(stub.Note, ct);
+            return stub;
+        }
 
         try
         {
@@ -430,22 +618,128 @@ public static class TuiHandlers
             if (!compile.Ok || compile.Definition == null)
             {
                 var msg = string.Join("; ", compile.Errors.Select(e => e.Code));
-                return $"workflow compile failed: {msg}";
+                var failed = new WorkflowRunResult(
+                    RunId: $"run_{Guid.NewGuid():N}",
+                    Ok: false,
+                    Note: $"workflow compile failed: {msg}");
+                if (!string.IsNullOrWhiteSpace(failed.Note))
+                    await onDelta(failed.Note, ct);
+                return failed;
             }
 
             var plan = engine.Plan(compile.Definition);
             if (!plan.Ok || plan.Plan == null)
             {
                 var msg = string.Join("; ", plan.Errors.Select(e => e.Code));
-                return $"workflow plan failed: {msg}";
+                var failed = new WorkflowRunResult(
+                    RunId: $"run_{Guid.NewGuid():N}",
+                    Ok: false,
+                    Note: $"workflow plan failed: {msg}");
+                if (!string.IsNullOrWhiteSpace(failed.Note))
+                    await onDelta(failed.Note, ct);
+                return failed;
             }
 
-            var result = await engine.ExecuteAsync(plan.Plan, ct);
-            return result.Note;
+            var runInput = new WorkflowRunInput(
+                UserMessage: userMessage,
+                ConfigDirectory: effective.ConfigDirectory,
+                ConfigPath: effective.ConfigPath,
+                SecretsPath: effective.SecretsPath,
+                WorkingDirectory: Directory.GetCurrentDirectory(),
+                Profile: runtime.Profile,
+                WorkflowName: runtime.Workflow,
+                DefaultProvider: effective.Config.Models.DefaultProvider,
+                DefaultModel: effective.Config.Models.DefaultModel,
+                AttachedFiles: attachedFiles,
+                ToolsConfig: effective.Config.Tools);
+
+            return await engine.ExecuteStreamingAsync(plan.Plan, runInput, onDelta, ct);
         }
         catch (Exception ex)
         {
-            return $"workflow error: {ex.Message}";
+            var failed = new WorkflowRunResult(
+                RunId: $"run_{Guid.NewGuid():N}",
+                Ok: false,
+                Note: $"workflow error: {ex.Message}");
+            if (!string.IsNullOrWhiteSpace(failed.Note))
+                await onDelta(failed.Note, ct);
+            return failed;
+        }
+    }
+
+    private static async Task<WorkflowRunResult> TryRunWorkflowAsync(
+        SessionRuntime runtime,
+        AevatarEffectiveConfig effective,
+        PlatformMeshCompiler? compiler,
+        WorkflowEngine? engine,
+        string userMessage,
+        IReadOnlyList<string> attachedFiles,
+        CancellationToken ct)
+    {
+        var workflowFile = ResolveWorkflowFile(runtime.Workflow, effective.ConfigDirectory);
+        if (workflowFile == null)
+        {
+            // 自动回退到可用 workflow，避免默认 workflow 不存在的误导
+            var fallback = PickFallbackWorkflow(effective.ConfigDirectory);
+            if (!string.IsNullOrWhiteSpace(fallback))
+            {
+                runtime.Workflow = fallback;
+                workflowFile = ResolveWorkflowFile(runtime.Workflow, effective.ConfigDirectory);
+            }
+        }
+
+        if (workflowFile == null || compiler == null || engine == null)
+        {
+            return new WorkflowRunResult(
+                RunId: $"run_{Guid.NewGuid():N}",
+                Ok: false,
+                Note: "(no workflow found; execution stub)");
+        }
+
+        try
+        {
+            var raw = await File.ReadAllTextAsync(workflowFile, ct);
+            var compile = compiler.Compile(raw);
+            if (!compile.Ok || compile.Definition == null)
+            {
+                var msg = string.Join("; ", compile.Errors.Select(e => e.Code));
+                return new WorkflowRunResult(
+                    RunId: $"run_{Guid.NewGuid():N}",
+                    Ok: false,
+                    Note: $"workflow compile failed: {msg}");
+            }
+
+            var plan = engine.Plan(compile.Definition);
+            if (!plan.Ok || plan.Plan == null)
+            {
+                var msg = string.Join("; ", plan.Errors.Select(e => e.Code));
+                return new WorkflowRunResult(
+                    RunId: $"run_{Guid.NewGuid():N}",
+                    Ok: false,
+                    Note: $"workflow plan failed: {msg}");
+            }
+
+            var runInput = new WorkflowRunInput(
+                UserMessage: userMessage,
+                ConfigDirectory: effective.ConfigDirectory,
+                ConfigPath: effective.ConfigPath,
+                SecretsPath: effective.SecretsPath,
+                WorkingDirectory: Directory.GetCurrentDirectory(),
+                Profile: runtime.Profile,
+                WorkflowName: runtime.Workflow,
+                DefaultProvider: effective.Config.Models.DefaultProvider,
+                DefaultModel: effective.Config.Models.DefaultModel,
+                AttachedFiles: attachedFiles,
+                ToolsConfig: effective.Config.Tools);
+
+            return await engine.ExecuteAsync(plan.Plan, runInput, ct);
+        }
+        catch (Exception ex)
+        {
+            return new WorkflowRunResult(
+                RunId: $"run_{Guid.NewGuid():N}",
+                Ok: false,
+                Note: $"workflow error: {ex.Message}");
         }
     }
 
@@ -537,7 +831,21 @@ public static class TuiHandlers
         if (File.Exists(name))
             return Path.GetFullPath(name);
 
-        var dir = Path.Combine(configDir, "workflows");
+        // 1) 用户配置目录
+        var fromConfig = ResolveWorkflowFileFromDir(name, Path.Combine(configDir, "workflows"));
+        if (fromConfig != null)
+            return fromConfig;
+
+        // 2) 仓库默认 workflows 目录
+        var repoDir = RepoPathResolver.ResolveWorkflowsSourceDirectory(null, Directory.GetCurrentDirectory());
+        return ResolveWorkflowFileFromDir(name, repoDir);
+    }
+
+    private static string? ResolveWorkflowFileFromDir(string name, string? dir)
+    {
+        if (string.IsNullOrWhiteSpace(dir))
+            return null;
+
         var json = Path.Combine(dir, $"{name}.json");
         if (File.Exists(json))
             return json;
@@ -551,6 +859,77 @@ public static class TuiHandlers
             return yml;
 
         return null;
+    }
+
+    private static void NormalizeWorkflow(SessionRuntime runtime, string configDir)
+    {
+        if (ResolveWorkflowFile(runtime.Workflow, configDir) != null)
+            return;
+
+        var fallback = PickFallbackWorkflow(configDir);
+        if (!string.IsNullOrWhiteSpace(fallback))
+            runtime.Workflow = fallback;
+    }
+
+    private static string? PickFallbackWorkflow(string configDir)
+    {
+        var dir = Path.Combine(configDir, "workflows");
+        var candidate = PickWorkflowFromDir(dir);
+        if (!string.IsNullOrWhiteSpace(candidate))
+            return candidate;
+
+        var repoDir = RepoPathResolver.ResolveWorkflowsSourceDirectory(null, Directory.GetCurrentDirectory());
+        return PickWorkflowFromDir(repoDir);
+    }
+
+    private static string? PickWorkflowFromDir(string? dir)
+    {
+        if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir))
+            return null;
+
+        var files = Directory.EnumerateFiles(dir, "*.*", SearchOption.TopDirectoryOnly)
+            .Where(p =>
+            {
+                var ext = Path.GetExtension(p).ToLowerInvariant();
+                return ext is ".json" or ".yaml" or ".yml";
+            })
+            .Select(p => Path.GetFileNameWithoutExtension(p))
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (files.Count == 0)
+            return null;
+
+        // 优先 hermes，其次 direct，最后按名称排序
+        var hermes = files.FirstOrDefault(n => n.Equals("hermes", StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(hermes))
+            return hermes;
+
+        var direct = files.FirstOrDefault(n => n.Equals("direct", StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(direct))
+            return direct;
+
+        return files.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
+    }
+
+    private static async Task TryUpdateSessionWorkflowAsync(
+        SessionRuntime runtime,
+        SessionService sessions,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(runtime.SessionId))
+            return;
+
+        var state = await sessions.GetSessionStateAsync(runtime.SessionId, ct);
+        if (state == null)
+            return;
+
+        if (string.Equals(state.ActiveWorkflow, runtime.Workflow, StringComparison.Ordinal))
+            return;
+
+        state.ActiveWorkflow = runtime.Workflow;
+        await sessions.UpdateSessionStateAsync(state, ct);
     }
 
     private static string QuoteArg(string value)

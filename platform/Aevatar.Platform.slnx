@@ -14,6 +14,9 @@
   </Folder>
   <Folder Name="/framework/">
     <Project Path="../src/Aevatar.Agents.AI.Core/Aevatar.Agents.AI.Core.csproj" />
+    <Project Path="../src/Aevatar.Agents.AI.Tools/Aevatar.Agents.AI.Tools.csproj" />
+    <Project Path="../src/Aevatar.Agents.Configuration/Aevatar.Agents.Configuration.csproj" />
+    <Project Path="../src/Aevatar.Agents.Core/Aevatar.Agents.Core.csproj" />
     <Project Path="../src/Aevatar.CognitiveMesh.Dsl/Aevatar.CognitiveMesh.Dsl.csproj" />
   </Folder>
 </Solution>

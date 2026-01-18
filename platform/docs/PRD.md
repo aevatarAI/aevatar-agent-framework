@@ -84,7 +84,7 @@
       }
     },
     "Agents": {
-      "DefaultWorkflow": "standard",
+      "DefaultWorkflow": "hermes",
       "ParallelLimit": 3
     },
     "Tools": {
@@ -208,7 +208,7 @@
 
 | 工作流 | 描述 | 节点 |
 |--------|------|------|
-| `standard` | 默认单 Agent 模式 | Coder |
+| `hermes` | 默认工作流路由 | Hermes |
 | `code-review` | 代码+审查 | Coder → Reviewer |
 | `tdd` | 测试驱动开发 | Coder ↔ Tester |
 | `maker` | MAKER 多专家共识 | Router → [Experts] → Judge |
@@ -237,7 +237,7 @@
 | Agent | 职责 | 工具 |
 |-------|------|------|
 | `RouterAgent` | 任务路由与分发 | - |
-| `CoderAgent` | 代码编写与修改 | file_*, bash, git |
+| `CoderAgent` | 代码编写与修改 | file_*, bash, git, grep, ast-grep, glob, lsp, time_now, env_get, uuid, path_exists, dir_list, file_stat, hash_sha256, base64_*, json_* |
 | `ReviewerAgent` | 代码审查 | file_read, grep |
 | `TesterAgent` | 测试编写与运行 | file_*, bash |
 | `DebugAgent` | 调试与问题定位 | file_*, bash, lsp |
@@ -267,6 +267,21 @@ tools:
   - file_read
   - file_write
   - file_delete
+  - grep
+  - ast-grep
+  - glob
+  - lsp
+  - time_now
+  - env_get
+  - uuid
+  - path_exists
+  - dir_list
+  - file_stat
+  - hash_sha256
+  - base64_encode
+  - base64_decode
+  - json_format
+  - json_validate
   - bash
   - git_status
   - git_diff

@@ -28,7 +28,6 @@ public sealed record WorkflowPlanResult(bool Ok, WorkflowPlan? Plan, IReadOnlyLi
         => new(false, null, errors ?? Array.Empty<DslValidationError>());
 }
 
-public sealed record WorkflowRunResult(string RunId, bool Ok, string Note);
 
 public sealed class WorkflowEngine
 {
@@ -135,21 +134,43 @@ public sealed class WorkflowEngine
         return WorkflowPlanResult.Success(plan);
     }
 
-    public Task<WorkflowRunResult> ExecuteAsync(WorkflowPlan plan, CancellationToken ct = default)
+    public async Task<WorkflowRunResult> ExecuteAsync(
+        WorkflowPlan plan,
+        WorkflowRunInput input,
+        CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(input);
         ct.ThrowIfCancellationRequested();
+        var executor = new WorkflowExecutor();
+        return await executor.ExecuteAsync(plan, input, ct);
+    }
 
-        // MVP stub: execution is implemented in later tasks (RoleAgentFactory + ToolPolicy).
-        return Task.FromResult(new WorkflowRunResult(
-            RunId: $"run_{Guid.NewGuid():N}",
-            Ok: true,
-            Note: "Execution stub (MVP)."));
+    public async Task<WorkflowRunResult> ExecuteStreamingAsync(
+        WorkflowPlan plan,
+        WorkflowRunInput input,
+        Func<string, CancellationToken, Task> onDelta,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(input);
+        ArgumentNullException.ThrowIfNull(onDelta);
+        ct.ThrowIfCancellationRequested();
+        var executor = new WorkflowExecutor();
+        return await executor.ExecuteStreamingAsync(plan, input, onDelta, ct);
     }
 
     public static async Task<string> RunWorkflowAsync(
         string workflow,
         string configDir,
+        string configPath,
+        string secretsPath,
+        string workingDirectory,
+        string? defaultProvider,
+        string? defaultModel,
+        string prompt,
+        IReadOnlyList<string> attachedFiles,
+        Aevatar.Platform.Core.Config.ToolsConfig? toolsConfig = null,
         CancellationToken ct = default)
     {
         var workflowFile = ResolveWorkflowFile(workflow, configDir);
@@ -159,7 +180,8 @@ public sealed class WorkflowEngine
         try
         {
             var raw = await File.ReadAllTextAsync(workflowFile, ct);
-            var compiler = new PlatformMeshCompiler();
+            var compiler = new PlatformMeshCompiler(
+                configAgentsDir: Path.Combine(configDir, "agents"));
             var engine = new WorkflowEngine();
 
             var compile = compiler.Compile(raw);
@@ -176,7 +198,19 @@ public sealed class WorkflowEngine
                 return $"workflow plan failed: {msg}";
             }
 
-            var result = await engine.ExecuteAsync(plan.Plan, ct);
+            var input = new WorkflowRunInput(
+                UserMessage: prompt,
+                ConfigDirectory: configDir,
+                ConfigPath: configPath,
+                SecretsPath: secretsPath,
+                WorkingDirectory: workingDirectory,
+                Profile: null,
+                WorkflowName: workflow,
+                DefaultProvider: defaultProvider,
+                DefaultModel: defaultModel,
+                AttachedFiles: attachedFiles,
+                ToolsConfig: toolsConfig);
+            var result = await engine.ExecuteAsync(plan.Plan, input, ct);
             return result.Note;
         }
         catch (Exception ex)

@@ -96,7 +96,7 @@ src/
 │   └── ...
 ├── skills/                  # ✅ Agent Skills（可选，SKILL.md）
 ├── workflows/               # Cognitive Mesh DSL
-│   ├── standard.json        # 默认工作流
+│   ├── hermes.yaml          # 默认工作流
 │   ├── code-review.json
 │   └── ...
 ├── mcp/
@@ -534,7 +534,7 @@ var executeOption = new Option<string>("-c", "执行单次任务");
 rootCommand.AddOption(executeOption);
 
 // --workflow: 指定工作流
-var workflowOption = new Option<string>("--workflow", () => "standard", "工作流名称");
+var workflowOption = new Option<string>("--workflow", () => "hermes", "工作流名称");
 rootCommand.AddOption(workflowOption);
 
 // --model: 指定模型
@@ -640,7 +640,7 @@ public class InteractiveSession
 | ReviewerAgent | 2 | 代码审查 Agent |
 | RouterAgent | 1 | 任务路由 |
 | DSL 运行时 | 2 | 基于 CognitiveDslCompiler |
-| 预置工作流 | 2 | standard, code-review |
+| 预置工作流 | 2 | hermes, code-review |
 | Event Sourcing 会话 | 2 | 会话持久化与恢复 |
 
 **验收标准**: code-review 工作流可用，会话可恢复

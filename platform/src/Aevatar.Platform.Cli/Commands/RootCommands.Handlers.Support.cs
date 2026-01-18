@@ -77,6 +77,7 @@ public static partial class RootCommands
                 await File.WriteAllTextAsync(mcpPath, yaml);
             }
 
+            AevatarConfigLoader.EnsureBootstrapAssets(effective);
             ctx.Console.WriteLine($"Initialized config at {effective.ConfigDirectory}");
         }
 

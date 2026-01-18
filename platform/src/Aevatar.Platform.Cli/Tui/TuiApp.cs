@@ -102,12 +102,23 @@ public sealed class TuiApp
                 ["AEVATAR_TUI_BACKEND_URL"] = backend.BaseUrl
             };
 
-            var result = await RunBunAsync("run start", frontendDir, env, ct);
-            if (result.ExitCode == 0)
+            var capture = (Environment.GetEnvironmentVariable("AEVATAR_TUI_CAPTURE_LOG") ?? string.Empty).Trim() == "1";
+            if (capture)
+            {
+                var result = await RunBunAsync("run start", frontendDir, env, ct);
+                if (result.ExitCode == 0)
+                    return true;
+
+                output.MarkupLine($"[yellow]OpenTUI frontend exited with code {result.ExitCode}. Falling back to console.[/]");
+                PrintBunError(output, result);
+                return false;
+            }
+
+            var exitCode = await RunBunInteractiveAsync("run start", frontendDir, env, ct);
+            if (exitCode == 0)
                 return true;
 
-            output.MarkupLine($"[yellow]OpenTUI frontend exited with code {result.ExitCode}. Falling back to console.[/]");
-            PrintBunError(output, result);
+            output.MarkupLine($"[yellow]OpenTUI frontend exited with code {exitCode}. Falling back to console.[/]");
             return false;
         }
         catch (Exception ex)
@@ -187,6 +198,7 @@ public sealed class TuiApp
     {
         ApplyConfigOverrides(options);
         var effective = new AevatarConfigLoader().Load();
+        AevatarConfigLoader.EnsureBootstrapAssets(effective);
         if (!ApplyWorkingDirectory(options, output))
             return null;
 
@@ -195,7 +207,8 @@ public sealed class TuiApp
             effective.ConfigDirectory);
 
         var compiler = new PlatformMeshCompiler(
-            new GlobalAgentYamlRegistry(NullLogger<GlobalAgentYamlRegistry>.Instance));
+            new GlobalAgentYamlRegistry(NullLogger<GlobalAgentYamlRegistry>.Instance),
+            configAgentsDir: Path.Combine(effective.ConfigDirectory, "agents"));
 
         var engine = new WorkflowEngine();
         var policy = PlatformToolPolicy.Create(
@@ -303,8 +316,24 @@ public sealed class TuiApp
         if ((Environment.GetEnvironmentVariable("AEVATAR_TUI_SKIP_INSTALL") ?? string.Empty).Trim() == "1")
             return true;
 
-        output.MarkupLine("[yellow]Installing OpenTUI frontend dependencies (bun install)...[/]");
-        var result = await RunBunAsync("install", frontendDir, env: null, ct);
+        output.MarkupLine($"[yellow]Installing OpenTUI frontend dependencies (bun install)...[/]");
+        output.MarkupLine($"[yellow]Working dir: {Markup.Escape(frontendDir)}[/]");
+        output.MarkupLine("[yellow]This may take a while on first run. Press Ctrl+C to cancel.[/]");
+
+        var timeoutMs = GetInstallTimeoutMs();
+        using var timeoutCts = timeoutMs > 0 ? new CancellationTokenSource(timeoutMs) : null;
+        using var linked = timeoutCts != null
+            ? CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token)
+            : CancellationTokenSource.CreateLinkedTokenSource(ct);
+
+        var result = await RunBunStreamingAsync("install", frontendDir, linked.Token, output);
+        if (timeoutCts?.IsCancellationRequested == true)
+        {
+            output.MarkupLine("[yellow]OpenTUI dependency install timed out. Falling back to console.[/]");
+            output.MarkupLine("Tip: set AEVATAR_TUI_INSTALL_TIMEOUT_MS to a larger value or run bun install manually.");
+            return false;
+        }
+
         if (result.ExitCode == 0)
             return true;
 
@@ -348,6 +377,85 @@ public sealed class TuiApp
         return new ProcessResult(proc.ExitCode, stdout, stderr);
     }
 
+    private static async Task<ProcessResult> RunBunStreamingAsync(
+        string args,
+        string workingDir,
+        CancellationToken ct,
+        ITuiOutput output)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = "bun",
+            Arguments = args,
+            WorkingDirectory = workingDir,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false
+        };
+
+        using var proc = Process.Start(psi);
+        if (proc == null)
+            return new ProcessResult(-1, string.Empty, "Failed to start bun process.");
+
+        var stdoutLines = new List<string>();
+        var stderrLines = new List<string>();
+
+        var stdoutTask = Task.Run(async () =>
+        {
+            string? line;
+            while ((line = await proc.StandardOutput.ReadLineAsync()) != null)
+            {
+                stdoutLines.Add(line);
+                output.WriteLine($"[bun] {line}");
+            }
+        }, ct);
+
+        var stderrTask = Task.Run(async () =>
+        {
+            string? line;
+            while ((line = await proc.StandardError.ReadLineAsync()) != null)
+            {
+                stderrLines.Add(line);
+                output.WriteLine($"[bun] {line}");
+            }
+        }, ct);
+
+        using var reg = ct.Register(() =>
+        {
+            try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); } catch { }
+        });
+
+        await proc.WaitForExitAsync(ct);
+        await Task.WhenAll(stdoutTask, stderrTask);
+
+        return new ProcessResult(proc.ExitCode, string.Join(Environment.NewLine, stdoutLines), string.Join(Environment.NewLine, stderrLines));
+    }
+
+    private static async Task<int> RunBunInteractiveAsync(
+        string args,
+        string workingDir,
+        IReadOnlyDictionary<string, string> env,
+        CancellationToken ct)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = "bun",
+            Arguments = args,
+            WorkingDirectory = workingDir,
+            UseShellExecute = false
+        };
+
+        foreach (var kv in env)
+            psi.Environment[kv.Key] = kv.Value;
+
+        using var proc = Process.Start(psi);
+        if (proc == null)
+            return -1;
+
+        await proc.WaitForExitAsync(ct);
+        return proc.ExitCode;
+    }
+
     private static void PrintBunError(ITuiOutput output, ProcessResult result)
     {
         var combined = string.Join(Environment.NewLine, new[] { result.Stdout, result.Stderr }.Where(s => !string.IsNullOrWhiteSpace(s)));
@@ -358,6 +466,14 @@ public sealed class TuiApp
         var start = Math.Max(0, lines.Length - 20);
         var tail = string.Join(Environment.NewLine, lines.Skip(start));
         output.WriteLine(tail);
+    }
+
+    private static int GetInstallTimeoutMs()
+    {
+        var raw = (Environment.GetEnvironmentVariable("AEVATAR_TUI_INSTALL_TIMEOUT_MS") ?? string.Empty).Trim();
+        if (int.TryParse(raw, out var ms))
+            return Math.Clamp(ms, 0, 60 * 60 * 1000);
+        return 120_000; // 2 minutes default
     }
 
     private readonly record struct ProcessResult(int ExitCode, string Stdout, string Stderr);

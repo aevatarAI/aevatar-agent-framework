@@ -62,6 +62,7 @@ dotnet run --project platform/src/Aevatar.Platform.Cli -- attach --url http://12
 ├── secrets.json
 ├── agents/        # role YAML
 ├── skills/        # 可选
+├── tools/         # dotnet-file 工具插件
 ├── workflows/     # DSL JSON/YAML
 ├── mcp/
 └── sessions/      # 会话事件 (JSONL + meta.json)
@@ -107,7 +108,7 @@ dotnet run --project platform/src/Aevatar.Platform.Cli -- attach --url http://12
 ## 常用 CLI
 
 ```bash
-aevatar --workflow standard
+aevatar --workflow hermes
 aevatar --profile coding
 aevatar sessions list
 aevatar sessions show <id>

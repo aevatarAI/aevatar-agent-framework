@@ -13,13 +13,23 @@ Aevatar.Platform.Cli/
 ```
 Tui/
 ├── TuiApp.cs                      # OpenTUI/REPL 入口（GUI 为外部 OpenTUI 进程）
-├── OpenTuiBackendServer.cs        # OpenTUI 本地后端（/api/chat）
+├── OpenTuiBackendServer.cs        # OpenTUI 本地后端（/api/chat + /api/chat/stream）
 ├── TuiHandlers.cs                 # 命令/消息处理与输出抽象
 ├── InputParser.cs                 # 输入解析（/命令、!shell、@附件）
 ├── ShellRunner.cs                 # shell 执行（受策略约束）
 ├── AttachmentResolver.cs          # 路径解析与模糊匹配
 ├── SessionRuntime.cs              # TUI 会话运行态
 └── TuiOptions.cs                  # TUI 启动参数
+
+OpenTUI 前端：
+```
+tui-opentui/src/
+├── index.ts                       # 启动入口（组装/生命周期）
+├── api/chat.ts                    # 聊天 API（/api/chat/stream）
+└── ui/
+    ├── layout.ts                  # UI 布局
+    └── input.ts                   # 输入/IME 兜底
+```
 ```
 
 ## 架构决策

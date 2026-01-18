@@ -47,7 +47,7 @@ public sealed class PlatformSmokeTests
     {
         var parser = RootCommands.BuildParser();
 
-        var result = parser.Parse(new[] { "--workflow", "standard", "--profile", "coding", "--provider", "openai", "--command", "hi" });
+        var result = parser.Parse(new[] { "--workflow", "hermes", "--profile", "coding", "--provider", "openai", "--command", "hi" });
         Assert.Empty(result.Errors);
 
         var result2 = parser.Parse(new[] { "sessions", "list" });
@@ -120,7 +120,7 @@ public sealed class PlatformSmokeTests
             {
                 SessionId = string.Empty,
                 Profile = "coding",
-                ActiveWorkflow = "standard",
+                ActiveWorkflow = "hermes",
                 WorkingDirectory = root,
                 Provider = "test",
                 Model = "test-model"

@@ -50,7 +50,7 @@ public sealed class ProviderConfig
 
 public sealed class AgentsConfig
 {
-    public string DefaultWorkflow { get; set; } = "standard";
+    public string DefaultWorkflow { get; set; } = "hermes";
 
     public string DefaultProfile { get; set; } = "coding";
 
@@ -62,6 +62,8 @@ public sealed class ToolsConfig
     public ShellToolConfig Shell { get; set; } = new();
 
     public FileSystemToolConfig FileSystem { get; set; } = new();
+
+    public ToolPluginsConfig Plugins { get; set; } = new();
 }
 
 public sealed class ShellToolConfig
@@ -74,6 +76,21 @@ public sealed class ShellToolConfig
 public sealed class FileSystemToolConfig
 {
     public List<string> AllowedPaths { get; set; } = new();
+}
+
+public sealed class ToolPluginsConfig
+{
+    public bool Enabled { get; set; } = true;
+
+    public bool IncludeDotNetFileTools { get; set; } = true;
+
+    public bool IncludePythonFileTools { get; set; }
+
+    public bool RequireManifestMarker { get; set; } = true;
+
+    public int MaxFilesPerType { get; set; } = 64;
+
+    public List<string> Directories { get; set; } = new();
 }
 
 public sealed class UiConfig

@@ -55,6 +55,22 @@ public sealed class AevatarConfigLoader
             Secrets: mappedSecrets);
     }
 
+    public static void EnsureBootstrapAssets(AevatarEffectiveConfig effective)
+    {
+        if (effective == null || string.IsNullOrWhiteSpace(effective.ConfigDirectory))
+            return;
+
+        Directory.CreateDirectory(Path.Combine(effective.ConfigDirectory, "tools"));
+
+        TryWriteFileIfMissing(
+            Path.Combine(effective.ConfigDirectory, "agents", $"{HermesRoleId}.yaml"),
+            BuildHermesAgentYaml());
+
+        TryWriteFileIfMissing(
+            Path.Combine(effective.ConfigDirectory, "workflows", $"{HermesWorkflowName}.yaml"),
+            BuildHermesWorkflowYaml());
+    }
+
     private static string ResolveConfigDirectory()
     {
         var fromEnv = (Environment.GetEnvironmentVariable("AEVATAR_CONFIG_DIR") ?? string.Empty).Trim();
@@ -136,6 +152,62 @@ public sealed class AevatarConfigLoader
         if (model.Length > 0)
             config.Models.DefaultModel = model;
     }
+
+    private const string HermesRoleId = "hermes";
+    private const string HermesWorkflowName = "hermes";
+
+    private static string BuildHermesAgentYaml()
+        => """
+id: "hermes"
+name: "Hermes Workflow Router"
+version: "1.0"
+
+persona:
+  role: "Workflow router"
+  expertise: ["workflow selection", "mesh dsl", "agent role design"]
+  style: "concise, decisive"
+  traits: ["systematic", "safety-first"]
+
+tools:
+  - "file_read"
+  - "file_write"
+skills: []
+
+system_prompt: |
+  You are Hermes, a workflow router agent.
+  Your job is to match the user's intent to the most suitable workflow in ~/.aevatar/workflows.
+  If no workflow fits, create a new workflow YAML/JSON under ~/.aevatar/workflows.
+  If the workflow needs new roles, create role YAML files under ~/.aevatar/agents.
+  Requirements:
+  - Use Cognitive Mesh DSL v0.1 with fields: dsl_version, goal, strategy, budget, nodes, edges, constraints.
+  - node.type must be one of: built-in agent types (DivergentAgent, ConvergentAgent, WorkerAgent, CriticAgent, MetaAgent),
+    global roles (~/.aevatar/agents/*.yaml), or local roles (./aevatar/agents/*.yaml).
+  - Prefer minimal topology (1-3 nodes) unless the task demands collaboration.
+  - Ask clarifying questions when requirements are ambiguous.
+  - Respond in Chinese by default.
+  - Use file_read/file_write to inspect and create workflow/agent files when needed.
+  - When creating files, report exact paths and a brief summary.
+""";
+
+    private static string BuildHermesWorkflowYaml()
+        => """
+dsl_version: "0.1"
+goal:
+  name: "hermes_router"
+  success_metric: "Select or create a workflow and roles that satisfy the user's intent."
+strategy: "cot"
+budget:
+  max_steps: 6
+  token_limit: 8000
+nodes:
+  - id: "hermes"
+    type: "hermes"
+    params:
+      role: "router"
+      note: "Workflow selection or creation"
+edges: []
+constraints: []
+""";
 
     private static void EnsureDefaultModel(AevatarConfig config)
     {
@@ -364,6 +436,25 @@ public sealed class AevatarConfigLoader
     {
         public string? Model { get; set; }
         public string? Endpoint { get; set; }
+    }
+
+    private static void TryWriteFileIfMissing(string path, string content)
+    {
+        try
+        {
+            if (File.Exists(path))
+                return;
+
+            var dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrWhiteSpace(dir))
+                Directory.CreateDirectory(dir);
+
+            File.WriteAllText(path, content);
+        }
+        catch
+        {
+            // best-effort only
+        }
     }
 }
 

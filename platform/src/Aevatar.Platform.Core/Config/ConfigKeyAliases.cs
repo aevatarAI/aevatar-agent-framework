@@ -26,9 +26,16 @@ public static class ConfigKeyAliases
     public static readonly string[] Tools = ["Tools", "tools"];
     public static readonly string[] Shell = ["Shell", "shell"];
     public static readonly string[] FileSystem = ["FileSystem", "filesystem"];
+    public static readonly string[] ToolPlugins = ["Plugins", "plugins", "ToolPlugins", "tool_plugins"];
     public static readonly string[] AllowedCommands = ["AllowedCommands", "allowed_commands"];
     public static readonly string[] TimeoutSeconds = ["TimeoutSeconds", "timeout_seconds"];
     public static readonly string[] AllowedPaths = ["AllowedPaths", "allowed_paths"];
+    public static readonly string[] Enabled = ["Enabled", "enabled"];
+    public static readonly string[] Directories = ["Directories", "directories", "Dirs", "dirs"];
+    public static readonly string[] IncludeDotNetFileTools = ["IncludeDotNetFileTools", "include_dotnet_file_tools", "DotNet", "dotnet"];
+    public static readonly string[] IncludePythonFileTools = ["IncludePythonFileTools", "include_python_file_tools", "Python", "python"];
+    public static readonly string[] RequireManifestMarker = ["RequireManifestMarker", "require_manifest_marker", "ManifestMarker", "manifest_marker"];
+    public static readonly string[] MaxFilesPerType = ["MaxFilesPerType", "max_files_per_type", "MaxFiles", "max_files"];
 
     public static readonly string[] Ui = ["Ui", "ui"];
     public static readonly string[] Theme = ["Theme", "theme"];

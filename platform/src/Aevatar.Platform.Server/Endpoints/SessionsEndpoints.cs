@@ -100,7 +100,18 @@ public static class SessionsEndpoints
 
             await sessions.AppendEventAsync(id, evt, ct);
 
-            var output = await WorkflowEngine.RunWorkflowAsync(state.ActiveWorkflow, effective.ConfigDirectory, ct);
+            var output = await WorkflowEngine.RunWorkflowAsync(
+                workflow: state.ActiveWorkflow,
+                configDir: effective.ConfigDirectory,
+                configPath: effective.ConfigPath,
+                secretsPath: effective.SecretsPath,
+                workingDirectory: state.WorkingDirectory ?? Directory.GetCurrentDirectory(),
+                defaultProvider: effective.Config.Models.DefaultProvider,
+                defaultModel: effective.Config.Models.DefaultModel,
+                prompt: request?.Text ?? string.Empty,
+                attachedFiles: request?.AttachedFiles ?? new List<string>(),
+                toolsConfig: effective.Config.Tools,
+                ct: ct);
             var agentEvent = new PlatformSessionEvent
             {
                 Seq = ++seq,

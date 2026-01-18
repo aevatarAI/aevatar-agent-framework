@@ -122,6 +122,33 @@ public static class AevatarConfigSerializer
             if (paths.Count > 0)
                 target.FileSystem.AllowedPaths = paths;
         }
+
+        if (TryGetMap(map, out var plugins, ConfigKeyAliases.ToolPlugins))
+        {
+            var enabled = GetBool(plugins, ConfigKeyAliases.Enabled);
+            if (enabled.HasValue)
+                target.Plugins.Enabled = enabled.Value;
+
+            var dirs = GetStringList(plugins, ConfigKeyAliases.Directories);
+            if (dirs.Count > 0)
+                target.Plugins.Directories = dirs;
+
+            var includeDotNet = GetBool(plugins, ConfigKeyAliases.IncludeDotNetFileTools);
+            if (includeDotNet.HasValue)
+                target.Plugins.IncludeDotNetFileTools = includeDotNet.Value;
+
+            var includePython = GetBool(plugins, ConfigKeyAliases.IncludePythonFileTools);
+            if (includePython.HasValue)
+                target.Plugins.IncludePythonFileTools = includePython.Value;
+
+            var requireMarker = GetBool(plugins, ConfigKeyAliases.RequireManifestMarker);
+            if (requireMarker.HasValue)
+                target.Plugins.RequireManifestMarker = requireMarker.Value;
+
+            var maxFiles = GetInt(plugins, ConfigKeyAliases.MaxFilesPerType);
+            if (maxFiles.HasValue && maxFiles.Value > 0)
+                target.Plugins.MaxFilesPerType = maxFiles.Value;
+        }
     }
 
     private static void ApplyUi(UiConfig target, Dictionary<string, object?> map)
@@ -199,6 +226,27 @@ public static class AevatarConfigSerializer
 
             var text = (value?.ToString() ?? string.Empty).Trim();
             if (int.TryParse(text, out var parsed))
+                return parsed;
+        }
+
+        return null;
+    }
+
+    private static bool? GetBool(Dictionary<string, object?> map, params string[] keys)
+    {
+        foreach (var key in keys)
+        {
+            if (!map.TryGetValue(key, out var value))
+                continue;
+
+            if (value is bool b)
+                return b;
+
+            var text = (value?.ToString() ?? string.Empty).Trim();
+            if (text.Length == 0)
+                continue;
+
+            if (bool.TryParse(text, out var parsed))
                 return parsed;
         }
 

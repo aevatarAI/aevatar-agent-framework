@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Platform.Cli.Tui;
 
@@ -20,7 +21,7 @@ namespace Aevatar.Platform.Cli.Tui;
 //
 //  说明：
 //  - 为 OpenTUI 前端提供本地 HTTP API（随机端口，避免冲突；且不使用 :5000）
-//  - 仅实现最小聊天闭环：POST /api/chat
+//  - 最小聊天闭环：POST /api/chat（非流式） /api/chat/stream（流式）
 // ============================================================
 internal sealed class OpenTuiBackendServer : IAsyncDisposable
 {
@@ -49,6 +50,12 @@ internal sealed class OpenTuiBackendServer : IAsyncDisposable
             EnvironmentName = Environments.Production
         });
 
+        // ------------------------------------------------------------
+        // 静默日志：避免污染 TUI 界面
+        // ------------------------------------------------------------
+        builder.Logging.ClearProviders();
+        builder.Logging.SetMinimumLevel(LogLevel.None);
+
         builder.WebHost.UseKestrel(o =>
         {
             // bind ephemeral port on loopback
@@ -66,6 +73,64 @@ internal sealed class OpenTuiBackendServer : IAsyncDisposable
         var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 
         app.MapGet("/health", () => Results.Text("ok"));
+
+        app.MapPost("/api/chat/stream", async (HttpContext http, SessionRuntime rt, AevatarEffectiveConfig eff, SessionService ss, PlatformMeshCompiler comp, WorkflowEngine eng, PlatformToolPolicy pol) =>
+        {
+            var req = await http.Request.ReadFromJsonAsync<ChatRequest>(json, http.RequestAborted);
+            var text = (req?.Text ?? string.Empty).Trim();
+            if (text.Length == 0)
+            {
+                http.Response.StatusCode = StatusCodes.Status204NoContent;
+                return;
+            }
+
+            // Reuse existing parsing semantics (/command, !shell, @file)
+            var parsed = InputParser.Parse(text);
+            if (parsed.Kind != ParsedInputKind.Message)
+            {
+                http.Response.StatusCode = StatusCodes.Status400BadRequest;
+                await http.Response.WriteAsJsonAsync(
+                    new ChatResponse(false, "Only plain chat messages are supported in GUI for now. Use REPL for /commands."),
+                    json,
+                    http.RequestAborted);
+                return;
+            }
+
+            http.Response.Headers.CacheControl = "no-cache";
+            http.Response.Headers.Append("X-Accel-Buffering", "no");
+            http.Response.ContentType = "text/plain; charset=utf-8";
+
+            async Task EmitChunk(string chunk, CancellationToken token)
+            {
+                if (string.IsNullOrEmpty(chunk))
+                    return;
+                await http.Response.WriteAsync(chunk, token);
+                await http.Response.Body.FlushAsync(token);
+            }
+
+            try
+            {
+                await TuiHandlers.ChatStreamAsync(parsed, rt, eff, ss, comp, eng, pol, EmitChunk, http.RequestAborted);
+            }
+            catch (OperationCanceledException) when (http.RequestAborted.IsCancellationRequested)
+            {
+                // client aborted; ignore
+            }
+            catch (Exception ex)
+            {
+                if (IsDebugEnabled())
+                {
+                    try
+                    {
+                        await EmitChunk($"[stream_error] {ex.GetType().Name}: {ex.Message}", http.RequestAborted);
+                    }
+                    catch
+                    {
+                        // ignore secondary failures
+                    }
+                }
+            }
+        });
 
         app.MapPost("/api/chat", async (HttpContext http, SessionRuntime rt, AevatarEffectiveConfig eff, SessionService ss, PlatformMeshCompiler comp, WorkflowEngine eng, PlatformToolPolicy pol) =>
         {
@@ -104,5 +169,11 @@ internal sealed class OpenTuiBackendServer : IAsyncDisposable
 
     private sealed record ChatRequest(string Text);
     private sealed record ChatResponse(bool Ok, string Response);
+
+    private static bool IsDebugEnabled()
+    {
+        var raw = (Environment.GetEnvironmentVariable("AEVATAR_TUI_DEBUG") ?? string.Empty).Trim();
+        return raw == "1" || raw.Equals("true", StringComparison.OrdinalIgnoreCase);
+    }
 }
 

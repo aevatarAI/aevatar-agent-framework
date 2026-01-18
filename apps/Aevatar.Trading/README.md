@@ -137,7 +137,8 @@ apps/Aevatar.Trading/
   - 覆盖：`AEVATAR_SECRETS_PATH/AEVATAR_SECRETS_DIR`
 - **可选（项目级覆盖）**：在 `apps/Aevatar.Trading/src/Aevatar.Trade.Api/` 下创建 `appsettings.secrets.json`（该文件 gitignored），参考示例：
 
-- `apps/Aevatar.Trading/src/Aevatar.Trade.Api/appsettings.secrets.json.example`
+- `apps/Aevatar.Trading/src/Aevatar.Trade.Api/appsettings.secrets.json.example`（精简）
+- `apps/Aevatar.Trading/src/Aevatar.Trade.Api/appsettings.secrets.json.example.full`（包含 Weex 高级配置）
 
 > 说明：API Host 会把 `ExchangeCredentials` 中对应 WEEX 的凭证自动导出为 `WEEX_*` 环境变量，供 dotnet-file skills 子进程使用（无需你再手工 export）。
 
@@ -151,6 +152,7 @@ cd apps/Aevatar.Trading/src/Aevatar.Trade.Api
 
 # 2. （推荐）准备 secrets
 # cp appsettings.secrets.json.example appsettings.secrets.json
+# 或使用完整版：cp appsettings.secrets.json.example.full appsettings.secrets.json
 # 然后填入 ExchangeCredentials / LLMProviders
 
 # 3. 运行（推荐 http profile：避免本机证书未信任导致浏览器/代理异常）
@@ -326,6 +328,7 @@ LLM 只从用户级 secrets 读取（默认 `~/.aevatar/secrets.json`），支�
 示例请参考：
 
 - `apps/Aevatar.Trading/src/Aevatar.Trade.Api/appsettings.secrets.json.example`
+- `apps/Aevatar.Trading/src/Aevatar.Trade.Api/appsettings.secrets.json.example.full`
 
 ## AI Wars：dotnet-file skills + Swagger/前端一键执行
 

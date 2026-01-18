@@ -8,7 +8,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Aevatar.Platform.Contracts\Aevatar.Platform.Contracts.csproj" />
+    <ProjectReference Include="..\..\..\src\Aevatar.Agents.AI\Aevatar.Agents.AI.csproj" />
     <ProjectReference Include="..\..\..\src\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
+    <ProjectReference Include="..\..\..\src\Aevatar.Agents.AI.Tools\Aevatar.Agents.AI.Tools.csproj" />
+    <ProjectReference Include="..\..\..\src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
+    <ProjectReference Include="..\..\..\src\Aevatar.Agents.Configuration\Aevatar.Agents.Configuration.csproj" />
     <ProjectReference Include="..\..\..\src\Aevatar.CognitiveMesh.Dsl\Aevatar.CognitiveMesh.Dsl.csproj" />
   </ItemGroup>
 

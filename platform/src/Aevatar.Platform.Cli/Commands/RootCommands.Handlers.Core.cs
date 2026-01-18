@@ -419,6 +419,7 @@ public static partial class RootCommands
             CancellationToken ct)
         {
             var effective = LoadEffectiveConfig(ctx);
+            AevatarConfigLoader.EnsureBootstrapAssets(effective);
             var sessions = CreateSessionService(ctx);
 
             var profile = ResolveProfileFromOptions(options, effective);
@@ -443,7 +444,18 @@ public static partial class RootCommands
 
             await sessions.AppendEventAsync(state.SessionId, userEvent, ct);
 
-            var output = await WorkflowEngine.RunWorkflowAsync(state.ActiveWorkflow, effective.ConfigDirectory, ct);
+            var output = await WorkflowEngine.RunWorkflowAsync(
+                workflow: state.ActiveWorkflow,
+                configDir: effective.ConfigDirectory,
+                configPath: effective.ConfigPath,
+                secretsPath: effective.SecretsPath,
+                workingDirectory: state.WorkingDirectory ?? Directory.GetCurrentDirectory(),
+                defaultProvider: effective.Config.Models.DefaultProvider,
+                defaultModel: effective.Config.Models.DefaultModel,
+                prompt: prompt,
+                attachedFiles: attachments,
+                toolsConfig: effective.Config.Tools,
+                ct: ct);
             var agentEvent = new PlatformSessionEvent
             {
                 Seq = ++seq,

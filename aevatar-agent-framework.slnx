@@ -29,6 +29,7 @@
     <Project Path="src\Aevatar.Agents.Cognitive.Core\Aevatar.Agents.Cognitive.Core.csproj" />
     <Project Path="src\Aevatar.Agents.Cognitive.Content\Aevatar.Agents.Cognitive.Content.csproj" />
     <Project Path="src\Aevatar.Agents.Cognitive.Streaming\Aevatar.Agents.Cognitive.Streaming.csproj" />
+    <Project Path="src\Aevatar.Agents.Configuration\Aevatar.Agents.Configuration.csproj" />
     <Project Path="src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
     <Project Path="src\Aevatar.Agents.CreativeReasoning\Aevatar.Agents.CreativeReasoning.csproj" />
     <Project Path="src\Aevatar.Agents.Maker\Aevatar.Agents.Maker.csproj" />

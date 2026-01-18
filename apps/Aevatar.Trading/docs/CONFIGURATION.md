@@ -86,6 +86,8 @@
 }
 ```
 
+> 另外提供完整模板：`apps/Aevatar.Trading/src/Aevatar.Trade.Api/appsettings.secrets.json.example.full`
+
 ---
 
 ## 3) LLMProviders（必须，来自用户级 secrets）
@@ -135,6 +137,9 @@ LLM 配置只从 **用户级 secrets** 读取（默认 `~/.aevatar/secrets.json`
   }
 }
 ```
+
+> 如需 Weex 高级配置字段，请参考完整模板：
+> `apps/Aevatar.Trading/src/Aevatar.Trade.Api/appsettings.secrets.json.example.full`
 
 ---
 

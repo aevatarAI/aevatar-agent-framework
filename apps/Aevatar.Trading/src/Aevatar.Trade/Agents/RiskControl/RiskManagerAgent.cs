@@ -99,6 +99,7 @@ public class RiskManagerAgent : AIGAgentBase
     private int _maxConsecutiveLosses = 3;      // Consecutive loss circuit breaker
     private int _cooldownMinutes = 60;          // Circuit breaker cooldown time
     private int _minConfidenceToTrade = 60;     // Coordinator gating (avoid accidental trading on low-confidence decisions)
+    private DateTime _lastForceReduceUtc = DateTime.MinValue;
 
     // ============ Lifecycle ============
 
@@ -200,6 +201,15 @@ public class RiskManagerAgent : AIGAgentBase
             "[RiskManager] Evaluating decision: {DecisionId}, {Direction} {Symbol}",
             evt.DecisionId, evt.Direction, evt.Symbol);
 
+        if (await TryForceReduceIfFullAsync($"decision:{evt.DecisionId}", CancellationToken.None))
+        {
+            await RejectTrade(
+                evt,
+                new List<string> { "Full position: forced reduce before accepting new trades" },
+                "HIGH");
+            return;
+        }
+
         // ------------------------------------------------------------
         //  "No trade" fast path
         //
@@ -261,9 +271,10 @@ public class RiskManagerAgent : AIGAgentBase
             return;
         }
 
-        if (ratio > _maxTotalPositionPct)
+        if (ratio >= _maxTotalPositionPct)
         {
-            await PublishStartupRiskResult(evt.RequestId, true, StartupRiskAction.Reduce, "position ratio high", $"startup risk: position ratio {ratio:F1}% > {_maxTotalPositionPct}%");
+            await TryForceReduceIfFullAsync("startup", CancellationToken.None);
+            await PublishStartupRiskResult(evt.RequestId, true, StartupRiskAction.Reduce, "position ratio high", $"startup risk: position ratio {ratio:F1}% >= {_maxTotalPositionPct}%");
             return;
         }
 
@@ -294,6 +305,7 @@ public class RiskManagerAgent : AIGAgentBase
         // Update P&L statistics
         // Simplified handling here, should actually track P&L for each trade
         Logger.LogDebug("[RiskManager] Order executed: {OrderId}", evt.OrderId);
+        _ = TryForceReduceIfFullAsync($"order-executed:{evt.OrderId}", CancellationToken.None);
         return Task.CompletedTask;
     }
 
@@ -335,9 +347,9 @@ public class RiskManagerAgent : AIGAgentBase
 
         // 4. Check total position limit
         var newPositionRatio = _riskState.PositionRatio + evt.SuggestedPositionPct;
-        if (newPositionRatio > _maxTotalPositionPct)
+        if (newPositionRatio >= _maxTotalPositionPct)
         {
-            violations.Add($"Total position will exceed limit: {newPositionRatio:F1}% > {_maxTotalPositionPct}%");
+            violations.Add($"Total position will exceed limit: {newPositionRatio:F1}% >= {_maxTotalPositionPct}%");
         }
 
         // 5. Check single trade position limit
@@ -507,6 +519,151 @@ public class RiskManagerAgent : AIGAgentBase
         var equity = _riskState.TotalEquity;
         var unrealizedPct = equity > 0 ? (totalUnrealized / equity) * 100 : 0;
         return (totalNotional, unrealizedPct);
+    }
+
+    public async Task ForceReduceIfFullAsync(string reason, CancellationToken ct = default)
+    {
+        await TryForceReduceIfFullAsync(reason, ct);
+    }
+
+    private async Task<bool> TryForceReduceIfFullAsync(string reason, CancellationToken ct)
+    {
+        if ((DateTime.UtcNow - _lastForceReduceUtc).TotalSeconds < 60)
+            return false;
+
+        var positions = await LoadPositionsSafeAsync();
+        if (positions.Count == 0)
+            return false;
+
+        var equity = await ResolveEquityAsync(ct);
+        if (equity <= 0)
+            return false;
+
+        var totals = CalculatePositionTotals(positions);
+        var ratio = totals.TotalNotional / equity * 100;
+        _riskState.PositionRatio = ratio;
+
+        if (ratio < _maxTotalPositionPct)
+            return false;
+
+        var candidate = PickForceReduceCandidate(positions);
+        if (candidate == null)
+            return false;
+
+        var closeSide = IsShortPosition(candidate) ? "buy" : "sell";
+        var quantity = Math.Abs((double)candidate.Size);
+        if (quantity <= 0)
+            return false;
+
+        _lastForceReduceUtc = DateTime.UtcNow;
+        _riskState.LastUpdate = Timestamp.FromDateTime(DateTime.UtcNow);
+
+        await PublishAsync(new ApprovedTradeEvent
+        {
+            DecisionId = $"FORCE_REDUCE_{Guid.NewGuid().ToString("N")[..12]}",
+            Symbol = candidate.Symbol,
+            Side = closeSide,
+            OrderType = "market",
+            Quantity = quantity,
+            Price = (double)(candidate.MarkPrice ?? candidate.EntryPrice ?? 0m),
+            StopLoss = 0,
+            TakeProfit = 0,
+            RiskAssessment = "FORCE_REDUCE",
+            PositionSizeAdjusted = 0,
+            RiskNotes = $"force reduce: {reason}",
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+        }, ct: ct);
+
+        Logger.LogWarning(
+            "[RiskManager] Full position detected ({Ratio:F1}%), forcing reduce: {Symbol} {Side} {Qty}",
+            ratio, candidate.Symbol, closeSide, quantity);
+
+        return true;
+    }
+
+    private async Task<double> ResolveEquityAsync(CancellationToken ct)
+    {
+        if (_riskState.TotalEquity > 0)
+            return _riskState.TotalEquity;
+
+        if (_accountClient == null)
+            return 0;
+
+        try
+        {
+            var balances = await _accountClient.GetBalancesAsync(ct);
+            var usdt = balances.FirstOrDefault(b => b.Currency.Equals("USDT", StringComparison.OrdinalIgnoreCase));
+            if (usdt == null)
+                return 0;
+
+            _riskState.TotalEquity = (double)usdt.Balance;
+            _riskState.AvailableBalance = (double)usdt.Available;
+            return _riskState.TotalEquity;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "[RiskManager] Load balances failed (non-fatal)");
+            return 0;
+        }
+    }
+
+    private static PositionInfo? PickForceReduceCandidate(IReadOnlyList<PositionInfo> positions)
+    {
+        PositionInfo? worstLoss = null;
+        decimal worstPnl = 0;
+        PositionInfo? largest = null;
+        decimal largestNotional = 0;
+
+        foreach (var position in positions)
+        {
+            if (string.IsNullOrWhiteSpace(position.Symbol))
+                continue;
+
+            var size = Math.Abs(position.Size);
+            if (size <= 0)
+                continue;
+
+            var notional = Math.Abs(EstimateNotional(position, size));
+            if (notional > largestNotional)
+            {
+                largestNotional = notional;
+                largest = position;
+            }
+
+            if (position.UnrealizedPnl.HasValue && position.UnrealizedPnl.Value < 0)
+            {
+                if (worstLoss == null || position.UnrealizedPnl.Value < worstPnl)
+                {
+                    worstPnl = position.UnrealizedPnl.Value;
+                    worstLoss = position;
+                }
+            }
+        }
+
+        return worstLoss ?? largest;
+    }
+
+    private static decimal EstimateNotional(PositionInfo position, decimal sizeAbs)
+    {
+        if (position.Notional.HasValue)
+            return position.Notional.Value;
+
+        if (position.MarkPrice.HasValue)
+            return position.MarkPrice.Value * sizeAbs;
+
+        if (position.EntryPrice.HasValue)
+            return position.EntryPrice.Value * sizeAbs;
+
+        return 0m;
+    }
+
+    private static bool IsShortPosition(PositionInfo position)
+    {
+        if (position.Size < 0)
+            return true;
+
+        var side = (position.Side ?? string.Empty).Trim().ToUpperInvariant();
+        return side is "SHORT" or "SELL";
     }
 
     private async Task PublishStartupRiskResult(

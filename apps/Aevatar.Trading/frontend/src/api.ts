@@ -70,6 +70,16 @@ export function prettyJson(x: unknown): string {
 }
 
 // =============================================================================
+// AG-UI Chat
+// =============================================================================
+export async function sendAgUiChat(message: string, userId?: string): Promise<void> {
+  await apiFetch("/api/agui/chat", {
+    method: "POST",
+    body: JSON.stringify({ message, userId }),
+  });
+}
+
+// =============================================================================
 // Policy / Decision / Positions
 // =============================================================================
 export function fetchPolicy(): Promise<TradingPolicyConfig> {

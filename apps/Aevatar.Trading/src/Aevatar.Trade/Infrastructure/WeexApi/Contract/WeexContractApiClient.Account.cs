@@ -57,7 +57,7 @@ internal sealed partial class WeexContractApiClient
         var filterSymbol = (symbol ?? "").Trim();
 
         // NOTE:
-        // - 你在 curl 里验证“singlePosition”是对的，所以这里优先对齐：
+        // - 你在 curl 里验证"singlePosition"是对的，所以这里优先对齐：
         //   - 传了 symbol：GET /capi/v2/account/position/singlePosition?symbol=...
         //   - 没传 symbol：GET /capi/v2/account/position/allPosition
         JsonElement payload;
@@ -106,15 +106,41 @@ internal sealed partial class WeexContractApiClient
             var sideRaw = ReadString(item, "holdSide", "posSide", "positionSide", "side", "direction", "hold_side", "pos_side");
             var size = ReadDecimal(item, "size", "pos", "position", "positionAmt", "holdVol", "total", "qty", "quantity", "amount", "hold_vol", "position_amt");
 
+            // WEEX AI Wars 字段：open_value（开仓价值）/ unrealizePnl（未实现盈亏，注意没有 'd'）
+            var openValue = ReadDecimalNullable(item, "open_value", "openValue");
             var entryPrice = ReadDecimalNullable(item, "entryPrice", "openPrice", "avgOpenPrice", "avgPrice", "openAvgPrice", "open_avg_price", "avg_open_price");
+            // 如果没有直接的 entryPrice，从 open_value / size 计算
+            if (entryPrice == null && openValue.HasValue && size != 0m)
+            {
+                entryPrice = openValue.Value / Math.Abs(size);
+            }
+            
             var markPrice = ReadDecimalNullable(item, "markPrice", "marketPrice", "lastPrice", "price", "mark_price", "market_price", "last_price");
-            var unrealizedPnl = ReadDecimalNullable(item, "unrealizedPnl", "upl", "unrealizedProfit", "floatingProfit", "pnl", "unrealized_pnl", "unrealisedPnl");
+            // WEEX AI Wars 用 "unrealizePnl" 而不是 "unrealizedPnl"
+            var unrealizedPnl = ReadDecimalNullable(item, "unrealizePnl", "unrealizedPnl", "upl", "unrealizedProfit", "floatingProfit", "pnl", "unrealized_pnl", "unrealisedPnl");
             var leverage = ReadDecimalNullable(item, "leverage", "lever");
+            
+            // 如果没有 markPrice，从 entryPrice 和 unrealizedPnl 反推
+            // Long: markPrice = entryPrice + pnl / size
+            // Short: markPrice = entryPrice - pnl / size
+            var side = NormalizePositionSide(sideRaw);
+            if (markPrice == null && entryPrice.HasValue && unrealizedPnl.HasValue && size != 0m)
+            {
+                var pnlPerUnit = unrealizedPnl.Value / Math.Abs(size);
+                markPrice = side == "SHORT" || side == "SELL"
+                    ? entryPrice.Value - pnlPerUnit
+                    : entryPrice.Value + pnlPerUnit;
+            }
 
-            var notional = ReadDecimalNullable(item, "notional", "positionValue", "value", "marketValue", "position_value", "market_value");
+            var notional = ReadDecimalNullable(item, "notional", "positionValue", "value", "marketValue", "position_value", "market_value", "open_value", "openValue");
             if (notional == null && markPrice.HasValue && size != 0m)
             {
                 notional = Math.Abs(size) * markPrice.Value;
+            }
+            // 如果还是没有 notional，用 open_value 作为估算
+            if (notional == null && openValue.HasValue)
+            {
+                notional = Math.Abs(openValue.Value);
             }
 
             // Skip empty rows
@@ -124,7 +150,7 @@ internal sealed partial class WeexContractApiClient
             positions.Add(new PositionInfo
             {
                 Symbol = sym,
-                Side = NormalizePositionSide(sideRaw),
+                Side = side,
                 Size = size,
                 EntryPrice = entryPrice,
                 MarkPrice = markPrice,

@@ -2,7 +2,6 @@ using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.Core;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
-
 namespace Aevatar.Trade.Agents.Triggers;
 
 // ============================================================================
@@ -175,4 +174,5 @@ public sealed class DecisionTriggerAgent : GAgentBase<DecisionTriggerState>
 
         return (now - last).TotalSeconds >= cooldown;
     }
+
 }

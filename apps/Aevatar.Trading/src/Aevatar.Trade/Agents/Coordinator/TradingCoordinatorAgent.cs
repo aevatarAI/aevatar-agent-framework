@@ -188,42 +188,45 @@ public class TradingCoordinatorAgent : AIGAgentBase
     /// Handle market sentiment analysis results
     /// </summary>
     [EventHandler]
-    public Task HandleSentimentAnalysis(MarketSentimentAnalysisEvent evt)
+    public async Task HandleSentimentAnalysis(MarketSentimentAnalysisEvent evt)
     {
         _coordState.LatestSentiment = evt;
         Logger.LogDebug(
             "[Coordinator] Received sentiment: Score={Score}, Trend={Trend}",
             evt.SentimentScore, evt.SentimentTrend);
 
-        return Task.CompletedTask;
+        // Broadcast downstream so UI/streaming agents can consume analysis snapshots.
+        await PublishAsync(evt, Aevatar.Agents.EventDirection.Down);
     }
 
     /// <summary>
     /// Handle technical analysis results
     /// </summary>
     [EventHandler]
-    public Task HandleTechnicalAnalysis(TechnicalAnalysisEvent evt)
+    public async Task HandleTechnicalAnalysis(TechnicalAnalysisEvent evt)
     {
         _coordState.LatestTechnical = evt;
         Logger.LogDebug(
             "[Coordinator] Received technical: Trend={Trend}, Signal={Signal}",
             evt.TrendDirection, evt.Signal);
 
-        return Task.CompletedTask;
+        // Broadcast downstream so UI/streaming agents can consume analysis snapshots.
+        await PublishAsync(evt, Aevatar.Agents.EventDirection.Down);
     }
 
     /// <summary>
     /// Handle news impact analysis results
     /// </summary>
     [EventHandler]
-    public Task HandleNewsAnalysis(NewsImpactAnalysisEvent evt)
+    public async Task HandleNewsAnalysis(NewsImpactAnalysisEvent evt)
     {
         _coordState.LatestNews = evt;
         Logger.LogDebug(
             "[Coordinator] Received news: Impact={Impact}, Level={Level}",
             evt.ImpactType, evt.ImpactLevel);
 
-        return Task.CompletedTask;
+        // Broadcast downstream so UI/streaming agents can consume analysis snapshots.
+        await PublishAsync(evt, Aevatar.Agents.EventDirection.Down);
     }
 
     /// <summary>

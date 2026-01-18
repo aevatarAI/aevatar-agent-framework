@@ -34,6 +34,8 @@
 
     <!-- ============ Project References ============ -->
     <ItemGroup>
+        <ProjectReference Include="..\..\..\..\src\Aevatar.Agents.AGUI\Aevatar.Agents.AGUI.csproj" />
+        <ProjectReference Include="..\..\..\..\src\Aevatar.Agents.Cognitive.Streaming\Aevatar.Agents.Cognitive.Streaming.csproj" />
         <ProjectReference Include="..\..\..\..\src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
         <ProjectReference Include="..\..\..\..\src\Aevatar.Agents.Runtime.Orleans\Aevatar.Agents.Runtime.Orleans.csproj" />
         <ProjectReference Include="..\..\..\..\src\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
@@ -42,6 +44,9 @@
     </ItemGroup>
     <ItemGroup>
       <None Include="appsettings.secrets.json" />
+    </ItemGroup>
+    <ItemGroup>
+      <Folder Include="trade-audit\" />
     </ItemGroup>
 
 </Project>

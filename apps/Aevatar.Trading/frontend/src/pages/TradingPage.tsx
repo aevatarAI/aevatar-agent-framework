@@ -1,865 +1,332 @@
 import React from "react";
-import { apiFetch, fetchPolicy, fetchPositions, prettyJson, triggerDecision } from "../api";
-import type {
-  AgentsResponse,
-  AuditLatestResponse,
-  BalanceInfo,
-  DecisionTriggerEvent,
-  DecisionTriggerRequest,
-  MetaResponse,
-  OrderInfo,
-  PositionsResponse,
-  TickerResponse,
-  TradingPolicyConfig,
-  TradingSystemStatus,
-} from "../types";
+import { apiFetch, fetchPositions, sendAgUiChat } from "../api";
+import type { BalanceInfo, MetaResponse, PositionsResponse, TickerResponse } from "../types";
 import { Button } from "../components/Button";
-import { Panel } from "../components/Panel";
-import { StatusPill } from "../components/StatusPill";
-import { FillsViz, PositionsViz } from "../components/ExchangeViz";
+import { useAgUiStream } from "../hooks/useAgUiStream";
 
-type CallState = { busy: boolean; error?: string };
-type SectionErrors = Partial<
-  Record<"meta" | "status" | "ticker" | "balances" | "orders" | "positions" | "fills" | "policy" | "audit", string>
->;
-
-function useCallState() {
-  const [state, setState] = React.useState<CallState>({ busy: false });
-  const run = React.useCallback(async <T,>(fn: () => Promise<T>) => {
-    setState({ busy: true });
-    try {
-      const res = await fn();
-      setState({ busy: false });
-      return res;
-    } catch (e) {
-      const msg =
-        typeof e === "object" && e && "message" in e ? String((e as { message?: unknown }).message) : String(e);
-      setState({ busy: false, error: msg });
-      throw e;
-    }
-  }, []);
-  return { state, run };
-}
-
-function formatNum(n: number, digits = 2): string {
-  if (!Number.isFinite(n)) return "-";
-  return n.toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: 0 });
-}
-
-function formatIso(iso?: string | null): string {
-  if (!iso) return "-";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString();
-}
-
-function badgeKindForDirection(dir: string): "buy" | "sell" | "hold" {
-  const x = (dir ?? "").toUpperCase();
-  if (x === "BUY") return "buy";
-  if (x === "SELL") return "sell";
-  return "hold";
-}
-
-type StrategyCycle = {
-  cycleId: string;
-  symbol: string;
-  trigger?: string;
-  startTime?: string;
-  endTime?: string;
-  decisionId?: string;
-  direction?: string;
-  confidence?: number;
-  executedToRisk?: boolean;
-  executionMode?: string;
-  ai?: { sentiment?: string; technical?: string; news?: string; reasoning?: string };
-  snapshot?: { sentiment?: string; technical?: string; news?: string };
-  risk?: { result?: string; details?: Array<string> };
-  execution?: string;
+type AgUiMessage = {
+  id: string;
+  role: string;
+  content: string;
+  name?: string;
 };
 
-function parseAuditMarkdown(md: string): StrategyCycle[] {
-  if (!md) return [];
-  const blocks = md.split("\n## Cycle ").slice(1).map((x) => "## Cycle " + x);
-  const cycles: StrategyCycle[] = [];
+const DEFAULT_SYMBOL = "cmt_btcusdt";
 
-  for (const b of blocks) {
-    const head = b.match(/^## Cycle `([^`]+)` — `([^`]+)`/m);
-    if (!head) continue;
-    const cycleId = head[1];
-    const symbol = head[2];
-
-    const time = b.match(/- Time\(UTC\): `([^`]*)` → `([^`]*)`/);
-    const trigger = b.match(/- Trigger: `([^`]*)`/);
-    const decisionLine = b.match(/- Decision:\s+\*\*(.+?)\*\*\s+\(confidence=(\d+)\)/);
-    const decisionId = b.match(/- DecisionId: `([^`]*)`/);
-    const execToRisk = b.match(/- ExecutedToRisk: `([^`]*)`\s+\|\s+Mode: `([^`]*)`/);
-
-    const ai: StrategyCycle["ai"] = {};
-    const aiSent = b.match(/- Sentiment:\s+(.+)/);
-    const aiTech = b.match(/- Technical:\s+(.+)/);
-    const aiNews = b.match(/- News:\s+(.+)/);
-    const aiReason = b.match(/- Reasoning:\s+(.+)/);
-    if (aiSent) ai.sentiment = aiSent[1].trim();
-    if (aiTech) ai.technical = aiTech[1].trim();
-    if (aiNews) ai.news = aiNews[1].trim();
-    if (aiReason) ai.reasoning = aiReason[1].trim();
-
-    const snapshot: StrategyCycle["snapshot"] = {};
-    const snapSent = b.match(/- Sentiment:\s+(score=.+)/);
-    const snapTech = b.match(/- Technical:\s+(trend=.+)/);
-    const snapNews = b.match(/- News:\s+(impact=.+)/);
-    if (snapSent) snapshot.sentiment = snapSent[1].trim();
-    if (snapTech) snapshot.technical = snapTech[1].trim();
-    if (snapNews) snapshot.news = snapNews[1].trim();
-
-    const riskLines: string[] = [];
-    const riskSection = b.split("\n### Risk Control")[1]?.split("\n### Execution Result")[0] ?? "";
-    for (const line of riskSection.split("\n")) {
-      const m = line.match(/^- (.+)$/);
-      if (m) riskLines.push(m[1]);
-    }
-
-    const execSection = b.split("\n### Execution Result")[1] ?? "";
-    const execLine = execSection.match(/- (.+)/);
-
-    const cycle: StrategyCycle = {
-      cycleId,
-      symbol,
-      trigger: trigger?.[1] ?? undefined,
-      startTime: time?.[1] ? time[1] : undefined,
-      endTime: time?.[2] ? time[2] : undefined,
-      decisionId: decisionId?.[1] ?? undefined,
-      direction: decisionLine?.[1] ?? undefined,
-      confidence: decisionLine ? Number(decisionLine[2]) : undefined,
-      executedToRisk: execToRisk ? execToRisk[1].trim().toUpperCase() === "YES" : undefined,
-      executionMode: execToRisk ? execToRisk[2] : undefined,
-      ai: Object.keys(ai).length ? ai : undefined,
-      snapshot: Object.keys(snapshot).length ? snapshot : undefined,
-      risk: riskLines.length ? { result: riskLines[0] ?? "", details: riskLines.slice(1) } : undefined,
-      execution: execLine?.[1] ?? undefined,
-    };
-    cycles.push(cycle);
-  }
-
-  // newest at top (file is append-only)
-  return cycles.reverse();
+function formatNum(n: number | null | undefined, digits = 2): string {
+  if (!Number.isFinite(n ?? NaN)) return "-";
+  return Number(n).toLocaleString(undefined, {
+    maximumFractionDigits: digits,
+    minimumFractionDigits: 0,
+  });
 }
 
-type ToolExecResponse = {
-  success: boolean;
-  exitCode: number;
-  toolName: string;
-  file: string;
-  data: unknown;
-  stderr?: string | null;
-};
+function formatPct(n: number | null | undefined): string {
+  if (!Number.isFinite(n ?? NaN)) return "-";
+  return `${n!.toFixed(2)}%`;
+}
+
+function classForChange(n: number | null | undefined): string {
+  if (!Number.isFinite(n ?? NaN)) return "";
+  return (n ?? 0) >= 0 ? "up" : "down";
+}
 
 export function TradingPage() {
   const [meta, setMeta] = React.useState<MetaResponse | null>(null);
-  const [status, setStatus] = React.useState<TradingSystemStatus | null>(null);
-  const [agents, setAgents] = React.useState<AgentsResponse | null>(null);
-
-  const [symbol, setSymbol] = React.useState("cmt_btcusdt");
-  const [symbolTouched, setSymbolTouched] = React.useState(false);
-
+  const [symbol, setSymbol] = React.useState(DEFAULT_SYMBOL);
   const [ticker, setTicker] = React.useState<TickerResponse | null>(null);
-  const [balances, setBalances] = React.useState<Array<BalanceInfo> | null>(null);
-  const [orders, setOrders] = React.useState<Array<OrderInfo> | null>(null);
   const [positions, setPositions] = React.useState<PositionsResponse | null>(null);
-  const [fillsTool, setFillsTool] = React.useState<ToolExecResponse | null>(null);
-  const [policy, setPolicy] = React.useState<TradingPolicyConfig | null>(null);
+  const [balances, setBalances] = React.useState<Array<BalanceInfo> | null>(null);
+  const [lastUpdated, setLastUpdated] = React.useState<Date | null>(null);
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
-  const [audit, setAudit] = React.useState<AuditLatestResponse | null>(null);
-  const [cycles, setCycles] = React.useState<Array<StrategyCycle>>([]);
-  const [selectedCycleId, setSelectedCycleId] = React.useState<string | null>(null);
+  const [chatInput, setChatInput] = React.useState("");
+  const [chatSending, setChatSending] = React.useState(false);
+  const [chatError, setChatError] = React.useState<string | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false);
 
-  const [autoRefresh, setAutoRefresh] = React.useState(true);
-  const [errors, setErrors] = React.useState<SectionErrors>({});
-  const [lastUpdatedAt, setLastUpdatedAt] = React.useState<Date | null>(null);
-  const [agentsExpanded, setAgentsExpanded] = React.useState(false);
+  const agui = useAgUiStream(true);
 
-  const calls = useCallState();
-  const [stopReason, setStopReason] = React.useState("UI stop");
-  const [manualTriggerReason, setManualTriggerReason] = React.useState("MANUAL");
-  const [manualTriggerDeltaPct, setManualTriggerDeltaPct] = React.useState("");
-  const [manualTriggerDeltaAbs, setManualTriggerDeltaAbs] = React.useState("");
-  const refreshInFlight = React.useRef(false);
-
-  const refreshAll = React.useCallback(async () => {
-    if (refreshInFlight.current) return;
-    refreshInFlight.current = true;
-
+  /* --------------------------------------------------------------------------
+   * Market refresh (price + positions)
+   * -------------------------------------------------------------------------- */
+  const refreshMarket = React.useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
-    const nextErrors: SectionErrors = {};
+      const [metaRes, tickerRes, posRes, balRes] = await Promise.all([
+        apiFetch<MetaResponse>("/api/meta"),
+        apiFetch<TickerResponse>(
+          `/api/weex-test/ticker?${new URLSearchParams({ symbol }).toString()}`,
+        ),
+        fetchPositions(),
+        apiFetch<{ count: number; balances: Array<BalanceInfo> }>("/api/weex-test/balances"),
+      ]);
 
-    const results = await Promise.allSettled([
-      apiFetch<MetaResponse>("/api/meta"),
-      apiFetch<TradingSystemStatus>("/api/trading/status"),
-      apiFetch<AgentsResponse>("/api/agents"),
-      apiFetch<TickerResponse>(`/api/weex-test/ticker?${new URLSearchParams({ symbol }).toString()}`),
-      apiFetch<{ count: number; balances: Array<BalanceInfo> }>("/api/weex-test/balances"),
-      apiFetch<{ count: number; orders: Array<OrderInfo> }>(
-        `/api/weex-test/open-orders?${new URLSearchParams(symbol ? { symbol } : {}).toString()}`,
-      ),
-      fetchPositions(symbol ? symbol : undefined),
-      apiFetch<ToolExecResponse>("/api/ai-wars/weex_ai_order_fills?confirm=false", {
-        method: "POST",
-        body: JSON.stringify({ symbol, limit: 100 }),
-      }),
-      fetchPolicy(),
-      apiFetch<AuditLatestResponse>("/api/audit/latest?maxBytes=200000"),
-    ]);
-
-    const [metaRes, statusRes, agentsRes, tickerRes, balRes, ordRes, posRes, fillsRes, policyRes, auditRes] = results;
-
-    if (metaRes.status === "fulfilled") {
-      setMeta(metaRes.value);
-      if (!symbolTouched && metaRes.value.trading?.symbol) {
-        setSymbol(metaRes.value.trading.symbol);
-      }
-    } else {
-      nextErrors.meta = String(metaRes.reason?.message ?? metaRes.reason);
-    }
-
-    if (statusRes.status === "fulfilled") setStatus(statusRes.value);
-    else nextErrors.status = String(statusRes.reason?.message ?? statusRes.reason);
-
-    if (agentsRes.status === "fulfilled") setAgents(agentsRes.value);
-
-    if (tickerRes.status === "fulfilled") setTicker(tickerRes.value);
-    else nextErrors.ticker = String(tickerRes.reason?.message ?? tickerRes.reason);
-
-    if (balRes.status === "fulfilled") setBalances(balRes.value.balances);
-    else nextErrors.balances = String(balRes.reason?.message ?? balRes.reason);
-
-    if (ordRes.status === "fulfilled") setOrders(ordRes.value.orders);
-    else nextErrors.orders = String(ordRes.reason?.message ?? ordRes.reason);
-
-    if (posRes.status === "fulfilled") setPositions(posRes.value);
-    else nextErrors.positions = String(posRes.reason?.message ?? posRes.reason);
-
-    if (fillsRes.status === "fulfilled") setFillsTool(fillsRes.value);
-    else nextErrors.fills = String(fillsRes.reason?.message ?? fillsRes.reason);
-
-    if (policyRes.status === "fulfilled") setPolicy(policyRes.value);
-    else nextErrors.policy = String(policyRes.reason?.message ?? policyRes.reason);
-
-    if (auditRes.status === "fulfilled") {
-      setAudit(auditRes.value);
-      const parsed = parseAuditMarkdown(auditRes.value.content ?? "");
-      setCycles(parsed);
-      if (parsed.length && !selectedCycleId) setSelectedCycleId(parsed[0].cycleId);
-    } else {
-      nextErrors.audit = String(auditRes.reason?.message ?? auditRes.reason);
-    }
-
-    setErrors(nextErrors);
-    setLastUpdatedAt(new Date());
+      setMeta(metaRes);
+      setTicker(tickerRes);
+      setPositions(posRes);
+      setBalances(balRes.balances ?? []);
+      setLastUpdated(new Date());
+    } catch (e) {
+      const msg =
+        typeof e === "object" && e && "message" in e ? String((e as { message?: unknown }).message) : String(e);
+      setError(msg);
     } finally {
-      refreshInFlight.current = false;
+      setLoading(false);
     }
-  }, [selectedCycleId, symbol, symbolTouched]);
+  }, [symbol]);
 
   React.useEffect(() => {
-    void refreshAll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    refreshMarket();
+  }, [refreshMarket]);
 
   React.useEffect(() => {
-    if (!autoRefresh) return;
-    const t = window.setInterval(() => {
-      void refreshAll();
-    }, 5000);
-    return () => window.clearInterval(t);
-  }, [autoRefresh, refreshAll]);
+    const timer = setInterval(() => refreshMarket(), 8000);
+    return () => clearInterval(timer);
+  }, [refreshMarket]);
 
-  const selected = cycles.find((c) => c.cycleId === selectedCycleId) ?? cycles[0] ?? null;
-  const usdt = balances?.find((b) => b.currency.toUpperCase() === "USDT") ?? null;
+  React.useEffect(() => {
+    if (!meta?.exchange?.symbols?.length) return;
+    if (meta.exchange.symbols.includes(symbol)) return;
+    setSymbol(meta.exchange.symbols[0]);
+  }, [meta, symbol]);
 
-  const executionMode = meta?.trading.executionMode ?? "-";
-  const modeBadge = executionMode.toUpperCase().includes("LIVE") ? "danger" : "ok";
-  const exchangeType = meta?.exchange?.type ?? "WEEX";
-  const exchangeMode = meta?.exchange?.mode ?? meta?.weex?.mode ?? "-";
-  const triggerMeta = meta?.trigger;
-  const policySnapshot = policy ?? meta?.policy;
-  const policyTrading = policySnapshot?.trading;
-  const policyRisk = policySnapshot?.risk;
+  const netAsset = React.useMemo(() => {
+    if (!balances || balances.length === 0) {
+      return { value: null as number | null, unit: "USDT", note: "暂无余额数据" };
+    }
+    const usdt = balances.find((b) => b.currency.toUpperCase() === "USDT");
+    if (usdt) {
+      return { value: usdt.balance, unit: "USDT", note: "USDT Balance" };
+    }
+    const total = balances.reduce((sum, b) => sum + (Number.isFinite(b.balance) ? b.balance : 0), 0);
+    return { value: total, unit: "TOTAL", note: "未折算" };
+  }, [balances]);
+
+  /* --------------------------------------------------------------------------
+   * AG-UI Chat (streaming + input)
+   * -------------------------------------------------------------------------- */
+  const chatMessages = React.useMemo<AgUiMessage[]>(() => {
+    return agui.messages
+      .filter((m) => m.role === "assistant" || m.role === "user" || m.role === "system")
+      .filter((m) => m.name !== "trade_audit");
+  }, [agui.messages]);
+  const limitedMessages = React.useMemo(() => {
+    const max = 120;
+    return chatMessages.length > max ? chatMessages.slice(chatMessages.length - max) : chatMessages;
+  }, [chatMessages]);
+
+  const sendChat = React.useCallback(async () => {
+    const text = chatInput.trim();
+    if (!text) return;
+
+    setChatSending(true);
+    setChatError(null);
+    try {
+      await sendAgUiChat(text);
+      setChatInput("");
+    } catch (e) {
+      const msg =
+        typeof e === "object" && e && "message" in e ? String((e as { message?: unknown }).message) : String(e);
+      setChatError(msg);
+    } finally {
+      setChatSending(false);
+    }
+  }, [chatInput]);
+
+  const handleChatKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (event.key !== "Enter") return;
+      if (event.shiftKey) return;
+      event.preventDefault();
+      void sendChat();
+    },
+    [sendChat],
+  );
+
+  const chatEndRef = React.useRef<HTMLDivElement | null>(null);
+  React.useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [limitedMessages, agui.streamingMessageId]);
+
+  const symbols = meta?.exchange?.symbols ?? [symbol];
+  const change = ticker?.change24h ?? null;
+  const isStreaming = agui.streamingMessageId !== null;
 
   return (
-    <div className="dash">
-      <div className="dashGrid">
-        <div className="dashMain">
-          <Panel
-            title="交易决策控制台"
-            subtitle="仓位 / 风险 / 决策触发为核心视角，策略闭环与系统状态可观测"
-            right={
-              <div className="row">
-                <Button onClick={() => calls.run(refreshAll)} disabled={calls.state.busy}>
-                  刷新
-                </Button>
-                <button className={`chip ${autoRefresh ? "on" : ""}`} onClick={() => setAutoRefresh((v) => !v)}>
-                  Auto Refresh: {autoRefresh ? "ON" : "OFF"}
-                </button>
-                <a href="/swagger" target="_blank" rel="noreferrer">
-                  Swagger
-                </a>
+    <div className="tradeRoot">
+      <div className="tradeHeader">
+        <div>
+          <div className="tradeTitle">Trading Console</div>
+          <div className="tradeSubtitle">AI 交互 · 币价 · 仓位</div>
+        </div>
+        <div className="tradeActions">
+          <span className={`tradeStatus ${agui.connected ? "ok" : "off"}`}>
+            {agui.connected ? "AGUI Online" : "AGUI Offline"}
+          </span>
+          <Button variant="primary" onClick={() => refreshMarket()} disabled={loading}>
+            {loading ? "Refreshing..." : "Refresh"}
+          </Button>
+        </div>
+      </div>
+
+      {error ? <div className="tradeError">加载失败：{error}</div> : null}
+
+      <div className={`tradeLayout ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+        <section className="tradeMain">
+          <div className="chatShell">
+            <div className="chatShellHeader">
+              <div>
+                <div className="chatShellTitle">AI 交互</div>
+                <div className="chatShellSubtitle">实时感知你的想法，辅助决策</div>
               </div>
-            }
-          >
-            <div className="statsGrid">
-              <div className="statCard">
-                <div className="k">Exchange</div>
-                <div className="v mono">{exchangeType}</div>
-                <div className="s">Mode: {exchangeMode}</div>
-              </div>
-              <div className="statCard">
-                <div className="k">Execution Mode</div>
-                <div className="v">
-                  <span className={`badge ${modeBadge}`}>{executionMode}</span>
-                </div>
-                <div className="s">Live 会真实下单；建议先 DryRun 观察策略。</div>
-              </div>
-              <div className="statCard">
-                <div className="k">Trigger</div>
-                <div className="v mono">
-                  {triggerMeta
-                    ? `Δ%≥${formatNum(triggerMeta.priceChangePct, 2)} / Δ≥${formatNum(triggerMeta.priceChangeAbs, 2)}`
-                    : "-"}
-                </div>
-                <div className="s">
-                  {triggerMeta ? `窗口=${triggerMeta.windowSeconds}s 冷却=${triggerMeta.cooldownSeconds}s` : "—"}
-                </div>
-              </div>
-              <div className="statCard">
-                <div className="k">Symbol / Interval</div>
-                <div className="v mono">
-                  {meta?.trading.symbol ?? symbol} · {meta?.trading.interval ?? "-"}
-                </div>
-                <div className="s">数据采样周期影响分析与决策频率。</div>
-              </div>
-              <div className="statCard">
-                <div className="k">Last Price</div>
-                <div className="v mono">{ticker ? formatNum(ticker.lastPrice, 6) : "-"}</div>
-                <div className="s">{errors.ticker ? `Ticker error: ${errors.ticker}` : formatIso(ticker?.timestamp)}</div>
-              </div>
-              <div className="statCard">
-                <div className="k">USDT Equity</div>
-                <div className="v mono">{usdt ? formatNum(usdt.balance, 4) : "-"}</div>
-                <div className="s">{usdt ? `available=${formatNum(usdt.available, 4)} frozen=${formatNum(usdt.frozen, 4)}` : "从 /api/weex-test/balances 获取"}</div>
+              <div className="chatShellStatus">
+                <span className={`chatStatusDot ${isStreaming ? "live" : agui.connected ? "ok" : "off"}`} />
+                <span>{isStreaming ? "Streaming" : agui.connected ? "Connected" : "Offline"}</span>
               </div>
             </div>
 
-            <div className="dashControls">
-              <div className="row">
-                <Button
-                  variant="primary"
-                  disabled={calls.state.busy}
-                  onClick={() =>
-                    calls.run(async () => {
-                      await apiFetch("/api/trading/initialize", { method: "POST", body: "{}" });
-                      await refreshAll();
-                    })
-                  }
-                >
-                  Initialize
-                </Button>
-                <Button
-                  variant="primary"
-                  disabled={calls.state.busy}
-                  onClick={() =>
-                    calls.run(async () => {
-                      if (executionMode.toUpperCase().includes("LIVE")) {
-                        const ok = window.confirm("当前是 Live 模式：将真实下单。确认 Start？");
-                        if (!ok) return;
-                      }
-                      await apiFetch("/api/trading/start", { method: "POST", body: "{}" });
-                      await refreshAll();
-                    })
-                  }
-                >
-                  Start
-                </Button>
-                <Button
-                  variant="danger"
-                  disabled={calls.state.busy}
-                  onClick={() =>
-                    calls.run(async () => {
-                      const q = new URLSearchParams({ reason: stopReason });
-                      await apiFetch(`/api/trading/stop?${q.toString()}`, { method: "POST", body: "{}" });
-                      await refreshAll();
-                    })
-                  }
-                >
-                  Stop
-                </Button>
-                <Button
-                  disabled={calls.state.busy}
-                  onClick={() =>
-                    calls.run(async () => {
-                      await apiFetch("/api/trading/sync-account", { method: "POST", body: "{}" });
-                      await refreshAll();
-                    })
-                  }
-                >
-                  Sync Account
-                </Button>
-                <div className="field" style={{ minWidth: 220 }}>
-                  <label>Stop reason</label>
-                  <input value={stopReason} onChange={(e) => setStopReason(e.target.value)} />
-                </div>
-                <div className="field" style={{ minWidth: 200 }}>
-                  <label>Symbol（查询余额/订单/行情）</label>
-                  <input
-                    value={symbol}
-                    onChange={(e) => {
-                      setSymbolTouched(true);
-                      setSymbol(e.target.value);
-                    }}
-                    placeholder="cmt_btcusdt"
-                  />
-                </div>
-                <div className="muted" style={{ marginLeft: "auto" }}>
-                  {lastUpdatedAt ? `Updated: ${lastUpdatedAt.toLocaleTimeString()}` : "—"}
-                  {calls.state.error ? <span style={{ marginLeft: 10, color: "rgba(239, 68, 68, 0.9)" }}>{calls.state.error}</span> : null}
-                </div>
-              </div>
-            </div>
-          </Panel>
-
-          <div className="grid cols-2-eq">
-            <Panel title="触发与策略参数" subtitle="来自 /api/policy + /api/meta">
-              {errors.policy ? (
-                <div className="kvItem" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
-                  {errors.policy}
-                </div>
-              ) : null}
-              <div className="kvGrid">
-                <div className="kvItem">
-                  <div className="k">Min Confidence</div>
-                  <div className="v mono">{policyTrading?.minConfidenceToTrade ?? "-"}</div>
-                </div>
-                <div className="kvItem">
-                  <div className="k">Max Position</div>
-                  <div className="v mono">{policyTrading?.maxPositionPct ?? "-"}%</div>
-                </div>
-                <div className="kvItem">
-                  <div className="k">Max Total Position</div>
-                  <div className="v mono">{policyTrading?.maxTotalPositionPct ?? "-"}%</div>
-                </div>
-                <div className="kvItem">
-                  <div className="k">Daily Loss Limit</div>
-                  <div className="v mono">{policyTrading?.maxDailyLoss ?? "-"}%</div>
-                </div>
-                <div className="kvItem">
-                  <div className="k">Risk Cooldown</div>
-                  <div className="v mono">{policyRisk?.cooldownMinutes ?? "-"}m</div>
-                </div>
-                <div className="kvItem">
-                  <div className="k">Trigger Window</div>
-                  <div className="v mono">{triggerMeta?.windowSeconds ?? "-"}s</div>
-                </div>
-              </div>
-            </Panel>
-
-            <Panel title="手动触发 AI 决策" subtitle="用于测试触发链路（不等于下单）">
-              <div className="dashControls">
-                <div className="row">
-                  <div className="field" style={{ minWidth: 180 }}>
-                    <label>Symbol</label>
-                    <input
-                      value={symbol}
-                      onChange={(e) => {
-                        setSymbolTouched(true);
-                        setSymbol(e.target.value);
-                      }}
-                    />
-                  </div>
-                  <div className="field" style={{ minWidth: 200 }}>
-                    <label>Reason</label>
-                    <input value={manualTriggerReason} onChange={(e) => setManualTriggerReason(e.target.value)} />
-                  </div>
-                  <div className="field" style={{ minWidth: 140 }}>
-                    <label>Δ%</label>
-                    <input value={manualTriggerDeltaPct} onChange={(e) => setManualTriggerDeltaPct(e.target.value)} />
-                  </div>
-                  <div className="field" style={{ minWidth: 140 }}>
-                    <label>ΔAbs</label>
-                    <input value={manualTriggerDeltaAbs} onChange={(e) => setManualTriggerDeltaAbs(e.target.value)} />
-                  </div>
-                  <Button
-                    variant="primary"
-                    disabled={calls.state.busy}
-                    onClick={() =>
-                      calls.run(async () => {
-                        const payload: DecisionTriggerRequest = {
-                          symbol: symbol.trim(),
-                          reason: manualTriggerReason.trim() || "MANUAL",
-                        };
-                        if (manualTriggerDeltaPct.trim()) {
-                          const pct = Number(manualTriggerDeltaPct);
-                          if (Number.isFinite(pct)) payload.deltaPct = pct;
-                        }
-                        if (manualTriggerDeltaAbs.trim()) {
-                          const abs = Number(manualTriggerDeltaAbs);
-                          if (Number.isFinite(abs)) payload.deltaAbs = abs;
-                        }
-                        const resp: DecisionTriggerEvent = await triggerDecision(payload);
-                        setManualTriggerReason(resp.reason || "MANUAL");
-                        await refreshAll();
-                      })
-                    }
-                  >
-                    Trigger
-                  </Button>
-                </div>
-              </div>
-            </Panel>
-          </div>
-
-          <div className="grid cols-2-eq">
-            <Panel
-              title="仓位概览"
-              subtitle="来自 /api/positions（交易所无关，能力不足则降级）"
-            >
-              {positions?.supported === false ? (
-                <div className="muted">当前交易所未提供仓位能力。</div>
+            <div className="chatScroll">
+              {limitedMessages.length === 0 ? (
+                <div className="chatEmpty">还没有对话，先告诉 AI 你的想法。</div>
               ) : (
-                <PositionsViz raw={positions} error={errors.positions} />
+                limitedMessages.map((msg) => (
+                  <div key={msg.id} className={`chatBubble ${msg.role}`}>
+                    <div className="chatBubbleRole">{msg.role}</div>
+                    <div className="chatBubbleText">{msg.content}</div>
+                  </div>
+                ))
               )}
-            </Panel>
+              <div ref={chatEndRef} />
+            </div>
 
-            <Panel title="成交概览" subtitle="来自 /api/ai-wars/weex_ai_order_fills（合约：/capi/v2/order/fills，默认 limit=100）">
-              <FillsViz raw={fillsTool} error={errors.fills} />
-            </Panel>
+            <div className="chatComposer">
+              <textarea
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={handleChatKeyDown}
+                placeholder="告诉 AI 你关注的点（Enter 发送，Shift+Enter 换行）"
+                rows={3}
+              />
+              <div className="chatComposerActions">
+                {chatError ? <span className="chatError">{chatError}</span> : null}
+                <Button
+                  variant="primary"
+                  onClick={() => void sendChat()}
+                  disabled={chatSending || !chatInput.trim()}
+                >
+                  {chatSending ? "Sending..." : "Send"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <aside className={`tradeSide ${sidebarCollapsed ? "collapsed" : ""}`}>
+          <div className="sideHeader">
+            <div className="sideTitle">侧边栏</div>
+            <button className="sideToggle" onClick={() => setSidebarCollapsed((v) => !v)}>
+              {sidebarCollapsed ? "展开" : "收起"}
+            </button>
           </div>
 
-          <Panel
-            title="AI 策略 · 决策时间线"
-            subtitle="来自 TradeAudit 的 Markdown（每个 cycle：AI 分析 → 决策 → 风控 → 执行）"
-            right={
-              <div className="row">
-                <span className="muted">
-                  {audit?.file ? (
-                    <>
-                      Log: <span className="mono">{audit.file}</span> ({formatIso(audit.updatedAtUtc)})
-                    </>
-                  ) : (
-                    "暂无策略日志"
-                  )}
-                </span>
-              </div>
-            }
-          >
-            {errors.audit ? <div className="kvItem" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>{errors.audit}</div> : null}
-
-            <div className="timelineGrid">
-              <div className="timelineList">
-                {cycles.length ? (
-                  cycles.slice(0, 18).map((c) => {
-                    const dir = c.direction ?? "HOLD";
-                    const kind = badgeKindForDirection(dir);
-                    const active = selectedCycleId === c.cycleId;
-                    return (
-                      <button
-                        key={c.cycleId}
-                        className={`timelineItem ${active ? "active" : ""}`}
-                        onClick={() => setSelectedCycleId(c.cycleId)}
-                      >
-                        <div className="row" style={{ justifyContent: "space-between", gap: 8 }}>
-                          <span className={`badge ${kind}`}>{dir}</span>
-                          <span className="mono muted">{c.endTime ? c.endTime : ""}</span>
-                        </div>
-                        <div className="muted" style={{ marginTop: 6 }}>
-                          conf={c.confidence ?? "-"} · {c.executedToRisk ? "toRisk=YES" : "toRisk=NO"} · {c.executionMode ?? "-"}
-                        </div>
-                        <div className="muted" style={{ marginTop: 4 }}>
-                          {c.risk?.result ? `risk: ${c.risk.result}` : "risk: -"} · {c.execution ? c.execution : "exec: -"}
-                        </div>
-                      </button>
-                    );
-                  })
-                ) : (
-                  <div className="muted">暂无 cycle（先 Start 让系统跑一会儿）</div>
-                )}
-              </div>
-
-              <div className="timelineDetail">
-                {selected ? (
-                  <div className="kv">
-                    <div className="kvItem">
-                      <div className="k">Decision</div>
-                      <div className="v">
-                        <div className="row" style={{ gap: 8 }}>
-                          <span className={`badge ${badgeKindForDirection(selected.direction ?? "HOLD")}`}>
-                            {selected.direction ?? "HOLD"}
-                          </span>
-                          <span className="mono">confidence={selected.confidence ?? "-"}</span>
-                          <span className="mono">mode={selected.executionMode ?? "-"}</span>
-                          <span className="mono">toRisk={selected.executedToRisk ? "YES" : "NO"}</span>
-                        </div>
-                        <div className="muted" style={{ marginTop: 6 }}>
-                          cycle={selected.cycleId} · decisionId={selected.decisionId ?? "-"} · trigger={selected.trigger ?? "-"}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="kvItem">
-                      <div className="k">AI Strategy（可读）</div>
-                      <div className="v">
-                        <div className="kv" style={{ gap: 6 }}>
-                          <div className="row" style={{ justifyContent: "space-between" }}>
-                            <span className="muted2">Sentiment</span>
-                            <span style={{ textAlign: "right" }}>{selected.ai?.sentiment ?? "-"}</span>
-                          </div>
-                          <div className="row" style={{ justifyContent: "space-between" }}>
-                            <span className="muted2">Technical</span>
-                            <span style={{ textAlign: "right" }}>{selected.ai?.technical ?? "-"}</span>
-                          </div>
-                          <div className="row" style={{ justifyContent: "space-between" }}>
-                            <span className="muted2">News</span>
-                            <span style={{ textAlign: "right" }}>{selected.ai?.news ?? "-"}</span>
-                          </div>
-                          <div className="row" style={{ justifyContent: "space-between" }}>
-                            <span className="muted2">Reasoning</span>
-                            <span style={{ textAlign: "right" }}>{selected.ai?.reasoning ?? "-"}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="kvItem">
-                      <div className="k">Risk / Execution</div>
-                      <div className="v">
-                        <div className="row" style={{ gap: 8, marginBottom: 8 }}>
-                          <span className="badge gray">{selected.risk?.result ?? "risk: -"}</span>
-                          <span className="badge gray">{selected.execution ?? "exec: -"}</span>
-                        </div>
-                        {selected.risk?.details?.length ? (
-                          <div className="muted">
-                            {selected.risk.details.slice(0, 6).map((x, i) => (
-                              <div key={i}>- {x}</div>
-                            ))}
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    <div className="kvItem">
-                      <div className="k">Raw</div>
-                      <pre className="pre" style={{ maxHeight: 240 }}>
-                        <code>{audit?.content ? audit.content.slice(0, 12000) : ""}</code>
-                      </pre>
-                    </div>
+          {!sidebarCollapsed ? (
+            <>
+              <section className="sideBlock">
+                <div className="sideBlockHeader">币价</div>
+                <div className="sideContent">
+                  <div className="sideRow">
+                    <label className="tradeLabel">Price Symbol</label>
+                    <select value={symbol} onChange={(e) => setSymbol(e.target.value)}>
+                      {symbols.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                ) : (
-                  <div className="muted">选择一个 cycle 查看详情</div>
-                )}
-              </div>
-            </div>
-          </Panel>
 
-          <Panel title="当前订单（Open Orders）" subtitle="来自 /api/weex-test/open-orders（合约：/capi/v2/order/current）">
-            {errors.orders ? (
-              <div className="kvItem" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginBottom: 12 }}>
-                <div className="k">Orders error</div>
-                <div className="v">{errors.orders}</div>
-              </div>
-            ) : null}
-
-            {orders && orders.length ? (
-              <div className="tableWrap">
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>Symbol</th>
-                      <th>Side</th>
-                      <th>Type</th>
-                      <th>Status</th>
-                      <th className="num">Price</th>
-                      <th className="num">Qty</th>
-                      <th className="num">Filled</th>
-                      <th className="mono">OrderId</th>
-                      <th className="mono">Created</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {orders.slice(0, 30).map((o) => (
-                      <tr key={o.orderId}>
-                        <td className="mono">{o.symbol}</td>
-                        <td>
-                          <span className={`badge ${o.side.toLowerCase() === "buy" ? "buy" : "sell"}`}>{o.side}</span>
-                        </td>
-                        <td className="mono">{o.orderType}</td>
-                        <td className="mono">{o.status}</td>
-                        <td className="num mono">{formatNum(o.price, 6)}</td>
-                        <td className="num mono">{formatNum(o.quantity, 6)}</td>
-                        <td className="num mono">{formatNum(o.filledQuantity, 6)}</td>
-                        <td className="mono">{o.orderId}</td>
-                        <td className="mono">{formatIso(o.createTime)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="muted">暂无 open orders</div>
-            )}
-          </Panel>
-        </div>
-
-        <div className="dashSide">
-          <Panel title="环境信息" subtitle="来自 /api/meta（安全配置快照）">
-            {errors.meta ? (
-              <div className="kvItem" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginBottom: 12 }}>
-                <div className="k">Meta error</div>
-                <div className="v">{errors.meta}</div>
-              </div>
-            ) : null}
-
-            {meta ? (
-              <div className="kv">
-                <div className="kvItem">
-                  <div className="k">Weex</div>
-                  <div className="v">
-                    <div className="row" style={{ justifyContent: "space-between" }}>
-                      <span className="muted2">Mode</span>
-                      <span className="mono">{meta.weex.mode}</span>
+                  <div className="priceCard">
+                    <div className="priceTop">
+                      <div>
+                        <div className="priceSymbol">{ticker?.symbol ?? symbol}</div>
+                        <div className="priceValue">{formatNum(ticker?.lastPrice, 4)}</div>
+                        <div className={`priceChange ${classForChange(change)}`}>
+                          {change === null ? "-" : `${change >= 0 ? "+" : ""}${formatPct(change)}`}
+                        </div>
+                      </div>
+                      <div className="assetCard">
+                        <div className="assetLabel">净资产</div>
+                        <div className="assetValue">
+                          {netAsset.value === null ? "-" : `${formatNum(netAsset.value, 2)} ${netAsset.unit}`}
+                        </div>
+                        <div className="assetNote">{netAsset.note}</div>
+                      </div>
                     </div>
-                    <div className="row" style={{ justifyContent: "space-between" }}>
-                      <span className="muted2">BaseUrl</span>
-                      <span className="mono" style={{ textAlign: "right" }}>
-                        {meta.weex.baseUrl}
-                      </span>
+                    <div className="priceGrid">
+                      <div>
+                        <span>24h 高</span>
+                        <strong>{formatNum(ticker?.high24h, 4)}</strong>
+                      </div>
+                      <div>
+                        <span>24h 低</span>
+                        <strong>{formatNum(ticker?.low24h, 4)}</strong>
+                      </div>
+                      <div>
+                        <span>24h 量</span>
+                        <strong>{formatNum(ticker?.volume24h, 2)}</strong>
+                      </div>
+                      <div>
+                        <span>Bid / Ask</span>
+                        <strong>
+                          {formatNum(ticker?.bidPrice, 4)} / {formatNum(ticker?.askPrice, 4)}
+                        </strong>
+                      </div>
                     </div>
                   </div>
                 </div>
-                <div className="kvItem">
-                  <div className="k">Trading</div>
-                  <div className="v">
-                    <div className="row" style={{ justifyContent: "space-between" }}>
-                      <span className="muted2">Symbol</span>
-                      <span className="mono">{meta.trading.symbol}</span>
-                    </div>
-                    <div className="row" style={{ justifyContent: "space-between" }}>
-                      <span className="muted2">Interval</span>
-                      <span className="mono">{meta.trading.interval}</span>
-                    </div>
-                    <div className="row" style={{ justifyContent: "space-between" }}>
-                      <span className="muted2">Mode</span>
-                      <span className="mono">{meta.trading.executionMode}</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="kvItem">
-                  <div className="k">Audit</div>
-                  <div className="v">
-                    <div className="row" style={{ justifyContent: "space-between" }}>
-                      <span className="muted2">Enabled</span>
-                      <span className="mono">{meta.audit.enabled ? "true" : "false"}</span>
-                    </div>
-                    <div className="row" style={{ justifyContent: "space-between" }}>
-                      <span className="muted2">OutputDir</span>
-                      <span className="mono">{meta.audit.outputDir}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="muted">正在加载 meta…</div>
-            )}
-          </Panel>
+              </section>
 
-          <Panel title="余额（Balances）" subtitle="来自 /api/weex-test/balances（合约：/capi/v2/account/assets）">
-            {errors.balances ? (
-              <div className="kvItem" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginBottom: 12 }}>
-                <div className="k">Balances error</div>
-                <div className="v">{errors.balances}</div>
-              </div>
-            ) : null}
-
-            {balances && balances.length ? (
-              <div className="tableWrap" style={{ maxHeight: 420 }}>
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>Currency</th>
-                      <th className="num">Balance</th>
-                      <th className="num">Available</th>
-                      <th className="num">Frozen</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {balances.slice(0, 50).map((b) => (
-                      <tr key={b.currency}>
-                        <td className="mono">{b.currency}</td>
-                        <td className="num mono">{formatNum(b.balance, 6)}</td>
-                        <td className="num mono">{formatNum(b.available, 6)}</td>
-                        <td className="num mono">{formatNum(b.frozen, 6)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="muted">暂无余额数据</div>
-            )}
-          </Panel>
-
-          <Panel title="系统健康" subtitle="Agent 状态（WS 不可用时也会自动走 REST polling）">
-            {errors.status ? (
-              <div className="kvItem" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginBottom: 12 }}>
-                <div className="k">Status error</div>
-                <div className="v">{errors.status}</div>
-              </div>
-            ) : null}
-
-            {status ? (
-              <div className="row" style={{ gap: 8 }}>
-                <StatusPill label="DataCollector" value={status.dataCollector} />
-                <StatusPill label="Trigger" value={status.decisionTrigger} />
-                <StatusPill label="Policy" value={status.policyManager} />
-                <StatusPill label="Sentiment" value={status.sentimentAnalyst} />
-                <StatusPill label="Technical" value={status.technicalAnalyst} />
-                <StatusPill label="Coordinator" value={status.coordinator} />
-                <StatusPill label="Risk" value={status.riskManager} />
-                <StatusPill label="Executor" value={status.executor} />
-                <StatusPill label="Audit" value={status.tradeAudit} />
-                <StatusPill label="AiWars" value={status.aiWarsUploader} />
-              </div>
-            ) : (
-              <div className="muted">正在加载 status…</div>
-            )}
-
-            <div className="kv" style={{ marginTop: 12 }}>
-              <details className="details" open={agentsExpanded} onToggle={(e) => setAgentsExpanded((e.target as HTMLDetailsElement).open)}>
-                <summary className="detailsSummary">
-                  <span className="muted2">Agents（点击展开）</span>
-                  <span className="muted" style={{ marginLeft: "auto" }}>
-                    {agentsExpanded ? "收起" : "展开"}
-                  </span>
-                </summary>
-                <div className="kvItem" style={{ marginTop: 10 }}>
-                  <div className="k">Agents（/api/agents）</div>
-                  <div className="v">
-                    {agents ? (
-                      <div className="kv" style={{ gap: 8 }}>
-                        {agents.agents.map((x) => (
-                          <div key={x.name} className="row" style={{ justifyContent: "space-between" }}>
-                            <span style={{ color: "var(--muted2)", fontWeight: 650 }}>{x.name}</span>
-                            <span style={{ textAlign: "right" }}>{x.status}</span>
-                          </div>
-                        ))}
+              <section className="sideBlock">
+                <div className="sideBlockHeader">仓位</div>
+                <div className="sideContent">
+                  <div className="sideScroll">
+                    <div className="positionsTable">
+                      <div className="positionsRow head">
+                        <span>Symbol</span>
+                        <span>Side</span>
+                        <span>Size</span>
+                        <span>Entry</span>
+                        <span>Mark</span>
+                        <span>PnL</span>
                       </div>
-                    ) : (
-                      <span className="muted">正在加载 agents…</span>
-                    )}
+                      {(positions?.positions ?? []).length === 0 ? (
+                        <div className="positionsEmpty">暂无仓位</div>
+                      ) : (
+                        positions?.positions.map((pos) => (
+                          <div key={`${pos.symbol}-${pos.side}`} className="positionsRow">
+                            <span className="mono">{pos.symbol}</span>
+                            <span className={`posSide ${pos.side?.toUpperCase()}`}>{pos.side ?? "-"}</span>
+                            <span>{formatNum(pos.size, 4)}</span>
+                            <span>{formatNum(pos.entryPrice ?? null, 4)}</span>
+                            <span>{formatNum(pos.markPrice ?? null, 4)}</span>
+                            <span className={pos.unrealizedPnl && pos.unrealizedPnl < 0 ? "down" : "up"}>
+                              {formatNum(pos.unrealizedPnl ?? null, 2)}
+                            </span>
+                          </div>
+                        ))
+                      )}
+                    </div>
                   </div>
                 </div>
-              </details>
-            </div>
-          </Panel>
-        </div>
+              </section>
+            </>
+          ) : null}
+        </aside>
       </div>
     </div>
   );
 }
+

@@ -52,6 +52,9 @@ apps/Aevatar.Trading/frontend/
 - `GET /api/audit/latest?maxBytes=...` # 最新策略日志（Markdown tail）
 - `GET /api/audit/files`               # 审计文件列表
 - `GET /api/audit/tail?name=...`       # 读取指定文件尾部（md/jsonl）
+- `GET /api/agui/events`               # AG-UI SSE（决策/聊天流式展示）
+- `GET /api/agui/messages`             # AG-UI 快照（SSE 断链兜底）
+- `POST /api/agui/chat`                # 用户输入 → AI 交互
 
 ### Exchange Tools（调试工具箱）
 
@@ -70,7 +73,7 @@ apps/Aevatar.Trading/frontend/
 
 - ✅ **可观测性时间线**：已在 Dashboard 中以 `trade-audit/*.md` 的方式呈现（按 cycle 汇总）
 - **安全护栏**：在 UI 层增加 “Live 下单” 二次确认（默认提示风险）
-- **状态推送**：未来可通过 SSE/WebSocket 推送状态，而不是手动刷新
+- ✅ **AG-UI Streaming**：已接入 `/api/agui/events`，用于前端 AI Chat streaming 卡片
 
 ## Aspire 一键启动（推荐）
 

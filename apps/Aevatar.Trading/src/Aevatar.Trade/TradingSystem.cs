@@ -4,12 +4,14 @@ using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Core.Hierarchy;
 using Aevatar.Trade.Agents.Analysts;
 using Aevatar.Trade.Agents.Audit;
+using Aevatar.Trade.AgUi;
 using Aevatar.Trade.Agents.AiWars;
 using Aevatar.Trade.Agents.Coordinator;
 using Aevatar.Trade.Agents.Data;
 using Aevatar.Trade.Agents.Execution;
 using Aevatar.Trade.Agents.Policy;
 using Aevatar.Trade.Agents.RiskControl;
+using Aevatar.Trade.Agents.Streaming;
 using Aevatar.Trade.Agents.Triggers;
 using Aevatar.Trade.Infrastructure.AiWars;
 using Aevatar.Trade.Infrastructure.DecisionEngines;
@@ -20,6 +22,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Globalization;
 using System.Collections.Generic;
+using System.Threading;
 
 namespace Aevatar.Trade;
 
@@ -36,14 +39,20 @@ public class TradingSystem : IAsyncDisposable
     private readonly TradingConfig _tradingConfig;
     private readonly AnalysisWeightConfig _analysisConfig;
     private readonly RiskControlConfig _riskConfig;
+    private readonly ExchangeConfig _exchangeConfig;
     private readonly TradeAuditConfig _auditConfig;
     private readonly AiWarsLogUploadConfig _aiWarsConfig;
     private readonly DecisionTriggerConfig _triggerConfig;
     private readonly TradingPolicyConfig _policyConfig;
     private readonly DecisionEngineConfig _decisionEngineConfig;
+    private readonly MarketChatConfig _marketChatConfig;
     private readonly CognitiveMeshDecisionEngine _cognitiveMeshDecisionEngine;
     private readonly LLMProvidersConfig _llmProvidersConfig;
+    private readonly ITradeAgUiStreamSink _agUiStreamSink;
     private readonly ILogger<TradingSystem> _logger;
+
+    private readonly SemaphoreSlim _initLock = new(1, 1);
+    private bool _initialized;
 
     // Agent Actors
     private IGAgentActor? _dataCollectorActor;
@@ -56,6 +65,7 @@ public class TradingSystem : IAsyncDisposable
     private IGAgentActor? _executorActor;
     private IGAgentActor? _auditActor;
     private IGAgentActor? _aiWarsUploaderActor;
+    private IGAgentActor? _marketChatActor;
 
     public TradingSystem(
         IGAgentActorFactory actorFactory,
@@ -65,13 +75,16 @@ public class TradingSystem : IAsyncDisposable
         IOptions<TradingConfig> tradingConfig,
         IOptions<AnalysisWeightConfig> analysisConfig,
         IOptions<RiskControlConfig> riskConfig,
+        IOptions<ExchangeConfig> exchangeConfig,
         IOptions<TradeAuditConfig> auditConfig,
         IOptions<AiWarsLogUploadConfig> aiWarsConfig,
         IOptions<DecisionTriggerConfig> triggerConfig,
         IOptions<TradingPolicyConfig> policyConfig,
         IOptions<DecisionEngineConfig> decisionEngineConfig,
+        IOptions<MarketChatConfig> marketChatConfig,
         CognitiveMeshDecisionEngine cognitiveMeshDecisionEngine,
         IOptions<LLMProvidersConfig> llmProvidersConfig,
+        ITradeAgUiStreamSink agUiStreamSink,
         ILogger<TradingSystem> logger)
     {
         _actorFactory = actorFactory;
@@ -81,13 +94,16 @@ public class TradingSystem : IAsyncDisposable
         _tradingConfig = tradingConfig.Value;
         _analysisConfig = analysisConfig.Value;
         _riskConfig = riskConfig.Value;
+        _exchangeConfig = exchangeConfig.Value;
         _auditConfig = auditConfig.Value;
         _aiWarsConfig = aiWarsConfig.Value;
         _triggerConfig = triggerConfig.Value;
         _policyConfig = policyConfig.Value;
         _decisionEngineConfig = decisionEngineConfig.Value;
+        _marketChatConfig = marketChatConfig.Value;
         _cognitiveMeshDecisionEngine = cognitiveMeshDecisionEngine;
         _llmProvidersConfig = llmProvidersConfig.Value;
+        _agUiStreamSink = agUiStreamSink;
         _logger = logger;
     }
 
@@ -96,17 +112,29 @@ public class TradingSystem : IAsyncDisposable
     /// </summary>
     public async Task InitializeAsync(CancellationToken ct = default)
     {
+        if (_initialized)
+            return;
+
+        await _initLock.WaitAsync(ct);
+        try
+        {
+            if (_initialized)
+                return;
+
         _logger.LogInformation("Initializing Trading System...");
+        _logger.LogInformation("[Init] Build provider candidates...");
 
         var providerCandidates = BuildProviderCandidates();
         var disabledProviders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         // ============ Create Agent Actors ============
+        _logger.LogInformation("[Init] Creating agents...");
 
         // 1. Data collector
         _dataCollectorActor = await _actorFactory.CreateGAgentActorAsync<DataCollectorAgent>(Guid.NewGuid().ToString(), ct);
         var dataCollector = (DataCollectorAgent)_dataCollectorActor.GetAgent();
         dataCollector.ExchangeClient = _exchangeClient;
+        dataCollector.Configure(_exchangeConfig.EnableWebsocket, _exchangeConfig.EnableRestPolling);
 
         // 1.5 Decision trigger
         _decisionTriggerActor = await _actorFactory.CreateGAgentActorAsync<DecisionTriggerAgent>(Guid.NewGuid().ToString(), ct);
@@ -132,6 +160,19 @@ public class TradingSystem : IAsyncDisposable
         technical.AllowDangerousTools = false; // safe default
         var technicalProvider = await InitializeAgentWithFallbackAsync(
             technical, providerCandidates, disabledProviders, ct, "Technical");
+
+        // 2.5 Market chat (streaming UI)
+        _marketChatActor = await _actorFactory.CreateGAgentActorAsync<MarketChatAgent>(Guid.NewGuid().ToString(), ct);
+        var marketChat = (MarketChatAgent)_marketChatActor.GetAgent();
+        marketChat.AllowDangerousTools = false;
+        marketChat.StreamSink = _agUiStreamSink;
+        marketChat.MarketDataClient = _exchangeClient.MarketData;
+        marketChat.AccountClient = _exchangeClient.Account;
+        marketChat.DefaultSymbol = _tradingConfig.Symbol;
+        marketChat.Symbols = BuildActiveSymbols();
+        var marketChatProvider = await InitializeAgentWithFallbackAsync(
+            marketChat, providerCandidates, disabledProviders, ct, "MarketChat");
+        marketChat.Configure(_marketChatConfig);
 
         // 3. Coordinator
         _coordinatorActor = await _actorFactory.CreateGAgentActorAsync<TradingCoordinatorAgent>(Guid.NewGuid().ToString(), ct);
@@ -178,9 +219,10 @@ public class TradingSystem : IAsyncDisposable
         riskManager.ExchangeClient = _exchangeClient;
 
         _logger.LogInformation(
-            "[LLM] Providers selected: Sentiment={Sentiment}, Technical={Technical}, Coordinator={Coordinator}, Risk={Risk}",
+            "[LLM] Providers selected: Sentiment={Sentiment}, Technical={Technical}, MarketChat={MarketChat}, Coordinator={Coordinator}, Risk={Risk}",
             sentimentProvider,
             technicalProvider,
+            marketChatProvider,
             coordinatorProvider,
             riskProvider);
 
@@ -210,6 +252,7 @@ public class TradingSystem : IAsyncDisposable
         }
 
         // ============ Establish Hierarchy ============
+        _logger.LogInformation("[Init] Linking agent hierarchy...");
         // 
         // DataCollector (Data Source)
         //      │
@@ -240,6 +283,7 @@ public class TradingSystem : IAsyncDisposable
         //          ├── PolicyManager
         //          ├── SentimentAgent
         //          ├── TechnicalAgent
+        //          ├── MarketChatAgent (Streaming)
         //          └── RiskManager
         //               └── Executor
         //                    └── TradeAudit
@@ -253,6 +297,10 @@ public class TradingSystem : IAsyncDisposable
             await ActorHierarchyCoordinator.LinkAsync(_coordinatorActor, _policyManagerActor, _logger, ct);
         await ActorHierarchyCoordinator.LinkAsync(_coordinatorActor, _sentimentActor, _logger, ct);
         await ActorHierarchyCoordinator.LinkAsync(_coordinatorActor, _technicalActor, _logger, ct);
+        if (_marketChatActor != null)
+        {
+            await ActorHierarchyCoordinator.LinkAsync(_coordinatorActor, _marketChatActor, _logger, ct);
+        }
         await ActorHierarchyCoordinator.LinkAsync(_coordinatorActor, _riskManagerActor, _logger, ct);
         await ActorHierarchyCoordinator.LinkAsync(_riskManagerActor, _executorActor, _logger, ct);
         
@@ -276,6 +324,12 @@ public class TradingSystem : IAsyncDisposable
         }
 
         _logger.LogInformation("Trading System initialized with Agent hierarchy");
+        _initialized = true;
+        }
+        finally
+        {
+            _initLock.Release();
+        }
     }
 
     /// <summary>
@@ -283,31 +337,45 @@ public class TradingSystem : IAsyncDisposable
     /// </summary>
     public async Task StartAsync(CancellationToken ct = default)
     {
+        await InitializeAsync(ct);
+
         _logger.LogInformation("Starting Trading System for {Symbol}...", _tradingConfig.Symbol);
 
+        _logger.LogInformation("[Start] Ensure base asset minimum...");
         // Startup guard: ensure we have enough BTC value (>=10U by default) before starting the loop.
         // In Live mode this may place a small market order to top up; in DryRun it only logs.
         await EnsureMinBaseAssetValueOnStartAsync(ct);
 
+        _logger.LogInformation("[Start] Sync account info...");
         // Sync account information (after possible bootstrap buy)
         await SyncAccountInfoAsync();
 
+        _logger.LogInformation("[Start] Run startup risk check...");
         // Startup risk check (best-effort)
         await RequestStartupRiskCheckAsync(ct);
 
+        _logger.LogInformation("[Start] Start data collection...");
         // Start data collection
         var dataCollector = (DataCollectorAgent)_dataCollectorActor!.GetAgent();
+        var symbols = BuildActiveSymbols();
         await dataCollector.StartCollectingAsync(
-            new[] { _tradingConfig.Symbol },
+            symbols,
             _tradingConfig.Interval,
             ct);
 
-        // Fetch historical kline data (for technical analysis initialization)
-        await dataCollector.FetchHistoricalKlinesAsync(
-            _tradingConfig.Symbol,
-            _tradingConfig.Interval,
-            200,
-            ct);
+        // Startup AI market chat (non-fatal)
+        if (_marketChatActor != null)
+        {
+            try
+            {
+                var marketChat = (MarketChatAgent)_marketChatActor.GetAgent();
+                await marketChat.TriggerNowAsync("SYSTEM_START", ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "Startup market chat failed (non-fatal)");
+            }
+        }
 
         _logger.LogInformation("Trading System started");
     }
@@ -499,19 +567,37 @@ public class TradingSystem : IAsyncDisposable
         {
             var balances = await _exchangeClient.Account.GetBalancesAsync();
             var usdtBalance = balances.FirstOrDefault(b => b.Currency == "USDT");
-            
+
             if (usdtBalance != null)
             {
+                var positions = _exchangeClient.Capabilities.SupportsPositions
+                    ? await _exchangeClient.Account.GetPositionsAsync()
+                    : Array.Empty<PositionInfo>();
+
+                decimal totalNotional = 0;
+                decimal totalUnrealized = 0;
+                foreach (var position in positions)
+                {
+                    var size = Math.Abs(position.Size);
+                    var notional = position.Notional
+                                   ?? (position.MarkPrice.HasValue ? position.MarkPrice.Value * size : 0m);
+                    totalNotional += Math.Abs(notional);
+                    if (position.UnrealizedPnl.HasValue)
+                        totalUnrealized += position.UnrealizedPnl.Value;
+                }
+
                 var riskManager = (RiskManagerAgent)_riskManagerActor!.GetAgent();
                 riskManager.UpdateAccountInfo(
                     totalEquity: (double)usdtBalance.Balance,
                     availableBalance: (double)usdtBalance.Available,
-                    currentPositionValue: 0, // Simplified handling
-                    unrealizedPnl: 0);
+                    currentPositionValue: (double)totalNotional,
+                    unrealizedPnl: (double)totalUnrealized);
+
+                await riskManager.ForceReduceIfFullAsync("sync-account", CancellationToken.None);
 
                 _logger.LogInformation(
-                    "Account synced: Balance=${Balance}, Available=${Available}",
-                    usdtBalance.Balance, usdtBalance.Available);
+                    "Account synced: Balance=${Balance}, Available=${Available}, PositionValue=${PositionValue}",
+                    usdtBalance.Balance, usdtBalance.Available, totalNotional);
             }
         }
         catch (Exception ex)
@@ -571,6 +657,37 @@ public class TradingSystem : IAsyncDisposable
         };
 
         await _decisionTriggerActor.PublishEventAsync(evt, Aevatar.Agents.EventDirection.Up, ct);
+        return evt;
+    }
+
+    public async Task<UserChatMessageEvent> SubmitUserChatAsync(
+        string message,
+        string? userId = null,
+        string? source = null,
+        CancellationToken ct = default)
+    {
+        await InitializeAsync(ct);
+
+        if (_marketChatActor == null)
+            throw new InvalidOperationException("MarketChat not initialized");
+
+        if (string.IsNullOrWhiteSpace(message))
+            throw new ArgumentException("message is required", nameof(message));
+
+        var content = message.Trim();
+        if (content.Length > 1000)
+            content = content[..1000];
+
+        var evt = new UserChatMessageEvent
+        {
+            MessageId = Guid.NewGuid().ToString("N"),
+            UserId = userId ?? "",
+            Content = content,
+            Source = string.IsNullOrWhiteSpace(source) ? "UI" : source.Trim(),
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+        };
+
+        await _marketChatActor.PublishEventAsync(evt, Aevatar.Agents.EventDirection.Down, ct);
         return evt;
     }
 
@@ -681,6 +798,30 @@ public class TradingSystem : IAsyncDisposable
         }
 
         return ordered;
+    }
+
+    private IReadOnlyList<string> BuildActiveSymbols()
+    {
+        var list = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (!string.IsNullOrWhiteSpace(_tradingConfig.Symbol))
+        {
+            var s = _tradingConfig.Symbol.Trim();
+            if (seen.Add(s))
+                list.Add(s);
+        }
+
+        foreach (var raw in _exchangeConfig.Symbols)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                continue;
+            var s = raw.Trim();
+            if (seen.Add(s))
+                list.Add(s);
+        }
+
+        return list;
     }
 
     private async Task<string> InitializeAgentWithFallbackAsync(

@@ -382,8 +382,19 @@ public partial class JsonOutputParser : IOutputParser<object>
         
         if (end > start)
         {
-            // Bracket matching succeeded, extract and validate
+            // Bracket matching succeeded, extract ONLY the first complete JSON object
+            // This ensures we never return duplicate JSON objects or fragments
             var extracted = content[start..(end + 1)].Trim();
+            
+            // CRITICAL: After extracting the first complete object, check if there's more content
+            // If there is, it's likely a duplicate - ignore it completely
+            if (end + 1 < content.Length)
+            {
+                // There's content after the first JSON object - it's likely a duplicate
+                // Return only the first complete object
+                return extracted;
+            }
+            
             // Final cleanup: remove any trailing extra closing braces
             extracted = RemoveTrailingExtraBraces(extracted);
             // Additional cleanup: remove any trailing non-JSON characters (e.g., "0}", "}", numbers, etc.)
@@ -394,15 +405,38 @@ public partial class JsonOutputParser : IOutputParser<object>
         }
         
         // Fallback: use LastIndexOf if bracket matching fails
+        // But try to find the FIRST complete object by looking for the first balanced brace pair
         end = content.LastIndexOf('}');
         if (end > start)
         {
-            var extracted = content[start..(end + 1)].Trim();
+            // Try to find the first balanced JSON object by working backwards
+            // Find the first { before the last }
+            var firstOpenBeforeLastClose = content.LastIndexOf('{', end);
+            if (firstOpenBeforeLastClose >= start && firstOpenBeforeLastClose < end)
+            {
+                // Check if this forms a balanced pair (simple heuristic)
+                var potentialJson = content[firstOpenBeforeLastClose..(end + 1)].Trim();
+                var openCount = potentialJson.Count(c => c == '{');
+                var closeCount = potentialJson.Count(c => c == '}');
+                
+                // If roughly balanced, use this as the first object
+                if (Math.Abs(openCount - closeCount) <= 2) // Allow some tolerance for nested objects
+                {
+                    var extracted = potentialJson;
+                    extracted = RemoveTrailingExtraBraces(extracted);
+                    extracted = RemoveTrailingNonJsonChars(extracted);
+                    extracted = RemoveDuplicateJsonFragments(extracted);
+                    return extracted;
+                }
+            }
+            
+            var extracted2 = content[start..(end + 1)].Trim();
             // Remove trailing extra closing braces (common LLM mistake: }} instead of })
-            extracted = RemoveTrailingExtraBraces(extracted);
+            extracted2 = RemoveTrailingExtraBraces(extracted2);
             // Additional cleanup: remove any trailing non-JSON characters
-            extracted = RemoveTrailingNonJsonChars(extracted);
-            return extracted;
+            extracted2 = RemoveTrailingNonJsonChars(extracted2);
+            extracted2 = RemoveDuplicateJsonFragments(extracted2);
+            return extracted2;
         }
         
         var trimmed = content.Trim();
@@ -539,12 +573,20 @@ public partial class JsonOutputParser : IOutputParser<object>
             var firstObject = trimmed[..(firstObjectEnd + 1)];
             var remaining = trimmed[(firstObjectEnd + 1)..].Trim();
             
+            // If remaining content starts with {, it's likely a second JSON object (duplicate)
+            // Extract and validate it, but always return only the first complete object
+            if (remaining.StartsWith('{'))
+            {
+                // Likely a duplicate JSON object, return only the first complete object
+                return firstObject;
+            }
+            
             // Check if remaining content looks like a duplicate JSON fragment
             // Common patterns: 
             // 1. }key": value} or {"key": value}
             // 2. }``` text...", "key": value} (partial duplicate with markdown code block)
             // 3. }"key": value} (partial duplicate starting with closing brace and quote)
-            if (remaining.StartsWith('}') || remaining.StartsWith('{'))
+            if (remaining.StartsWith('}'))
             {
                 // Likely a duplicate fragment, return only the first complete object
                 return firstObject;
@@ -597,6 +639,38 @@ public partial class JsonOutputParser : IOutputParser<object>
             {
                 // Likely a partial duplicate with status values, return only the first complete object
                 return firstObject;
+            }
+            
+            // Check for common text fragments that appear after JSON (LLM commentary)
+            // Patterns like: "is an unproven claim.", "This is...", etc.
+            if (remaining.Length > 0 && 
+                (remaining.StartsWith("is ") ||
+                 remaining.StartsWith("This ") ||
+                 remaining.StartsWith("The ") ||
+                 remaining.StartsWith("It ") ||
+                 remaining.StartsWith("Note:") ||
+                 remaining.StartsWith("Note ") ||
+                 remaining.Contains("unproven") ||
+                 remaining.Contains("claim") ||
+                 remaining.Contains("theorem") ||
+                 remaining.Contains("proof") ||
+                 remaining.Contains("derived")))
+            {
+                // Likely commentary or explanation text after JSON, return only the first complete object
+                return firstObject;
+            }
+            
+            // If remaining content is non-empty and doesn't look like valid JSON continuation,
+            // it's likely trailing text - return only the first complete object
+            if (remaining.Length > 0 && !remaining.StartsWith('{') && !remaining.StartsWith('['))
+            {
+                // Check if it contains any JSON-like structure (quotes, colons, etc.)
+                var hasJsonStructure = remaining.Contains('"') || remaining.Contains(':');
+                if (!hasJsonStructure || remaining.Length < 10)
+                {
+                    // Likely trailing text, return only the first complete object
+                    return firstObject;
+                }
             }
         }
         
@@ -663,9 +737,16 @@ public partial class JsonOutputParser : IOutputParser<object>
         }
         
         // If we found a valid closing brace, return only up to that point
-        if (lastValidClose >= 0 && lastValidClose < trimmed.Length - 1)
+        if (lastValidClose >= 0)
         {
-            return trimmed[..(lastValidClose + 1)];
+            // Check if there's any content after the valid closing brace
+            if (lastValidClose < trimmed.Length - 1)
+            {
+                // Return only up to the valid closing brace, removing all trailing content
+                return trimmed[..(lastValidClose + 1)];
+            }
+            // If the closing brace is at the end, return as-is
+            return trimmed;
         }
         
         return trimmed;

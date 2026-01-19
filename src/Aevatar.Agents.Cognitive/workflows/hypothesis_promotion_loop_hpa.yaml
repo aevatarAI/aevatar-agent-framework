@@ -917,22 +917,43 @@ steps:
                 HPA judgement rules (Projection / gap δ):
                 - proved=true if the argument is internally consistent and stays within provided axioms/facts and any implicit steps that are physically plausible.
                 - Be pragmatic: allow standard inference steps (algebra/rewriting) as long as they do NOT introduce new assumptions.
-                - Mark proved=false ONLY when you can point to a concrete concrete step that is physically implausible or contradictory, or counterexample (gap δ).
+                - Mark proved=false ONLY when you can point to a concrete step that is physically implausible or contradictory, or counterexample (gap δ).
+                
+                What constitutes a valid proof step (proved=true):
+                1. Direct application of axioms/theorems/assumptions
+                2. Logical inferences (modus ponens, transitivity, etc.)
+                3. Mathematical operations based on definitions
+                4. Properties that can be DERIVED from definitions, even if not explicitly stated in axioms
+                   - For example: If O5 defines octonion conjugation and norm, then properties like $\overline{xy}=\bar{y}\bar{x}$ 
+                     can be derived from the definition of conjugation in composition algebras, even if not explicitly stated.
+                5. Standard algebraic manipulations and rewriting that follow from the structure defined in axioms
+                6. Reasonable implicit steps that are physically plausible or logically correct
+                
+                What constitutes gap δ (proved=false):
+                1. Explicit contradiction with axioms/facts
+                2. Counterexample exists that can be constructed from the given axioms/facts
+                3. Crucial logical step is physically implausible or contradictory
+                4. Introduction of a new assumption that contradicts known facts
+                5. The proof step is logically inconsistent with the definitions provided
+                
+                CRITICAL: Do NOT confuse:
+                - "Property derivable from definitions" (should be proved=true, NOT gap δ)
+                - "Requires additional mathematical knowledge to prove rigorously" (should be proved=true if consistent)
+                - "Step not explicitly written in axioms" (allowed if derivable from definitions)
+                - "Step that contradicts axioms/facts" (gap δ) → proved=false
+                
+                IMPORTANT PRINCIPLE:
+                - If a proof step uses a property that can be DERIVED from the definitions provided (even if not explicitly 
+                  stated in axioms), it should be accepted as proved=true.
+                - Only reject (proved=false) if the step CONTRADICTS the axioms/facts or is logically inconsistent.
 
                 Factorization rules:
                 - Output depends_on: minimal set of dependency IDs actually used.
                 - Output factor_sequence: ordered list of dependency IDs matching the proof's citation order.
                 - Do NOT invent IDs. Use only axiom IDs, assumption IDs, and theorem IDs present in RelevantFacts.
 
-                CRITICAL OUTPUT REQUIREMENTS:
-                - Return ONLY valid JSON (no markdown, no code blocks, no commentary, no ```json tags).
-                - Output the JSON object EXACTLY ONCE. Do NOT repeat any fields, values, or fragments.
-                - Do NOT append anything after the closing brace } of the JSON object.
-                - Do NOT include duplicate closing braces like }}.
-                - Do NOT include any text, numbers, or characters after the JSON object ends.
-                - Validate your JSON structure before outputting
+              
 
-                Rules:
 
                 Axioms:
                 {{ state.axioms | json }}
@@ -954,7 +975,7 @@ steps:
                 MAKER solution:
                 {{ maker_solution }}
 
-                Output JSON schema (output EXACTLY ONCE, no duplicates):
+                Output JSON schema:
                 {
                   "proved": bool,
                   "reason": string,

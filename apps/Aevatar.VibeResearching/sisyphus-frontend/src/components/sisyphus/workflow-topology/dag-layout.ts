@@ -5,8 +5,8 @@
 import dagre from 'dagre'
 import { Position, type Node, type Edge } from '@xyflow/react'
 
-const NODE_WIDTH = 48
-const NODE_HEIGHT = 48
+const NODE_WIDTH = 72
+const NODE_HEIGHT = 72
 
 /**
  * Apply Dagre layout algorithm to position nodes in a DAG
@@ -21,7 +21,7 @@ export function getLayoutedElements(
 ): { nodes: Node[]; edges: Edge[] } {
   const dagreGraph = new dagre.graphlib.Graph()
   dagreGraph.setDefaultEdgeLabel(() => ({}))
-  dagreGraph.setGraph({ rankdir: direction, nodesep: 60, ranksep: 80 })
+  dagreGraph.setGraph({ rankdir: direction, nodesep: 70, ranksep: 90 })
 
   // Add nodes to dagre graph
   nodes.forEach((node) => {

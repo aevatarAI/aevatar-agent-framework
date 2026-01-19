@@ -142,14 +142,6 @@ steps:
       {{context | json}}
       {% endif %}
       
-      ═══════════════════════════════════════════════════════════════
-      CRITICAL OUTPUT REQUIREMENTS:
-      ═══════════════════════════════════════════════════════════════
-      - Return ONLY valid JSON (no markdown, no code blocks, no ```json tags, no commentary).
-      - Output the JSON object EXACTLY ONCE. Do NOT repeat any fields, values, or fragments.
-      - Do NOT append anything after the closing brace } of the JSON object.
-      - Do NOT include duplicate closing braces like }}.
-      - Do NOT include any text, numbers, or characters after the JSON object ends.
       
       ═══════════════════════════════════════════════════════════════
       RESPONSE FORMAT (JSON - output EXACTLY ONCE, no duplicates):
@@ -159,7 +151,7 @@ steps:
         "reasoning": "brief explanation"
       }
       
-      REMINDER: Output only ONE complete JSON object. Do NOT repeat any part of it. Do NOT append anything after the closing brace.
+      
     output: json
     store: atomic_check
 

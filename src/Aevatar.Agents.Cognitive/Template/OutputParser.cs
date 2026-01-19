@@ -382,27 +382,44 @@ public partial class JsonOutputParser : IOutputParser<object>
                 var afterFirstObject = content[(end + 1)..].Trim();
                 
                 // If remaining content contains JSON field names or looks like duplicate fragments, ignore it
-                if (afterFirstObject.Length > 0 && 
-                    (afterFirstObject.StartsWith('{') ||
-                     afterFirstObject.StartsWith('}') ||
-                     afterFirstObject.StartsWith('[') ||
-                     afterFirstObject.StartsWith(']') ||
-                     afterFirstObject.StartsWith("\":") ||
-                     afterFirstObject.StartsWith("\",") ||
-                     afterFirstObject.StartsWith("_") ||
-                     afterFirstObject.Contains("\"depends_on\"") ||
-                     afterFirstObject.Contains("\"factor_sequence\"") ||
-                     afterFirstObject.Contains("\"proposed_b\"") ||
-                     afterFirstObject.Contains("\"worker_id\"") ||
-                     afterFirstObject.Contains("\"accept\"") ||
-                     afterFirstObject.Contains("\"proof\"") ||
-                     afterFirstObject.Contains("_counterexample\"")))
+                if (afterFirstObject.Length > 0)
                 {
-                    // Likely a duplicate fragment, return only the first complete object
-                    return extracted;
+                    // Check for common patterns that indicate partial JSON fragments
+                    var isPartialJson = 
+                        // Starts with JSON structure characters
+                        afterFirstObject.StartsWith('{') ||
+                        afterFirstObject.StartsWith('}') ||
+                        afterFirstObject.StartsWith('[') ||
+                        afterFirstObject.StartsWith(']') ||
+                        afterFirstObject.StartsWith("\":") ||
+                        afterFirstObject.StartsWith("\",") ||
+                        afterFirstObject.StartsWith("_") ||
+                        // Contains JSON field names (indicates duplicate fields)
+                        afterFirstObject.Contains("\"depends_on\"") ||
+                        afterFirstObject.Contains("\"factor_sequence\"") ||
+                        afterFirstObject.Contains("\"proposed_b\"") ||
+                        afterFirstObject.Contains("\"worker_id\"") ||
+                        afterFirstObject.Contains("\"accept\"") ||
+                        afterFirstObject.Contains("\"proof\"") ||
+                        afterFirstObject.Contains("\"gap_or_counterexample\"") ||
+                        afterFirstObject.Contains("_counterexample\"") ||
+                        // Pattern: array value followed by comma and field (e.g., ["O5"], "proposed_b": [])
+                        (afterFirstObject.StartsWith('[') && afterFirstObject.Contains(',') && afterFirstObject.Contains('"')) ||
+                        // Pattern: field name with colon (e.g., "proposed_b": [])
+                        (afterFirstObject.StartsWith('"') && afterFirstObject.Contains(':')) ||
+                        // Pattern: closing bracket/brace followed by more content
+                        (afterFirstObject.StartsWith(']') && afterFirstObject.Length > 1) ||
+                        (afterFirstObject.StartsWith('}') && afterFirstObject.Length > 1);
+                    
+                    if (isPartialJson)
+                    {
+                        // Likely a duplicate fragment, return only the first complete object (after cleaning)
+                        return CleanDuplicateFragments(extracted);
+                    }
                 }
             }
             
+            // Always clean the extracted JSON to remove any trailing issues
             return CleanDuplicateFragments(extracted);
         }
         
@@ -482,26 +499,46 @@ public partial class JsonOutputParser : IOutputParser<object>
             var firstObject = trimmed[..(firstObjectEnd + 1)];
             var remaining = trimmed[(firstObjectEnd + 1)..].Trim();
             
-            // If remaining content looks like a duplicate fragment, return only the first object
-            if (remaining.Length > 0 && 
-                (remaining.StartsWith('{') ||
-                 remaining.StartsWith('}') ||
-                 remaining.StartsWith('[') ||
-                 remaining.StartsWith(']') ||
-                 remaining.StartsWith("\":") ||
-                 remaining.StartsWith("\",") ||
-                 remaining.StartsWith("_") ||
-                 remaining.Contains("\"depends_on\"") ||
-                 remaining.Contains("\"factor_sequence\"") ||
-                 remaining.Contains("\"proposed_b\"") ||
-                 remaining.Contains("\"worker_id\"") ||
-                 remaining.Contains("\"accept\"") ||
-                 remaining.Contains("\"proof\"") ||
-                 remaining.Contains("_counterexample\"") ||
-                 (remaining.StartsWith("[]") && remaining.Length <= 5) ||
-                 (remaining.StartsWith("]") && remaining.Length <= 3)))
+            // If remaining content looks like a duplicate fragment, return only the first object (after cleaning)
+            if (remaining.Length > 0)
             {
-                return firstObject;
+                // Check for common patterns that indicate partial JSON fragments
+                var isPartialJson = 
+                    // Starts with JSON structure characters
+                    remaining.StartsWith('{') ||
+                    remaining.StartsWith('}') ||
+                    remaining.StartsWith('[') ||
+                    remaining.StartsWith(']') ||
+                    remaining.StartsWith("\":") ||
+                    remaining.StartsWith("\",") ||
+                    remaining.StartsWith("_") ||
+                    // Contains JSON field names (indicates duplicate fields)
+                    remaining.Contains("\"depends_on\"") ||
+                    remaining.Contains("\"factor_sequence\"") ||
+                    remaining.Contains("\"proposed_b\"") ||
+                    remaining.Contains("\"worker_id\"") ||
+                    remaining.Contains("\"accept\"") ||
+                    remaining.Contains("\"proof\"") ||
+                    remaining.Contains("\"gap_or_counterexample\"") ||
+                    remaining.Contains("_counterexample\"") ||
+                    // Short fragments that look like partial JSON
+                    (remaining.StartsWith("[]") && remaining.Length <= 5) ||
+                    (remaining.StartsWith("]") && remaining.Length <= 3) ||
+                    // Pattern: array value followed by comma and field (e.g., ["O5"], "proposed_b": [])
+                    (remaining.StartsWith('[') && remaining.Contains(',') && remaining.Contains('"')) ||
+                    // Pattern: field name with colon (e.g., "proposed_b": [])
+                    (remaining.StartsWith('"') && remaining.Contains(':')) ||
+                    // Pattern: closing bracket/brace followed by more content
+                    (remaining.StartsWith(']') && remaining.Length > 1) ||
+                    (remaining.StartsWith('}') && remaining.Length > 1);
+                
+                if (isPartialJson)
+                {
+                    // Clean the first object before returning (remove any trailing issues)
+                    firstObject = RemoveTrailingExtraBraces(firstObject);
+                    firstObject = RemoveTrailingNonJsonChars(firstObject);
+                    return firstObject;
+                }
             }
         }
         

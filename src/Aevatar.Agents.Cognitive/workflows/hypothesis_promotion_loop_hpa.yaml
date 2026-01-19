@@ -50,7 +50,7 @@ defaults:
       Fast-consensus mode:
       - Be decisive: choose accept/refute with one minimal reason.
       - Prefer minimal repairs: change as little as possible to reduce δ.
-      - If you cannot fully prove, do NOT hedge: output accept=false with the minimal gap δ and select 1 B candidates exactly from state.existing_hypothesis.
+      - If you cannot fully prove, do NOT hedge: output accept=false with the minimal gap δ.
 
       Hard constraints:
       - Do NOT invent axioms/facts/IDs.
@@ -314,7 +314,6 @@ steps:
             "status": "running" | "completed" | "failed" | "limit"
           }
 
-          REMINDER: Output only ONE complete JSON object. Do NOT repeat any part of it. Do NOT append anything after the closing brace.
           CRITICAL: After outputting the closing brace }, STOP immediately. Do NOT output "status": "running"} or any other field/value after the closing brace.
 
           Constraints (MANDATORY - all must be satisfied):
@@ -601,6 +600,7 @@ steps:
         Hypothesis A:
         {{ candidate | json }}
 
+        IMPORTANT: For this task, always set proposed_b = [] (empty array). Do NOT propose any alternative hypotheses.
         Output JSON schema (output EXACTLY ONCE, no duplicates):
         {
           "worker_id": "{{item.id}}",
@@ -615,9 +615,7 @@ steps:
             { "statement": string, "motivation": string, "depends_on": [string], "factor_sequence": [string] }
           ]
         }
-        IMPORTANT: For this task, always set proposed_b = [] (empty array). Do NOT propose any alternative hypotheses.
-
-        REMINDER: Output only ONE complete JSON object. Do NOT repeat any part of it. Do NOT append anything after the closing brace.
+        
 
         Language: {{language}}
       output: json
@@ -773,7 +771,6 @@ steps:
               ]  # MUST always be empty for this task
             }
 
-            REMINDER: Output only ONE complete JSON object. Do NOT repeat any part of it. Do NOT append anything after the closing brace.
 
             Language: {{language}}
           output: json
@@ -945,7 +942,6 @@ steps:
                   "factor_sequence": [string]
                 }
 
-                REMINDER: Output only ONE complete JSON object. Do NOT repeat any part of it. Do NOT append anything after the closing brace.
 
                 Language: {{language}}
               output: json

@@ -390,9 +390,28 @@ public partial class JsonOutputParser : IOutputParser<object>
             // If there is, it's likely a duplicate - ignore it completely
             if (end + 1 < content.Length)
             {
-                // There's content after the first JSON object - it's likely a duplicate
-                // Return only the first complete object
-                return extracted;
+                var afterFirstObject = content[(end + 1)..].Trim();
+                
+                // Check if the remaining content looks like a duplicate fragment
+                // Common patterns:
+                // 1. }": ["O2", "O3", "O4"], (incomplete field repetition)
+                // 2. }"factor_sequence": [...] (field repetition)
+                // 3. }{...} (another JSON object)
+                if (afterFirstObject.Length > 0)
+                {
+                    // If it starts with } followed by quote/colon or field name, it's a duplicate fragment
+                    if (afterFirstObject.StartsWith("\":") || 
+                        afterFirstObject.StartsWith("\",") ||
+                        afterFirstObject.StartsWith("\"depends_on") ||
+                        afterFirstObject.StartsWith("\"factor_sequence") ||
+                        afterFirstObject.StartsWith("\"proposed_b") ||
+                        afterFirstObject.StartsWith("}") ||
+                        (afterFirstObject.StartsWith("[") && afterFirstObject.Contains("\"")))
+                    {
+                        // Likely a duplicate fragment, return only the first complete object
+                        return extracted;
+                    }
+                }
             }
             
             // Final cleanup: remove any trailing extra closing braces
@@ -604,14 +623,37 @@ public partial class JsonOutputParser : IOutputParser<object>
             }
             
             // Check for patterns like: } the exclusion of 1.", "depends_on": ["O1"], "factor_sequence": ["O1"]}
-            // This indicates a partial duplicate where the end of a string field is repeated
+            // Or: }": ["O2", "O3", "O4"], "factor_sequence": ["O2", "O3", "O4"], "proposed_b": []}
+            // This indicates a partial duplicate where the end of a string field or last fields are repeated
             if (remaining.Contains("\"depends_on\"") || 
                 remaining.Contains("\"factor_sequence\"") ||
+                remaining.Contains("\"proposed_b\"") ||
                 remaining.Contains("\"statement\"") ||
                 remaining.Contains("\"motivation\""))
             {
                 // Likely a partial duplicate with JSON field names, return only the first complete object
                 return firstObject;
+            }
+            
+            // Check for patterns like: }": ["O2", "O3", "O4"], (field value continuation after closing brace)
+            // This indicates the last field's value is being repeated
+            if (remaining.StartsWith("\":") || 
+                remaining.StartsWith("\","))
+            {
+                // Likely a duplicate field value fragment, return only the first complete object
+                return firstObject;
+            }
+            
+            // Check for array patterns that might be duplicate field values
+            // Pattern: }["O2", "O3", "O4"], or } ["O2", "O3", "O4"],
+            if (remaining.StartsWith("[") || remaining.TrimStart().StartsWith("["))
+            {
+                // Check if it looks like a JSON array (field value)
+                if (remaining.Contains("\"") && remaining.Contains("]"))
+                {
+                    // Likely a duplicate array value, return only the first complete object
+                    return firstObject;
+                }
             }
             
             // Check for patterns like: }"status": "running"} or }status": "running"}

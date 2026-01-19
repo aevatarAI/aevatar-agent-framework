@@ -91,6 +91,10 @@ defaults:
       Hard constraints:
       - Do NOT invent facts.
       - Follow the requested output format exactly.
+      - When JSON is required, output JSON only (no markdown, no commentary).
+      - CRITICAL: The JSON output must be a SINGLE, COMPLETE object.
+      - After outputting the final closing brace }, STOP generating immediately.
+      - Do NOT continue thinking, do NOT add commentary, do NOT repeat fields.
 
 # ============================================================
 #  步骤定义

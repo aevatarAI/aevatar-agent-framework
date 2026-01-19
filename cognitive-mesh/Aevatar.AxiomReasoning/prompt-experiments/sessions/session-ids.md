@@ -194,3 +194,9 @@ $$
 | `8be665c0647f` | 2026-01-19 05:42:43 UTC | Failed | hypothesis_promotion_loop_hpa |
 | `3d9083c74c5c` | 2026-01-19 06:20:49 UTC | Failed | hypothesis_promotion_loop_hpa |
 | `ba82f966ff9e` | 2026-01-19 08:50:12 UTC | Failed | hypothesis_promotion_loop_hpa |
+| `9c9b7a32164e` | 2026-01-19 09:07:47 UTC | Failed | hypothesis_promotion_loop_hpa |
+| `cb3da7b44ecc` | 2026-01-19 09:11:43 UTC | Failed | hypothesis_promotion_loop |
+| `ca5965099cae` | 2026-01-19 09:26:40 UTC | Failed | hypothesis_promotion_loop_hpa |
+| `cd52b3380bd5` | 2026-01-19 09:39:16 UTC | Failed | hypothesis_promotion_loop_hpa |
+| `541632ca23b0` | 2026-01-19 09:44:33 UTC | Failed | hypothesis_promotion_loop_hpa |
+| `18f8a6439cee` | 2026-01-19 09:51:40 UTC | Failed | hypothesis_promotion_loop_hpa |

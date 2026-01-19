@@ -91,7 +91,6 @@ defaults:
       Hard constraints:
       - Do NOT invent facts.
       - Follow the requested output format exactly.
-      - When JSON is required, output JSON only (no markdown, no commentary).
 
 # ============================================================
 #  步骤定义

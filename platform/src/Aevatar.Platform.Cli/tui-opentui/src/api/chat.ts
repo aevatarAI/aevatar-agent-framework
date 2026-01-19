@@ -26,11 +26,17 @@ export function createChatApi(backendUrl: string, handlers: ChatHandlers): ChatA
       return;
     }
 
+    const sessionId = process.env.AEVATAR_SESSION_ID ?? "unknown";
+    const runId = String(Date.now());
     const debug =
       (process.env.AEVATAR_TUI_DEBUG ?? "") === "1" ||
       (process.env.AEVATAR_TUI_DEBUG ?? "").toLowerCase() === "true";
     handlers.onStatus("sending...");
     let started = false;
+    const startedAt = Date.now();
+    let firstChunkMs: number | null = null;
+    let chunkCount = 0;
+    let totalLen = 0;
     try {
       const requestInit: any = {
         method: "POST",
@@ -38,6 +44,21 @@ export function createChatApi(backendUrl: string, handlers: ChatHandlers): ChatA
         body: JSON.stringify({ text }),
       };
       if (debug) requestInit.verbose = true;
+      // #region agent log
+      fetch("http://127.0.0.1:7242/ingest/602d30ab-17ad-45f0-a915-8a7cf2e47189", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          location: "api/chat.ts:send:start",
+          message: "chat_send_start",
+          data: { url: `${backendUrl}/api/chat/stream`, textLen: text.length, debug },
+          timestamp: Date.now(),
+          sessionId,
+          runId,
+          hypothesisId: "H1",
+        }),
+      }).catch(() => {});
+      // #endregion
       const res = await fetch(`${backendUrl}/api/chat/stream`, requestInit);
       if (!res.ok) {
         let message = `error: http ${res.status}`;
@@ -69,12 +90,42 @@ export function createChatApi(backendUrl: string, handlers: ChatHandlers): ChatA
         if (done) break;
         if (value) {
           const chunk = decoder.decode(value, { stream: true });
-          if (chunk) handlers.onAssistantDelta(chunk);
+          if (chunk) {
+            if (firstChunkMs === null) firstChunkMs = Date.now() - startedAt;
+            chunkCount += 1;
+            totalLen += chunk.length;
+            handlers.onAssistantDelta(chunk);
+          }
         }
       }
       const tail = decoder.decode();
-      if (tail) handlers.onAssistantDelta(tail);
+      if (tail) {
+        if (firstChunkMs === null) firstChunkMs = Date.now() - startedAt;
+        chunkCount += 1;
+        totalLen += tail.length;
+        handlers.onAssistantDelta(tail);
+      }
       handlers.onAssistantDone();
+      // #region agent log
+      fetch("http://127.0.0.1:7242/ingest/602d30ab-17ad-45f0-a915-8a7cf2e47189", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          location: "api/chat.ts:send:done",
+          message: "chat_stream_done",
+          data: {
+            chunkCount,
+            totalLen,
+            firstChunkMs,
+            durationMs: Date.now() - startedAt,
+          },
+          timestamp: Date.now(),
+          sessionId,
+          runId,
+          hypothesisId: "H1",
+        }),
+      }).catch(() => {});
+      // #endregion
       handlers.onStatus("");
     } catch (e: any) {
       if (started) handlers.onAssistantDone();

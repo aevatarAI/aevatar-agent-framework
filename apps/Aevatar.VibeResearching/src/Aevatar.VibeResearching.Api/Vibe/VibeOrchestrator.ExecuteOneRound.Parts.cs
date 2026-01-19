@@ -2,6 +2,7 @@ using Aevatar.Agents.AGUI;
 using VibeResearching.Api.Materials;
 using VibeResearching.Api.Sessions;
 using VibeResearching.Contracts.Collab;
+using VibeResearching.Vibe.Pivot;
 
 namespace VibeResearching.Api.Vibe;
 
@@ -52,12 +53,38 @@ internal sealed partial class VibeOrchestrator
                 ctx.EmitAssistantDelta,
                 ct);
 
+            var pivotEmitter = _pivot.FeedbackEmitter;
+            var pivotId = (pivotIntent.PivotId ?? string.Empty).Trim();
+
             // Execute pivot if high-confidence direction change detected
             if (pivotIntent is { IsDirectionChange: true } &&
                 pivotIntent.Confidence >= _pivot.Options.ConfidenceThreshold)
             {
                 try
                 {
+                    if (pivotId.Length == 0)
+                        pivotId = $"pivot_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
+
+                    pivotIntent = pivotIntent with { PivotId = pivotId };
+
+                    session.Events.Publish(pivotEmitter.CreateDetectedEvent(session.Id, pivotId, pivotIntent));
+
+                    if (pivotIntent.NeedsClarification)
+                    {
+                        session.Events.Publish(pivotEmitter.CreateClarificationRequestEvent(
+                            session.Id,
+                            pivotId,
+                            pivotIntent.NewTopic,
+                            pivotIntent.Confidence,
+                            oldTopic: currentDirection));
+                    }
+
+                    session.Events.Publish(pivotEmitter.CreateStartedEvent(
+                        session.Id,
+                        pivotId,
+                        currentDirection,
+                        pivotIntent.NewTopic));
+
                     _host.Logger.LogInformation(
                         "Enqueueing pivot for session {SessionId}: {OldDirection} -> {NewDirection}",
                         session.Id, currentDirection ?? "(none)", pivotIntent.NewTopic ?? "(new)");
@@ -81,6 +108,11 @@ internal sealed partial class VibeOrchestrator
                         _host.Logger.LogWarning(
                             "Pivot queue full for session {SessionId}, request rejected",
                             session.Id);
+                        session.Events.Publish(pivotEmitter.CreateErrorEvent(
+                            session.Id,
+                            pivotId,
+                            "pivot_queue_full",
+                            errorCode: "pivot_queue_full"));
                         ctx.EmitAssistantDelta("\n⏳ 研究方向更新队列已满，请稍后重试...\n\n");
                     }
                     else if (queueResult.ErrorMessage != null)
@@ -88,6 +120,11 @@ internal sealed partial class VibeOrchestrator
                         _host.Logger.LogError(
                             "Pivot failed for session {SessionId}: {Error}",
                             session.Id, queueResult.ErrorMessage);
+                        session.Events.Publish(pivotEmitter.CreateErrorEvent(
+                            session.Id,
+                            pivotId,
+                            queueResult.ErrorMessage,
+                            errorCode: "pivot_failed"));
                         ctx.EmitAssistantDelta("\n⚠ 研究方向更新失败，将继续使用当前方向\n\n");
                     }
                     else if (queueResult.Operation != null)
@@ -98,7 +135,39 @@ internal sealed partial class VibeOrchestrator
                             "Pivot completed for session {SessionId}: cancelled={Cancelled}, preserved={Preserved}, queued={Queued}",
                             session.Id, pivotOp.CancelledNodeIds.Count, pivotOp.PreservedNodeIds.Count, queueResult.Queued);
 
-                        // Emit completion event
+                        // Emit completion + progress events
+                        session.Events.Publish(pivotEmitter.CreateProgressEvent(
+                            session.Id,
+                            pivotOp.PivotId,
+                            PivotProgressStage.CancellingPlans,
+                            count: pivotOp.CancelledNodeIds.Count,
+                            progress: 0.6));
+
+                        session.Events.Publish(pivotEmitter.CreateProgressEvent(
+                            session.Id,
+                            pivotOp.PivotId,
+                            PivotProgressStage.PreservingKnowledge,
+                            count: pivotOp.PreservedNodeIds.Count,
+                            progress: 0.8));
+
+                        session.Events.Publish(pivotEmitter.CreateProgressEvent(
+                            session.Id,
+                            pivotOp.PivotId,
+                            PivotProgressStage.NotifyingAgents,
+                            progress: 0.9));
+
+                        session.Events.Publish(pivotEmitter.CreateProgressEvent(
+                            session.Id,
+                            pivotOp.PivotId,
+                            PivotProgressStage.UpdatingDag,
+                            progress: 1.0));
+
+                        session.Events.Publish(pivotEmitter.CreateCompletedEvent(
+                            session.Id,
+                            pivotOp.PivotId,
+                            pivotOp));
+
+                        // Keep legacy custom event for existing UI logic.
                         session.Events.Publish(new CustomEvent
                         {
                             Timestamp = NowMs(),
@@ -123,8 +192,34 @@ internal sealed partial class VibeOrchestrator
                 catch (Exception pivotEx)
                 {
                     _host.Logger.LogError(pivotEx, "Pivot execution failed for session {SessionId}", session.Id);
+                    if (pivotId.Length > 0)
+                    {
+                        session.Events.Publish(pivotEmitter.CreateErrorEvent(
+                            session.Id,
+                            pivotId,
+                            pivotEx.Message,
+                            errorCode: "pivot_exception"));
+                    }
                     ctx.EmitAssistantDelta("\n⚠ 研究方向更新失败，将继续使用当前方向\n\n");
                     // Don't block the round - pivot failure is non-fatal
+                }
+            }
+            else if (pivotIntent is { IsDirectionChange: true })
+            {
+                if (pivotId.Length == 0)
+                    pivotId = $"pivot_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
+
+                pivotIntent = pivotIntent with { PivotId = pivotId };
+                session.Events.Publish(pivotEmitter.CreateDetectedEvent(session.Id, pivotId, pivotIntent));
+
+                if (pivotIntent.NeedsClarification)
+                {
+                    session.Events.Publish(pivotEmitter.CreateClarificationRequestEvent(
+                        session.Id,
+                        pivotId,
+                        pivotIntent.NewTopic,
+                        pivotIntent.Confidence,
+                        oldTopic: currentDirection));
                 }
             }
         }

@@ -14,6 +14,8 @@ export type LayoutMeta = {
   sessionId: string;
   workflow: string;
   profile: string;
+  provider?: string;
+  model?: string;
   backendUrl: string;
 };
 
@@ -22,6 +24,8 @@ export type Layout = {
   messages: TextRenderable;
   statusText: TextRenderable;
   input: TextareaRenderable;
+  heroMeta: TextRenderable;
+  inputMeta: TextRenderable;
 };
 
 export async function createLayout(meta: LayoutMeta): Promise<Layout> {
@@ -59,14 +63,16 @@ export async function createLayout(meta: LayoutMeta): Promise<Layout> {
     content: "Aevatar Platform",
   });
 
+  const provider = meta.provider || "(unknown)";
+  const model = meta.model || "-";
   const heroMeta = new TextRenderable(renderer, {
     id: "hero-meta",
-    content: `session=${meta.sessionId}  workflow=${meta.workflow}  profile=${meta.profile}\nbackend=${meta.backendUrl || "(missing)"}`,
+    content: `session=${meta.sessionId}  workflow=${meta.workflow}  profile=${meta.profile}  provider=${provider}\nmodel=${model}  backend=${meta.backendUrl || "(missing)"}`,
   });
 
   const heroHint = new TextRenderable(renderer, {
     id: "hero-hint",
-    content: "ctrl+t variants   tab agents   ctrl+p commands",
+    content: "tab provider   shift+tab workflow   ctrl+p commands",
   });
 
   const messageBox = new BoxRenderable(renderer, {
@@ -114,7 +120,7 @@ export async function createLayout(meta: LayoutMeta): Promise<Layout> {
 
   const inputMeta = new TextRenderable(renderer, {
     id: "input-meta",
-    content: `profile=${meta.profile}  workflow=${meta.workflow}`,
+    content: `profile=${meta.profile}  workflow=${meta.workflow}  provider=${provider}  model=${model}`,
   });
 
   const hint = new TextRenderable(renderer, {
@@ -139,6 +145,6 @@ export async function createLayout(meta: LayoutMeta): Promise<Layout> {
   renderer.root.add(root);
   input.focus();
 
-  return { renderer, messages, statusText, input };
+  return { renderer, messages, statusText, input, heroMeta, inputMeta };
 }
 

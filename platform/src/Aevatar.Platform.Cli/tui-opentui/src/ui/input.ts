@@ -8,6 +8,7 @@ import type { CliRenderer } from "@opentui/core";
 // ------------------------------------------------------------
 type InputHandlers = {
   onSubmit: (text: string) => void;
+  onTab?: (shift: boolean) => void;
 };
 
 export function wireInput(
@@ -45,6 +46,13 @@ export function wireInput(
   // intercept keypress and inject text manually (only when input is focused).
   renderer.keyInput.on("keypress", (key: any) => {
     if (renderer.currentFocusedRenderable !== input) return;
+    if (key?.name === "tab" || key?.name === "backtab") {
+      const isShift = key?.shift === true || key?.name === "backtab";
+      handlers.onTab?.(isShift);
+      if (typeof key.preventDefault === "function") key.preventDefault();
+      if (typeof key.stopPropagation === "function") key.stopPropagation();
+      return;
+    }
     const seq = typeof key?.sequence === "string" ? key.sequence : "";
     if (!seq) return;
     if (!/[^\x00-\x7F]/.test(seq)) return;

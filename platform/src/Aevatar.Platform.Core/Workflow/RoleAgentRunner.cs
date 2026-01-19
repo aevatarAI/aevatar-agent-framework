@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
+using System.IO;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Core;
@@ -59,6 +61,8 @@ public sealed class RoleAgentRunner
         RoleAgentRunOptions options,
         [EnumeratorCancellation] CancellationToken ct)
     {
+        var debugRunId = $"stream_{Guid.NewGuid():N}";
+        var debugSessionId = input.WorkflowName ?? "workflow";
         var (agent, error) = await TryCreateAgentAsync(role, input, options, ct);
         if (agent == null)
         {
@@ -72,6 +76,21 @@ public sealed class RoleAgentRunner
         request.Temperature = options.Temperature;
 
         var supportsStreaming = await agent.SupportsStreamingAsync(ct);
+        #region agent log
+        DebugLog(
+            "RoleAgentRunner.cs:RunStreamAsync",
+            "supports_streaming",
+            new
+            {
+                role,
+                supportsStreaming,
+                provider = input.DefaultProvider ?? string.Empty,
+                model = input.DefaultModel ?? string.Empty
+            },
+            debugSessionId,
+            debugRunId,
+            "H2");
+        #endregion
         if (!supportsStreaming)
         {
             var response = await agent.ChatAsync(request, ct);
@@ -372,5 +391,36 @@ public sealed class RoleAgentRunner
                ?? loader.TryLoadFromFile(localYml)
                ?? loader.TryLoadFromFile(globalYaml)
                ?? loader.TryLoadFromFile(globalYml);
+    }
+
+    private const string DebugLogPath = "/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log";
+
+    private static void DebugLog(
+        string location,
+        string message,
+        object data,
+        string sessionId,
+        string runId,
+        string hypothesisId)
+    {
+        try
+        {
+            var payload = new
+            {
+                location,
+                message,
+                data,
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                sessionId,
+                runId,
+                hypothesisId
+            };
+            var json = JsonSerializer.Serialize(payload);
+            File.AppendAllText(DebugLogPath, json + Environment.NewLine);
+        }
+        catch
+        {
+            // best-effort only
+        }
     }
 }

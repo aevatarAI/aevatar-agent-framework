@@ -237,7 +237,7 @@
 | Agent | 职责 | 工具 |
 |-------|------|------|
 | `RouterAgent` | 任务路由与分发 | - |
-| `CoderAgent` | 代码编写与修改 | file_*, bash, git, grep, ast-grep, glob, lsp, time_now, env_get, uuid, path_exists, dir_list, file_stat, hash_sha256, base64_*, json_* |
+| `CoderAgent` | 代码编写与修改 | file_*, grep, glob, codebase_search, apply_patch, run_terminal_cmd, read_lints, web_search, bash, git, ast-grep, lsp, time_now, env_get, uuid, path_exists, dir_list, file_stat, hash_sha256, hash_md5, hash_sha1, base64_*, json_*, url_*, text_diff, text_replace, path_copy, path_move, path_mkdir, path_remove_tree, path_tempfile, url_parse |
 | `ReviewerAgent` | 代码审查 | file_read, grep |
 | `TesterAgent` | 测试编写与运行 | file_*, bash |
 | `DebugAgent` | 调试与问题定位 | file_*, bash, lsp |
@@ -270,6 +270,11 @@ tools:
   - grep
   - ast-grep
   - glob
+  - codebase_search
+  - apply_patch
+  - run_terminal_cmd
+  - read_lints
+  - web_search
   - lsp
   - time_now
   - env_get
@@ -278,10 +283,22 @@ tools:
   - dir_list
   - file_stat
   - hash_sha256
+  - hash_md5
+  - hash_sha1
   - base64_encode
   - base64_decode
   - json_format
   - json_validate
+  - url_encode
+  - url_decode
+  - url_parse
+  - text_diff
+  - text_replace
+  - path_copy
+  - path_move
+  - path_mkdir
+  - path_remove_tree
+  - path_tempfile
   - bash
   - git_status
   - git_diff

@@ -98,6 +98,8 @@ public sealed class TuiApp
                 ["AEVATAR_SESSION_ID"] = runtime.Runtime.SessionId,
                 ["AEVATAR_WORKFLOW"] = runtime.Runtime.Workflow,
                 ["AEVATAR_PROFILE"] = runtime.Runtime.Profile,
+                ["AEVATAR_PROVIDER"] = runtime.Effective.Config.Models.DefaultProvider ?? string.Empty,
+                ["AEVATAR_MODEL"] = runtime.Effective.Config.Models.DefaultModel ?? string.Empty,
                 ["AEVATAR_CWD"] = Directory.GetCurrentDirectory(),
                 ["AEVATAR_TUI_BACKEND_URL"] = backend.BaseUrl
             };

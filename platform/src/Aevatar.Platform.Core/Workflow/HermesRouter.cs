@@ -1,5 +1,7 @@
+using System.IO;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Aevatar.Agents.AI.Core.Configuration;
 using Aevatar.Agents.Configuration;
 using Aevatar.CognitiveMesh.Dsl.Validation;
@@ -25,17 +27,109 @@ public sealed class HermesRouter
         var available = ListWorkflowNames(input.ConfigDirectory);
             var prompt = BuildHermesPrompt(input, available);
             var response = await _runner.RunAsync("hermes", prompt, input, _runner.BuildHermesOptions(), ct);
+            return await ProcessHermesResponseAsync(response, runId, input, ct);
+        }
+        catch (Exception ex)
+        {
+            return new WorkflowRunResult(runId, false, $"Hermes error: {ex.Message}");
+        }
+    }
 
+    public async Task<WorkflowRunResult> RouteStreamingAsync(
+        WorkflowRunInput input,
+        Func<string, CancellationToken, Task> onDelta,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(onDelta);
+        var runId = $"run_{Guid.NewGuid():N}";
+        try
+        {
+            var available = ListWorkflowNames(input.ConfigDirectory);
+            var prompt = BuildHermesPrompt(input, available);
+            var sb = new StringBuilder();
+            await foreach (var chunk in _runner.RunStreamAsync("hermes", prompt, input, _runner.BuildHermesOptions(), ct))
+            {
+                if (string.IsNullOrEmpty(chunk))
+                    continue;
+                sb.Append(chunk);
+            }
+
+            var response = sb.ToString();
+            #region agent log
+            DebugLog(
+                "HermesRouter.cs:RouteStreamingAsync",
+                "hermes_stream_response",
+                new
+                {
+                    responseLen = response.Length,
+                    startsWithFence = response.TrimStart().StartsWith("```", StringComparison.Ordinal)
+                },
+                input.ConfigDirectory,
+                runId,
+                "H1");
+            #endregion
+            return await ProcessHermesResponseAsync(response, runId, input, ct);
+        }
+        catch (Exception ex)
+        {
+            return new WorkflowRunResult(runId, false, $"Hermes error: {ex.Message}");
+        }
+    }
+
+    private async Task<WorkflowRunResult> ProcessHermesResponseAsync(
+        string response,
+        string runId,
+        WorkflowRunInput input,
+        CancellationToken ct)
+    {
             if (!TryParseDecision(response, out var decision, out var error))
             {
                 var parseNote = $"Hermes parse failed: {error}\n\nRaw:\n{response}";
                 return new WorkflowRunResult(runId, false, parseNote);
             }
 
+        #region agent log
+        DebugLog(
+            "HermesRouter.cs:ProcessHermesResponseAsync",
+            "decision_parsed",
+            new
+            {
+                action = decision?.Action ?? string.Empty,
+                selectedWorkflow = decision?.SelectedWorkflow ?? string.Empty,
+                workflowName = decision?.Workflow?.Name ?? string.Empty,
+                agentsCount = decision?.Agents?.Count ?? 0,
+                messageLen = decision?.Message?.Length ?? 0,
+                reasonLen = decision?.Reason?.Length ?? 0
+            },
+            input.ConfigDirectory,
+            runId,
+            "H1");
+        #endregion
+
+        var selectedRole = string.Empty;
+        if (IsAgentSelection((decision?.SelectedWorkflow ?? string.Empty).Trim(), out var role))
+            selectedRole = role;
+        var agentEnsure = EnsureAgentsFromDecision(decision!, input, runId, selectedRole);
+        if (!agentEnsure.Ok)
+        {
+            var note = string.IsNullOrWhiteSpace(decision!.Message)
+                ? agentEnsure.Note
+                : $"{decision!.Message!.Trim()}\n\n{agentEnsure.Note}";
+            return new WorkflowRunResult(runId, false, note);
+            }
+
             var result = ApplyDecision(decision!, input);
             var header = string.IsNullOrWhiteSpace(decision!.Message)
                 ? result.Note
                 : decision.Message!.Trim();
+        if (agentEnsure.Created.Count > 0)
+        {
+            var created = string.Join(", ", agentEnsure.Created);
+            header = string.IsNullOrWhiteSpace(header)
+                ? $"已创建角色：{created}"
+                : $"{header}\n\n已创建角色：{created}";
+            result = result with { CreatedAgentRoles = MergeCreatedAgents(result.CreatedAgentRoles, agentEnsure.Created) };
+        }
 
             if (result.Ok && !string.IsNullOrWhiteSpace(result.CreatedWorkflow))
             {
@@ -63,11 +157,6 @@ public sealed class HermesRouter
             }
 
             return result with { Note = header };
-        }
-        catch (Exception ex)
-        {
-            return new WorkflowRunResult(runId, false, $"Hermes error: {ex.Message}");
-        }
     }
 
     private static string BuildHermesPrompt(
@@ -106,6 +195,9 @@ Requirements:
 - Use file_write to create new agent/workflow files under ~/.aevatar/agents and ~/.aevatar/workflows when action=create.
 - If selecting, use action=select and set selected_workflow.
 - If creating, use action=create and provide workflow + optional agents.
+- If the task is single-agent and no workflow is required, create/ensure the agent YAML and set selected_workflow to "agent:<role>" (do NOT create a workflow file).
+- Prefer "agent:<role>" for simple Q&A (e.g., time queries, translations, short explanations).
+- Use multi-agent workflow only when the user explicitly requests complex systems or multi-role collaboration.
 - Workflow DSL v0.1 fields required: dsl_version, goal, strategy, budget, nodes, edges, constraints.
 - goal must be an object: { name: string, success_metric: string? }.
 - budget must be an object: { max_steps: int, token_limit: int }.
@@ -137,7 +229,7 @@ constraints: []
 JSON schema:
 {
   "action": "select" | "create",
-  "selected_workflow": "name or null",
+  "selected_workflow": "workflow name | agent:<role> | null",
   "workflow": {
     "name": "workflow name",
     "format": "yaml" | "json",
@@ -199,9 +291,29 @@ User request:
         var action = (decision.Action ?? string.Empty).Trim().ToLowerInvariant();
         if (action == "select")
         {
-            var selected = NormalizeToken(decision.SelectedWorkflow);
+            var rawSelected = (decision.SelectedWorkflow ?? string.Empty).Trim();
+            if (IsAgentSelection(rawSelected, out var role))
+            {
+                return new WorkflowRunResult(
+                    RunId: runId,
+                    Ok: true,
+                    Note: $"已选择角色：{role}",
+                    SelectedWorkflow: $"agent:{role}");
+            }
+            var selected = NormalizeToken(rawSelected);
             if (selected.Length == 0)
+            {
+                if (!string.IsNullOrWhiteSpace(decision.Message))
+                {
+                    return new WorkflowRunResult(
+                        RunId: runId,
+                        Ok: true,
+                        Note: decision.Message!.Trim(),
+                        SelectedWorkflow: "hermes");
+                }
+
                 return new WorkflowRunResult(runId, false, "Hermes did not provide selected_workflow");
+            }
 
             var workflowPath = AevatarConfigFileHelper.ResolveFilePath(
                 input.ConfigDirectory,
@@ -224,7 +336,14 @@ User request:
 
             var workflowName = NormalizeToken(workflow?.Name);
             if (workflowName.Length == 0)
+            {
+                if (decision.Agents is { Count: > 0 })
+                {
+                    return CreateAgentsOnly(decision.Agents, input, runId);
+                }
+
                 return new WorkflowRunResult(runId, false, "Hermes did not provide workflow.name");
+            }
 
             var format = (workflow?.Format ?? "yaml").Trim().ToLowerInvariant();
             var ext = format == "json" ? ".json" : ".yaml";
@@ -238,12 +357,46 @@ User request:
                 AevatarConfigDirectory.Workflows,
                 workflowName,
                 WorkflowExtensions);
+            #region agent log
+            DebugLog(
+                "HermesRouter.cs:ApplyDecision",
+                "workflow_create_check",
+                new
+                {
+                    workflowName,
+                    workflowPath,
+                    resolvedWorkflow,
+                    resolvedExists = resolvedWorkflow != null,
+                    configDir = input.ConfigDirectory
+                },
+                input.ConfigDirectory,
+                runId,
+                "H3");
+            #endregion
             if (resolvedWorkflow == null)
+            {
+                var content = (workflow?.Content ?? string.Empty).Trim();
+                if (content.Length == 0)
+                {
+                    return new WorkflowRunResult(
+                        runId,
+                        false,
+                        $"workflow content missing: {workflowPath} (Hermes should provide content or call file_write)");
+                }
+
+                try
+                {
+                    Directory.CreateDirectory(workflowDir);
+                    File.WriteAllText(workflowPath, content);
+                    resolvedWorkflow = workflowPath;
+                }
+                catch (Exception ex)
             {
                 return new WorkflowRunResult(
                     runId,
                     false,
-                    $"workflow file not found: {workflowPath} (Hermes should create it via file_write)");
+                        $"workflow write failed: {ex.Message}");
+                }
             }
 
             var createdAgents = new List<string>();
@@ -261,10 +414,36 @@ User request:
                         AevatarConfigDirectory.Agents,
                         role,
                         AgentExtensions);
+                    if (agentPath == null)
+                    {
+                        var content = (agent?.Content ?? string.Empty).Trim();
+                        if (content.Length == 0)
+                        {
+                            missingAgents.Add(role);
+                            continue;
+                        }
+
+                        try
+                        {
+                            var agentDir = AevatarConfigFileHelper.GetDirectoryPath(
+                                input.ConfigDirectory,
+                                AevatarConfigDirectory.Agents);
+                            Directory.CreateDirectory(agentDir);
+                            var path = Path.Combine(agentDir, $"{role}.yaml");
+                            File.WriteAllText(path, content);
+                            agentPath = path;
+                        }
+                        catch (Exception ex)
+                        {
+                            return new WorkflowRunResult(
+                                runId,
+                                false,
+                                $"agent write failed: {ex.Message}");
+                        }
+                    }
+
                     if (agentPath != null)
                         createdAgents.Add(role);
-                    else
-                        missingAgents.Add(role);
                 }
             }
 
@@ -490,19 +669,271 @@ Task:
 
 
     private sealed record HermesDecision(
-        string? Action,
-        string? SelectedWorkflow,
-        HermesWorkflow? Workflow,
-        List<HermesAgent>? Agents,
-        string? Message,
-        string? Reason);
+        [property: JsonPropertyName("action")] string? Action,
+        [property: JsonPropertyName("selected_workflow")] string? SelectedWorkflow,
+        [property: JsonPropertyName("workflow")] HermesWorkflow? Workflow,
+        [property: JsonPropertyName("agents")] List<HermesAgent>? Agents,
+        [property: JsonPropertyName("message")] string? Message,
+        [property: JsonPropertyName("reason")] string? Reason);
 
     private sealed record HermesWorkflow(
-        string? Name,
-        string? Format,
-        string? Content);
+        [property: JsonPropertyName("name")] string? Name,
+        [property: JsonPropertyName("format")] string? Format,
+        [property: JsonPropertyName("content")] string? Content);
 
     private sealed record HermesAgent(
-        string? Name,
-        string? Content);
+        [property: JsonPropertyName("name")] string? Name,
+        [property: JsonPropertyName("content")] string? Content);
+
+    private sealed record AgentEnsureResult(bool Ok, List<string> Created, string Note);
+
+    private static AgentEnsureResult EnsureAgentsFromDecision(
+        HermesDecision decision,
+        WorkflowRunInput input,
+        string runId,
+        string selectedRole)
+    {
+        var created = new List<string>();
+        var roles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        if (decision.Agents is { Count: > 0 })
+        {
+            foreach (var agent in decision.Agents)
+            {
+                var role = GlobalAgentYamlRegistry.NormalizeRoleKey(agent?.Name);
+                if (role.Length == 0)
+                    continue;
+                roles[role] = (agent?.Content ?? string.Empty).Trim();
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(selectedRole) && !roles.ContainsKey(selectedRole))
+            roles[selectedRole] = string.Empty;
+
+        if (roles.Count == 0)
+            return new AgentEnsureResult(true, created, string.Empty);
+
+        foreach (var (role, contentRaw) in roles)
+        {
+            var agentPath = AevatarConfigFileHelper.ResolveFilePath(
+                input.ConfigDirectory,
+                AevatarConfigDirectory.Agents,
+                role,
+                AgentExtensions);
+            if (agentPath != null)
+                continue;
+
+            var content = contentRaw;
+            var usedFallback = false;
+            if (content.Length == 0)
+            {
+                if (!string.Equals(role, selectedRole, StringComparison.OrdinalIgnoreCase))
+                {
+                    var note = $"agent yaml missing: {role} (Hermes should provide content or call file_write)";
+                    return new AgentEnsureResult(false, created, note);
+                }
+
+                content = BuildFallbackAgentYaml(role);
+                usedFallback = true;
+            }
+
+            try
+            {
+                var agentDir = AevatarConfigFileHelper.GetDirectoryPath(
+                    input.ConfigDirectory,
+                    AevatarConfigDirectory.Agents);
+                Directory.CreateDirectory(agentDir);
+                var path = Path.Combine(agentDir, $"{role}.yaml");
+                File.WriteAllText(path, content);
+                created.Add(role);
+
+                if (usedFallback)
+                {
+                    #region agent log
+                    DebugLog(
+                        "HermesRouter.cs:EnsureAgentsFromDecision",
+                        "agent_fallback_written",
+                        new { role },
+                        input.ConfigDirectory,
+                        runId,
+                        "H3");
+                    #endregion
+                }
+            }
+            catch (Exception ex)
+            {
+                return new AgentEnsureResult(false, created, $"agent write failed: {ex.Message}");
+            }
+        }
+
+        #region agent log
+        DebugLog(
+            "HermesRouter.cs:EnsureAgentsFromDecision",
+            "agents_ensured",
+            new { created = created.Count },
+            input.ConfigDirectory,
+            runId,
+            "H3");
+        #endregion
+
+        return new AgentEnsureResult(true, created, string.Empty);
+    }
+
+    private static string BuildFallbackAgentYaml(string role)
+    {
+        var prompt = $"You are the '{role}' agent.";
+        if (role.Contains("time", StringComparison.OrdinalIgnoreCase))
+        {
+            prompt += " Answer time/date questions and use tool time_now when available.";
+        }
+
+        return $$"""
+id: "{{role}}"
+name: "{{role}}"
+version: "1.0"
+
+persona:
+  role: "{{role}}"
+  style: "concise"
+
+system_prompt: |
+  {{prompt}}
+""";
+    }
+
+    private static IReadOnlyList<string>? MergeCreatedAgents(
+        IReadOnlyList<string>? existing,
+        IReadOnlyList<string> added)
+    {
+        if ((existing == null || existing.Count == 0) && added.Count == 0)
+            return existing;
+
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (existing != null)
+        {
+            foreach (var item in existing)
+                if (!string.IsNullOrWhiteSpace(item))
+                    set.Add(item);
+        }
+
+        foreach (var item in added)
+            if (!string.IsNullOrWhiteSpace(item))
+                set.Add(item);
+
+        return set.ToList();
+    }
+
+    private static bool IsAgentSelection(string token, out string role)
+    {
+        role = string.Empty;
+        if (string.IsNullOrWhiteSpace(token))
+            return false;
+        if (!token.StartsWith("agent:", StringComparison.OrdinalIgnoreCase))
+            return false;
+        role = token["agent:".Length..].Trim();
+        return role.Length > 0;
+    }
+
+    private static WorkflowRunResult CreateAgentsOnly(
+        IReadOnlyList<HermesAgent> agents,
+        WorkflowRunInput input,
+        string runId)
+    {
+        var createdAgents = new List<string>();
+        var missingAgents = new List<string>();
+
+        foreach (var agent in agents)
+        {
+            var role = GlobalAgentYamlRegistry.NormalizeRoleKey(agent?.Name);
+            if (role.Length == 0)
+                continue;
+
+            var agentPath = AevatarConfigFileHelper.ResolveFilePath(
+                input.ConfigDirectory,
+                AevatarConfigDirectory.Agents,
+                role,
+                AgentExtensions);
+            if (agentPath == null)
+            {
+                var content = (agent?.Content ?? string.Empty).Trim();
+                if (content.Length == 0)
+                {
+                    missingAgents.Add(role);
+                    continue;
+                }
+
+                try
+                {
+                    var agentDir = AevatarConfigFileHelper.GetDirectoryPath(
+                        input.ConfigDirectory,
+                        AevatarConfigDirectory.Agents);
+                    Directory.CreateDirectory(agentDir);
+                    var path = Path.Combine(agentDir, $"{role}.yaml");
+                    File.WriteAllText(path, content);
+                    agentPath = path;
+                }
+                catch (Exception ex)
+                {
+                    return new WorkflowRunResult(
+                        runId,
+                        false,
+                        $"agent write failed: {ex.Message}");
+                }
+            }
+
+            if (agentPath != null)
+                createdAgents.Add(role);
+        }
+
+        if (missingAgents.Count > 0)
+        {
+            return new WorkflowRunResult(
+                runId,
+                false,
+                $"agent yaml missing: {string.Join(", ", missingAgents)} (Hermes should create them via file_write)");
+        }
+
+        var selectedRole = createdAgents.FirstOrDefault() ?? string.Empty;
+        if (selectedRole.Length == 0)
+            return new WorkflowRunResult(runId, false, "Hermes did not provide agents");
+
+        var note = $"已创建角色：{string.Join(", ", createdAgents)}";
+        return new WorkflowRunResult(
+            RunId: runId,
+            Ok: true,
+            Note: note,
+            SelectedWorkflow: $"agent:{selectedRole}",
+            CreatedAgentRoles: createdAgents);
+    }
+
+    private const string DebugLogPath = "/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log";
+
+    private static void DebugLog(
+        string location,
+        string message,
+        object data,
+        string sessionId,
+        string runId,
+        string hypothesisId)
+    {
+        try
+        {
+            var payload = new
+            {
+                location,
+                message,
+                data,
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                sessionId,
+                runId,
+                hypothesisId
+            };
+            var json = JsonSerializer.Serialize(payload);
+            File.AppendAllText(DebugLogPath, json + Environment.NewLine);
+        }
+        catch
+        {
+            // best-effort only
+        }
+    }
 }

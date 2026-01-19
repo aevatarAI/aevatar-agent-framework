@@ -2,8 +2,11 @@ using System.Text;
 using System.Text.Json;
 using Aevatar.Agents.AGUI;
 using Aevatar.Agents.AI;
+using Aevatar.Agents.Abstractions.Tracing;
+using Aevatar.Agents.Cognitive.Core;
 using Google.Protobuf.Collections;
 using Google.Protobuf.WellKnownTypes;
+using VibeResearching.Api.Materials;
 using VibeResearching.Api.Paper;
 using VibeResearching.Api.Sessions;
 using VibeResearching.Api.Vibe.Brief;
@@ -25,9 +28,11 @@ internal sealed partial class VibeOrchestrator
     private async Task<DagRoundResult> RunDagApplyAsync(
         ResearchSession session,
         string runId,
+        MaterialsSnapshot materials,
         SraDagSnapshot currentDag,
         IReadOnlyDictionary<string, string> outputs,
         Action<string> emit,
+        string? providerName,
         CancellationToken ct)
     {
         // Parse candidate mutation from dag_builder output (JSON).
@@ -50,14 +55,48 @@ internal sealed partial class VibeOrchestrator
         }
 
         // ------------------------------------------------------------
-        // No verification / no consensus:
-        // - Apply candidate directly.
-        // - Future: we can attach a verifier pass that annotates nodes, but not block writes.
+        // Consensus gate (verifier-quorum or maker via Cognitive DSL)
         // ------------------------------------------------------------
+        DagConsensusRunner.ConsensusResult consensus;
+        try
+        {
+            var progress = BuildDagConsensusAgUiProgress(session, runId, workflowName: "maker");
+            consensus = await _core.DagConsensus.RunAsync(new DagConsensusRunner.ConsensusInput(
+                session.Id,
+                runId,
+                currentDag,
+                candidate,
+                MaterialsContext: materials?.RenderedContext,
+                ProviderName: providerName ?? session.ProviderName,
+                Progress: progress), ct);
+        }
+        catch (Exception ex)
+        {
+            EmitSection(emit, "### DAG Consensus\n");
+            emit($"[dag consensus error] {ex.Message}\n\n");
+            return new DagRoundResult(false, true, candidate, null, null, ["consensus_exception"], null);
+        }
+
+        if (!consensus.Ok || consensus.Mutation == null)
+        {
+            EmitSection(emit, "### DAG Consensus (blocked)\n");
+            var flags = consensus.RedFlags.Count == 0 ? "unknown" : string.Join(", ", consensus.RedFlags);
+            emit($"**Blocked** (workflow: `{consensus.Workflow}`) redFlags=[{flags}]\n\n");
+            return new DagRoundResult(false, true, candidate, null, consensus.ArtifactPath, consensus.RedFlags, consensus.ArtifactPath);
+        }
+
+        // Apply accepted mutation
         try
         {
             var dagId = session.EffectiveDagId;
-            var applied = await _core.Dag.ApplyMutationAsync(dagId, candidate, ct);
+            var accepted = consensus.Mutation;
+
+            if (!string.IsNullOrWhiteSpace(consensus.Workflow))
+                accepted.Labels["consensus_workflow"] = consensus.Workflow;
+            if (!string.IsNullOrWhiteSpace(consensus.ArtifactPath))
+                accepted.Labels["consensus_artifact"] = consensus.ArtifactPath;
+
+            var applied = await _core.Dag.ApplyMutationAsync(dagId, accepted, ct);
 
             session.Events.Publish(new CustomEvent
             {
@@ -68,24 +107,175 @@ internal sealed partial class VibeOrchestrator
                     sessionId = session.Id,
                     dagId,
                     runId,
-                    mutationId = candidate.MutationId,
-                    nodes = candidate.UpsertNodes.Count,
-                    edges = candidate.UpsertEdges.Count,
+                    mutationId = accepted.MutationId,
+                    nodes = accepted.UpsertNodes.Count,
+                    edges = accepted.UpsertEdges.Count,
+                    consensusWorkflow = consensus.Workflow,
+                    consensusArtifact = consensus.ArtifactPath ?? string.Empty,
                     updatedAt = applied.UpdatedAt?.ToDateTime().ToUniversalTime().ToString("O") ?? ""
                 }
             });
 
-            EmitSection(emit, "### DAG Apply (no verification)\n");
-            emit($"**Applied** (mutationId: `{candidate.MutationId}`)\n\n");
+            EmitSection(emit, "### DAG Consensus (accepted)\n");
+            emit($"**Applied** (mutationId: `{accepted.MutationId}`, workflow: `{consensus.Workflow}`)\n\n");
 
-            return new DagRoundResult(true, false, candidate, candidate, null, [], null);
+            return new DagRoundResult(true, false, candidate, accepted, null, [], consensus.ArtifactPath);
         }
         catch (Exception ex)
         {
-            EmitSection(emit, "### DAG Apply (no verification)\n");
+            EmitSection(emit, "### DAG Consensus (apply failed)\n");
             emit($"[dag apply error] {ex.Message}\n\n");
-            return new DagRoundResult(false, true, candidate, null, null, ["apply_exception"], null);
+            return new DagRoundResult(false, true, candidate, null, null, ["apply_exception"], consensus.ArtifactPath);
         }
+    }
+
+    private static IProgress<ReasoningProgress> BuildDagConsensusAgUiProgress(
+        ResearchSession session,
+        string runId,
+        string workflowName)
+    {
+        var lastStatus = new Dictionary<string, string>(StringComparer.Ordinal);
+        var gate = new object();
+
+        return new Progress<ReasoningProgress>(progress =>
+        {
+            try
+            {
+                var evt = BuildExecutionTraceEvent(progress, runId, workflowName);
+                var status = ResolveStatus(progress);
+                var stepName = string.IsNullOrWhiteSpace(evt.NodeId) ? (evt.Phase ?? string.Empty) : evt.NodeId;
+
+                var mapped = AgUiExecutionTraceMapper.Map(evt);
+                var toPublish = new List<AgUiEvent>(mapped.Count);
+
+                lock (gate)
+                {
+                    foreach (var e in mapped)
+                    {
+                        if (e is StepStartedEvent or StepFinishedEvent)
+                        {
+                            if (string.IsNullOrWhiteSpace(stepName) || string.IsNullOrWhiteSpace(status))
+                                continue;
+
+                            if (lastStatus.TryGetValue(stepName, out var prev) && string.Equals(prev, status, StringComparison.Ordinal))
+                                continue;
+                        }
+
+                        toPublish.Add(e);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(stepName) && !string.IsNullOrWhiteSpace(status))
+                        lastStatus[stepName] = status;
+                }
+
+                for (var i = 0; i < toPublish.Count; i++)
+                    session.Events.Publish(toPublish[i]);
+            }
+            catch
+            {
+                // best-effort
+            }
+        });
+    }
+
+    private static ExecutionTraceEvent BuildExecutionTraceEvent(
+        ReasoningProgress progress,
+        string runId,
+        string workflowName)
+    {
+        var phase = !string.IsNullOrWhiteSpace(progress.StepType) ? progress.StepType : progress.Phase;
+        var nodeCore = !string.IsNullOrWhiteSpace(progress.StepId)
+            ? progress.StepId
+            : (progress.Phase ?? "step");
+        var nodeId = $"dag_consensus:{nodeCore}";
+
+        var evt = new ExecutionTraceEvent
+        {
+            Timestamp = Timestamp.FromDateTimeOffset(progress.Timestamp),
+            Phase = phase ?? string.Empty,
+            Message = progress.Message ?? string.Empty,
+            NodeId = nodeId
+        };
+
+        evt.Fields[ExecutionTraceEventFields.Status] =
+            ExecutionTraceEventFieldValue.FromString(ResolveStatus(progress));
+        evt.Fields[ExecutionTraceEventFields.Progress] =
+            ExecutionTraceEventFieldValue.FromDouble(progress.ProgressPercent);
+        evt.Fields[ExecutionTraceEventFields.ExecutionId] =
+            ExecutionTraceEventFieldValue.FromString(runId);
+        evt.Fields[ExecutionTraceEventFields.WorkflowName] =
+            ExecutionTraceEventFieldValue.FromString(workflowName);
+
+        if (!string.IsNullOrWhiteSpace(progress.StepType))
+            evt.Fields[ExecutionTraceEventFields.StepType] = ExecutionTraceEventFieldValue.FromString(progress.StepType);
+        if (progress.Depth.HasValue)
+            evt.Fields[ExecutionTraceEventFields.Depth] = ExecutionTraceEventFieldValue.FromInt(progress.Depth.Value);
+        if (!string.IsNullOrWhiteSpace(progress.TaskId))
+            evt.Fields[ExecutionTraceEventFields.WorkerId] = ExecutionTraceEventFieldValue.FromString(progress.TaskId);
+
+        if (progress.VoteRound.HasValue)
+            evt.Fields[ExecutionTraceEventFields.VoteRound] = ExecutionTraceEventFieldValue.FromInt(progress.VoteRound.Value);
+        if (progress.VoteMaxRounds.HasValue)
+            evt.Fields[ExecutionTraceEventFields.VoteMaxRounds] = ExecutionTraceEventFieldValue.FromInt(progress.VoteMaxRounds.Value);
+        if (progress.VoteK.HasValue)
+            evt.Fields[ExecutionTraceEventFields.VoteK] = ExecutionTraceEventFieldValue.FromInt(progress.VoteK.Value);
+        if (progress.VoteCurrentVotes.HasValue)
+            evt.Fields[ExecutionTraceEventFields.VoteCurrentVotes] = ExecutionTraceEventFieldValue.FromInt(progress.VoteCurrentVotes.Value);
+
+        if (progress.ParallelTotal.HasValue)
+            evt.Fields[ExecutionTraceEventFields.ParallelTotal] = ExecutionTraceEventFieldValue.FromInt(progress.ParallelTotal.Value);
+        if (progress.ParallelCompleted.HasValue)
+            evt.Fields[ExecutionTraceEventFields.ParallelCompleted] = ExecutionTraceEventFieldValue.FromInt(progress.ParallelCompleted.Value);
+        if (progress.ParallelFailed.HasValue)
+            evt.Fields[ExecutionTraceEventFields.ParallelFailed] = ExecutionTraceEventFieldValue.FromInt(progress.ParallelFailed.Value);
+
+        if (progress.TotalLlmCalls.HasValue)
+            evt.Fields[ExecutionTraceEventFields.LlmCalls] = ExecutionTraceEventFieldValue.FromInt(progress.TotalLlmCalls.Value);
+
+        if (progress.TotalPromptTokens.HasValue)
+            evt.Fields[ExecutionTraceEventFields.PromptTokens] = ExecutionTraceEventFieldValue.FromLong(progress.TotalPromptTokens.Value);
+        if (progress.TotalCompletionTokens.HasValue)
+            evt.Fields[ExecutionTraceEventFields.CompletionTokens] = ExecutionTraceEventFieldValue.FromLong(progress.TotalCompletionTokens.Value);
+
+        if (progress.TotalPromptTokens.HasValue || progress.TotalCompletionTokens.HasValue)
+        {
+            var total = (progress.TotalPromptTokens ?? 0) + (progress.TotalCompletionTokens ?? 0);
+            evt.Fields[ExecutionTraceEventFields.TokensUsed] = ExecutionTraceEventFieldValue.FromLong(total);
+        }
+
+        if (!string.IsNullOrWhiteSpace(progress.SystemPrompt))
+            evt.Fields[ExecutionTraceEventFields.SystemPrompt] = ExecutionTraceEventFieldValue.FromString(progress.SystemPrompt);
+        if (!string.IsNullOrWhiteSpace(progress.UserPrompt))
+            evt.Fields[ExecutionTraceEventFields.UserPrompt] = ExecutionTraceEventFieldValue.FromString(progress.UserPrompt);
+        if (!string.IsNullOrWhiteSpace(progress.AssistantResponse))
+            evt.Fields[ExecutionTraceEventFields.AssistantResponse] = ExecutionTraceEventFieldValue.FromString(progress.AssistantResponse);
+
+        return evt;
+    }
+
+    private static string ResolveStatus(ReasoningProgress progress)
+    {
+        var status = (progress.StepStatus ?? string.Empty).Trim().ToLowerInvariant();
+        if (status.Length > 0)
+        {
+            return status switch
+            {
+                "pending" => ExecutionTraceEventStatus.Pending,
+                "running" => ExecutionTraceEventStatus.Running,
+                "completed" => ExecutionTraceEventStatus.Completed,
+                "failed" => ExecutionTraceEventStatus.Failed,
+                "skipped" => ExecutionTraceEventStatus.Cancelled,
+                _ => ExecutionTraceEventStatus.Running
+            };
+        }
+
+        var phase = (progress.Phase ?? string.Empty).Trim().ToLowerInvariant();
+        if (phase is "complete" or "completed")
+            return ExecutionTraceEventStatus.Completed;
+        if (phase is "failed" or "error")
+            return ExecutionTraceEventStatus.Failed;
+
+        return ExecutionTraceEventStatus.Running;
     }
 
     private async Task<int> PredictNextRoundIndexAsync(string sessionId, CancellationToken ct)

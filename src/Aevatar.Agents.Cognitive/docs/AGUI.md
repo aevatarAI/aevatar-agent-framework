@@ -66,6 +66,19 @@ AG-UI (Agent UI) 是一个标准化的 Agent 事件流协议，用于在 Web UI 
 
 ## 使用示例
 
+### 在 Cognitive 框架层直接使用 ExecutionTraceEvent
+
+```csharp
+using Aevatar.Agents.Cognitive.AgUi;
+using Aevatar.Agents.Abstractions.Tracing;
+
+// executionEvents: IAsyncEnumerable<ExecutionTraceEvent>
+await foreach (var evt in CognitiveAgUiEventStream.BuildAsync(executionEvents, ct: ct))
+{
+    // 发送到 SSE / WebSocket
+}
+```
+
 ### 在 AxiomReasoning 中使用
 
 ```csharp

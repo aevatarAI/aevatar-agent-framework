@@ -30,6 +30,12 @@
       <None Include="skillpacks.json" />
     </ItemGroup>
 
+    <ItemGroup>
+        <None Include="../../../../src/Aevatar.Agents.Cognitive/workflows/maker.yaml" Link="workflows/maker.yaml">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
+    </ItemGroup>
+
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
       <_Parameter1>Aevatar.VibeResearching.Api.Tests</_Parameter1>

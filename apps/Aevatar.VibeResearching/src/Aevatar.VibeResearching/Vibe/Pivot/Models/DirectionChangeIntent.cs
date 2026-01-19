@@ -6,6 +6,9 @@ namespace VibeResearching.Vibe.Pivot.Models;
 /// </summary>
 public sealed record DirectionChangeIntent
 {
+    /// <summary>Optional pivot id (used for UI/event correlation).</summary>
+    public string? PivotId { get; init; }
+
     /// <summary>Source user message ID.</summary>
     public required string MessageId { get; init; }
 

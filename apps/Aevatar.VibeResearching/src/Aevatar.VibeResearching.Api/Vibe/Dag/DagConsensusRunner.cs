@@ -82,7 +82,8 @@ public sealed partial class DagConsensusRunner
         int? ConsensusK = null,
         int? MaxRounds = null,
         int? WorkerCount = null,
-        int? MaxDepth = null);
+        int? MaxDepth = null,
+        IProgress<ReasoningProgress>? Progress = null);
 
     public sealed record ConsensusResult(
         bool Ok,
@@ -128,7 +129,7 @@ public sealed partial class DagConsensusRunner
         ReasoningResult rr;
         try
         {
-            rr = await _cognitive.ExecuteAsync(task, options, progress: null, ct: ct);
+            rr = await _cognitive.ExecuteAsync(task, options, progress: input.Progress, ct: ct);
         }
         catch (Exception ex)
         {

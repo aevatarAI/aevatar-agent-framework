@@ -257,7 +257,16 @@ internal sealed partial class VibeOrchestrator
 
         // Refresh again before apply (shared DAG).
         dagSnap = await _core.Dag.LoadSnapshotAsync(dagId, ct);
-        var dagResult = await RunDagApplyAsync(session, runId, dagSnap, outputs, emitAssistantDelta, ct);
+        var consensusProvider = ResolveProvider("dag_consensus");
+        var dagResult = await RunDagApplyAsync(
+            session,
+            runId,
+            materials,
+            dagSnap,
+            outputs,
+            emitAssistantDelta,
+            consensusProvider,
+            ct);
 
         session.Events.Publish(new StepFinishedEvent
         {

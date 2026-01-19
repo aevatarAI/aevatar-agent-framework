@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using Aevatar.Agents.AI.Core.Configuration;
 using Aevatar.Platform;
 using Aevatar.Platform.Cli.Commands;
@@ -311,6 +312,22 @@ public static class TuiHandlers
             runtime.Workflow = result.SelectedWorkflow!;
         await TryUpdateSessionWorkflowAsync(runtime, sessions, ct);
 
+        #region agent log
+        DebugLog(
+            "TuiHandlers.cs:ChatStreamAsync",
+            "workflow_after_stream",
+            new
+            {
+                selectedWorkflow = result.SelectedWorkflow ?? string.Empty,
+                createdWorkflow = result.CreatedWorkflow ?? string.Empty,
+                runtimeWorkflow = runtime.Workflow ?? string.Empty,
+                noteLen = result.Note?.Length ?? 0
+            },
+            runtime.SessionId,
+            $"stream_{Guid.NewGuid():N}",
+            "H1");
+        #endregion
+
         var agentEvent = new PlatformSessionEvent
         {
             Seq = ++runtime.Seq,
@@ -588,6 +605,18 @@ public static class TuiHandlers
     {
         ArgumentNullException.ThrowIfNull(onDelta);
 
+        if (TryParseAgentSelection(runtime.Workflow, out var role))
+        {
+            return await RunAgentStreamingAsync(
+                role,
+                runtime,
+                effective,
+                userMessage,
+                attachedFiles,
+                onDelta,
+                ct);
+        }
+
         var workflowFile = ResolveWorkflowFile(runtime.Workflow, effective.ConfigDirectory);
         if (workflowFile == null)
         {
@@ -599,6 +628,22 @@ public static class TuiHandlers
                 workflowFile = ResolveWorkflowFile(runtime.Workflow, effective.ConfigDirectory);
             }
         }
+
+        #region agent log
+        DebugLog(
+            "TuiHandlers.cs:TryRunWorkflowStreamingAsync",
+            "streaming_workflow_resolved",
+            new
+            {
+                workflow = runtime.Workflow,
+                workflowFile,
+                compilerNull = compiler == null,
+                engineNull = engine == null
+            },
+            runtime.SessionId,
+            $"stream_{Guid.NewGuid():N}",
+            "H2");
+        #endregion
 
         if (workflowFile == null || compiler == null || engine == null)
         {
@@ -676,6 +721,17 @@ public static class TuiHandlers
         IReadOnlyList<string> attachedFiles,
         CancellationToken ct)
     {
+        if (TryParseAgentSelection(runtime.Workflow, out var role))
+        {
+            return await RunAgentAsync(
+                role,
+                runtime,
+                effective,
+                userMessage,
+                attachedFiles,
+                ct);
+        }
+
         var workflowFile = ResolveWorkflowFile(runtime.Workflow, effective.ConfigDirectory);
         if (workflowFile == null)
         {
@@ -741,6 +797,65 @@ public static class TuiHandlers
                 Ok: false,
                 Note: $"workflow error: {ex.Message}");
         }
+    }
+
+    private static async Task<WorkflowRunResult> RunAgentStreamingAsync(
+        string role,
+        SessionRuntime runtime,
+        AevatarEffectiveConfig effective,
+        string userMessage,
+        IReadOnlyList<string> attachedFiles,
+        Func<string, CancellationToken, Task> onDelta,
+        CancellationToken ct)
+    {
+        var runId = $"run_{Guid.NewGuid():N}";
+        var runner = new RoleAgentRunner();
+        var input = BuildWorkflowRunInput(runtime, effective, userMessage, attachedFiles);
+        var builder = new StringBuilder();
+        await foreach (var chunk in runner.RunStreamAsync(role, userMessage, input, runner.BuildDefaultOptions(), ct))
+        {
+            if (string.IsNullOrEmpty(chunk))
+                continue;
+            builder.Append(chunk);
+            await onDelta(chunk, ct);
+        }
+
+        return new WorkflowRunResult(runId, true, builder.ToString(), SelectedWorkflow: $"agent:{role}");
+    }
+
+    private static async Task<WorkflowRunResult> RunAgentAsync(
+        string role,
+        SessionRuntime runtime,
+        AevatarEffectiveConfig effective,
+        string userMessage,
+        IReadOnlyList<string> attachedFiles,
+        CancellationToken ct)
+    {
+        var runId = $"run_{Guid.NewGuid():N}";
+        var runner = new RoleAgentRunner();
+        var input = BuildWorkflowRunInput(runtime, effective, userMessage, attachedFiles);
+        var response = await runner.RunAsync(role, userMessage, input, runner.BuildDefaultOptions(), ct);
+        return new WorkflowRunResult(runId, true, response, SelectedWorkflow: $"agent:{role}");
+    }
+
+    private static WorkflowRunInput BuildWorkflowRunInput(
+        SessionRuntime runtime,
+        AevatarEffectiveConfig effective,
+        string userMessage,
+        IReadOnlyList<string> attachedFiles)
+    {
+        return new WorkflowRunInput(
+            UserMessage: userMessage,
+            ConfigDirectory: effective.ConfigDirectory,
+            ConfigPath: effective.ConfigPath,
+            SecretsPath: effective.SecretsPath,
+            WorkingDirectory: Directory.GetCurrentDirectory(),
+            Profile: runtime.Profile,
+            WorkflowName: runtime.Workflow,
+            DefaultProvider: effective.Config.Models.DefaultProvider,
+            DefaultModel: effective.Config.Models.DefaultModel,
+            AttachedFiles: attachedFiles,
+            ToolsConfig: effective.Config.Tools);
     }
 
     private static IReadOnlyList<string> ResolveAttachments(
@@ -948,6 +1063,48 @@ public static class TuiHandlers
         output.MarkupLine($"[bold]{HelpTitle}[/]");
         foreach (var line in HelpLines)
             output.MarkupLine(line);
+    }
+
+    private const string DebugLogPath = "/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log";
+
+    private static void DebugLog(
+        string location,
+        string message,
+        object data,
+        string sessionId,
+        string runId,
+        string hypothesisId)
+    {
+        try
+        {
+            var payload = new
+            {
+                location,
+                message,
+                data,
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                sessionId,
+                runId,
+                hypothesisId
+            };
+            var json = JsonSerializer.Serialize(payload);
+            File.AppendAllText(DebugLogPath, json + Environment.NewLine);
+        }
+        catch
+        {
+            // best-effort only
+        }
+    }
+
+    private static bool TryParseAgentSelection(string workflow, out string role)
+    {
+        role = string.Empty;
+        if (string.IsNullOrWhiteSpace(workflow))
+            return false;
+        if (!workflow.StartsWith("agent:", StringComparison.OrdinalIgnoreCase))
+            return false;
+        role = workflow["agent:".Length..].Trim();
+        return role.Length > 0;
     }
 }
 

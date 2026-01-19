@@ -51,6 +51,14 @@ public sealed class PlatformRoleAIGAgent : AIGAgentBase
         await RegisterToolAsync(new DirListTool(_fileOptions), cancellationToken: ct);
         await RegisterToolAsync(new FileStatTool(_fileOptions), cancellationToken: ct);
         await RegisterToolAsync(new HashSha256Tool(_fileOptions), cancellationToken: ct);
+        await RegisterToolAsync(new HashMd5Tool(_fileOptions), cancellationToken: ct);
+        await RegisterToolAsync(new HashSha1Tool(_fileOptions), cancellationToken: ct);
+        await RegisterToolAsync(new FileCopyTool(_fileOptions), cancellationToken: ct);
+        await RegisterToolAsync(new FileMoveTool(_fileOptions), cancellationToken: ct);
+        await RegisterToolAsync(new PathMkdirTool(_fileOptions), cancellationToken: ct);
+        await RegisterToolAsync(new PathRemoveTreeTool(_fileOptions), cancellationToken: ct);
+        await RegisterToolAsync(new PathTempFileTool(_fileOptions), cancellationToken: ct);
+        await RegisterToolAsync(new ApplyPatchTool(_commandOptions), cancellationToken: ct);
     }
 
     private async Task RegisterSearchToolsAsync(CancellationToken ct)
@@ -58,12 +66,15 @@ public sealed class PlatformRoleAIGAgent : AIGAgentBase
         await RegisterToolAsync(new GlobTool(_fileOptions), cancellationToken: ct);
         await RegisterToolAsync(new GrepTool(_fileOptions), cancellationToken: ct);
         await RegisterToolAsync(new AstGrepTool(_commandOptions), cancellationToken: ct);
+        await RegisterToolAsync(new CodebaseSearchTool(_fileOptions), cancellationToken: ct);
     }
 
     private async Task RegisterProcessToolsAsync(CancellationToken ct)
     {
         await RegisterToolAsync(new BashTool(_commandOptions), cancellationToken: ct);
         await RegisterToolAsync(new LspTool(_commandOptions), cancellationToken: ct);
+        await RegisterToolAsync(new RunTerminalCmdTool(_commandOptions), cancellationToken: ct);
+        await RegisterToolAsync(new ReadLintsTool(_commandOptions), cancellationToken: ct);
     }
 
     private async Task RegisterGitToolsAsync(CancellationToken ct)
@@ -82,5 +93,10 @@ public sealed class PlatformRoleAIGAgent : AIGAgentBase
         await RegisterToolAsync(new Base64DecodeTool(), cancellationToken: ct);
         await RegisterToolAsync(new JsonFormatTool(), cancellationToken: ct);
         await RegisterToolAsync(new JsonValidateTool(), cancellationToken: ct);
+        await RegisterToolAsync(new UrlEncodeTool(), cancellationToken: ct);
+        await RegisterToolAsync(new UrlDecodeTool(), cancellationToken: ct);
+        await RegisterToolAsync(new TextDiffTool(), cancellationToken: ct);
+        await RegisterToolAsync(new UrlParseTool(), cancellationToken: ct);
+        await RegisterToolAsync(new TextReplaceTool(), cancellationToken: ct);
     }
 }

@@ -592,6 +592,44 @@ public partial class JsonOutputParser : IOutputParser<object>
             var firstObject = trimmed[..(firstObjectEnd + 1)];
             var remaining = trimmed[(firstObjectEnd + 1)..].Trim();
             
+            // CRITICAL: If remaining content contains JSON field names that appear in the first object,
+            // it's almost certainly a duplicate fragment - return immediately
+            if (remaining.Length > 0 && 
+                (remaining.Contains("\"depends_on\"") || 
+                 remaining.Contains("\"factor_sequence\"") ||
+                 remaining.Contains("\"proposed_b\"") ||
+                 remaining.Contains("\"worker_id\"") ||
+                 remaining.Contains("\"accept\"") ||
+                 remaining.Contains("\"proof\"") ||
+                 remaining.Contains("\"gap_or_counterexample\"") ||
+                 remaining.Contains("_counterexample\"") ||  // Partial field name (e.g., _counterexample": "")
+                 remaining.Contains("\"statement\"") ||
+                 remaining.Contains("\"motivation\"")))
+            {
+                // Likely a duplicate fragment with JSON field names, return only the first complete object
+                return firstObject;
+            }
+            
+            // Check for patterns like: }_counterexample": "", (partial field name continuation)
+            // This indicates a field name fragment is being repeated
+            var trimmedRemaining = remaining.Trim();
+            if (trimmedRemaining.StartsWith("_"))
+            {
+                // Pattern: }_fieldname": ... - partial field name fragment
+                // This is almost certainly a duplicate fragment
+                return firstObject;
+            }
+            
+            // Check for patterns where a field name fragment appears after the closing brace
+            // Pattern: }_counterexample": "", "depends_on": ...
+            if (trimmedRemaining.Contains("_counterexample\"") || 
+                trimmedRemaining.Contains("_sequence\"") ||
+                trimmedRemaining.Contains("_on\""))
+            {
+                // Likely a duplicate fragment with partial field names
+                return firstObject;
+            }
+            
             // If remaining content starts with {, it's likely a second JSON object (duplicate)
             // Extract and validate it, but always return only the first complete object
             if (remaining.StartsWith('{'))
@@ -624,6 +662,7 @@ public partial class JsonOutputParser : IOutputParser<object>
             
             // Check for patterns like: } the exclusion of 1.", "depends_on": ["O1"], "factor_sequence": ["O1"]}
             // Or: }": ["O2", "O3", "O4"], "factor_sequence": ["O2", "O3", "O4"], "proposed_b": []}
+            // Or: } ["O5"], "proposed_b": [] }
             // This indicates a partial duplicate where the end of a string field or last fields are repeated
             if (remaining.Contains("\"depends_on\"") || 
                 remaining.Contains("\"factor_sequence\"") ||
@@ -633,6 +672,29 @@ public partial class JsonOutputParser : IOutputParser<object>
             {
                 // Likely a partial duplicate with JSON field names, return only the first complete object
                 return firstObject;
+            }
+            
+            // Check for patterns like: } ["O5"], "proposed_b": [] }
+            // This indicates the last field values (array and empty array) are being repeated
+            var trimmedRemaining = remaining.Trim();
+            if (trimmedRemaining.StartsWith("[") && trimmedRemaining.Contains("\"proposed_b\""))
+            {
+                // Pattern: } [array], "proposed_b": [] }
+                return firstObject;
+            }
+            
+            // Check for patterns like: } ["O5"], (array value followed by comma and field)
+            // This indicates a field value (array) is being repeated
+            if (trimmedRemaining.StartsWith("[") && trimmedRemaining.Contains(",") && trimmedRemaining.Contains("\""))
+            {
+                // Check if it looks like a field continuation (has comma and quote after array)
+                var commaIndex = trimmedRemaining.IndexOf(',');
+                var afterComma = trimmedRemaining.Substring(commaIndex + 1).Trim();
+                if (afterComma.StartsWith("\""))
+                {
+                    // Pattern: } [array], "field": ...
+                    return firstObject;
+                }
             }
             
             // Check for patterns like: }": ["O2", "O3", "O4"], (field value continuation after closing brace)
@@ -645,13 +707,51 @@ public partial class JsonOutputParser : IOutputParser<object>
             }
             
             // Check for array patterns that might be duplicate field values
-            // Pattern: }["O2", "O3", "O4"], or } ["O2", "O3", "O4"],
+            // Pattern: }["O2", "O3", "O4"], or } ["O2", "O3", "O4"], or }[]}
             if (remaining.StartsWith("[") || remaining.TrimStart().StartsWith("["))
             {
                 // Check if it looks like a JSON array (field value)
-                if (remaining.Contains("\"") && remaining.Contains("]"))
+                if (remaining.Contains("]"))
                 {
                     // Likely a duplicate array value, return only the first complete object
+                    return firstObject;
+                }
+            }
+            
+            // Check for patterns like: }[]} or } [] } (empty array followed by closing brace)
+            // This indicates the last field's value (empty array) and closing brace are being repeated
+            var trimmedRemaining = remaining.Trim();
+            if (trimmedRemaining.StartsWith("[]"))
+            {
+                var afterBrackets = trimmedRemaining.Substring(2).Trim();
+                if (afterBrackets.StartsWith("}") || afterBrackets == "}")
+                {
+                    // Pattern: }[]} - duplicate empty array and closing brace
+                    return firstObject;
+                }
+            }
+            
+            // Check for patterns like: }]} or } ] } (array closing bracket followed by object closing brace)
+            // This indicates a duplicate array closing and object closing
+            if (trimmedRemaining.StartsWith("]"))
+            {
+                var afterBracket = trimmedRemaining.Substring(1).Trim();
+                if (afterBracket.StartsWith("}") || afterBracket == "}")
+                {
+                    // Pattern: }]} - duplicate array closing and object closing
+                    return firstObject;
+                }
+            }
+            
+            // Check for patterns like: }]} or }[]} with whitespace variations
+            // Also handle cases where there might be multiple closing brackets/braces
+            if (trimmedRemaining.Length <= 5) // Short fragments like "]}", "[]}", "]}", etc.
+            {
+                // Check if it's just closing brackets/braces (likely duplicate)
+                var allClosing = trimmedRemaining.All(c => c == ']' || c == '}' || char.IsWhiteSpace(c));
+                if (allClosing && (trimmedRemaining.Contains(']') || trimmedRemaining.Contains('}')))
+                {
+                    // Likely duplicate closing brackets/braces
                     return firstObject;
                 }
             }

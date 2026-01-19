@@ -122,6 +122,12 @@ public sealed class HermesRouter
             var header = string.IsNullOrWhiteSpace(decision!.Message)
                 ? result.Note
                 : decision.Message!.Trim();
+        if (string.IsNullOrWhiteSpace(header) &&
+            (string.IsNullOrWhiteSpace(result.SelectedWorkflow) ||
+             result.SelectedWorkflow.Equals("hermes", StringComparison.OrdinalIgnoreCase)))
+        {
+            header = BuildFallbackMessage(input.UserMessage);
+        }
         if (agentEnsure.Created.Count > 0)
         {
             var created = string.Join(", ", agentEnsure.Created);
@@ -189,6 +195,7 @@ Context:
 Tools:
 - file_read: read UTF-8 text within allowed roots.
 - file_write: write UTF-8 text within allowed roots.
+- mesh_normalize: validate + normalize workflow DSL content; returns canonical JSON/YAML or errors.
 
 Requirements:
 - Use file_read to inspect existing workflows/agents when needed.
@@ -199,32 +206,35 @@ Requirements:
 - Prefer "agent:<role>" for simple Q&A (e.g., time queries, translations, short explanations).
 - Use multi-agent workflow only when the user explicitly requests complex systems or multi-role collaboration.
 - Workflow DSL v0.1 fields required: dsl_version, goal, strategy, budget, nodes, edges, constraints.
-- goal must be an object: { name: string, success_metric: string? }.
-- budget must be an object: { max_steps: int, token_limit: int }.
+- goal must be an object: { name: string, success_metric: string? } (NO string shorthand).
+- budget must be an object: { max_steps: int, token_limit: int } (NO string shorthand).
 - strategy must be one of: cot/tot/got/uot_comb/uot_expl/uot_trans.
 - node params must use "params" field (NOT "config").
-- constraints must be list of objects: { type: string, value: any }.
+- constraints must be list of objects: { type: string, value: any } (NOT string list).
 - node.type must be one of: DivergentAgent, ConvergentAgent, WorkerAgent, CriticAgent, MetaAgent, or a role name (from YAML).
+- Allowed constraint types: confidence_threshold, max_iterations (otherwise keep constraints empty).
+- Role names must be ASCII (letters/digits/underscore). Do NOT use Chinese in role names.
+- Do NOT set selected_workflow to "agent:hermes".
+- Do NOT rely on params.instructions for behavior. Instead, create an agent YAML and set node.type to the role name.
 - Keep workflow minimal (1-3 nodes) unless clearly needed.
+- When action=create and workflow.content is present, ALWAYS call mesh_normalize and use its normalized output.
+- If mesh_normalize returns ok=false, fix the DSL and retry normalization before final output.
+- Default workflow.format to "json" unless the user explicitly asks for YAML.
 - Respond in Chinese in the "message" field.
 - Output JSON ONLY. No markdown, no extra text.
 
-Example minimal YAML:
-dsl_version: "0.1"
-goal:
-  name: "greeting"
-  success_metric: "user greeted"
-strategy: "cot"
-budget:
-  max_steps: 3
-  token_limit: 500
-nodes:
-  - id: "greeter"
-    type: "WorkerAgent"
-    params:
-      role: "greeter"
-edges: []
-constraints: []
+Example minimal JSON (role-based):
+{
+  "dsl_version": "0.1",
+  "goal": { "name": "greeting", "success_metric": "user greeted" },
+  "strategy": "cot",
+  "budget": { "max_steps": 3, "token_limit": 500 },
+  "nodes": [
+    { "id": "greeter", "type": "greeter" }
+  ],
+  "edges": [],
+  "constraints": []
+}
 
 JSON schema:
 {
@@ -294,6 +304,17 @@ User request:
             var rawSelected = (decision.SelectedWorkflow ?? string.Empty).Trim();
             if (IsAgentSelection(rawSelected, out var role))
             {
+                if (IsHermesRole(role))
+                {
+                    var note = string.IsNullOrWhiteSpace(decision.Message)
+                        ? BuildFallbackMessage(input.UserMessage)
+                        : decision.Message!.Trim();
+                    return new WorkflowRunResult(
+                        RunId: runId,
+                        Ok: true,
+                        Note: note,
+                        SelectedWorkflow: "hermes");
+                }
                 return new WorkflowRunResult(
                     RunId: runId,
                     Ok: true,
@@ -339,7 +360,22 @@ User request:
             {
                 if (decision.Agents is { Count: > 0 })
                 {
-                    return CreateAgentsOnly(decision.Agents, input, runId);
+                    var filtered = decision.Agents
+                        .Where(a => !IsHermesRole(GlobalAgentYamlRegistry.NormalizeRoleKey(a?.Name)))
+                        .ToList();
+                    if (filtered.Count == 0)
+                    {
+                        var fallbackNote = string.IsNullOrWhiteSpace(decision.Message)
+                            ? BuildFallbackMessage(input.UserMessage)
+                            : decision.Message!.Trim();
+                        return new WorkflowRunResult(
+                            RunId: runId,
+                            Ok: true,
+                            Note: fallbackNote,
+                            SelectedWorkflow: "hermes");
+                    }
+
+                    return CreateAgentsOnly(filtered, input, runId);
                 }
 
                 return new WorkflowRunResult(runId, false, "Hermes did not provide workflow.name");
@@ -649,7 +685,12 @@ Compile errors: {{errors}}
 Task:
 - Use file_read to inspect the workflow file.
 - Use file_write to rewrite it into a valid DSL v0.1.
+- Use mesh_normalize to validate and normalize before final output.
 - Keep the workflow minimal (1-3 nodes).
+- Allowed constraint types: confidence_threshold, max_iterations (otherwise keep constraints empty).
+- Role names must be ASCII (letters/digits/underscore). Do NOT use Chinese in role names.
+- Do NOT set selected_workflow to "agent:hermes".
+- Do NOT rely on params.instructions for behavior. Instead, create an agent YAML and set node.type to the role name.
 - Output JSON ONLY using the same schema as before.
 """;
     }
@@ -834,6 +875,18 @@ system_prompt: |
         return role.Length > 0;
     }
 
+    private static bool IsHermesRole(string role)
+        => role.Equals("hermes", StringComparison.OrdinalIgnoreCase);
+
+    private static string BuildFallbackMessage(string? userMessage)
+    {
+        var text = (userMessage ?? string.Empty).Trim();
+        if (text.Length == 0)
+            return "请说明需要我处理的具体内容。";
+
+        return "请提供更具体的需求或直接粘贴要处理的文本。";
+    }
+
     private static WorkflowRunResult CreateAgentsOnly(
         IReadOnlyList<HermesAgent> agents,
         WorkflowRunInput input,
@@ -846,6 +899,8 @@ system_prompt: |
         {
             var role = GlobalAgentYamlRegistry.NormalizeRoleKey(agent?.Name);
             if (role.Length == 0)
+                continue;
+            if (IsHermesRole(role))
                 continue;
 
             var agentPath = AevatarConfigFileHelper.ResolveFilePath(

@@ -13,6 +13,8 @@ namespace Aevatar.Agents.AGUI;
 //  - progress: 0..1
 //  - execution_id / workflow_name / step_type / depth
 //  - vote_round / vote_max_rounds / vote_k / vote_current_votes
+//  - winner_proposal_id / winner_hash / winner_votes / winner_runner_up_votes
+//    winner_cluster_count / winner_semantic / winner_is_consensus
 //  - parallel_total / parallel_completed / parallel_failed
 //  - worker_id / proposal_id / tokens_used / llm_calls / prompt_tokens / completion_tokens
 // ============================================================

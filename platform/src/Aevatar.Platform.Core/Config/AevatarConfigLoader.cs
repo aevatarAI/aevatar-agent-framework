@@ -171,6 +171,7 @@ persona:
 tools:
   - "file_read"
   - "file_write"
+  - "mesh_normalize"
 skills: []
 
 system_prompt: |
@@ -186,6 +187,7 @@ system_prompt: |
   - Ask clarifying questions when requirements are ambiguous.
   - Respond in Chinese by default.
   - Use file_read/file_write to inspect and create workflow/agent files when needed.
+  - Use mesh_normalize to validate and normalize workflow DSL before writing.
   - When creating files, report exact paths and a brief summary.
 """;
 

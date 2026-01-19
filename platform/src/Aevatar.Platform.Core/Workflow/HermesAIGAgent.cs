@@ -1,6 +1,7 @@
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.Tools;
+using Aevatar.Platform.Core.Tools;
 
 namespace Aevatar.Platform.Core.Workflow;
 
@@ -14,6 +15,7 @@ namespace Aevatar.Platform.Core.Workflow;
 public sealed class HermesAIGAgent : AIGAgentBase
 {
     private FileToolOptions _fileToolOptions = FileToolOptions.Empty;
+    private string _configDirectory = string.Empty;
 
     public string Role { get; private set; } = "hermes";
 
@@ -27,9 +29,10 @@ public sealed class HermesAIGAgent : AIGAgentBase
         Role = value.Length == 0 ? "hermes" : value;
     }
 
-    internal void ApplyToolOptions(FileToolOptions options)
+    internal void ApplyToolOptions(FileToolOptions options, string? configDirectory)
     {
         _fileToolOptions = options ?? FileToolOptions.Empty;
+        _configDirectory = (configDirectory ?? string.Empty).Trim();
     }
 
     public override Task<string> GetDescriptionAsync()
@@ -40,5 +43,6 @@ public sealed class HermesAIGAgent : AIGAgentBase
         await base.RegisterToolsAsync(cancellationToken);
         await RegisterToolAsync(new FileReadTool(_fileToolOptions), cancellationToken: cancellationToken);
         await RegisterToolAsync(new FileWriteTool(_fileToolOptions), cancellationToken: cancellationToken);
+        await RegisterToolAsync(new MeshNormalizeTool(_configDirectory, _fileToolOptions.WorkingDirectory), cancellationToken: cancellationToken);
     }
 }

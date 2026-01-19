@@ -25,10 +25,10 @@ public sealed class ReviewEventBridge
     
     // ─────────────────────────────────────────────────────────
     //  Atomic Points (PaperReview UI)
-    //  - 将 maker-v2 的 subtasks 映射为“atomic point”，用于 UI 展示
+    //  - 将 maker 的 subtasks 映射为“atomic point”，用于 UI 展示
     // ─────────────────────────────────────────────────────────
     // NOTE:
-    // - 同一个 session 里可能递归调用 maker-v2（Depth 增加）
+    // - 同一个 session 里可能递归调用 maker（Depth 增加）
     // - “当前处于哪个 point”需要按 depth 维护（相当于一个栈）
     // - 这里用 depth -> pointId 的映射来表达“每层正在执行的 workflow_call”
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<int, string>> _sessionActivePointsByDepth = new(); // sessionId -> (pointDepth -> pointId)

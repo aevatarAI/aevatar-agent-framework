@@ -16,19 +16,16 @@ Dag/
   DagStore.cs                       # KnowledgeGraph SSoT + artifacts/dag/snapshot.json mirror + staged + consensus artifacts
   DagExplain.cs                     # explain(node): topo order / dependencies / cycle check（UI 调试用）
 
-  DagConsensusRunner.cs             # 预留：共识/验证（未来可作为“标注/审核”而非写入门控）
-  DagConsensusRunner.Quorum.cs      # 预留：verifier-quorum（N verifiers 投票 + red-flag）
+  DagConsensusRunner.cs             # 共识/验证：maker（Cognitive DSL）或 verifier-quorum
+  DagConsensusRunner.Quorum.cs      # verifier-quorum（N verifiers 投票 + red-flag）
 ```
 
-## 验证/共识（当前策略：不阻断写入）
+## 验证/共识（当前策略：作为写入门控）
 
-当前（MVP）实现为 **“先写入，再验证（可选）”**：
-- `dag_builder` 产出的 mutation 会直接 `ApplyMutationAsync` 写入 KnowledgeGraph，并同步快照到 `artifacts/dag/snapshot.json`
-- 不再把 verifier 结果作为写入门控（不再 staged / 不再 block）
-- 未来可以把 `DagConsensusRunner` 用作：
-  - 为节点打标签（verified/unverified）
-  - 输出审计 artifact
-  - 但不影响写入链路的可用性（避免研究流程被卡死）
+当前实现为 **“先共识，再写入”**：
+- `DagConsensusRunner` 产出 accepted mutation 后才执行 `ApplyMutationAsync`
+- 支持 `verifier-quorum` 与 `maker`（Cognitive DSL `maker.yaml`）两种模式
+- 共识 artifacts 持久化到 `artifacts/dag/consensus/*`，用于审计/回放
 
 ## 文件落点（File-SSoT）
 
@@ -39,8 +36,8 @@ Dag/
 
 其中：
 - `artifacts/dag/snapshot.json`: 图快照镜像（Protobuf-JSON，审阅/恢复用）
-- `artifacts/dag/staged/`: 预留（未来可用于人工 review 队列；当前不再作为门控）
-- `artifacts/dag/consensus/`: 预留（未来可用于验证 artifacts；当前不再作为门控）
+- `artifacts/dag/staged/`: 预留（未来可用于人工 review 队列）
+- `artifacts/dag/consensus/`: 共识 artifacts（verifier-quorum / maker 输出）
 
 ## API 速览
 

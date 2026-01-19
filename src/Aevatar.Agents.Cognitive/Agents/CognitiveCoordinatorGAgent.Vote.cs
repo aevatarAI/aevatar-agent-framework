@@ -37,7 +37,7 @@ public partial class CognitiveCoordinatorGAgent
         var redFlagStrategy = ResolveRedFlagStrategy(step.Parameters);
         var redFlagCount = 0;
         var maxRedFlags = ResolveIntParameter(step.Parameters, "max_red_flags", maxRounds * 2);
-        // Compatibility: allow max_red_flags to be nested under red_flag config (maker-v2.yaml style).
+        // Compatibility: allow max_red_flags to be nested under red_flag config (maker.yaml style).
         if (!step.Parameters.ContainsKey("max_red_flags") &&
             step.Parameters.TryGetValue("red_flag", out var rfObj) &&
             rfObj is Dictionary<string, object?> rfConfig &&

@@ -78,7 +78,7 @@ public class WorkflowParser
         return new WorkflowDefinition
         {
             Name = yaml.Name ?? "unnamed",
-            Version = yaml.Version ?? "1.0",
+            Version = string.IsNullOrWhiteSpace(yaml.Version) ? "" : yaml.Version,
             Description = yaml.Description ?? "",
             Inputs = yaml.Inputs?.Select(ConvertToInputParameter).ToList() ?? [],
             Steps = yaml.Steps?.Select(s => ConvertToStepDefinition(s, defaults)).ToList() ?? [],
@@ -345,7 +345,7 @@ internal class YamlWorkflowDefinition
     public List<YamlStepDefinition>? Steps { get; set; }
     public Dictionary<string, string>? Output { get; set; }
 
-    // Workflow-level defaults (e.g., maker-v2.yaml)
+    // Workflow-level defaults (e.g., maker.yaml)
     // defaults:
     //   vote: { k: 3, max_rounds: 10, red_flag: { ... } }
     //   llm_call: { max_length: 102400, strict_parse: true }

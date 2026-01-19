@@ -59,7 +59,7 @@
 
 ### 3.2 Mesh 内部 Agent（由 Cognitive Mesh 创建/管理）
 
-以 `maker-v2`（或自定义 trading workflow）为骨架，实现“并行提案 → 投票共识 → 产出决策”：
+以 `maker`（或自定义 trading workflow）为骨架，实现“并行提案 → 投票共识 → 产出决策”：
 
 - **Worker（多名）**：每个 Worker 扮演不同角色（技术/情绪/宏观/反身性/对手盘）
 - **Vote/Red-Flag**：把“胡说/不合规/输出不合法 JSON”当作红旗自动重试
@@ -89,7 +89,7 @@
 
 ## 5. Cognitive Mesh Workflow 设计（最小可跑版本）
 
-### 5.1 第 0 版：直接复用 `maker-v2`
+### 5.1 第 0 版：直接复用 `maker`
 
 输入：
 
@@ -141,7 +141,7 @@
 ### Phase B：接入 Cognitive Mesh
 
 - [ ] 新增 `TradeMeshDecisionService`（或 `MeshDecisionAgent`）：把“决策”改成 workflow run
-- [ ] 复用 `maker-v2` 跑通（最小改动）
+- [ ] 复用 `maker` 跑通（最小改动）
 - [ ] 定义 `trade-maker-v1.yaml`（固定输出 JSON schema）
 
 ### Phase C：AI Wars 对齐与上传日志

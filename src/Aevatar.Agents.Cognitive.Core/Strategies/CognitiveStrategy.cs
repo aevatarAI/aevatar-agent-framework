@@ -138,7 +138,7 @@ public sealed class CognitiveStrategy : IReasoningStrategy
             
             await EnsureWorkflowsLoadedAsync();
             
-            var workflowName = options.CognitiveWorkflow ?? "maker-v2";
+            var workflowName = options.CognitiveWorkflow ?? "maker";
             var workflow = _workflowRegistry.Get(workflowName);
             
             if (workflow == null)
@@ -149,7 +149,8 @@ public sealed class CognitiveStrategy : IReasoningStrategy
                     DateTime.UtcNow - startTime);
             }
             
-            _logger.LogInformation("Executing workflow: {Name} v{Version}", workflow.Name, workflow.Version);
+            var versionSuffix = string.IsNullOrWhiteSpace(workflow.Version) ? "" : $" v{workflow.Version}";
+            _logger.LogInformation("Executing workflow: {Name}{Version}", workflow.Name, versionSuffix);
             
             // ─── Phase 2: Create Coordinator ───
             progress?.Report(new ReasoningProgress
@@ -804,7 +805,7 @@ public sealed class CognitiveStrategy : IReasoningStrategy
         "refute_scout",
         "prove_or_refute_with_workers",
 
-        // maker-v2.yaml / maker.yaml
+        // maker.yaml
         "execute_subtasks",
         "solve_subtasks",
 

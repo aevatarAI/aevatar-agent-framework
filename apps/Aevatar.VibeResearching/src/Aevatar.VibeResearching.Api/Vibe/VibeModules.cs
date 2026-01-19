@@ -39,6 +39,7 @@ internal sealed class VibeCore
     public required FileMailboxService Mailbox { get; init; }
     public required PaperService Paper { get; init; }
     public required AgentProvidersStore AgentProviders { get; init; }
+    public required DagConsensusRunner DagConsensus { get; init; }
     public required IAevatarUserSecretsStore UserSecrets { get; init; }
     public required IKnowledgeGraphClientFactory GraphFactory { get; init; }
 
@@ -55,6 +56,7 @@ internal sealed class VibeCore
         Mailbox = sp.GetRequiredService<FileMailboxService>(),
         Paper = sp.GetRequiredService<PaperService>(),
         AgentProviders = sp.GetRequiredService<AgentProvidersStore>(),
+        DagConsensus = sp.GetRequiredService<DagConsensusRunner>(),
         UserSecrets = sp.GetRequiredService<IAevatarUserSecretsStore>(),
         GraphFactory = sp.GetRequiredService<IKnowledgeGraphClientFactory>()
     };
@@ -66,6 +68,7 @@ internal sealed class VibePivot
     public required IPivotOrchestrator Orchestrator { get; init; }
     public required IPivotQueue Queue { get; init; }
     public required IAgentPivotCoordinator AgentCoordinator { get; init; }
+    public required IPivotFeedbackEmitter FeedbackEmitter { get; init; }
     public required PivotOptions Options { get; init; }
 
     public static VibePivot Create(IServiceProvider sp) => new()
@@ -74,6 +77,7 @@ internal sealed class VibePivot
         Orchestrator = sp.GetRequiredService<IPivotOrchestrator>(),
         Queue = sp.GetRequiredService<IPivotQueue>(),
         AgentCoordinator = sp.GetRequiredService<IAgentPivotCoordinator>(),
+        FeedbackEmitter = sp.GetRequiredService<IPivotFeedbackEmitter>(),
         Options = sp.GetRequiredService<IOptions<PivotOptions>>().Value ?? new PivotOptions()
     };
 }

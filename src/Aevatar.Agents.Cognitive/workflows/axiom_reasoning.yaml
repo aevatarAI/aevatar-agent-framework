@@ -15,7 +15,6 @@
 # ============================================================
 
 name: axiom_reasoning
-version: "1.0"
 description: "Multi-agent axiom-based reasoning with per-step consensus (vote + optional semantic clustering)"
 
 # ============================================================

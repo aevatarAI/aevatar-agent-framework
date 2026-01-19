@@ -14,7 +14,7 @@ namespace Aevatar.Platform.Cli.Tui;
 // ============================================================
 public static class ShellRunner
 {
-    public static async Task RunAsync(string command, PlatformToolPolicy policy, CancellationToken ct)
+    public static async Task RunAsync(string command, PlatformToolPolicy policy, ITuiOutput output, CancellationToken ct)
     {
         var text = (command ?? string.Empty).Trim();
         if (text.Length == 0)
@@ -22,14 +22,14 @@ public static class ShellRunner
 
         if (!policy.TryValidateCommand(text, out var reason))
         {
-            AnsiConsole.MarkupLine($"Shell denied: [red]{Markup.Escape(reason)}[/]");
+            output.MarkupLine($"Shell denied: [red]{Markup.Escape(reason)}[/]");
             return;
         }
 
         var (file, args) = SplitCommand(text);
         if (file.Length == 0)
         {
-            AnsiConsole.MarkupLine("Shell denied: invalid command.");
+            output.MarkupLine("Shell denied: invalid command.");
             return;
         }
 
@@ -47,7 +47,7 @@ public static class ShellRunner
             using var process = Process.Start(psi);
             if (process == null)
             {
-                AnsiConsole.MarkupLine("Shell failed: process start error.");
+                output.MarkupLine("Shell failed: process start error.");
                 return;
             }
 
@@ -60,21 +60,21 @@ public static class ShellRunner
 
             await process.WaitForExitAsync(cts.Token);
 
-            var output = await outputTask;
-            var error = await errorTask;
+            var stdout = await outputTask;
+            var stderr = await errorTask;
 
-            if (!string.IsNullOrWhiteSpace(output))
-                AnsiConsole.WriteLine(output.TrimEnd());
-            if (!string.IsNullOrWhiteSpace(error))
-                AnsiConsole.MarkupLine($"[red]{Markup.Escape(error.TrimEnd())}[/]");
+            if (!string.IsNullOrWhiteSpace(stdout))
+                output.WriteLine(stdout.TrimEnd());
+            if (!string.IsNullOrWhiteSpace(stderr))
+                output.MarkupLine($"[red]{Markup.Escape(stderr.TrimEnd())}[/]");
         }
         catch (OperationCanceledException)
         {
-            AnsiConsole.MarkupLine("Shell canceled.");
+            output.MarkupLine("Shell canceled.");
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine($"Shell failed: {Markup.Escape(ex.Message)}");
+            output.MarkupLine($"Shell failed: {Markup.Escape(ex.Message)}");
         }
     }
 

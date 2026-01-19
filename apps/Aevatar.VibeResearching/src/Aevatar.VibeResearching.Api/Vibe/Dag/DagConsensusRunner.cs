@@ -21,7 +21,7 @@ namespace VibeResearching.Api.Vibe.Dag;
 //  - verifier-quorum (lightweight): N verifiers vote; pass if approvals >= quorum and no hard red-flags.
 //
 //  Optional:
-//  - maker-v2 (heavier): Cognitive DSL workflow "maker-v2" refines/normalizes the candidate.
+//  - maker (heavier): Cognitive DSL workflow "maker" refines/normalizes the candidate.
 //
 //  Output contract (JSON-only, strict):
 //  {
@@ -43,7 +43,14 @@ public sealed partial class DagConsensusRunner
         PropertyNameCaseInsensitive = true
     };
 
+    private const string MakerWorkflow = "maker";
     private const int MaxRawChars = 30_000;
+    private const string ErrorCognitiveExecuteException = "cognitive_execute_exception";
+    private const string ErrorMakerFailed = "maker_failed";
+    private const string ErrorJsonParseFailed = "json_parse_failed";
+    private const string ErrorJsonDeserializeFailed = "json_deserialize_failed";
+    private const string ErrorBlockedByRedFlags = "blocked_by_red_flags";
+    private const string ErrorEmptyMutation = "empty_mutation";
 
     private readonly IConfiguration _configuration;
     private readonly ResearchRuntime _runtime;
@@ -75,7 +82,8 @@ public sealed partial class DagConsensusRunner
         int? ConsensusK = null,
         int? MaxRounds = null,
         int? WorkerCount = null,
-        int? MaxDepth = null);
+        int? MaxDepth = null,
+        IProgress<ReasoningProgress>? Progress = null);
 
     public sealed record ConsensusResult(
         bool Ok,
@@ -92,7 +100,7 @@ public sealed partial class DagConsensusRunner
         ct.ThrowIfCancellationRequested();
 
         var mode = ResolveMode(input);
-        if (!IsMakerV2(mode))
+        if (!IsMaker(mode))
         {
             // Default path: verifier-quorum (or unknown -> treated as verifier-quorum).
             return await RunVerifierQuorumAsync(input, ct);
@@ -105,7 +113,7 @@ public sealed partial class DagConsensusRunner
         var options = new ReasoningOptions
         {
             ProviderName = input.ProviderName,
-            CognitiveWorkflow = "maker-v2",
+            CognitiveWorkflow = MakerWorkflow,
             CognitiveConsensusK = input.ConsensusK,
             CognitiveMaxRounds = input.MaxRounds,
             CognitiveWorkerCount = input.WorkerCount,
@@ -121,30 +129,47 @@ public sealed partial class DagConsensusRunner
         ReasoningResult rr;
         try
         {
-            rr = await _cognitive.ExecuteAsync(task, options, progress: null, ct: ct);
+            rr = await _cognitive.ExecuteAsync(task, options, progress: input.Progress, ct: ct);
         }
         catch (Exception ex)
         {
-            var artifact = await WriteArtifactAsync(ws, workflow: "maker-v2", input, rr: null, extractedJson: null, parsed: null,
-                redFlags: ["cognitive_execute_exception"], error: ex.Message, ct);
-            return new ConsensusResult(false, true, "maker-v2", null, ["cognitive_execute_exception"], artifact, ex.Message);
+            return await FailMakerAsync(
+                ws,
+                input,
+                rr: null,
+                extractedJson: null,
+                parsed: null,
+                redFlags: [ErrorCognitiveExecuteException],
+                error: ex.Message,
+                ct);
         }
 
         if (!rr.Success || string.IsNullOrWhiteSpace(rr.Content))
         {
-            var err = rr.Error ?? "maker-v2 failed";
-            var artifact = await WriteArtifactAsync(ws, workflow: "maker-v2", input, rr, extractedJson: null, parsed: null,
-                redFlags: ["maker_v2_failed"], error: err, ct);
-            return new ConsensusResult(false, true, "maker-v2", null, ["maker_v2_failed"], artifact, err);
+            var err = rr.Error ?? "maker failed";
+            return await FailMakerAsync(
+                ws,
+                input,
+                rr,
+                extractedJson: null,
+                parsed: null,
+                redFlags: [ErrorMakerFailed],
+                error: err,
+                ct);
         }
 
         var raw = rr.Content!;
         if (!TryExtractJson(raw, out var json))
         {
-            var artifact = await WriteArtifactAsync(ws, workflow: "maker-v2", input, rr, extractedJson: null, parsed: null,
-                redFlags: ["json_parse_failed"], error: "failed to extract json from maker-v2 output", ct);
-            return new ConsensusResult(false, true, "maker-v2", null, ["json_parse_failed"], artifact,
-                "failed to extract json from maker-v2 output");
+            return await FailMakerAsync(
+                ws,
+                input,
+                rr,
+                extractedJson: null,
+                parsed: null,
+                redFlags: [ErrorJsonParseFailed],
+                error: "failed to extract json from maker output",
+                ct);
         }
 
         DagMutationJson? parsed;
@@ -154,35 +179,53 @@ public sealed partial class DagConsensusRunner
         }
         catch (Exception ex)
         {
-            var artifact = await WriteArtifactAsync(ws, workflow: "maker-v2", input, rr, extractedJson: json, parsed: null,
-                redFlags: ["json_deserialize_failed"], error: ex.Message, ct);
-            return new ConsensusResult(false, true, "maker-v2", null, ["json_deserialize_failed"], artifact, ex.Message);
+            return await FailMakerAsync(
+                ws,
+                input,
+                rr,
+                extractedJson: json,
+                parsed: null,
+                redFlags: [ErrorJsonDeserializeFailed],
+                error: ex.Message,
+                ct);
         }
 
         var redFlags = (parsed?.RedFlags ?? []).Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).ToList();
         if (redFlags.Count > 0)
         {
-            var artifact = await WriteArtifactAsync(ws, workflow: "maker-v2", input, rr, extractedJson: json, parsed, redFlags,
-                error: "blocked_by_red_flags", ct);
-            return new ConsensusResult(false, true, "maker-v2", null, redFlags, artifact, "blocked_by_red_flags");
+            return await FailMakerAsync(
+                ws,
+                input,
+                rr,
+                extractedJson: json,
+                parsed,
+                redFlags,
+                error: ErrorBlockedByRedFlags,
+                ct);
         }
 
         var mutation = BuildMutation(ws.SessionId, input.Candidate, parsed);
         if (mutation.UpsertNodes.Count == 0 && mutation.UpsertEdges.Count == 0)
         {
-            var artifact = await WriteArtifactAsync(ws, workflow: "maker-v2", input, rr, extractedJson: json, parsed,
-                redFlags: ["empty_mutation"], error: "empty mutation", ct);
-            return new ConsensusResult(false, true, "maker-v2", null, ["empty_mutation"], artifact, "empty mutation");
+            return await FailMakerAsync(
+                ws,
+                input,
+                rr,
+                extractedJson: json,
+                parsed,
+                redFlags: [ErrorEmptyMutation],
+                error: "empty mutation",
+                ct);
         }
 
-        var okArtifact = await WriteArtifactAsync(ws, workflow: "maker-v2", input, rr, extractedJson: json, parsed, redFlags: [],
+        var okArtifact = await WriteArtifactAsync(ws, workflow: MakerWorkflow, input, rr, extractedJson: json, parsed, redFlags: [],
             error: null, ct);
-        return new ConsensusResult(true, false, "maker-v2", mutation, [], okArtifact, null);
+        return new ConsensusResult(true, false, MakerWorkflow, mutation, [], okArtifact, null);
     }
 
     private static string BuildTaskPrompt(ConsensusInput input)
     {
-        // Keep prompt compact; maker-v2 already decomposes internally.
+        // Keep prompt compact; maker already decomposes internally.
         var candidateSummary = new
         {
             mutationId = input.Candidate.MutationId,
@@ -238,13 +281,13 @@ public sealed partial class DagConsensusRunner
         var now = Timestamp.FromDateTime(DateTime.UtcNow);
         var id = (parsed?.MutationId ?? string.Empty).Trim();
         if (id.Length == 0)
-            id = $"maker_v2_{Guid.NewGuid():N}";
+            id = $"{MakerWorkflow}_{Guid.NewGuid():N}";
 
         var m = new SraDagMutation
         {
             SessionId = sessionId,
             MutationId = id,
-            AuthorAgent = string.IsNullOrWhiteSpace(parsed?.Author) ? "maker-v2" : parsed!.Author!.Trim(),
+            AuthorAgent = string.IsNullOrWhiteSpace(parsed?.Author) ? MakerWorkflow : parsed!.Author!.Trim(),
             CreatedAt = now
         };
 
@@ -390,6 +433,20 @@ public sealed partial class DagConsensusRunner
         return Path.GetRelativePath(ws.SessionRoot, path).Replace('\\', '/').Trim('/');
     }
 
+    private async Task<ConsensusResult> FailMakerAsync(
+        WorkspacePaths ws,
+        ConsensusInput input,
+        ReasoningResult? rr,
+        string? extractedJson,
+        DagMutationJson? parsed,
+        IReadOnlyList<string> redFlags,
+        string error,
+        CancellationToken ct)
+    {
+        var artifact = await WriteArtifactAsync(ws, MakerWorkflow, input, rr, extractedJson, parsed, redFlags, error, ct);
+        return new ConsensusResult(false, true, MakerWorkflow, null, redFlags, artifact, error);
+    }
+
     private string ResolveMode(ConsensusInput input)
     {
         // Allow workflow hint in candidate labels (rare override).
@@ -405,10 +462,10 @@ public sealed partial class DagConsensusRunner
         return mode.Length == 0 ? "verifier-quorum" : mode;
     }
 
-    private static bool IsMakerV2(string mode)
+    private static bool IsMaker(string mode)
     {
         var s = (mode ?? string.Empty).Trim().ToLowerInvariant();
-        return s is "maker-v2" or "maker_v2";
+        return s == MakerWorkflow;
     }
 
     // Best-effort JSON extraction (reused pattern from tools).

@@ -97,7 +97,7 @@ public sealed class AgentYamlConfigLoader
             PresencePenalty = raw.PresencePenalty,
             StopSequences = raw.StopSequences ?? [],
             Persona = MapPersona(raw.Persona),
-            Tools = raw.Tools ?? [],
+            Tools = ToolNameNormalizer.NormalizeTools(raw.Tools ?? []),
             Skills = raw.Skills ?? [],
             SystemPrompt = raw.SystemPrompt,
             Capabilities = MapCapabilities(raw.Capabilities),

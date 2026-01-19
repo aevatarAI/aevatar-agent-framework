@@ -122,7 +122,7 @@ public class PaperReviewIntegrationTests : IDisposable
         var options = new ReasoningOptions
         {
             ProviderName = "mock",
-            CognitiveWorkflow = "maker-v2",
+            CognitiveWorkflow = "maker",
             CognitiveWorkerCount = 3,
             CognitiveConsensusK = 2,
             MaxLlmCalls = 100,
@@ -174,7 +174,7 @@ public class PaperReviewIntegrationTests : IDisposable
         var options = new ReasoningOptions
         {
             ProviderName = "mock",
-            CognitiveWorkflow = "maker-v2",
+            CognitiveWorkflow = "maker",
             CognitiveWorkerCount = 3,
             CognitiveConsensusK = 2,
             MaxLlmCalls = 30,

@@ -1,6 +1,7 @@
 using System.IO;
-using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
+using System.Text.Json;
+using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Core.Secrets;
 
 namespace Aevatar.Platform.Core.Config;
 
@@ -8,21 +9,23 @@ namespace Aevatar.Platform.Core.Config;
 //  AevatarConfigLoader
 //
 //  Purpose:
-//  - Load ~/.aevatar/config.yaml + secrets.yaml with safe defaults.
-//  - Support env overrides (OpenCode-style: override config dir/path).
+//  - Load ~/.aevatar/config.json + secrets.json with safe defaults.
+//  - Merge LLMProviders from user config/secrets (aevatar-config compatible).
 //  - Never log or serialize secrets into events.
 //
 //  Env (Platform):
 //  - AEVATAR_CONFIG_DIR: override config directory (default ~/.aevatar)
-//  - AEVATAR_CONFIG: override config.yaml path
-//  - AEVATAR_SECRETS: override secrets.yaml path
+//  - AEVATAR_CONFIG: override config.json path
+//  - AEVATAR_SECRETS_PATH: override secrets.json path
+//  - AEVATAR_SECRETS_DIR: override secrets directory
+//  - AEVATAR_PROVIDER: override default provider
 // ============================================================
 public sealed class AevatarConfigLoader
 {
-    private static readonly IDeserializer Yaml = new DeserializerBuilder()
-        .IgnoreUnmatchedProperties()
-        .WithNamingConvention(UnderscoredNamingConvention.Instance)
-        .Build();
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
 
     public AevatarEffectiveConfig Load()
     {
@@ -31,12 +34,18 @@ public sealed class AevatarConfigLoader
         var configPath = ResolveConfigPath(dir);
         var secretsPath = ResolveSecretsPath(dir);
 
-        var config = LoadYamlOrDefault<AevatarConfig>(configPath) ?? new AevatarConfig();
-        var secrets = LoadYamlOrDefault<SecretsYamlDto>(secretsPath);
+        var (config, llmFromConfig) = LoadConfigSnapshot(configPath);
+        var secretsOptions = BuildSecretsOptions(dir, secretsPath);
+        var secretsStore = new FileAevatarUserSecretsStore(secretsOptions);
+        var allSecrets = secretsStore.GetAll();
+        var mappedSecrets = MapSecrets(allSecrets);
+        var llmFromSecrets = ParseLlmProvidersFromSecrets(allSecrets);
 
-        var mappedSecrets = MapSecrets(secrets);
+        MergeLlmProviders(config, llmFromConfig, overrideExisting: false);
+        MergeLlmProviders(config, llmFromSecrets, overrideExisting: true);
 
         ApplyEnvOverrides(config);
+        EnsureDefaultModel(config);
 
         return new AevatarEffectiveConfig(
             ConfigDirectory: dir,
@@ -46,11 +55,49 @@ public sealed class AevatarConfigLoader
             Secrets: mappedSecrets);
     }
 
+    public static void EnsureBootstrapAssets(AevatarEffectiveConfig effective)
+    {
+        if (effective == null || string.IsNullOrWhiteSpace(effective.ConfigDirectory))
+            return;
+
+        Directory.CreateDirectory(Path.Combine(effective.ConfigDirectory, "tools"));
+
+        TryWriteFileIfMissing(
+            Path.Combine(effective.ConfigDirectory, "agents", $"{HermesRoleId}.yaml"),
+            BuildHermesAgentYaml());
+
+        TryWriteFileIfMissing(
+            Path.Combine(effective.ConfigDirectory, "workflows", $"{HermesWorkflowName}.yaml"),
+            BuildHermesWorkflowYaml());
+    }
+
     private static string ResolveConfigDirectory()
     {
         var fromEnv = (Environment.GetEnvironmentVariable("AEVATAR_CONFIG_DIR") ?? string.Empty).Trim();
         if (fromEnv.Length > 0)
             return ExpandHome(fromEnv);
+
+        var secretsDir = (Environment.GetEnvironmentVariable(AevatarAgentsConstants.SecretsDirEnv) ?? string.Empty).Trim();
+        if (secretsDir.Length > 0)
+            return ExpandHome(secretsDir);
+
+        var secretsPath = (Environment.GetEnvironmentVariable(AevatarAgentsConstants.SecretsPathEnv) ?? string.Empty).Trim();
+        if (secretsPath.Length > 0)
+        {
+            var expanded = ExpandHome(secretsPath);
+            var directory = Path.GetDirectoryName(expanded);
+            if (!string.IsNullOrWhiteSpace(directory))
+                return directory;
+        }
+
+        var legacySecrets = (Environment.GetEnvironmentVariable("AEVATAR_SECRETS") ?? string.Empty).Trim();
+        if (legacySecrets.Length > 0)
+        {
+            var expanded = ExpandHome(legacySecrets);
+            var directory = Path.GetDirectoryName(expanded);
+            if (!string.IsNullOrWhiteSpace(directory))
+                return directory;
+        }
 
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         return Path.Combine(home, ".aevatar");
@@ -62,70 +109,28 @@ public sealed class AevatarConfigLoader
         if (fromEnv.Length > 0)
             return ExpandHome(fromEnv);
 
-        return Path.Combine(configDir, "config.yaml");
+        var fromEnv2 = (Environment.GetEnvironmentVariable("AEVATAR_CONFIG_PATH") ?? string.Empty).Trim();
+        if (fromEnv2.Length > 0)
+            return ExpandHome(fromEnv2);
+
+        return Path.Combine(configDir, "config.json");
     }
 
     private static string ResolveSecretsPath(string configDir)
     {
-        var fromEnv = (Environment.GetEnvironmentVariable("AEVATAR_SECRETS") ?? string.Empty).Trim();
+        var fromEnv = (Environment.GetEnvironmentVariable(AevatarAgentsConstants.SecretsPathEnv) ?? string.Empty).Trim();
         if (fromEnv.Length > 0)
             return ExpandHome(fromEnv);
 
-        return Path.Combine(configDir, "secrets.yaml");
-    }
+        var legacy = (Environment.GetEnvironmentVariable("AEVATAR_SECRETS") ?? string.Empty).Trim();
+        if (legacy.Length > 0)
+            return ExpandHome(legacy);
 
-    private static T? LoadYamlOrDefault<T>(string path)
-    {
-        try
-        {
-            if (!File.Exists(path))
-                return default;
+        var fromDir = (Environment.GetEnvironmentVariable(AevatarAgentsConstants.SecretsDirEnv) ?? string.Empty).Trim();
+        if (fromDir.Length > 0)
+            return Path.Combine(ExpandHome(fromDir), "secrets.json");
 
-            var raw = File.ReadAllText(path);
-            if (string.IsNullOrWhiteSpace(raw))
-                return default;
-
-            return Yaml.Deserialize<T>(raw);
-        }
-        catch
-        {
-            // Best-effort: config parse failure should not crash bootstrap.
-            // Caller may surface a warning later via UI/logging (without secrets).
-            return default;
-        }
-    }
-
-    private static AevatarSecrets MapSecrets(SecretsYamlDto? dto)
-    {
-        var s = new AevatarSecrets();
-        if (dto == null)
-            return s;
-
-        if (dto.Providers != null)
-        {
-            foreach (var (providerName, provider) in dto.Providers)
-            {
-                var k = (providerName ?? string.Empty).Trim();
-                if (k.Length == 0) continue;
-                var apiKey = (provider?.ApiKey ?? string.Empty).Trim();
-                if (apiKey.Length == 0) continue;
-                s.Providers.ApiKeys[k] = apiKey;
-            }
-        }
-
-        if (dto.Mcp != null)
-        {
-            foreach (var (name, cred) in dto.Mcp)
-            {
-                var k = (name ?? string.Empty).Trim();
-                if (k.Length == 0) continue;
-                var v = (cred ?? string.Empty).Trim();
-                if (v.Length == 0) continue;
-                s.Mcp.Credentials[k] = v;
-            }
-        }
-
-        return s;
+        return Path.Combine(configDir, "secrets.json");
     }
 
     private static void ApplyEnvOverrides(AevatarConfig config)
@@ -139,9 +144,86 @@ public sealed class AevatarConfigLoader
         if (workflow.Length > 0)
             config.Agents.DefaultWorkflow = workflow;
 
+        var provider = (Environment.GetEnvironmentVariable("AEVATAR_PROVIDER") ?? string.Empty).Trim();
+        if (provider.Length > 0)
+            config.Models.DefaultProvider = provider;
+
         var model = (Environment.GetEnvironmentVariable("AEVATAR_MODEL") ?? string.Empty).Trim();
         if (model.Length > 0)
-            config.Models.Default = model;
+            config.Models.DefaultModel = model;
+    }
+
+    private const string HermesRoleId = "hermes";
+    private const string HermesWorkflowName = "hermes";
+
+    private static string BuildHermesAgentYaml()
+        => """
+id: "hermes"
+name: "Hermes Workflow Router"
+version: "1.0"
+
+persona:
+  role: "Workflow router"
+  expertise: ["workflow selection", "mesh dsl", "agent role design"]
+  style: "concise, decisive"
+  traits: ["systematic", "safety-first"]
+
+tools:
+  - "file_read"
+  - "file_write"
+skills: []
+
+system_prompt: |
+  You are Hermes, a workflow router agent.
+  Your job is to match the user's intent to the most suitable workflow in ~/.aevatar/workflows.
+  If no workflow fits, create a new workflow YAML/JSON under ~/.aevatar/workflows.
+  If the workflow needs new roles, create role YAML files under ~/.aevatar/agents.
+  Requirements:
+  - Use Cognitive Mesh DSL v0.1 with fields: dsl_version, goal, strategy, budget, nodes, edges, constraints.
+  - node.type must be one of: built-in agent types (DivergentAgent, ConvergentAgent, WorkerAgent, CriticAgent, MetaAgent),
+    global roles (~/.aevatar/agents/*.yaml), or local roles (./aevatar/agents/*.yaml).
+  - Prefer minimal topology (1-3 nodes) unless the task demands collaboration.
+  - Ask clarifying questions when requirements are ambiguous.
+  - Respond in Chinese by default.
+  - Use file_read/file_write to inspect and create workflow/agent files when needed.
+  - When creating files, report exact paths and a brief summary.
+""";
+
+    private static string BuildHermesWorkflowYaml()
+        => """
+dsl_version: "0.1"
+goal:
+  name: "hermes_router"
+  success_metric: "Select or create a workflow and roles that satisfy the user's intent."
+strategy: "cot"
+budget:
+  max_steps: 6
+  token_limit: 8000
+nodes:
+  - id: "hermes"
+    type: "hermes"
+    params:
+      role: "router"
+      note: "Workflow selection or creation"
+edges: []
+constraints: []
+""";
+
+    private static void EnsureDefaultModel(AevatarConfig config)
+    {
+        if (!string.IsNullOrWhiteSpace(config.Models.DefaultModel))
+            return;
+
+        var provider = (config.Models.DefaultProvider ?? string.Empty).Trim();
+        if (provider.Length == 0)
+            return;
+
+        if (config.Models.Providers.TryGetValue(provider, out var entry))
+        {
+            var model = (entry.DefaultModel ?? string.Empty).Trim();
+            if (model.Length > 0)
+                config.Models.DefaultModel = model;
+        }
     }
 
     private static string ExpandHome(string path)
@@ -154,20 +236,225 @@ public sealed class AevatarConfigLoader
         return Path.Combine(home, p[2..]);
     }
 
-    // ------------------------------------------------------------
-    // YAML DTOs (match secrets.yaml shape in PRD, but tolerant)
-    // ------------------------------------------------------------
-    private sealed class SecretsYamlDto
+    private static AevatarUserSecretsOptions BuildSecretsOptions(string configDir, string secretsPath)
     {
-        public Dictionary<string, ProviderSecretDto>? Providers { get; set; }
+        var options = new AevatarUserSecretsOptions
+        {
+            SecretsDirectory = configDir
+        };
 
-        // mcp: { github: {token} } OR mcp: { github: token }
-        public Dictionary<string, string>? Mcp { get; set; }
+        if (!string.IsNullOrWhiteSpace(secretsPath))
+            options.SecretsPath = secretsPath;
+
+        return options;
     }
 
-    private sealed class ProviderSecretDto
+    private static (AevatarConfig Config, LlmProvidersSnapshot LlmProviders) LoadConfigSnapshot(string path)
     {
-        public string? ApiKey { get; set; }
+        try
+        {
+            if (!File.Exists(path))
+                return (new AevatarConfig(), new LlmProvidersSnapshot());
+
+            var raw = File.ReadAllText(path);
+            if (string.IsNullOrWhiteSpace(raw))
+                return (new AevatarConfig(), new LlmProvidersSnapshot());
+
+            using var doc = JsonDocument.Parse(raw);
+            var root = doc.RootElement;
+            var config = ParseAevatarConfig(root) ?? new AevatarConfig();
+            var llmProviders = ParseLlmProvidersFromJson(root);
+            return (config, llmProviders);
+        }
+        catch
+        {
+            return (new AevatarConfig(), new LlmProvidersSnapshot());
+        }
+    }
+
+    private static AevatarConfig? ParseAevatarConfig(JsonElement root)
+    {
+        if (TryGetPropertyIgnoreCase(root, "Aevatar", out var aevatar) && aevatar.ValueKind == JsonValueKind.Object)
+            return JsonSerializer.Deserialize<AevatarConfig>(aevatar.GetRawText(), JsonOptions);
+
+        if (root.ValueKind == JsonValueKind.Object)
+            return JsonSerializer.Deserialize<AevatarConfig>(root.GetRawText(), JsonOptions);
+
+        return null;
+    }
+
+    private static LlmProvidersSnapshot ParseLlmProvidersFromJson(JsonElement root)
+    {
+        var snapshot = new LlmProvidersSnapshot();
+        if (!TryGetPropertyIgnoreCase(root, "LLMProviders", out var llm) || llm.ValueKind != JsonValueKind.Object)
+            return snapshot;
+
+        if (TryGetPropertyIgnoreCase(llm, "Default", out var defaultValue) &&
+            defaultValue.ValueKind == JsonValueKind.String)
+        {
+            snapshot.DefaultProvider = (defaultValue.GetString() ?? string.Empty).Trim();
+        }
+
+        if (TryGetPropertyIgnoreCase(llm, "Providers", out var providers) && providers.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var entry in providers.EnumerateObject())
+            {
+                var name = (entry.Name ?? string.Empty).Trim();
+                if (name.Length == 0 || entry.Value.ValueKind != JsonValueKind.Object)
+                    continue;
+
+                var provider = new ProviderSnapshot();
+                if (TryGetPropertyIgnoreCase(entry.Value, "Model", out var model) && model.ValueKind == JsonValueKind.String)
+                    provider.Model = (model.GetString() ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(provider.Model) &&
+                    TryGetPropertyIgnoreCase(entry.Value, "DefaultModel", out var defaultModel) &&
+                    defaultModel.ValueKind == JsonValueKind.String)
+                {
+                    provider.Model = (defaultModel.GetString() ?? string.Empty).Trim();
+                }
+
+                if (TryGetPropertyIgnoreCase(entry.Value, "Endpoint", out var endpoint) && endpoint.ValueKind == JsonValueKind.String)
+                    provider.Endpoint = (endpoint.GetString() ?? string.Empty).Trim();
+
+                snapshot.Providers[name] = provider;
+            }
+        }
+
+        return snapshot;
+    }
+
+    private static LlmProvidersSnapshot ParseLlmProvidersFromSecrets(IReadOnlyDictionary<string, string> secrets)
+    {
+        var snapshot = new LlmProvidersSnapshot();
+        foreach (var (rawKey, rawValue) in secrets)
+        {
+            var key = (rawKey ?? string.Empty).Trim();
+            var value = (rawValue ?? string.Empty).Trim();
+            if (key.Length == 0)
+                continue;
+
+            if (key.Equals(SecretsKeyRules.LlmDefaultProviderKey, StringComparison.OrdinalIgnoreCase))
+            {
+                if (value.Length > 0)
+                    snapshot.DefaultProvider = value;
+                continue;
+            }
+
+            if (!SecretsKeyRules.TryParseProviderFieldKey(key, out var name, out var field))
+                continue;
+
+            snapshot.Providers.TryGetValue(name, out var provider);
+            provider ??= new ProviderSnapshot();
+
+            if (field.Equals("Model", StringComparison.OrdinalIgnoreCase) ||
+                field.Equals("DefaultModel", StringComparison.OrdinalIgnoreCase))
+                provider.Model = value;
+            if (field.Equals("Endpoint", StringComparison.OrdinalIgnoreCase))
+                provider.Endpoint = value;
+
+            snapshot.Providers[name] = provider;
+        }
+
+        return snapshot;
+    }
+
+    private static void MergeLlmProviders(AevatarConfig config, LlmProvidersSnapshot snapshot, bool overrideExisting)
+    {
+        if (!string.IsNullOrWhiteSpace(snapshot.DefaultProvider) &&
+            (overrideExisting || string.IsNullOrWhiteSpace(config.Models.DefaultProvider)))
+        {
+            config.Models.DefaultProvider = snapshot.DefaultProvider;
+        }
+
+        foreach (var (name, provider) in snapshot.Providers)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                continue;
+
+            if (!config.Models.Providers.TryGetValue(name, out var entry))
+                entry = new ProviderConfig();
+
+            if (!string.IsNullOrWhiteSpace(provider.Model) &&
+                (overrideExisting || string.IsNullOrWhiteSpace(entry.DefaultModel)))
+                entry.DefaultModel = provider.Model;
+            if (!string.IsNullOrWhiteSpace(provider.Endpoint) &&
+                (overrideExisting || string.IsNullOrWhiteSpace(entry.Endpoint)))
+                entry.Endpoint = provider.Endpoint;
+
+            config.Models.Providers[name] = entry;
+        }
+    }
+
+    private static AevatarSecrets MapSecrets(IReadOnlyDictionary<string, string> secrets)
+    {
+        var mapped = new AevatarSecrets();
+        foreach (var (rawKey, rawValue) in secrets)
+        {
+            var key = (rawKey ?? string.Empty).Trim();
+            var value = (rawValue ?? string.Empty).Trim();
+            if (key.Length == 0 || value.Length == 0)
+                continue;
+
+            if (SecretsKeyRules.TryParseProviderApiKeyKey(key, out var provider))
+            {
+                mapped.Providers.ApiKeys[provider] = value;
+                continue;
+            }
+
+            if (SecretsKeyRules.TryParseMcpTokenKey(key, out var server))
+                mapped.Mcp.Credentials[server] = value;
+        }
+
+        return mapped;
+    }
+
+    private static bool TryGetPropertyIgnoreCase(JsonElement element, string name, out JsonElement value)
+    {
+        value = default;
+        if (element.ValueKind != JsonValueKind.Object)
+            return false;
+
+        foreach (var prop in element.EnumerateObject())
+        {
+            if (string.Equals(prop.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                value = prop.Value;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private sealed class LlmProvidersSnapshot
+    {
+        public string? DefaultProvider { get; set; }
+        public Dictionary<string, ProviderSnapshot> Providers { get; } = new(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private sealed class ProviderSnapshot
+    {
+        public string? Model { get; set; }
+        public string? Endpoint { get; set; }
+    }
+
+    private static void TryWriteFileIfMissing(string path, string content)
+    {
+        try
+        {
+            if (File.Exists(path))
+                return;
+
+            var dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrWhiteSpace(dir))
+                Directory.CreateDirectory(dir);
+
+            File.WriteAllText(path, content);
+        }
+        catch
+        {
+            // best-effort only
+        }
     }
 }
 

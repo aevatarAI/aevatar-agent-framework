@@ -70,9 +70,13 @@ public sealed class PivotOperation
     /// </summary>
     public static PivotOperation Create(DirectionChangeIntent intent)
     {
+        var pivotId = string.IsNullOrWhiteSpace(intent.PivotId)
+            ? Guid.NewGuid().ToString()
+            : intent.PivotId!.Trim();
+
         return new PivotOperation
         {
-            PivotId = Guid.NewGuid().ToString(),
+            PivotId = pivotId,
             SessionId = intent.SessionId,
             Intent = intent
         };

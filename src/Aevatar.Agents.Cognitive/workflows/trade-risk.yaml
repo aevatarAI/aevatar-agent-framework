@@ -1,0 +1,69 @@
+# ============================================================
+#  TRADE RISK - Risk evaluation JSON for Trade RiskManagerAgent
+#
+#  Purpose:
+#  - Given a trade decision + account snapshot + risk constraints,
+#    output a STRICT JSON object that matches RiskManagerAgent.ParseEvaluationResponse.
+#
+#  Notes:
+#  - No tool calling.
+#  - Output keys must use snake_case (approved, risk_level, adjusted_position_pct, ...).
+# ============================================================
+
+name: trade-risk
+version: "1.0"
+description: "Trading: risk evaluation JSON (compatible with RiskManagerAgent)"
+
+inputs:
+  - name: task
+    type: string
+    required: true
+    description: "Risk prompt containing decision + account snapshot + constraints."
+
+  - name: language
+    type: string
+    default: "Chinese"
+    description: "Human language for risk_notes/summary (JSON keys remain unchanged)."
+
+defaults:
+  llm_call:
+    max_length: 8192
+    strict_parse: true
+    timeout_seconds: 120
+    idle_timeout_seconds: 30
+
+steps:
+  - id: evaluate_risk
+    type: llm_call
+    prompt: |
+      You are a strict risk manager for a crypto micro-scalping system.
+      Decide whether to approve the given trade decision under provided constraints.
+
+      HARD RULES:
+      - Return ONLY a JSON object (no markdown).
+      - Output keys MUST match the schema exactly (snake_case).
+      - Use ONLY the provided task text; do NOT invent account numbers.
+      - If data is missing, be conservative but still provide a valid JSON.
+      - All text fields must be {{language}}.
+
+      Input task (authoritative):
+      {{task}}
+
+      Output JSON schema (STRICT):
+      {
+        "approved": true|false,
+        "risk_level": "LOW|MEDIUM|HIGH|EXTREME",
+        "adjusted_position_pct": number,
+        "stop_loss_pct": number,
+        "take_profit_pct": number,
+        "violated_rules": ["string", "..."],
+        "risk_notes": "string",
+        "summary": "string"
+      }
+    output: json
+    store: risk
+
+output:
+  result: "{{risk | json}}"
+
+

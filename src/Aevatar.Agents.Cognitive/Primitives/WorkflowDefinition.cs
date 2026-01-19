@@ -11,7 +11,7 @@ namespace Aevatar.Agents.Cognitive.Primitives;
 public sealed class WorkflowDefinition
 {
     public string Name { get; set; } = "";
-    public string Version { get; set; } = "1.0";
+    public string Version { get; set; } = "";
     public string Description { get; set; } = "";
 
     public List<InputParameter> Inputs { get; set; } = [];

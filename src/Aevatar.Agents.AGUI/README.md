@@ -43,6 +43,25 @@ dotnet build src/Aevatar.Agents.AGUI/Aevatar.Agents.AGUI.csproj
 - Project docs: `docs/`
 - Repository docs: `docs/` at repo root
 
+## Example: Workflow execution event streaming
+
+```csharp
+using Aevatar.Agents.AGUI;
+using Aevatar.Agents.Abstractions.Tracing;
+using Aevatar.Agents.Cognitive.Streaming;
+
+var hub = new BroadcastEventHub<AgUiEvent>(replayBufferSize: 200);
+
+// When Maker/Cognitive publishes ExecutionTraceEvent:
+void OnExecutionEvent(ExecutionTraceEvent evt)
+{
+    foreach (var uiEvent in AgUiExecutionTraceMapper.Map(evt))
+        hub.Publish(uiEvent);
+}
+```
+
+Note: `BroadcastEventHub<T>` lives in `Aevatar.Agents.Cognitive.Streaming`. Any SSE/event hub is fine.
+
 ## Notes
 
 - Cross-boundary data (state/events/config) should be defined with **Protocol Buffers**.

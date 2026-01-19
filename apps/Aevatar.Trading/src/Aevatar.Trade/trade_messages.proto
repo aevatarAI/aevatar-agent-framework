@@ -1,0 +1,623 @@
+syntax = "proto3";
+
+package aevatar.trade;
+
+import "google/protobuf/timestamp.proto";
+
+// ============================================================================
+// WEEX AI Trading System - Protobuf Message Definitions
+// ============================================================================
+
+// ============ Market Data Events ============
+
+// Real-time market data update event
+message MarketTickEvent {
+    string symbol = 1;                      // Trading pair (e.g., "cmt_btcusdt")
+    double price = 2;                       // Current price
+    double bid = 3;                         // Best bid price
+    double ask = 4;                         // Best ask price
+    double volume_24h = 5;                  // 24-hour volume
+    double change_24h = 6;                  // 24-hour price change percentage
+    double high_24h = 7;                    // 24-hour high
+    double low_24h = 8;                     // 24-hour low
+    google.protobuf.Timestamp timestamp = 9;
+}
+
+// Kline data update event
+message KlineUpdateEvent {
+    string symbol = 1;                      // Trading pair
+    string interval = 2;                    // Time interval (1m, 5m, 15m, 1h, 4h, 1d)
+    double open = 3;                        // Open price
+    double high = 4;                        // High price
+    double low = 5;                         // Low price
+    double close = 6;                       // Close price
+    double volume = 7;                      // Volume
+    google.protobuf.Timestamp open_time = 8;
+    google.protobuf.Timestamp close_time = 9;
+}
+
+// News data event
+message NewsDataEvent {
+    string id = 1;                          // News ID
+    string headline = 2;                    // Headline
+    string content = 3;                     // Content summary
+    string source = 4;                      // Source
+    repeated string tags = 5;               // Tags
+    google.protobuf.Timestamp publish_time = 6;
+}
+
+// Social media data event
+message SocialDataEvent {
+    string platform = 1;                    // Platform (twitter, reddit, telegram)
+    string content = 2;                     // Content
+    string author = 3;                      // Author
+    int32 engagement = 4;                   // Engagement count
+    string sentiment_hint = 5;              // Preliminary sentiment judgment
+    google.protobuf.Timestamp timestamp = 6;
+}
+
+// ============ Analysis Events ============
+
+// Market sentiment analysis result
+message MarketSentimentAnalysisEvent {
+    string symbol = 1;
+    int32 sentiment_score = 2;              // -100 (extreme fear) to +100 (extreme greed)
+    string sentiment_trend = 3;             // UP, DOWN, SIDEWAYS
+    double fear_greed_index = 4;            // Fear & Greed Index 0-100
+    double long_short_ratio = 5;            // Long/Short Ratio
+    double funding_rate = 6;                // Funding Rate
+    double open_interest = 7;               // Open Interest
+    string analysis_summary = 8;            // AI analysis summary
+    int32 confidence = 9;                   // Confidence 1-100
+    google.protobuf.Timestamp timestamp = 10;
+}
+
+// Technical analysis result
+message TechnicalAnalysisEvent {
+    string symbol = 1;
+    string trend_direction = 2;             // BULLISH, BEARISH, SIDEWAYS
+    int32 trend_strength = 3;               // 1-10
+    double support_level = 4;               // Support level
+    double resistance_level = 5;            // Resistance level
+    
+    // Technical indicators
+    double rsi = 6;                         // RSI (14)
+    double macd = 7;                        // MACD
+    double macd_signal = 8;                 // MACD Signal
+    double macd_histogram = 9;              // MACD Histogram
+    double ma_20 = 10;                      // MA20
+    double ma_60 = 11;                      // MA60
+    double bollinger_upper = 12;            // Bollinger Upper Band
+    double bollinger_lower = 13;            // Bollinger Lower Band
+    double atr = 14;                        // ATR
+    
+    string signal = 15;                     // BUY, SELL, HOLD
+    string pattern_detected = 16;           // Detected pattern
+    string analysis_summary = 17;           // AI analysis summary
+    int32 confidence = 18;                  // Confidence 1-100
+    google.protobuf.Timestamp timestamp = 19;
+}
+
+// News impact analysis result
+message NewsImpactAnalysisEvent {
+    string news_id = 1;                     // Associated news ID
+    string headline = 2;                    // News headline
+    string impact_type = 3;                 // POSITIVE, NEGATIVE, NEUTRAL
+    string impact_level = 4;                // HIGH, MEDIUM, LOW
+    string impact_duration = 5;             // SHORT, MEDIUM, LONG
+    repeated string affected_symbols = 6;   // Affected trading pairs
+    double relevance_score = 7;             // Relevance score 0-100
+    string analysis_summary = 8;            // AI analysis summary
+    int32 confidence = 9;                   // Confidence 1-100
+    google.protobuf.Timestamp timestamp = 10;
+}
+
+// ============ Decision Events ============
+
+// Trading decision event (Coordinator -> RiskManager)
+message TradingDecisionEvent {
+    string decision_id = 1;                 // Decision ID
+    string symbol = 2;                      // Trading pair
+    string direction = 3;                   // BUY, SELL, HOLD
+    int32 confidence = 4;                   // Confidence 1-100
+    double suggested_position_pct = 5;      // Suggested position percentage
+    double suggested_price = 6;             // Suggested price (0=market price)
+    
+    // Decision basis
+    string sentiment_summary = 7;           // Sentiment analysis summary
+    string technical_summary = 8;           // Technical analysis summary
+    string news_summary = 9;                // News analysis summary
+    string reasoning = 10;                  // Comprehensive reasoning process
+    
+    google.protobuf.Timestamp timestamp = 11;
+}
+
+// Decision cycle started event (for audit / trace)
+message DecisionCycleStartedEvent {
+    string cycle_id = 1;                    // Decision cycle id
+    string symbol = 2;                      // Trading pair
+    string trigger = 3;                     // Trigger reason (e.g., "TICK", "KLINE", "TIMER")
+    string coordinator_id = 4;              // Coordinator actor id (Type:RawId)
+    google.protobuf.Timestamp timestamp = 5;
+}
+
+// Decision cycle completed event (for audit / trace)
+message DecisionCycleCompletedEvent {
+    string cycle_id = 1;
+    string decision_id = 2;
+    string symbol = 3;
+    string direction = 4;                   // BUY, SELL, HOLD
+    int32 confidence = 5;                   // 1-100
+    bool executed = 6;                      // Whether this decision went to execution stage
+    string execution_mode = 7;              // "DryRun" / "Live"
+    google.protobuf.Timestamp timestamp = 8;
+}
+
+// Trade approval event (RiskManager -> Executor)
+message ApprovedTradeEvent {
+    string decision_id = 1;                 // Associated decision ID
+    string symbol = 2;                      // Trading pair
+    string side = 3;                        // buy, sell
+    string order_type = 4;                  // limit, market
+    double quantity = 5;                    // Quantity
+    double price = 6;                       // Price (for limit orders)
+    double stop_loss = 7;                   // Stop loss price
+    double take_profit = 8;                 // Take profit price
+    
+    // Risk control information
+    string risk_assessment = 9;             // LOW, MEDIUM, HIGH
+    double position_size_adjusted = 10;     // Risk-adjusted position size
+    string risk_notes = 11;                 // Risk control notes
+    
+    google.protobuf.Timestamp timestamp = 12;
+}
+
+// Trade rejection event
+message TradeRejectedEvent {
+    string decision_id = 1;                 // Associated decision ID
+    string symbol = 2;
+    string original_direction = 3;          // Original direction
+    string rejection_reason = 4;            // Rejection reason
+    string risk_level = 5;                  // Risk level
+    repeated string violated_rules = 6;     // Violated risk control rules
+    google.protobuf.Timestamp timestamp = 7;
+}
+
+// ============ Execution Events ============
+
+// Order execution success event
+message OrderExecutedEvent {
+    string order_id = 1;                    // WEEX order ID
+    string client_order_id = 2;             // Client order ID
+    string decision_id = 3;                 // Associated decision ID
+    string symbol = 4;
+    string side = 5;                        // buy, sell
+    double quantity = 6;                    // Filled quantity
+    double filled_price = 7;                // Filled price
+    double fee = 8;                         // Fee
+    string status = 9;                      // FILLED, PARTIAL_FILLED
+    google.protobuf.Timestamp timestamp = 10;
+}
+
+// DryRun simulated order event (does not trigger real exchange operations)
+message OrderSimulatedEvent {
+    string simulated_order_id = 1;          // Simulated order ID (locally generated)
+    string client_order_id = 2;             // Client order ID (for traceability)
+    string decision_id = 3;                 // Associated decision ID
+    string symbol = 4;
+    string side = 5;                        // buy, sell
+    string order_type = 6;                  // limit, market
+    double quantity = 7;                    // Intended order quantity
+    double price = 8;                       // Intended order price (can be 0 for market orders)
+    double stop_loss = 9;                   // Intended stop loss price (can be 0)
+    double take_profit = 10;                // Intended take profit price (can be 0)
+    string reason = 11;                     // Simulation reason (e.g., "DRY_RUN" / "KILL_SWITCH")
+    google.protobuf.Timestamp timestamp = 12;
+}
+
+// AI Wars log upload requested event (audit -> uploader)
+message AiWarsLogUploadRequestedEvent {
+    string request_id = 1;                 // Upload request id
+    string cycle_id = 2;                   // Associated decision cycle id
+    string artifact_path = 3;              // Local file path (JSONL/trace bundle)
+    string content_type = 4;               // e.g., "application/jsonl"
+    google.protobuf.Timestamp timestamp = 5;
+}
+
+message AiWarsLogUploadSucceededEvent {
+    string request_id = 1;
+    string cycle_id = 2;
+    string remote_id = 3;                  // Remote log id (if provided by WEEX)
+    google.protobuf.Timestamp timestamp = 4;
+}
+
+message AiWarsLogUploadFailedEvent {
+    string request_id = 1;
+    string cycle_id = 2;
+    string error_code = 3;
+    string error_message = 4;
+    google.protobuf.Timestamp timestamp = 5;
+}
+
+// Order execution failure event
+message OrderFailedEvent {
+    string client_order_id = 1;             // Client order ID
+    string decision_id = 2;                 // Associated decision ID
+    string symbol = 3;
+    string side = 4;
+    string error_code = 5;                  // Error code
+    string error_message = 6;               // Error message
+    google.protobuf.Timestamp timestamp = 7;
+}
+
+// Order cancellation event
+message OrderCancelledEvent {
+    string order_id = 1;
+    string client_order_id = 2;
+    string symbol = 3;
+    string reason = 4;                      // Cancellation reason
+    google.protobuf.Timestamp timestamp = 5;
+}
+
+// ============ System Events ============
+
+// System started event
+message SystemStartedEvent {
+    string system_id = 1;
+    repeated string active_symbols = 2;     // Active trading pairs
+    google.protobuf.Timestamp timestamp = 3;
+}
+
+// System stopped event
+message SystemStoppedEvent {
+    string system_id = 1;
+    string reason = 2;                      // Stop reason
+    google.protobuf.Timestamp timestamp = 3;
+}
+
+// Risk control circuit breaker event
+message CircuitBreakerTriggeredEvent {
+    string trigger_type = 1;                // DAILY_LOSS, CONSECUTIVE_LOSS, VOLATILITY
+    string description = 2;
+    int32 cooldown_minutes = 3;             // Cooldown time
+    google.protobuf.Timestamp timestamp = 4;
+}
+
+// ============ Agent States ============
+
+// Data collector state
+message DataCollectorState {
+    string agent_id = 1;
+    repeated string subscribed_symbols = 2; // Subscribed trading pairs
+    map<string, double> latest_prices = 3;  // Latest price cache
+    int32 ticks_received = 4;               // Number of ticks received
+    bool is_connected = 5;                  // WebSocket connection status
+    google.protobuf.Timestamp last_tick_time = 6;
+}
+
+// Market sentiment analyst state
+message SentimentAnalystState {
+    string agent_id = 1;
+    int32 current_sentiment = 2;            // Current sentiment value
+    repeated int32 sentiment_history = 3;   // Historical sentiment values (last N)
+    int32 analysis_count = 4;               // Analysis count
+    google.protobuf.Timestamp last_analysis = 5;
+}
+
+// Technical analyst state
+message TechnicalAnalystState {
+    string agent_id = 1;
+    string current_trend = 2;               // Current trend
+    int32 trend_strength = 3;               // Trend strength
+    double last_rsi = 4;
+    double last_macd = 5;
+    int32 analysis_count = 6;
+    google.protobuf.Timestamp last_analysis = 7;
+}
+
+// News analyst state
+message NewsAnalystState {
+    string agent_id = 1;
+    repeated string recent_headlines = 2;   // Recently processed news headlines
+    string overall_sentiment = 3;           // Overall news sentiment
+    int32 news_processed = 4;               // Number of news processed
+    google.protobuf.Timestamp last_analysis = 5;
+}
+
+// Trading coordinator state
+message CoordinatorState {
+    string agent_id = 1;
+    
+    // Latest analysis results
+    MarketSentimentAnalysisEvent latest_sentiment = 2;
+    TechnicalAnalysisEvent latest_technical = 3;
+    NewsImpactAnalysisEvent latest_news = 4;
+    
+    // Decision statistics
+    string last_decision = 5;               // Latest decision direction
+    int32 decisions_made = 6;               // Number of decisions made
+    int32 decisions_approved = 7;           // Number of approvals
+    int32 decisions_rejected = 8;           // Number of rejections
+    
+    google.protobuf.Timestamp last_decision_time = 9;
+}
+
+// Risk manager state
+message RiskManagerState {
+    string agent_id = 1;
+    
+    // Account risk
+    double total_equity = 2;                // Total equity
+    double available_balance = 3;           // Available balance
+    double current_position_value = 4;      // Current position value
+    double position_ratio = 5;              // Position ratio
+    
+    // P&L statistics
+    double daily_pnl = 6;                   // Daily P&L
+    double daily_pnl_pct = 7;               // Daily P&L percentage
+    double realized_pnl = 8;                // Realized P&L
+    double unrealized_pnl = 9;              // Unrealized P&L
+    
+    // Risk control status
+    int32 consecutive_losses = 10;          // Consecutive losses count
+    int32 consecutive_wins = 11;            // Consecutive wins count
+    bool is_trading_allowed = 12;           // Whether trading is allowed
+    string circuit_breaker_status = 13;     // Circuit breaker status
+    
+    // Statistics
+    int32 trades_approved = 14;             // Number of approved trades
+    int32 trades_rejected = 15;             // Number of rejected trades
+    
+    google.protobuf.Timestamp last_update = 16;
+}
+
+// Executor state
+message ExecutorState {
+    string agent_id = 1;
+    
+    // Order statistics
+    int32 orders_placed = 2;                // Number of orders placed
+    int32 orders_filled = 3;                // Number of orders filled
+    int32 orders_failed = 4;                // Number of failed orders
+    int32 orders_cancelled = 5;             // Number of cancelled orders
+    
+    // Active orders
+    repeated string active_order_ids = 6;   // Active order IDs
+    
+    // Positions
+    map<string, double> positions = 7;      // symbol -> quantity
+    
+    // Total P&L
+    double total_realized_pnl = 8;          // Total realized P&L
+    double total_fees = 9;                  // Total fees
+    
+    google.protobuf.Timestamp last_execution = 10;
+
+    // Execution modes like DryRun / Live (for observability and auditing)
+    string execution_mode = 11;
+    int32 orders_simulated = 12;            // Number of simulated orders (DryRun)
+}
+
+// Trade audit agent state
+message TradeAuditState {
+    string agent_id = 1;                   // Actor id (Type:RawId)
+    string audit_run_id = 2;               // Current audit run id
+    string output_dir = 3;                 // Output directory
+    string current_file = 4;               // Current JSONL file name
+    int32 events_logged = 5;               // Logged event count
+    google.protobuf.Timestamp last_event_time = 6;
+}
+
+// AI Wars log uploader agent state
+message AiWarsUploaderState {
+    string agent_id = 1;
+    int32 uploads_attempted = 2;
+    int32 uploads_succeeded = 3;
+    int32 uploads_failed = 4;
+    string last_error = 5;
+    google.protobuf.Timestamp last_upload_time = 6;
+}
+
+// ============ Configuration Messages ============
+
+// Trade execution mode
+enum TradeExecutionMode {
+    TRADE_EXECUTION_MODE_UNSPECIFIED = 0;
+    DRY_RUN = 1;
+    LIVE = 2;
+}
+
+// Trading configuration
+message TradingConfig {
+    string symbol = 1;                      // Trading pair
+    string interval = 2;                    // Analysis interval
+    double max_position_pct = 3;            // Maximum position percentage
+    double max_loss_per_trade = 4;          // Maximum loss per trade
+    double max_daily_loss = 5;              // Maximum daily loss
+    int32 min_confidence_to_trade = 6;      // Minimum confidence to trade
+    double max_total_position_pct = 7;      // Maximum total position percentage
+    TradeExecutionMode execution_mode = 8;  // Execution mode (DryRun/Live)
+    double min_base_asset_usd_on_start = 9; // Startup guard: ensure base asset value >= N USDT before Start (e.g., BTC >= 10U)
+}
+
+// Analysis weight configuration
+message AnalysisWeightConfig {
+    double sentiment_weight = 1;            // Sentiment analysis weight
+    double technical_weight = 2;            // Technical analysis weight
+    double news_weight = 3;                 // News analysis weight
+}
+
+// Risk control configuration
+message RiskControlConfig {
+    int32 max_consecutive_losses = 1;       // Max consecutive losses before circuit breaker
+    int32 cooldown_minutes = 2;             // Cooldown minutes after circuit breaker
+    double stop_loss_pct = 3;               // Default stop loss percentage
+    double take_profit_pct = 4;             // Default take profit percentage
+}
+
+// Trade audit configuration
+message TradeAuditConfig {
+    bool enabled = 1;                       // Enable audit agent
+    string output_dir = 2;                  // Output directory for JSONL
+    bool include_market_data = 3;           // Whether to log high-frequency market data
+    bool request_aiwars_upload = 4;         // Whether to emit AiWarsLogUploadRequestedEvent
+    int32 max_markdown_bytes = 5;           // Rotate markdown when file exceeds this size. 0=use default, <0=disable
+}
+
+// Market chat config (AI chat streaming cadence)
+message MarketChatConfig {
+    int32 chat_interval_seconds = 1;        // 固定间隔输出 AI 市场分析（秒，0=禁用）
+}
+
+// WEEX AI Wars log upload configuration (skeleton)
+message AiWarsLogUploadConfig {
+    bool enabled = 1;                       // Enable uploading
+    string base_url = 2;                    // AI Wars API base url (may differ from spot)
+    string api_key = 3;
+    string api_secret = 4;
+    string passphrase = 5;
+    string upload_path = 6;                 // Upload endpoint path (e.g., "/api/ai/log/upload")
+}
+
+// Decision engine configuration (Coordinator brain switch)
+message DecisionEngineConfig {
+    string mode = 1;                        // "Direct" / "CognitiveMesh"
+    string cognitive_mesh_base_url = 2;     // e.g., "http://localhost:5080"
+    string cognitive_mesh_strategy = 3;     // "Direct" / "Maker" / "UoT" / "EUoT" / "TUoT" / "Cognitive"
+    string cognitive_workflow = 4;          // e.g., "maker-v2"
+    int32 timeout_seconds = 5;              // Request timeout
+}
+
+// Trading system startup behavior (API host only)
+message TradingStartupConfig {
+    bool auto_start = 1;                    // Auto start trading system on API boot
+    bool auto_start_allow_live = 2;         // Allow auto start when ExecutionMode=Live
+}
+
+// ============================================================================
+//  Exchange / Trigger / Policy (新增抽象层)
+// ============================================================================
+
+// 交易所类型（可配置切换）
+enum ExchangeType {
+    EXCHANGE_TYPE_UNSPECIFIED = 0;
+    WEEX = 1;
+    OKX = 2;
+}
+
+// 交易所配置（仅包含安全/通用字段）
+message ExchangeConfig {
+    ExchangeType exchange_type = 1;         // WEEX / OKX
+    string mode = 2;                        // "Contract" / "Spot" / "Futures"
+    repeated string symbols = 3;            // Active symbols (e.g., ["cmt_btcusdt"])
+    bool enable_websocket = 4;              // Prefer WS when available
+    bool enable_rest_polling = 5;           // Allow REST polling fallback
+    string credentials_key = 6;             // ExchangeCredentials key (e.g., "weex", "okx")
+}
+
+// 交易所凭证配置（统一入口）
+message ExchangeCredentialConfig {
+    string endpoint = 1;                    // Base endpoint (e.g., "https://api-contract.weex.com")
+    string api_key = 2;
+    string api_secret = 3;
+    string passphrase = 4;
+}
+
+// 交易所凭证集合
+message ExchangeCredentialsConfig {
+    map<string, ExchangeCredentialConfig> exchanges = 1;
+}
+
+// 触发策略配置（价格变化 → 触发决策）
+message DecisionTriggerConfig {
+    double price_change_pct = 1;            // Δ% 触发阈值
+    double price_change_abs = 2;            // Δprice 触发阈值
+    int32 window_seconds = 3;               // 统计窗口（秒）
+    int32 cooldown_seconds = 4;             // 冷却时间（秒）
+    bool trigger_on_startup = 5;            // 启动时触发风险检查
+    reserved 6;
+}
+
+// 触发事件（供 Coordinator 进入决策）
+message DecisionTriggerEvent {
+    string trigger_id = 1;
+    string symbol = 2;
+    string reason = 3;                      // "PRICE_CHANGE" / "RISK" / "MANUAL"
+    double delta_pct = 4;
+    double delta_abs = 5;
+    double base_price = 6;                  // Window 基准价
+    double latest_price = 7;                // 最新价
+    google.protobuf.Timestamp timestamp = 8;
+}
+
+// 用户输入事件（UI -> MarketChatAgent）
+message UserChatMessageEvent {
+    string message_id = 1;
+    string user_id = 2;
+    string content = 3;
+    string source = 4;                      // "UI" / "API" / "SYSTEM"
+    google.protobuf.Timestamp timestamp = 5;
+}
+
+// 动态策略配置（AI 可调整）
+message TradingPolicyConfig {
+    TradingConfig trading = 1;
+    RiskControlConfig risk = 2;
+    DecisionTriggerConfig trigger = 3;
+    AnalysisWeightConfig analysis = 4;
+}
+
+// 策略更新事件
+message TradingPolicyUpdatedEvent {
+    string updated_by = 1;                  // AgentId / ToolId
+    string reason = 2;                      // Update reason (optional)
+    TradingPolicyConfig policy = 3;
+    google.protobuf.Timestamp timestamp = 4;
+}
+
+// 启动风险检查动作
+enum StartupRiskAction {
+    STARTUP_RISK_ACTION_UNSPECIFIED = 0;
+    HOLD = 1;
+    REDUCE = 2;
+    CLOSE_ALL = 3;
+}
+
+// 启动风险检查请求
+message StartupRiskCheckRequestedEvent {
+    string request_id = 1;
+    string reason = 2;                      // "SYSTEM_START"
+    google.protobuf.Timestamp timestamp = 3;
+}
+
+// 启动风险检查结果
+message StartupRiskCheckResultEvent {
+    string request_id = 1;
+    bool action_required = 2;
+    StartupRiskAction action = 3;
+    string reason = 4;
+    string summary = 5;
+    google.protobuf.Timestamp timestamp = 6;
+}
+
+// 触发器状态
+message DecisionTriggerState {
+    string agent_id = 1;
+    map<string, double> last_prices = 2;    // symbol -> price
+    string last_trigger_symbol = 3;
+    string last_trigger_reason = 4;
+    double last_trigger_price = 5;
+    double last_trigger_delta_pct = 6;
+    double last_trigger_delta_abs = 7;
+    int32 triggers_emitted = 8;
+    google.protobuf.Timestamp last_trigger_time = 9;
+}
+
+// 策略管理器状态
+message PolicyManagerState {
+    string agent_id = 1;
+    TradingPolicyConfig policy = 2;
+    int32 update_count = 3;
+    string last_updated_by = 4;
+    google.protobuf.Timestamp last_updated_time = 5;
+}

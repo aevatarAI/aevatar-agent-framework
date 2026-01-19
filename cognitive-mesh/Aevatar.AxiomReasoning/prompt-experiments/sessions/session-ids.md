@@ -192,3 +192,4 @@ $$
 | `ec08dfba85b8` | 2026-01-19 04:45:30 UTC | Failed | hypothesis_promotion_loop_hpa |
 | `949b1817f70a` | 2026-01-19 05:14:21 UTC | Failed | hypothesis_promotion_loop_hpa |
 | `8be665c0647f` | 2026-01-19 05:42:43 UTC | Failed | hypothesis_promotion_loop_hpa |
+| `3d9083c74c5c` | 2026-01-19 06:20:49 UTC | Failed | hypothesis_promotion_loop_hpa |

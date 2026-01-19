@@ -242,6 +242,14 @@ public interface IKnowledgeGraphClient
         string planNodeId,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Gets all knowledge nodes that do not have a MotivatedBy edge to any plan node.
+    /// These are "orphan" knowledge nodes that were created before milestones existed.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>List of orphaned knowledge node IDs.</returns>
+    Task<IReadOnlyList<string>> GetOrphanedKnowledgeNodesAsync(CancellationToken cancellationToken = default);
+
     // ========== Node Explanation (US4) ==========
 
     /// <summary>

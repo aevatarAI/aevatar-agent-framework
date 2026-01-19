@@ -86,15 +86,19 @@ internal sealed class VibeMilestoneLoopRunner
 
             if (totalMilestones == 0)
             {
-                _logger.LogInformation("[MilestoneLoop] No milestones found. Running initial round to generate Brief with milestones.");
+                // ============================================================
+                // PLANNING PHASE: Generate Brief with milestones
+                // This is NOT research execution - just planning.
+                // All milestones will be executed in the loop below.
+                // ============================================================
+                _logger.LogInformation("[MilestoneLoop] No milestones found. Running planning round to generate Brief with milestones.");
 
-                // Run initial round to generate Brief (including milestones)
-                emitAssistantDelta("\n## Initializing Research Plan...\n\n");
+                emitAssistantDelta("\n## Generating Research Plan...\n\n");
                 await _vibe.ExecuteOneRoundAsync(
                     session, runId, input, question, materials,
                     providerOverride, emitAssistantDelta, ct);
 
-                // Reload Brief after initial round - now it should have milestones
+                // Reload Brief after planning round - now it should have milestones
                 briefSnapshot = await _brief.LoadAsync(session.Id, ct);
                 milestones = briefSnapshot.Milestones
                     .Where(m => !string.IsNullOrWhiteSpace(m?.ExpectedOutput))
@@ -102,22 +106,21 @@ internal sealed class VibeMilestoneLoopRunner
                     .ToList();
 
                 totalMilestones = milestones.Count;
-                milestonesExecuted = 1; // Count initial round as first milestone
 
                 if (totalMilestones == 0)
                 {
-                    _logger.LogWarning("[MilestoneLoop] Still no milestones after initial round. Research complete.");
+                    _logger.LogWarning("[MilestoneLoop] Still no milestones after planning round. Research complete.");
                     return new MilestoneLoopResult
                     {
                         Ok = true,
                         StopReason = "no_milestones",
-                        MilestonesExecuted = 1,
+                        MilestonesExecuted = 0,
                         TotalMilestones = 0,
                         MaxTotalDurationMs = maxTotalMs
                     };
                 }
 
-                _logger.LogInformation("[MilestoneLoop] Brief generated with {Count} milestones. Continuing with remaining milestones.", totalMilestones);
+                _logger.LogInformation("[MilestoneLoop] Brief generated with {Count} milestones. Starting research from milestone 1.", totalMilestones);
                 emitAssistantDelta($"\n\n## Research Plan Generated: {totalMilestones} Milestones\n\n");
                 for (var i = 0; i < milestones.Count; i++)
                 {
@@ -126,15 +129,22 @@ internal sealed class VibeMilestoneLoopRunner
                 }
                 emitAssistantDelta("\n---\n\n");
 
-                // Skip first milestone since we already executed it
-                if (milestones.Count > 0)
-                {
-                    milestones = milestones.Skip(1).ToList();
-                }
+                // Link any orphaned knowledge nodes from planning round to first milestone
+                // IMPORTANT: Use session.Id (not EffectiveDagId) because PlanNodes use session.Id
+                var firstMilestone = milestones[0];
+                var firstMilestoneNodeId = GetMilestoneNodeId(session.Id, firstMilestone.RoundIndex, 1);
+                await TryLinkOrphanedKnowledgeNodesToMilestoneAsync(
+                    session.Id, firstMilestoneNodeId, ct);
+
+                // DO NOT skip any milestone - all milestones will be executed in the loop below
+                // milestonesExecuted remains 0
             }
 
             var dagId = session.EffectiveDagId;
-            var graphClient = _graphFactory.CreateClient(dagId);
+            // IMPORTANT: Use session.Id (not EffectiveDagId) for graph operations on PlanNodes.
+            // PlanNodes are stored with session.Id as their sessionId, not EffectiveDagId.
+            // EffectiveDagId may be "global" for cross-session DAG, but PlanNodes use actual session.Id.
+            var graphClient = _graphFactory.CreateClient(session.Id);
 
             // Only show research plan if we didn't already show it after initial round
             if (milestonesExecuted == 0)
@@ -274,7 +284,21 @@ internal sealed class VibeMilestoneLoopRunner
 
                     milestonesExecuted++;
 
-                    // Update milestone status to Completed
+                    // ============================================================
+                    // CRITICAL: Ensure there is ALWAYS an Active milestone during research
+                    // Before marking current milestone as Completed, mark next milestone as Active.
+                    // This ensures no gap where there's no Active milestone.
+                    // ============================================================
+                    if (i + 1 < milestones.Count)
+                    {
+                        // Mark NEXT milestone as Active BEFORE marking current as Completed
+                        var nextMilestone = milestones[i + 1];
+                        var nextMilestoneNodeId = GetMilestoneNodeId(session.Id, nextMilestone.RoundIndex, i + 2);
+                        await TryUpdateMilestoneStatusAsync(graphClient, nextMilestoneNodeId, PlanNodeStatus.Active,
+                            $"Starting milestone {milestonesExecuted + 1}/{totalMilestones}", ct);
+                    }
+
+                    // NOW mark current milestone as Completed
                     await TryUpdateMilestoneStatusAsync(graphClient, milestoneNodeId, PlanNodeStatus.Completed,
                         $"Completed milestone {milestonesExecuted}/{totalMilestones} after {iterationCount} iterations", ct);
 
@@ -396,6 +420,47 @@ internal sealed class VibeMilestoneLoopRunner
         {
             // Best-effort: don't fail the research loop if status update fails
             _logger.LogWarning(ex, "[MilestoneLoop] Failed to update milestone {NodeId} status (best-effort)", nodeId);
+        }
+    }
+
+    /// <summary>
+    /// Links orphaned knowledge nodes (those without a MOTIVATED_BY edge) to the specified milestone.
+    /// This is needed after the planning round creates knowledge nodes before milestones exist.
+    /// </summary>
+    private async Task TryLinkOrphanedKnowledgeNodesToMilestoneAsync(
+        string dagId,
+        string milestoneNodeId,
+        CancellationToken ct)
+    {
+        try
+        {
+            var graphClient = _graphFactory.CreateClient(dagId);
+
+            // Query for knowledge nodes without MOTIVATED_BY edge
+            var orphanedNodes = await graphClient.GetOrphanedKnowledgeNodesAsync(ct);
+
+            if (orphanedNodes.Count == 0)
+            {
+                _logger.LogDebug("[MilestoneLoop] No orphaned knowledge nodes found.");
+                return;
+            }
+
+            _logger.LogInformation("[MilestoneLoop] Linking {Count} orphaned knowledge nodes to milestone {MilestoneId}",
+                orphanedNodes.Count, milestoneNodeId);
+
+            // Link each orphan to the milestone
+            foreach (var orphanNodeId in orphanedNodes)
+            {
+                await graphClient.LinkKnowledgeToPlanAsync(orphanNodeId, milestoneNodeId, ct);
+            }
+
+            _logger.LogInformation("[MilestoneLoop] Successfully linked {Count} orphaned knowledge nodes to milestone {MilestoneId}",
+                orphanedNodes.Count, milestoneNodeId);
+        }
+        catch (Exception ex)
+        {
+            // Best-effort: don't fail the research loop if linking fails
+            _logger.LogWarning(ex, "[MilestoneLoop] Failed to link orphaned knowledge nodes to milestone (best-effort)");
         }
     }
 

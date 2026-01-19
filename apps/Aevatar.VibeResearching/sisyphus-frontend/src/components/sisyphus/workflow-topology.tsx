@@ -489,6 +489,8 @@ function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: Workflo
           attestations: n.attestations,
           attestationsCount: n.attestationsCount,
           sessionId: n.sessionId,  // Include sessionId for cross-session rendering
+          // Map plan_status from API to planStatus for Plan nodes
+          planStatus: n.planStatus as 'Pending' | 'Active' | 'Completed' | undefined,
         }))
         const edges = (snapshot.edges || []).map(e => ({
           source: e.fromId,
@@ -551,7 +553,22 @@ function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: Workflo
     }
 
     // First pass: determine which nodes will be rendered (limit to 200 for performance)
-    const renderedDagNodes = dag.nodes.slice(0, 200)
+    // Sort nodes to prioritize current session, then Plan nodes, then by kind
+    const sortedNodes = [...dag.nodes].sort((a, b) => {
+      // 1. Current session nodes first
+      const aCurrentSession = a.sessionId === sessionId ? 0 : 1
+      const bCurrentSession = b.sessionId === sessionId ? 0 : 1
+      if (aCurrentSession !== bCurrentSession) return aCurrentSession - bCurrentSession
+
+      // 2. Plan nodes before Knowledge nodes (within same session priority)
+      const aKind = a.kind === 'Plan' ? 0 : 1
+      const bKind = b.kind === 'Plan' ? 0 : 1
+      if (aKind !== bKind) return aKind - bKind
+
+      // 3. Keep original order for nodes with same priority
+      return 0
+    })
+    const renderedDagNodes = sortedNodes.slice(0, 500)
     const visibleNodeIds = new Set(renderedDagNodes.map(n => n.id))
 
     const nodes: Node[] = renderedDagNodes.map((node) => {
@@ -588,7 +605,7 @@ function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: Workflo
     // This ensures edges are properly rendered (React Flow can't render edges to non-existent nodes)
     const edges: Edge[] = (dag.edges || [])
       .filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target))
-      .slice(0, 400)
+      .slice(0, 1000)
       .map((edge, i) => {
         // Different styles for different edge types
         const isMotivatedBy = edge.type === 'motivated_by'

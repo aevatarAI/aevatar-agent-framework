@@ -269,29 +269,33 @@ internal sealed partial class VibeOrchestrator
         // ------------------------------------------------------------
         // Step: Persist plan into DAG (as "plan" nodes)
         //
+        // DISABLED: Round plan nodes are no longer created during execution.
+        // Milestones are created once during brief generation and remain fixed.
+        // Only knowledge nodes should be created during execution.
+        //
         // 中文说明：
-        // - vibe researching 的目标是“往 DAG 上增量写知识”
-        // - 但在开始研究前，我们先把本轮 plan 落到 DAG（便于审阅/回放/可视化）
-        // - plan 节点不走 verifier-quorum 共识（MVP）；仍保持知识写入走共识门控
+        // - 已禁用：执行过程中不再创建 round plan 节点
+        // - Milestones 在 brief 阶段一次性创建，之后保持不变
+        // - 执行过程中只创建 knowledge 节点
         // ------------------------------------------------------------
-        try
-        {
-            var m = BuildPlanDagMutation(session.Id, ctx.RunId, ctx.Question, plan);
-            if (m != null)
-            {
-                dagSnap = await _core.Dag.ApplyMutationAsync(dagId, m, ct);
-                session.Events.Publish(new CustomEvent
-                {
-                    Timestamp = NowMs(),
-                    Name = "aevatar.vibe.plan_dag_written",
-                    Value = new { sessionId = session.Id, dagId, runId = ctx.RunId, mutationId = m.MutationId }
-                });
-            }
-        }
-        catch
-        {
-            // best-effort only
-        }
+        // try
+        // {
+        //     var m = BuildPlanDagMutation(session.Id, ctx.RunId, ctx.Question, plan);
+        //     if (m != null)
+        //     {
+        //         dagSnap = await _core.Dag.ApplyMutationAsync(dagId, m, ct);
+        //         session.Events.Publish(new CustomEvent
+        //         {
+        //             Timestamp = NowMs(),
+        //             Name = "aevatar.vibe.plan_dag_written",
+        //             Value = new { sessionId = session.Id, dagId, runId = ctx.RunId, mutationId = m.MutationId }
+        //         });
+        //     }
+        // }
+        // catch
+        // {
+        //     // best-effort only
+        // }
 
         session.Events.Publish(new StepFinishedEvent
         {

@@ -37,7 +37,11 @@ internal sealed partial class VibeOrchestrator
         public object? Inputs { get; init; }
     }
 
-    private static SraDagMutation? TryParseDagBuilderCandidate(string sessionId, string raw)
+    private static SraDagMutation? TryParseDagBuilderCandidate(
+        string sessionId,
+        string raw,
+        SraDagSnapshot? dag = null,
+        string? activeMilestoneId = null)
     {
         if (!TryExtractJson(raw, out var json) || string.IsNullOrWhiteSpace(json))
             return null;
@@ -58,11 +62,108 @@ internal sealed partial class VibeOrchestrator
         var mutation = BuildDagMutation(sessionId, parsed, now);
         var motivatedByEdges = new List<(string knowledgeNodeId, string planNodeId)>();
 
-        AddDagNodes(parsed, now, mutation, motivatedByEdges);
+        // Get existing milestone IDs from the DAG for validation
+        var existingMilestones = GetExistingMilestoneIds(dag);
+
+        // Use the activeMilestoneId passed from Neo4j query (more reliable than DAG snapshot)
+        // Fallback to DAG snapshot if not provided
+        var effectiveActiveMilestoneId = activeMilestoneId ?? GetActiveMilestoneId(dag);
+
+        AddDagNodes(parsed, now, mutation, motivatedByEdges, existingMilestones, effectiveActiveMilestoneId);
         AddDagEdges(parsed, now, mutation);
         AddMotivatedByEdges(mutation, now, motivatedByEdges);
 
         return mutation;
+    }
+
+    /// <summary>
+    /// Extract existing milestone plan node IDs from the DAG.
+    /// Used to validate/fix motivatedByPlanNodeId references in knowledge nodes.
+    /// </summary>
+    private static HashSet<string> GetExistingMilestoneIds(SraDagSnapshot? dag)
+    {
+        var milestones = new HashSet<string>(StringComparer.Ordinal);
+        if (dag?.Nodes == null) return milestones;
+
+        foreach (var n in dag.Nodes)
+        {
+            if (n == null) continue;
+            if (n.Kind != SraDagNodeKind.Plan) continue;
+
+            var id = (n.Id ?? string.Empty).Trim();
+            if (id.Length > 0)
+                milestones.Add(id);
+        }
+
+        return milestones;
+    }
+
+    /// <summary>
+    /// Find the currently Active milestone from the DAG.
+    /// Returns the node ID of the milestone with PlanStatus == Active, or null if not found.
+    /// </summary>
+    private static string? GetActiveMilestoneId(SraDagSnapshot? dag)
+    {
+        if (dag?.Nodes == null) return null;
+
+        foreach (var n in dag.Nodes)
+        {
+            if (n == null) continue;
+            if (n.Kind != SraDagNodeKind.Plan) continue;
+            if (n.PlanStatus != SraDagPlanStatus.Active) continue;
+
+            var id = (n.Id ?? string.Empty).Trim();
+            if (id.Length > 0)
+                return id;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Find the best matching existing milestone ID, or return the first milestone if no match found.
+    /// Priority: exact match > prefix match > any existing milestone
+    /// </summary>
+    private static string? FindBestMatchingMilestone(string invalidId, HashSet<string> existingMilestones)
+    {
+        if (existingMilestones.Count == 0)
+            return null;
+
+        // Try exact match first (should not happen since we call this when invalid, but be safe)
+        if (existingMilestones.Contains(invalidId))
+            return invalidId;
+
+        // Try to find a milestone that shares the same session prefix or round index
+        // e.g., if invalidId = "plan_abc_123_ms_r2_wrong", look for "plan_abc_123_ms_r2"
+        var normalizedInvalid = invalidId.ToLowerInvariant();
+
+        // Sort milestones to prefer later rounds (higher round index) as they are more likely current
+        var sortedMilestones = existingMilestones
+            .OrderByDescending(m =>
+            {
+                // Extract round index from milestone ID like "plan_xxx_ms_r2" -> 2
+                var idx = m.LastIndexOf("_r", StringComparison.OrdinalIgnoreCase);
+                if (idx > 0 && idx + 2 < m.Length && int.TryParse(m[(idx + 2)..].TrimEnd('_'), out var round))
+                    return round;
+                return 0;
+            })
+            .ToList();
+
+        // Look for prefix match (e.g., invalidId starts with or is a prefix of existing)
+        foreach (var existing in sortedMilestones)
+        {
+            var normalizedExisting = existing.ToLowerInvariant();
+            if (normalizedInvalid.StartsWith(normalizedExisting) ||
+                normalizedExisting.StartsWith(normalizedInvalid) ||
+                normalizedInvalid.Contains(normalizedExisting) ||
+                normalizedExisting.Contains(normalizedInvalid))
+            {
+                return existing;
+            }
+        }
+
+        // No match found - return the most recent milestone (highest round index)
+        return sortedMilestones.FirstOrDefault();
     }
 
     // ------------------------------------------------------------
@@ -93,7 +194,9 @@ internal sealed partial class VibeOrchestrator
         DagCandidateJson parsed,
         Timestamp now,
         SraDagMutation mutation,
-        List<(string knowledgeNodeId, string planNodeId)> motivatedByEdges)
+        List<(string knowledgeNodeId, string planNodeId)> motivatedByEdges,
+        HashSet<string> existingMilestones,
+        string? activeMilestoneId)
     {
         var nodes = parsed.Nodes?.OfType<DagNodeJson>();
         if (nodes is null) return;
@@ -128,15 +231,78 @@ internal sealed partial class VibeOrchestrator
                 }
             }
 
-            // Track motivatedByPlanNodeId for edge creation
+            // ============================================================
+            // CRITICAL: Knowledge nodes MUST ALWAYS have a motivated_by edge
+            // to the current Active milestone. This is a hard requirement.
+            // ============================================================
             var motivatedBy = Trimmed(n.MotivatedByPlanNodeId);
+
+            // Priority chain for finding the milestone to link to:
+            // 1. LLM-provided motivatedByPlanNodeId (if valid)
+            // 2. Active milestone from Neo4j query
+            // 3. Best matching milestone from existing milestones
+            // 4. Most recent milestone (highest round index) as last resort
+            if (motivatedBy.Length == 0 || !existingMilestones.Contains(motivatedBy))
+            {
+                var originalMotivatedBy = motivatedBy;
+
+                // Try activeMilestoneId first
+                if (!string.IsNullOrEmpty(activeMilestoneId) && existingMilestones.Contains(activeMilestoneId))
+                {
+                    motivatedBy = activeMilestoneId;
+                    node.Tags["motivatedByPlanNodeId_auto"] = "active_milestone";
+                }
+                // Try finding best match from existing milestones
+                else if (motivatedBy.Length > 0)
+                {
+                    var bestMatch = FindBestMatchingMilestone(motivatedBy, existingMilestones);
+                    if (!string.IsNullOrEmpty(bestMatch))
+                    {
+                        motivatedBy = bestMatch;
+                        node.Tags["motivatedByPlanNodeId_auto"] = "best_match";
+                    }
+                }
+                // Last resort: use the most recent milestone (highest round index)
+                else if (existingMilestones.Count > 0)
+                {
+                    var mostRecentMilestone = FindBestMatchingMilestone("", existingMilestones);
+                    if (!string.IsNullOrEmpty(mostRecentMilestone))
+                    {
+                        motivatedBy = mostRecentMilestone;
+                        node.Tags["motivatedByPlanNodeId_auto"] = "most_recent";
+                    }
+                }
+
+                // Store original for debugging if we had to fix it
+                if (originalMotivatedBy.Length > 0 && motivatedBy != originalMotivatedBy)
+                {
+                    node.Tags["originalMotivatedByPlanNodeId"] = originalMotivatedBy;
+                }
+            }
+
+            // Create the motivated_by edge (REQUIRED for all Knowledge nodes)
             if (motivatedBy.Length > 0 && kind == SraDagNodeKind.Knowledge)
             {
                 motivatedByEdges.Add((nid, motivatedBy));
-                // Also store in tags for traceability
                 node.Tags["motivatedByPlanNodeId"] = motivatedBy;
             }
+            else if (kind == SraDagNodeKind.Knowledge && existingMilestones.Count > 0)
+            {
+                // FALLBACK: If we still don't have a motivatedBy but milestones exist,
+                // this is a critical error - log it but still link to any milestone
+                var anyMilestone = existingMilestones.First();
+                motivatedByEdges.Add((nid, anyMilestone));
+                node.Tags["motivatedByPlanNodeId"] = anyMilestone;
+                node.Tags["motivatedByPlanNodeId_auto"] = "fallback_any";
+            }
+            else if (kind == SraDagNodeKind.Knowledge)
+            {
+                // No milestones exist at all - this can only happen during planning round
+                // Tag it for later linking by TryLinkOrphanedKnowledgeNodesToMilestoneAsync
+                node.Tags["motivatedByPlanNodeId_pending"] = "true";
+            }
 
+            // IMPORTANT: Knowledge node is ALWAYS created, regardless of motivatedBy validity
             mutation.UpsertNodes.Add(node);
         }
     }

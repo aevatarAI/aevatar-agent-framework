@@ -35,9 +35,15 @@ internal sealed partial class VibeOrchestrator
         string? providerName,
         CancellationToken ct)
     {
+        // Query the currently Active milestone from Neo4j.
+        // PlanNodes are stored with session.Id (not EffectiveDagId), so we use session.Id here.
+        var activeMilestoneId = await GetActiveMilestoneFromGraphAsync(session.Id, ct);
+
         // Parse candidate mutation from dag_builder output (JSON).
+        // Pass currentDag to validate motivatedByPlanNodeId references against existing milestones.
+        // Pass activeMilestoneId as default for knowledge nodes without motivatedByPlanNodeId.
         var candidateText = outputs.TryGetValue("dag_builder", out var x) ? x : string.Empty;
-        var candidate = TryParseDagBuilderCandidate(session.Id, candidateText);
+        var candidate = TryParseDagBuilderCandidate(session.Id, candidateText, currentDag, activeMilestoneId);
 
         if (candidate == null)
         {
@@ -288,6 +294,29 @@ internal sealed partial class VibeOrchestrator
         catch
         {
             return 0;
+        }
+    }
+
+    /// <summary>
+    /// Query the currently Active milestone from Neo4j for the given session.
+    /// Returns the node ID of the Active milestone, or null if none found.
+    /// </summary>
+    private async Task<string?> GetActiveMilestoneFromGraphAsync(string sessionId, CancellationToken ct)
+    {
+        try
+        {
+            var graphClient = _core.GraphFactory.CreateClient(sessionId);
+            var planNodes = await graphClient.GetPlanNodesAsync(ct);
+
+            var activeMilestone = planNodes.FirstOrDefault(p =>
+                p.Status == Aevatar.Agents.Knowledge.Graph.Models.PlanNodeStatus.Active);
+
+            return activeMilestone?.Id;
+        }
+        catch (Exception ex)
+        {
+            _host.Logger.LogDebug(ex, "[DagConsensus] Failed to query active milestone (best-effort)");
+            return null;
         }
     }
 

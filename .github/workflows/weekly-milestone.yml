@@ -1,0 +1,100 @@
+name: Create Weekly Milestone
+on:
+  schedule:
+    - cron: '0 1 * * 1'   # 每周一 UTC 01:00 (北京时间 09:00)
+  workflow_dispatch:       # 手动触发按钮
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create Milestone & Move Incomplete Issues
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const now = new Date();
+            const weekNum = Math.ceil(((now - new Date(now.getFullYear(), 0, 1)) / 86400000 + 1) / 7);
+            const friday = new Date(now);
+            friday.setDate(now.getDate() + (5 - now.getDay() + 7) % 7);
+
+            const title = `Week ${weekNum} (${now.getMonth()+1}/${now.getDate()} - ${friday.getMonth()+1}/${friday.getDate()})`;
+
+            // ========== 1. 创建本周 Milestone ==========
+            let newMilestone;
+            try {
+              newMilestone = await github.rest.issues.createMilestone({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                due_on: friday.toISOString()
+              });
+              console.log(`✅ Created milestone: ${title}`);
+            } catch (e) {
+              // 可能已存在，尝试获取
+              const existing = await github.rest.issues.listMilestones({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open'
+              });
+              newMilestone = existing.data.find(m => m.title === title);
+              if (newMilestone) {
+                console.log(`ℹ️ Milestone "${title}" already exists`);
+                newMilestone = { data: newMilestone };
+              } else {
+                throw e;
+              }
+            }
+
+            // ========== 2. 找到上周的 Milestone ==========
+            const allMilestones = await github.rest.issues.listMilestones({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              sort: 'due_on',
+              direction: 'desc'
+            });
+
+            // 找到上周的（不是本周的、且标题包含 Week）
+            const lastWeekMilestone = allMilestones.data.find(m =>
+              m.title !== title && m.title.startsWith('Week')
+            );
+
+            if (!lastWeekMilestone) {
+              console.log('ℹ️ No previous milestone found, skipping migration');
+              return;
+            }
+
+            console.log(`📦 Found last week milestone: ${lastWeekMilestone.title}`);
+
+            // ========== 3. 移动未完成的 Issues ==========
+            const openIssues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              milestone: lastWeekMilestone.number,
+              state: 'open'
+            });
+
+            console.log(`📋 Found ${openIssues.data.length} incomplete issues`);
+
+            for (const issue of openIssues.data) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                milestone: newMilestone.data.number
+              });
+              console.log(`  → Moved #${issue.number}: ${issue.title}`);
+            }
+
+            // ========== 4. 关闭上周的 Milestone ==========
+            if (openIssues.data.length > 0 || true) {  // 总是关闭上周的
+              await github.rest.issues.updateMilestone({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                milestone_number: lastWeekMilestone.number,
+                state: 'closed'
+              });
+              console.log(`🔒 Closed milestone: ${lastWeekMilestone.title}`);
+            }
+
+            console.log('✅ Weekly milestone rotation complete!');

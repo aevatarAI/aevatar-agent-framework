@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Aevatar.Agents.AGUI\Aevatar.Agents.AGUI.csproj" />
+    <ProjectReference Include="..\..\src\Aevatar.Agents.Maker\Aevatar.Agents.Maker.csproj" />
   </ItemGroup>
 
   <ItemGroup>

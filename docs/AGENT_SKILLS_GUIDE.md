@@ -122,8 +122,11 @@ export AEVATAR_AGENT_SKILLS_DIRS="/abs/skills;/abs/more-skills"
 ### 3) `skills_load`：加载技能正文 +（可选）导入工具
 
 发现规则（重要，适用于 `find_helpful_skills` / `list_skills` / `skills_load`）：
-- **递归发现**：会在 root 下递归查找包含 `SKILL.md` 的目录（最大深度：3）
+- **递归发现**：会在 root 下递归查找包含 `SKILL.md` 的目录（默认最大深度：6，可通过环境变量覆盖）
 - **会跳过**：`.*/bin/obj/node_modules` 以及 skill 内的 `scripts/references/assets`（这些是资源目录，不是 skill 容器）
+
+深度覆盖：
+- `AEVATAR_AGENT_SKILLS_MAX_DEPTH=8`（范围 1..12）
 
 参数：
 - **name**（必填）：skill 名称（优先匹配 `SKILL.md` front matter 的 `name`，其次匹配文件夹名）

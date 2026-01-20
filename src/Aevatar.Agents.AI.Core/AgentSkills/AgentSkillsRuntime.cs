@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using Aevatar.Agents.AI.Core.Configuration;
 using Microsoft.Extensions.Logging;
 namespace Aevatar.Agents.AI.Core;
 
@@ -15,7 +16,8 @@ internal sealed partial class AgentSkillsRuntime
 {
     private const string DefaultSkillEntryFileName = "SKILL.md";
     private const string AgentSkillsRootsEnv = "AEVATAR_AGENT_SKILLS_DIRS";
-    private const int AgentSkillsDiscoveryMaxDepth = 3;
+    private const int AgentSkillsDiscoveryMaxDepth = 6;
+    private const string AgentSkillsDiscoveryMaxDepthEnv = "AEVATAR_AGENT_SKILLS_MAX_DEPTH";
 
     private readonly AIGAgentBase _owner;
 
@@ -96,6 +98,20 @@ internal sealed partial class AgentSkillsRuntime
             }
         }
 
+        // Default root: ~/.aevatar/skills (if exists).
+        try
+        {
+            var defaultRoot = AgentYamlConfigLoader.GetSkillsDirectory();
+            if (!string.IsNullOrWhiteSpace(defaultRoot))
+            {
+                roots.Add(defaultRoot);
+            }
+        }
+        catch
+        {
+            // best-effort only
+        }
+
         // Normalize + dedupe
         var unique = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var result = new List<string>();
@@ -128,6 +144,7 @@ internal sealed partial class AgentSkillsRuntime
     {
         var list = new List<AgentSkillDescriptor>();
 
+        var maxDepth = GetDiscoveryMaxDepth();
         foreach (var root in roots)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -135,7 +152,7 @@ internal sealed partial class AgentSkillsRuntime
             if (!Directory.Exists(root))
                 continue;
 
-            foreach (var dir in EnumerateSkillCandidateDirectories(root, AgentSkillsDiscoveryMaxDepth, cancellationToken))
+            foreach (var dir in EnumerateSkillCandidateDirectories(root, maxDepth, cancellationToken))
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -170,6 +187,18 @@ internal sealed partial class AgentSkillsRuntime
         return list
             .OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    private static int GetDiscoveryMaxDepth()
+    {
+        var raw = Environment.GetEnvironmentVariable(AgentSkillsDiscoveryMaxDepthEnv);
+        if (!string.IsNullOrWhiteSpace(raw) &&
+            int.TryParse(raw.Trim(), out var parsed))
+        {
+            return Math.Clamp(parsed, 1, 12);
+        }
+
+        return AgentSkillsDiscoveryMaxDepth;
     }
 
     internal AgentSkillDescriptor? FindSkillByName(string name, CancellationToken cancellationToken)

@@ -15,6 +15,7 @@
     <Project Path="GraphNeo4jDemo\GraphNeo4jDemo.csproj" />
     <Project Path="InterruptibleChatWebDemo\InterruptibleChatWebDemo.csproj" />
     <Project Path="InterruptibleRunsDemo\InterruptibleRunsDemo.csproj" />
+    <Project Path="ProgressHookChatWebDemo\ProgressHookChatWebDemo.csproj" />
     <Project Path="LlmTornadoDemo\LlmTornadoDemo.csproj" />
     <Project Path="MCPToolDemo\MCPToolDemo.csproj" />
     <Project Path="MemoryDemo\MemoryDemo.csproj" />
@@ -22,5 +23,6 @@
     <Project Path="SimpleDemo\SimpleDemo.csproj" />
     <Project Path="SkillsMCPUnifiedDemo\SkillsMCPUnifiedDemo.csproj" />
     <Project Path="StateStoreDemo\StateStoreDemo.csproj" />
+    <Project Path="ProgressHookChatWebDemo\ProgressHookChatWebDemo.csproj" />
   </Folder>
 </Solution>

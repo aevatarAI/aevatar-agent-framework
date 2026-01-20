@@ -21,19 +21,19 @@ public class AgUiExecutionTraceMapperTests
 
         evt.Fields[ExecutionTraceEventFields.Status] =
             ExecutionTraceEventFieldValue.FromString(ExecutionTraceEventStatus.Completed);
-        evt.Fields[ExecutionTraceEventFields.WinnerProposalId] =
+        evt.Fields[ExecutionTraceEventMakerFields.WinnerProposalId] =
             ExecutionTraceEventFieldValue.FromString("decompose.gen[1]");
-        evt.Fields[ExecutionTraceEventFields.WinnerHash] =
+        evt.Fields[ExecutionTraceEventMakerFields.WinnerHash] =
             ExecutionTraceEventFieldValue.FromString("ABCDEF1234567890");
-        evt.Fields[ExecutionTraceEventFields.WinnerVotes] =
+        evt.Fields[ExecutionTraceEventMakerFields.WinnerVotes] =
             ExecutionTraceEventFieldValue.FromInt(3);
-        evt.Fields[ExecutionTraceEventFields.WinnerRunnerUpVotes] =
+        evt.Fields[ExecutionTraceEventMakerFields.WinnerRunnerUpVotes] =
             ExecutionTraceEventFieldValue.FromInt(1);
-        evt.Fields[ExecutionTraceEventFields.WinnerClusterCount] =
+        evt.Fields[ExecutionTraceEventMakerFields.WinnerClusterCount] =
             ExecutionTraceEventFieldValue.FromInt(2);
-        evt.Fields[ExecutionTraceEventFields.WinnerSemantic] =
+        evt.Fields[ExecutionTraceEventMakerFields.WinnerSemantic] =
             ExecutionTraceEventFieldValue.FromBool(true);
-        evt.Fields[ExecutionTraceEventFields.WinnerIsConsensus] =
+        evt.Fields[ExecutionTraceEventMakerFields.WinnerIsConsensus] =
             ExecutionTraceEventFieldValue.FromBool(true);
 
         var mapped = AgUiExecutionTraceMapper.Map(evt);

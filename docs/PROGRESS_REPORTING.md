@@ -12,7 +12,8 @@
 ## 2) 标准字段（ExecutionTraceEvent.fields）
 
 字段键名定义在：
-`src/Aevatar.Agents.Abstractions/Tracing/ExecutionTraceEventFields.cs`
+- `src/Aevatar.Agents.Abstractions/Tracing/ExecutionTraceEventFields.cs`（核心字段）
+- `src/Aevatar.Agents.Maker/Tracing/ExecutionTraceEventMakerFields.cs`（Maker/共识扩展）
 
 必须/常用字段：
 

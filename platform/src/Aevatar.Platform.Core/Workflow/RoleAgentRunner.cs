@@ -26,7 +26,7 @@ public sealed record RoleAgentRunOptions(
 
 public sealed class RoleAgentRunner
 {
-    private static readonly IReadOnlyList<string> HermesAllowlist = new[] { "file_read", "file_write" };
+    private static readonly IReadOnlyList<string> HermesAllowlist = new[] { "file_read", "file_write", "mesh_normalize" };
 
     // ============================================================
     //  ServiceProvider Cache
@@ -187,7 +187,7 @@ public sealed class RoleAgentRunner
         {
             var hermes = agentFactory.CreateGAgent<HermesAIGAgent>();
             hermes.InitializeRole(role);
-            hermes.ApplyToolOptions(BuildHermesToolOptions(input));
+            hermes.ApplyToolOptions(BuildHermesToolOptions(input), input.ConfigDirectory);
             return hermes;
         }
 

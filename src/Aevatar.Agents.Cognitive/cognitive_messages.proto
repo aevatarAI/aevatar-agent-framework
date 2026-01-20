@@ -333,6 +333,15 @@ message WorkflowStepEvent {
     
     // Red-Flag information (Paper Section 3.3)
     string red_flag_reason = 24;
+
+    // Vote winner (explicit)
+    string winner_proposal_id = 25;
+    string winner_hash = 26;
+    int32 winner_votes = 27;
+    int32 winner_runner_up_votes = 28;
+    int32 winner_cluster_count = 29;
+    bool winner_semantic = 30;
+    bool winner_is_consensus = 31;
 }
 
 // Workflow structure (for frontend graph rendering)

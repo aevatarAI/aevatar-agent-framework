@@ -26,6 +26,13 @@ public static class ExecutionTraceEventFields
     public const string VoteMaxRounds = "vote_max_rounds";
     public const string VoteK = "vote_k";
     public const string VoteCurrentVotes = "vote_current_votes";
+    public const string WinnerProposalId = "winner_proposal_id";
+    public const string WinnerHash = "winner_hash";
+    public const string WinnerVotes = "winner_votes";
+    public const string WinnerRunnerUpVotes = "winner_runner_up_votes";
+    public const string WinnerClusterCount = "winner_cluster_count";
+    public const string WinnerSemantic = "winner_semantic";
+    public const string WinnerIsConsensus = "winner_is_consensus";
 
     // Parallel / fan-out
     public const string ParallelTotal = "parallel_total";

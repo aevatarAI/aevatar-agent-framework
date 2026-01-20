@@ -138,6 +138,30 @@ Key fields inside `value.fields`:
 - Use `STEP_STARTED/STEP_FINISHED` for timeline, and `CUSTOM` for detail
   (vote counts, progress, token stats).
 
+### 4.4 Proposal -> consensus UI mapping (recommended)
+
+Use `aevatar.workflow.execution_event` to build a **proposal panel** and a
+**consensus progress panel**:
+
+- **Proposal cards**: `nodeId` matches `dag_consensus:{stepId}.gen[n]` and
+  `step_type == "llm_call"`. Use `fields.assistant_response` for streaming
+  content, and `status` to mark `running/completed/failed`.
+- **Vote progress**: `nodeId` matches `dag_consensus:{stepId}` with
+  `step_type == "vote"`. Use `vote_round`, `vote_k`, `vote_current_votes`,
+  `vote_max_rounds`, `progress`.
+- **Parent linkage**: derive parent by stripping `.gen[n]`, or use
+  `fields.parent_step_id` when present.
+- **Consensus reached**: when `vote_current_votes >= vote_k`, or when the
+  vote step receives `STEP_FINISHED` / `status=completed`.
+- **Explicit winner**: read `winner_proposal_id` / `winner_hash` from
+  `value.fields` on the vote step completion event. The winner content is
+  the vote step's `assistant_response`.
+- **Batch size**: `parallel_total` indicates how many proposals are created
+  in the current batch; you can render placeholders or a mini progress bar.
+
+Note: `STEP_STARTED/STEP_FINISHED` are de-duplicated for streaming events, so
+use `CUSTOM` events to update proposal text in real time.
+
 ## 5) Pivot AG-UI events
 
 Pivot events are emitted as **AG-UI typed events** (not CUSTOM):
@@ -186,7 +210,7 @@ These are emitted for UI-specific cards and snapshots:
 - `aevatar.vibe.trace_snapshot`
 - `aevatar.vibe.agents_snapshot`
 - `aevatar.vibe.agent_providers_snapshot`
-- `aevatar.vibe.plan_dag_written`
+- `aevatar.vibe.plan_dag_written` (legacy, currently disabled)
 - `aevatar.vibe.milestones_plan_dag_written`
 - `aevatar.vibe.dag_updated`
 - `aevatar.vibe.mesh_started`
@@ -197,7 +221,6 @@ These are emitted for UI-specific cards and snapshots:
 - `aevatar.vibe.milestone_started`
 - `aevatar.vibe.milestone_error`
 - `aevatar.vibe.milestone_finished`
-- `aevatar.vibe.pivot_completed` (legacy custom)
 - `aevatar.vibe.round_summary`
 - `aevatar.vibe.agent_status_report`
 

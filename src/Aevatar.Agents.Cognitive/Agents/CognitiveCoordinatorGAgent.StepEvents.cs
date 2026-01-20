@@ -57,7 +57,15 @@ public partial class CognitiveCoordinatorGAgent
         string? userPrompt = null,
         string? assistantResponse = null,
         // Red-Flag information
-        string? redFlagReason = null)
+        string? redFlagReason = null,
+        // Vote winner (explicit)
+        string? winnerProposalId = null,
+        string? winnerHash = null,
+        int? winnerVotes = null,
+        int? winnerRunnerUpVotes = null,
+        int? winnerClusterCount = null,
+        bool? winnerSemantic = null,
+        bool? winnerIsConsensus = null)
     {
         var now = DateTime.UtcNow;
         var durationMs = 0;
@@ -101,6 +109,26 @@ public partial class CognitiveCoordinatorGAgent
             // Red-Flag information
             RedFlagReason = redFlagReason ?? ""
         };
+
+        var hasWinner =
+            !string.IsNullOrWhiteSpace(winnerProposalId) ||
+            !string.IsNullOrWhiteSpace(winnerHash) ||
+            winnerVotes.HasValue ||
+            winnerRunnerUpVotes.HasValue ||
+            winnerClusterCount.HasValue ||
+            winnerSemantic.HasValue ||
+            winnerIsConsensus.HasValue;
+
+        if (hasWinner)
+        {
+            evt.WinnerProposalId = winnerProposalId ?? "";
+            evt.WinnerHash = winnerHash ?? "";
+            if (winnerVotes.HasValue) evt.WinnerVotes = winnerVotes.Value;
+            if (winnerRunnerUpVotes.HasValue) evt.WinnerRunnerUpVotes = winnerRunnerUpVotes.Value;
+            if (winnerClusterCount.HasValue) evt.WinnerClusterCount = winnerClusterCount.Value;
+            if (winnerSemantic.HasValue) evt.WinnerSemantic = winnerSemantic.Value;
+            if (winnerIsConsensus.HasValue) evt.WinnerIsConsensus = winnerIsConsensus.Value;
+        }
 
         // When multiple tasks parallel (vote streaming), avoid List concurrent writes causing memory corruption/hang
         lock (_stepEventsLock)
@@ -196,6 +224,53 @@ public partial class CognitiveCoordinatorGAgent
         {
             traceEvent.Fields[ExecutionTraceEventFields.AssistantResponse] =
                 ExecutionTraceEventFieldValue.FromString(evt.AssistantResponse);
+        }
+
+        var hasWinner =
+            !string.IsNullOrWhiteSpace(evt.WinnerProposalId) ||
+            !string.IsNullOrWhiteSpace(evt.WinnerHash) ||
+            evt.WinnerVotes > 0 ||
+            evt.WinnerRunnerUpVotes > 0 ||
+            evt.WinnerClusterCount > 0 ||
+            evt.WinnerSemantic ||
+            evt.WinnerIsConsensus;
+
+        if (hasWinner)
+        {
+            if (!string.IsNullOrWhiteSpace(evt.WinnerProposalId))
+            {
+                traceEvent.Fields[ExecutionTraceEventFields.WinnerProposalId] =
+                    ExecutionTraceEventFieldValue.FromString(evt.WinnerProposalId);
+            }
+
+            if (!string.IsNullOrWhiteSpace(evt.WinnerHash))
+            {
+                traceEvent.Fields[ExecutionTraceEventFields.WinnerHash] =
+                    ExecutionTraceEventFieldValue.FromString(evt.WinnerHash);
+            }
+
+            if (evt.WinnerVotes > 0)
+            {
+                traceEvent.Fields[ExecutionTraceEventFields.WinnerVotes] =
+                    ExecutionTraceEventFieldValue.FromInt(evt.WinnerVotes);
+            }
+
+            if (evt.WinnerRunnerUpVotes > 0)
+            {
+                traceEvent.Fields[ExecutionTraceEventFields.WinnerRunnerUpVotes] =
+                    ExecutionTraceEventFieldValue.FromInt(evt.WinnerRunnerUpVotes);
+            }
+
+            if (evt.WinnerClusterCount > 0)
+            {
+                traceEvent.Fields[ExecutionTraceEventFields.WinnerClusterCount] =
+                    ExecutionTraceEventFieldValue.FromInt(evt.WinnerClusterCount);
+            }
+
+            traceEvent.Fields[ExecutionTraceEventFields.WinnerSemantic] =
+                ExecutionTraceEventFieldValue.FromBool(evt.WinnerSemantic);
+            traceEvent.Fields[ExecutionTraceEventFields.WinnerIsConsensus] =
+                ExecutionTraceEventFieldValue.FromBool(evt.WinnerIsConsensus);
         }
 
         return traceEvent;

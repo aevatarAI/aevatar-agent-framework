@@ -1,20 +1,9 @@
 // ============================================================
-//  WorkflowTopology - Main DAG Visualization Component
+//  WorkflowTopology - Canvas-based DAG Visualization
+//  Radial Force Layout with Active Milestone as Center
 // ============================================================
 
 import { useCallback, useMemo, useEffect, useRef, useState } from 'react'
-import {
-  ReactFlow,
-  Background,
-  Controls,
-  useNodesState,
-  useEdgesState,
-  BackgroundVariant,
-  MarkerType,
-  type Node,
-  type Edge,
-  type ReactFlowInstance,
-} from '@xyflow/react'
 import { GitBranch, ArrowUpCircle, ArrowDownCircle, Link2, X } from 'lucide-react'
 import { useSisyphusStore } from '@/store/sisyphus-store'
 import { useDagInteractions } from '@/hooks/use-dag-interactions'
@@ -24,11 +13,18 @@ import { cn } from '@/lib/utils'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogCloseButton } from '@/components/ui/dialog'
 import { SummaryModal } from '../summary-modal'
 import { SubGraphViewer } from '../sub-graph-viewer'
-import '@xyflow/react/dist/style.css'
 
 import { type NodeFilterMode } from './dag-node-styles'
-import { getLayoutedElements } from './dag-layout'
-import { nodeTypes } from './cyber-node'
+import {
+  createRadialForceLayout,
+  createPersistentSimulation,
+  findCenterNode,
+  type LayoutNode,
+  type LayoutEdge,
+  type SimulationManager,
+} from './radial-force-layout'
+import { CanvasRenderer, type Transform } from './canvas-renderer'
+import { InteractionManager } from './interaction-manager'
 import { NodeLegend } from './node-legend'
 import { NodeDetailsPanel } from './node-details-panel'
 import { TopologyHeader } from './topology-header'
@@ -44,184 +40,128 @@ export interface WorkflowTopologyProps {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Tooltip Component
+// ─────────────────────────────────────────────────────────────
+
+interface TooltipProps {
+  node: LayoutNode
+  x: number
+  y: number
+}
+
+function NodeTooltip({ node, x, y }: TooltipProps) {
+  const style = node.kind === 'Plan'
+    ? { bg: '#3b82f6', border: '#60a5fa' }
+    : { bg: '#22c55e', border: '#4ade80' }
+
+  return (
+    <div
+      className="fixed z-[100] pointer-events-none"
+      style={{ left: x + 15, top: y - 10 }}
+    >
+      <div
+        className="px-3 py-2.5 rounded-lg text-xs font-mono"
+        style={{
+          minWidth: '180px',
+          maxWidth: '320px',
+          background: 'rgba(10, 15, 25, 0.98)',
+          border: `2px solid ${style.border}`,
+          boxShadow: `0 0 30px ${style.bg}40, 0 4px 20px rgba(0,0,0,0.5)`,
+        }}
+      >
+        {/* Badges */}
+        <div className="flex flex-wrap items-center gap-1.5 mb-2">
+          {node.kind && (
+            <span className={cn(
+              "text-[9px] px-1.5 py-0.5 rounded shrink-0",
+              node.kind === 'Plan' ? "bg-blue-500/20 text-blue-400" : "bg-green-500/20 text-green-400"
+            )}>
+              {node.kind}
+            </span>
+          )}
+          {node.isOtherSession && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-gray-500/20 text-gray-400 shrink-0">
+              Other Session
+            </span>
+          )}
+          {node.planStatus && (
+            <span className={cn(
+              "text-[9px] px-1.5 py-0.5 rounded shrink-0",
+              node.planStatus === 'Pending' && "bg-yellow-500/20 text-yellow-400",
+              node.planStatus === 'Active' && "bg-blue-500/20 text-blue-400",
+              node.planStatus === 'Completed' && "bg-green-500/20 text-green-400"
+            )}>
+              {node.planStatus}
+            </span>
+          )}
+        </div>
+        {/* ID */}
+        <div
+          className="font-bold truncate mb-2 pb-2 border-b border-slate-600/50"
+          style={{ color: style.bg }}
+          title={node.id}
+        >
+          {node.id.length > 24 ? node.id.slice(0, 22) + '..' : node.id}
+        </div>
+        {/* Label */}
+        <div className="text-slate-200 leading-relaxed text-[11px] line-clamp-2" title={node.label}>
+          {node.label}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
 // Main Component
 // ─────────────────────────────────────────────────────────────
 
 export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: WorkflowTopologyProps) {
   const { dag, selectedNodeId, setDag, setSelectedNode, isConnected, activeMilestoneNodeId, setActiveMilestoneNodeId, nodeExplanation } = useSisyphusStore()
   const { setHighlight, clearHighlight, highlightMode, highlightedNodeIds, dagStats } = useDagInteractions()
-  const reactFlowInstance = useRef<ReactFlowInstance | null>(null)
+
+  // Refs
+  const containerRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const rendererRef = useRef<CanvasRenderer | null>(null)
+  const interactionRef = useRef<InteractionManager | null>(null)
+  const simulationRef = useRef<SimulationManager | null>(null)
+  const positionCacheRef = useRef<Map<string, { x: number; y: number }>>(new Map())
+  const lastSessionIdRef = useRef<string | null>(null)
+  const animationRef = useRef<number>(0)
+
+  // State
   const [refreshing, setRefreshing] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [summaryOpen, setSummaryOpen] = useState(false)
   const [filterMode, setFilterMode] = useState<NodeFilterMode>('all')
   const [isFullscreen, setIsFullscreen] = useState(false)
-  const prevActiveMilestone = useRef<string | null>(null)
-  const prevSessionId = useRef<string>(sessionId)
-  const isProgrammaticMove = useRef(false)
-  const refreshInProgress = useRef(false)
-  const prevNodeCount = useRef(0)
-  const hasUserInteracted = useRef(false)
+  const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, scale: 1 })
+  const [hoveredNode, setHoveredNode] = useState<{ node: LayoutNode; x: number; y: number } | null>(null)
+  const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 })
+
+  // Layout nodes/edges
+  const [layoutNodes, setLayoutNodes] = useState<LayoutNode[]>([])
+  const [layoutEdges, setLayoutEdges] = useState<LayoutEdge[]>([])
 
   const selectedNodeForDialog = useMemo(() => {
     if (!selectedNodeId || !dag?.nodes) return null
     return dag.nodes.find(n => n.id === selectedNodeId) || null
   }, [dag, selectedNodeId])
 
-  // ── Focus on a specific node by ID ──
-  const focusOnNode = useCallback((nodeId: string) => {
-    if (!reactFlowInstance.current) return
-    const node = reactFlowInstance.current.getNode(nodeId)
-    if (!node) return
-
-    isProgrammaticMove.current = true
-    reactFlowInstance.current.setCenter(
-      node.position.x + 24,
-      node.position.y + 24,
-      { zoom: 1.2, duration: 500 }
-    )
-    setTimeout(() => { isProgrammaticMove.current = false }, 600)
-  }, [])
-
-  // ── Focus on active milestone only ──
-  const focusOnActiveMilestone = useCallback(() => {
-    if (activeMilestoneNodeId) focusOnNode(activeMilestoneNodeId)
-  }, [activeMilestoneNodeId, focusOnNode])
-
-  // ── Smart Focus: prioritize Active Milestone > Plan > Knowledge > Other ──
-  const smartFocus = useCallback(() => {
-    if (!reactFlowInstance.current || !dag?.nodes || dag.nodes.length === 0) return
-
-    // Priority 1: Active milestone (currently executing plan node)
-    if (activeMilestoneNodeId) {
-      focusOnNode(activeMilestoneNodeId)
-      return
+  // ── Convert DAG to layout format ──
+  const { filteredNodes, filteredEdges, centerNodeId } = useMemo(() => {
+    if (!dag?.nodes || dag.nodes.length === 0) {
+      return { filteredNodes: [], filteredEdges: [], centerNodeId: null }
     }
-
-    // Priority 2: Plan nodes in current session (prefer last one as "newest")
-    const currentSessionPlanNodes = dag.nodes.filter(
-      n => n.kind === 'Plan' && (!n.sessionId || n.sessionId === sessionId)
-    )
-    if (currentSessionPlanNodes.length > 0) {
-      const lastPlan = currentSessionPlanNodes[currentSessionPlanNodes.length - 1]
-      focusOnNode(lastPlan.id)
-      return
-    }
-
-    // Priority 3: Any Plan node (from other sessions)
-    const anyPlanNode = dag.nodes.find(n => n.kind === 'Plan')
-    if (anyPlanNode) {
-      focusOnNode(anyPlanNode.id)
-      return
-    }
-
-    // Priority 4: Knowledge nodes in current session (prefer last one)
-    const currentSessionKnowledgeNodes = dag.nodes.filter(
-      n => n.kind === 'Knowledge' && (!n.sessionId || n.sessionId === sessionId)
-    )
-    if (currentSessionKnowledgeNodes.length > 0) {
-      const lastKnowledge = currentSessionKnowledgeNodes[currentSessionKnowledgeNodes.length - 1]
-      focusOnNode(lastKnowledge.id)
-      return
-    }
-
-    // Priority 5: Any Knowledge node (from other sessions)
-    const anyKnowledgeNode = dag.nodes.find(n => n.kind === 'Knowledge')
-    if (anyKnowledgeNode) {
-      focusOnNode(anyKnowledgeNode.id)
-      return
-    }
-
-    // Priority 6: First node as fallback (Other types)
-    if (dag.nodes.length > 0) {
-      focusOnNode(dag.nodes[0].id)
-    }
-  }, [dag, activeMilestoneNodeId, sessionId, focusOnNode])
-
-  // ── Handle filter change ──
-  const handleFilterChange = useCallback((newMode: NodeFilterMode) => {
-    setFilterMode(newMode)
-  }, [])
-
-  // Auto-follow active milestone (always on)
-  useEffect(() => {
-    if (!activeMilestoneNodeId) return
-    if (activeMilestoneNodeId === prevActiveMilestone.current) return
-    const timer = setTimeout(() => focusOnNode(activeMilestoneNodeId), 300)
-    prevActiveMilestone.current = activeMilestoneNodeId
-    return () => clearTimeout(timer)
-  }, [activeMilestoneNodeId, focusOnNode])
-
-  // Re-focus when session changes
-  useEffect(() => {
-    if (sessionId === prevSessionId.current) return
-    prevSessionId.current = sessionId
-    hasUserInteracted.current = false
-    prevNodeCount.current = 0
-    // Delay to allow DAG data to load for new session
-    const timer = setTimeout(smartFocus, 500)
-    return () => clearTimeout(timer)
-  }, [sessionId, smartFocus])
-
-  // Silent refresh DAG from API
-  const silentRefresh = useCallback(async () => {
-    if (!sessionId || !isConnected || refreshInProgress.current) return
-    refreshInProgress.current = true
-    try {
-      const snapshot = await getDagSnapshot(sessionId)
-      if (snapshot) {
-        const nodes: DAGNode[] = (snapshot.nodes || []).map(n => ({
-          id: n.id, label: n.label || n.id, status: 'completed', type: n.type || 'node',
-          kind: n.kind as NodeKind | undefined, owner: n.owner, proof: n.proof,
-          attestations: n.attestations, attestationsCount: n.attestationsCount, sessionId: n.sessionId,
-          // Map planStatus from API for Plan nodes (Active milestone detection)
-          planStatus: n.planStatus as 'Pending' | 'Active' | 'Completed' | undefined,
-        }))
-        const edges = (snapshot.edges || []).map(e => ({ source: e.fromId, target: e.toId, type: e.type }))
-        setDag({ nodes, edges })
-        
-        // Detect and update active milestone from planStatus
-        const activeNode = nodes.find(n => n.planStatus === 'Active')
-        if (activeNode && activeNode.id !== activeMilestoneNodeId) {
-          setActiveMilestoneNodeId(activeNode.id, sessionId)
-        } else if (!activeNode && activeMilestoneNodeId) {
-          // Clear if no active milestone anymore
-          setActiveMilestoneNodeId(null, sessionId)
-        }
-      }
-    } catch (e) {
-      if ((e as Error)?.name !== 'AbortError') console.error("Failed to refresh DAG:", e)
-    } finally {
-      refreshInProgress.current = false
-    }
-  }, [sessionId, isConnected, setDag, activeMilestoneNodeId, setActiveMilestoneNodeId])
-
-  const handleRefresh = useCallback(async () => {
-    setRefreshing(true)
-    await silentRefresh()
-    setRefreshing(false)
-  }, [silentRefresh])
-
-  // Auto-refresh every 10 seconds (reduced from 5s for performance)
-  // DAG updates are typically event-driven, polling is just a fallback
-  useEffect(() => {
-    if (!sessionId || !isConnected) return
-    silentRefresh()
-    const intervalId = setInterval(silentRefresh, 10000)
-    return () => clearInterval(intervalId)
-  }, [sessionId, isConnected, silentRefresh])
-
-  // Convert graph data to ReactFlow format
-  const { nodes: initialNodes, edges: initialEdges } = useMemo(() => {
-    if (!dag?.nodes || dag.nodes.length === 0) return { nodes: [] as Node[], edges: [] as Edge[] }
 
     const isHighlighting = highlightMode !== 'none'
 
+    // Filter nodes
     const filteredDagNodes = dag.nodes.slice(0, 200).filter((node) => {
       if (filterMode === 'all') return true
       const isOtherSession = node.sessionId ? node.sessionId !== sessionId : false
       const isCurrentSession = !isOtherSession
-      // Check both: store's activeMilestoneNodeId OR node's planStatus from API
       const isActiveMilestone = node.id === activeMilestoneNodeId || node.planStatus === 'Active'
       if (filterMode === 'PlanActive') return isActiveMilestone && node.kind === 'Plan'
       if (filterMode === 'Plan') return node.kind === 'Plan' && isCurrentSession
@@ -232,208 +172,346 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
 
     const visibleNodeIds = new Set(filteredDagNodes.map(n => n.id))
 
-    const nodes: Node[] = filteredDagNodes.map((node) => {
-      const isSelected = node.id === selectedNodeId
-      const isHighlighted = highlightedNodeIds.includes(node.id)
+    // Convert to LayoutNode
+    const nodes: LayoutNode[] = filteredDagNodes.map((node) => {
       const isOtherSession = node.sessionId ? node.sessionId !== sessionId : false
       const isActiveMilestone = node.id === activeMilestoneNodeId
-      const planStatus = isActiveMilestone ? 'Active' : (node.planStatus as 'Pending' | 'Active' | 'Completed' | undefined)
-      const isDimmed = isHighlighting && !isSelected && !isHighlighted
-
       return {
         id: node.id,
-        type: 'cyber',
-        data: {
-          id: node.id, label: node.label || node.id, status: node.status || 'pending',
-          selected: isSelected, kind: node.kind as 'Plan' | 'Knowledge' | undefined,
-          planStatus, highlighted: isHighlighted, dimmed: isDimmed, isOtherSession,
-        },
-        position: { x: 0, y: 0 },
+        label: node.label || node.id,
+        kind: node.kind as 'Plan' | 'Knowledge' | undefined,
+        planStatus: isActiveMilestone ? 'Active' : (node.planStatus as 'Pending' | 'Active' | 'Completed' | undefined),
+        isOtherSession,
+        level: 0, // Will be calculated by layout
       }
     })
 
-    const filteredDagEdges = (dag.edges || []).slice(0, 400).filter((edge) => 
-      visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target)
-    )
+    // Filter edges
+    const edges: LayoutEdge[] = (dag.edges || [])
+      .slice(0, 400)
+      .filter(e => visibleNodeIds.has(e.source) && visibleNodeIds.has(e.target))
+      .map((e, i) => ({
+        id: `e-${e.source}-${e.target}-${i}`,
+        source: e.source,
+        target: e.target,
+        type: e.type,
+      }))
 
-    const edges: Edge[] = filteredDagEdges.map((edge, i) => {
-      const isMotivatedBy = edge.type === 'motivated_by'
-      const edgeColor = isMotivatedBy ? '#f59e0b' : '#00f0ff'
-      return {
-        id: `e-${edge.source}-${edge.target}-${i}`,
-        source: edge.source, target: edge.target, animated: true,
-        style: { stroke: edgeColor, strokeWidth: isMotivatedBy ? 1.5 : 2, strokeDasharray: isMotivatedBy ? '5 3' : undefined },
-        markerEnd: { type: MarkerType.ArrowClosed, color: edgeColor, width: isMotivatedBy ? 16 : 20, height: isMotivatedBy ? 16 : 20 },
-        label: isMotivatedBy ? '✨' : undefined,
-        labelStyle: isMotivatedBy ? { fontSize: 10 } : undefined,
-      }
-    })
+    // Find center node (Active milestone first, then most connected)
+    const center = activeMilestoneNodeId && visibleNodeIds.has(activeMilestoneNodeId)
+      ? activeMilestoneNodeId
+      : findCenterNode(nodes, edges)
 
-    return getLayoutedElements(nodes, edges, 'TB')
+    return { filteredNodes: nodes, filteredEdges: edges, centerNodeId: center }
   }, [dag, selectedNodeId, highlightMode, highlightedNodeIds, sessionId, activeMilestoneNodeId, filterMode])
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
-
+  // ── Calculate layout with persistent simulation ──
   useEffect(() => {
-    setNodes(initialNodes)
-    setEdges(initialEdges)
-    const currentCount = initialNodes.length
-    const wasEmpty = prevNodeCount.current === 0
-    const nowHasNodes = currentCount > 0
+    // Cleanup previous simulation
+    simulationRef.current?.destroy()
+    simulationRef.current = null
 
-    // Smart focus on initial load (0 → N transition) if no user interaction
-    if (wasEmpty && nowHasNodes && !hasUserInteracted.current) {
-      setTimeout(smartFocus, 100)
+    if (filteredNodes.length === 0) {
+      setLayoutNodes([])
+      setLayoutEdges([])
+      return
     }
-    prevNodeCount.current = currentCount
-  }, [initialNodes, initialEdges, setNodes, setEdges, smartFocus])
 
-  const handleMoveEnd = useCallback(() => {
-    if (!isProgrammaticMove.current) hasUserInteracted.current = true
+    // Skip if canvas size is invalid
+    if (canvasSize.width <= 0 || canvasSize.height <= 0) {
+      return
+    }
+
+    // Check if session changed - clear cache and reset transform
+    const sessionChanged = lastSessionIdRef.current !== sessionId
+    if (sessionChanged) {
+      positionCacheRef.current.clear()
+      setTransform({ x: canvasSize.width / 2, y: canvasSize.height / 2, scale: 1 })
+      lastSessionIdRef.current = sessionId
+    }
+
+    // Create persistent simulation with position cache
+    const manager = createPersistentSimulation(
+      filteredNodes,
+      filteredEdges,
+      {
+        width: canvasSize.width,
+        height: canvasSize.height,
+        centerNodeId,
+        existingPositions: sessionChanged ? undefined : positionCacheRef.current,
+      },
+      (nodes) => {
+        // Update layout and cache positions
+        setLayoutNodes([...nodes])
+        // Update position cache
+        nodes.forEach(n => {
+          if (n.x !== undefined && n.y !== undefined) {
+            positionCacheRef.current.set(n.id, { x: n.x, y: n.y })
+          }
+        })
+      }
+    )
+
+    simulationRef.current = manager
+    setLayoutNodes([...manager.nodes])
+    setLayoutEdges([...manager.edges])
+
+    // Initial cache update
+    manager.nodes.forEach(n => {
+      if (n.x !== undefined && n.y !== undefined) {
+        positionCacheRef.current.set(n.id, { x: n.x, y: n.y })
+      }
+    })
+
+    return () => {
+      manager.destroy()
+    }
+  }, [filteredNodes, filteredEdges, centerNodeId, canvasSize, sessionId])
+
+  // ── Initialize renderer and interaction manager ──
+  useEffect(() => {
+    const canvas = canvasRef.current
+    const container = containerRef.current
+    if (!canvas || !container) return
+
+    // Get actual container size for initial resize
+    const rect = container.getBoundingClientRect()
+    const actualWidth = rect.width
+    const actualHeight = Math.max(300, rect.height - 120)
+
+    // Create renderer with actual dimensions
+    const renderer = new CanvasRenderer(canvas, {
+      selectedNodeId,
+      highlightedNodeIds,
+      dimmedMode: highlightMode !== 'none',
+    })
+    renderer.resize(actualWidth, actualHeight)
+    rendererRef.current = renderer
+
+    // Update canvasSize state to match actual dimensions
+    if (canvasSize.width !== actualWidth || canvasSize.height !== actualHeight) {
+      setCanvasSize({ width: actualWidth, height: actualHeight })
+    }
+
+    // Create interaction manager
+    const interaction = new InteractionManager(
+      canvas,
+      (x, y, nodes) => renderer.hitTest(x, y, nodes),
+      {
+        onTransformChange: setTransform,
+        onNodeClick: (node) => {
+          if (node) {
+            setSelectedNode(node.id)
+            clearHighlight()
+            setDetailsOpen(true)
+          }
+        },
+        onNodeHover: (node, x, y) => {
+          setHoveredNode(node ? { node, x, y } : null)
+        },
+        onNodeDrag: (node, x, y) => {
+          // Update position in simulation - this will push other nodes away
+          simulationRef.current?.updateNodePosition(node.id, x, y)
+        },
+        onNodeDragEnd: (node) => {
+          // Release the fixed position and let simulation settle
+          simulationRef.current?.setDraggedNode(null)
+          simulationRef.current?.reheat()
+        },
+        onBackgroundClick: () => {
+          // Optional: clear selection on background click
+        },
+      }
+    )
+    interactionRef.current = interaction
+
+    // Cleanup
+    return () => {
+      interaction.destroy()
+      cancelAnimationFrame(animationRef.current)
+    }
+  }, [canvasSize.width, canvasSize.height])
+
+  // ── Update renderer config when selection changes ──
+  useEffect(() => {
+    rendererRef.current?.setConfig({
+      selectedNodeId,
+      highlightedNodeIds,
+      dimmedMode: highlightMode !== 'none',
+    })
+  }, [selectedNodeId, highlightedNodeIds, highlightMode])
+
+  // ── Ensure renderer is resized when session changes ──
+  useEffect(() => {
+    // Delayed resize to ensure DOM is updated
+    const timeoutId = setTimeout(() => {
+      const container = containerRef.current
+      if (!rendererRef.current || !container) return
+
+      // Get actual container dimensions
+      const rect = container.getBoundingClientRect()
+      const actualWidth = rect.width
+      const actualHeight = Math.max(300, rect.height - 120)
+
+      if (actualWidth > 0 && actualHeight > 0) {
+        rendererRef.current.resize(actualWidth, actualHeight)
+        setCanvasSize({ width: actualWidth, height: actualHeight })
+      }
+    }, 50)
+    return () => clearTimeout(timeoutId)
+  }, [sessionId])
+
+  // ── Render loop ──
+  useEffect(() => {
+    const render = () => {
+      const renderer = rendererRef.current
+      if (renderer && layoutNodes.length > 0) {
+        renderer.setTransform(transform)
+        renderer.render(layoutNodes, layoutEdges)
+      }
+      animationRef.current = requestAnimationFrame(render)
+    }
+
+    render()
+    return () => cancelAnimationFrame(animationRef.current)
+  }, [layoutNodes, layoutEdges, transform])
+
+  // ── Update interaction manager nodes ──
+  useEffect(() => {
+    interactionRef.current?.setNodes(layoutNodes)
+    interactionRef.current?.setTransform(transform)
+  }, [layoutNodes, transform])
+
+  // ── Resize handling ──
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (entry) {
+        const { width, height } = entry.contentRect
+        // Subtract header and footer heights
+        const canvasHeight = Math.max(300, height - 120)
+        setCanvasSize({ width, height: canvasHeight })
+        rendererRef.current?.resize(width, canvasHeight)
+      }
+    })
+
+    resizeObserver.observe(container)
+    return () => resizeObserver.disconnect()
   }, [])
 
-  const onLayout = useCallback((direction: 'TB' | 'LR') => {
-    const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(nodes, edges, direction)
-    setNodes([...layoutedNodes])
-    setEdges([...layoutedEdges])
-  }, [nodes, edges, setNodes, setEdges])
+  // ── Auto-fit on initial load or session change ──
+  useEffect(() => {
+    if (layoutNodes.length > 0 && interactionRef.current && canvasSize.width > 0) {
+      // Use requestAnimationFrame to ensure DOM is ready, then fit view
+      const rafId = requestAnimationFrame(() => {
+        setTimeout(() => {
+          interactionRef.current?.fitView(layoutNodes, canvasSize.width, canvasSize.height)
+        }, 50)
+      })
+      return () => cancelAnimationFrame(rafId)
+    }
+  }, [sessionId, layoutNodes.length, canvasSize.width, canvasSize.height])
 
-  const onNodeClick = useCallback((_: unknown, node: Node) => {
-    setSelectedNode(node.id)
-    clearHighlight()
-    setDetailsOpen(true)
-  }, [setSelectedNode, clearHighlight])
+  // ── Focus on active milestone ──
+  const focusOnActiveMilestone = useCallback(() => {
+    if (!activeMilestoneNodeId || !interactionRef.current) return
+    const node = layoutNodes.find(n => n.id === activeMilestoneNodeId)
+    if (node) {
+      interactionRef.current.focusOnNode(node, canvasSize.width, canvasSize.height)
+    }
+  }, [activeMilestoneNodeId, layoutNodes, canvasSize])
 
-  // Reference to the container for native fullscreen
-  const containerRef = useRef<HTMLDivElement>(null)
+  // ── Refresh DAG ──
+  const silentRefresh = useCallback(async () => {
+    if (!sessionId || !isConnected) return
+    try {
+      const snapshot = await getDagSnapshot(sessionId)
+      if (snapshot) {
+        const nodes: DAGNode[] = (snapshot.nodes || []).map(n => ({
+          id: n.id, label: n.label || n.id, status: 'completed', type: n.type || 'node',
+          kind: n.kind as NodeKind | undefined, owner: n.owner, proof: n.proof,
+          attestations: n.attestations, attestationsCount: n.attestationsCount, sessionId: n.sessionId,
+          planStatus: n.planStatus as 'Pending' | 'Active' | 'Completed' | undefined,
+        }))
+        const edges = (snapshot.edges || []).map(e => ({ source: e.fromId, target: e.toId, type: e.type }))
+        setDag({ nodes, edges })
 
-  // Toggle fullscreen mode - use native browser fullscreen API
+        const activeNode = nodes.find(n => n.planStatus === 'Active')
+        if (activeNode && activeNode.id !== activeMilestoneNodeId) {
+          setActiveMilestoneNodeId(activeNode.id, sessionId)
+        } else if (!activeNode && activeMilestoneNodeId) {
+          setActiveMilestoneNodeId(null, sessionId)
+        }
+      }
+    } catch (e) {
+      if ((e as Error)?.name !== 'AbortError') console.error("Failed to refresh DAG:", e)
+    }
+  }, [sessionId, isConnected, setDag, activeMilestoneNodeId, setActiveMilestoneNodeId])
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true)
+    await silentRefresh()
+    setRefreshing(false)
+  }, [silentRefresh])
+
+  // Auto-refresh
+  useEffect(() => {
+    if (!sessionId || !isConnected) return
+    silentRefresh()
+    const intervalId = setInterval(silentRefresh, 10000)
+    return () => clearInterval(intervalId)
+  }, [sessionId, isConnected, silentRefresh])
+
+  // ── Fullscreen handling ──
   const toggleFullscreen = useCallback(async () => {
-    console.log('[DAG] toggleFullscreen called, current isFullscreen:', isFullscreen)
-
     if (!isFullscreen) {
-      // Enter fullscreen using native API
       try {
         if (containerRef.current) {
           await containerRef.current.requestFullscreen()
           setIsFullscreen(true)
-          console.log('[DAG] Entered native fullscreen')
         }
-      } catch (err) {
-        // Fallback to CSS-based fullscreen if native fails
-        console.log('[DAG] Native fullscreen failed, using CSS fallback:', err)
+      } catch {
         setIsFullscreen(true)
       }
     } else {
-      // Exit fullscreen
       try {
         if (document.fullscreenElement) {
           await document.exitFullscreen()
         }
         setIsFullscreen(false)
-        console.log('[DAG] Exited fullscreen')
-      } catch (err) {
-        console.log('[DAG] Exit fullscreen error:', err)
+      } catch {
         setIsFullscreen(false)
       }
     }
-
-    // Re-layout after transition
-    setTimeout(() => {
-      if (reactFlowInstance.current) {
-        reactFlowInstance.current.fitView({ padding: 0.2, duration: 300 })
-      }
-    }, 200)
   }, [isFullscreen])
 
-  // Listen for native fullscreen changes (e.g., user presses ESC)
   useEffect(() => {
     const handleFullscreenChange = () => {
-      const isNowFullscreen = !!document.fullscreenElement
-      console.log('[DAG] fullscreenchange event, isFullscreen:', isNowFullscreen)
-      setIsFullscreen(isNowFullscreen)
+      setIsFullscreen(!!document.fullscreenElement)
     }
     document.addEventListener('fullscreenchange', handleFullscreenChange)
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
   }, [])
 
-  // Handle ESC key to exit fullscreen
-  useEffect(() => {
-    if (!isFullscreen) return
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsFullscreen(false)
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isFullscreen])
-
-  // Track previous filterMode for detecting clear action
-  const prevFilterMode = useRef<NodeFilterMode>(filterMode)
-  const clearingInProgress = useRef(false)
-
-  // Handle filterMode change (separate from nodes.length change)
-  useEffect(() => {
-    if (!reactFlowInstance.current) return
-    if (filterMode === prevFilterMode.current) return // No actual filter change
-    
-    const wasFiltered = prevFilterMode.current !== 'all'
-    const isClearing = filterMode === 'all' && wasFiltered
-    prevFilterMode.current = filterMode
-
-    if (isClearing) {
-      // Mark that we're clearing - prevent fitView from nodes.length effect
-      clearingInProgress.current = true
-      // Delay to allow nodes to re-render, then smartFocus
-      setTimeout(() => {
-        isProgrammaticMove.current = true
-        smartFocus()
-        setTimeout(() => {
-          isProgrammaticMove.current = false
-          clearingInProgress.current = false
-        }, 500)
-      }, 100)
-    } else {
-      // Applying filter → fitView to show all filtered nodes
-      setTimeout(() => {
-        isProgrammaticMove.current = true
-        reactFlowInstance.current?.fitView({ padding: 0.2, duration: 400 })
-        setTimeout(() => { isProgrammaticMove.current = false }, 500)
-      }, 50)
-    }
-  }, [filterMode, smartFocus])
-
-  // Re-fit when nodes count changes (but not during clear operation)
-  useEffect(() => {
-    if (!reactFlowInstance.current || !nodes.length) return
-    if (clearingInProgress.current) return // Skip during clear
-    if (filterMode === 'all') return // Don't fitView when showing all
-    
-    setTimeout(() => {
-      isProgrammaticMove.current = true
-      reactFlowInstance.current?.fitView({ padding: 0.2, duration: 400 })
-      setTimeout(() => { isProgrammaticMove.current = false }, 500)
-    }, 50)
-  }, [nodes.length, filterMode])
-
   const nodeCount = dag?.nodes?.length ?? 0
   const edgeCount = dag?.edges?.length ?? 0
 
-  // Empty state
+  // ── Empty state ──
   if (!dag?.nodes || dag.nodes.length === 0) {
     return (
       <div
         ref={containerRef}
         className={cn(
           "flex flex-col overflow-hidden transition-all duration-300",
-          isFullscreen
-            ? "fixed inset-0 z-[9999] bg-[#0a0c10] border-4 border-neon-cyan/50"
-            : "card",
+          isFullscreen ? "fixed inset-0 z-[9999] bg-[#0a0c10] border-4 border-neon-cyan/50" : "card",
           fullHeight && !isFullscreen && "h-full"
         )}
       >
         <TopologyHeader
-          onLayout={onLayout} onRefresh={handleRefresh} refreshing={refreshing}
+          onRefresh={handleRefresh} refreshing={refreshing}
           nodeCount={0} edgeCount={0} activeMilestone={activeMilestoneNodeId}
           onFullscreenToggle={toggleFullscreen} isFullscreen={isFullscreen}
           onFocusActive={focusOnActiveMilestone}
@@ -462,16 +540,14 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
       ref={containerRef}
       className={cn(
         "flex flex-col overflow-hidden transition-all duration-300",
-        isFullscreen
-          ? "fixed inset-0 z-[9999] bg-[#0a0c10] border-4 border-neon-cyan/50"
-          : "card",
+        isFullscreen ? "fixed inset-0 z-[9999] bg-[#0a0c10] border-4 border-neon-cyan/50" : "card",
         fullHeight && !isFullscreen && "h-full"
       )}
     >
-      {/* Header - always on top */}
+      {/* Header */}
       <div className="relative z-30 flex-shrink-0 bg-[#0c0f14]">
         <TopologyHeader
-          onLayout={onLayout} onRefresh={handleRefresh} onCollapse={isFullscreen ? undefined : onCollapse}
+          onRefresh={handleRefresh} onCollapse={isFullscreen ? undefined : onCollapse}
           onSummary={() => setSummaryOpen(true)}
           onFullscreenToggle={toggleFullscreen} isFullscreen={isFullscreen}
           onFocusActive={focusOnActiveMilestone}
@@ -481,22 +557,15 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
         />
       </div>
 
-      {/* ReactFlow container */}
+      {/* Canvas container */}
       <div className={cn("flex-1 relative z-10", isFullscreen ? "min-h-0" : "min-h-[350px]")}>
         <div className="absolute inset-0 bg-[#0c0f14]">
-          <ReactFlow
-            nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
-            onNodeClick={onNodeClick} onMoveEnd={handleMoveEnd} nodeTypes={nodeTypes}
-            fitView={false} fitViewOptions={{ padding: 0.3, maxZoom: 1.5, minZoom: 0.1 }}
-            defaultViewport={{ x: 0, y: 0, zoom: 1.2 }} minZoom={0.1} maxZoom={2}
-            onInit={(instance) => { reactFlowInstance.current = instance }}
-            proOptions={{ hideAttribution: true }} 
-            style={{ background: 'transparent' }}
-          >
-            <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="rgba(0, 255, 136, 0.15)" />
-            <Controls className="!bg-bg-surface/90 !backdrop-blur-md !border !border-neon-cyan/30 !rounded-lg !shadow-none [&>button]:!bg-transparent [&>button]:!border-0 [&>button]:!border-b [&>button]:!border-border-subtle [&>button]:!text-neon-cyan [&>button]:!w-8 [&>button]:!h-8 [&>button]:!p-0 [&>button:hover]:!bg-neon-cyan/20 [&>button:last-child]:!border-b-0 [&>button>svg]:!w-4 [&>button>svg]:!h-4 [&>button>svg]:!fill-neon-cyan" position="bottom-right" />
-          </ReactFlow>
-          {/* Exit fullscreen button - top left corner */}
+          <canvas
+            ref={canvasRef}
+            className="w-full h-full"
+            style={{ cursor: 'grab' }}
+          />
+          {/* Fullscreen exit button */}
           {isFullscreen && (
             <button
               onClick={toggleFullscreen}
@@ -506,15 +575,48 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
               <span>EXIT FULLSCREEN</span>
             </button>
           )}
+          {/* Zoom controls */}
+          <div className="absolute bottom-4 right-4 z-40 flex flex-col gap-1 p-1 rounded-lg bg-bg-surface/90 backdrop-blur-md border border-neon-cyan/30">
+            <button
+              onClick={() => interactionRef.current?.setZoom(transform.scale * 1.2, canvasSize.width / 2, canvasSize.height / 2)}
+              className="p-1.5 rounded hover:bg-neon-cyan/20 text-neon-cyan transition-colors"
+              title="Zoom in"
+            >
+              <svg className="size-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+            </button>
+            <button
+              onClick={() => interactionRef.current?.setZoom(transform.scale / 1.2, canvasSize.width / 2, canvasSize.height / 2)}
+              className="p-1.5 rounded hover:bg-neon-cyan/20 text-neon-cyan transition-colors"
+              title="Zoom out"
+            >
+              <svg className="size-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M20 12H4" />
+              </svg>
+            </button>
+            <button
+              onClick={() => interactionRef.current?.fitView(layoutNodes, canvasSize.width, canvasSize.height)}
+              className="p-1.5 rounded hover:bg-neon-cyan/20 text-neon-cyan transition-colors"
+              title="Fit view"
+            >
+              <svg className="size-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Footer - always on top */}
+      {/* Footer */}
       <div className={cn("relative z-30 flex-shrink-0", isFullscreen && "bg-[#0c0f14]")}>
-        <NodeLegend filterMode={filterMode} onFilterChange={handleFilterChange} />
+        <NodeLegend filterMode={filterMode} onFilterChange={setFilterMode} />
       </div>
 
-      {/* Node details modal - Split Panel Layout with SubGraph + Details */}
+      {/* Tooltip */}
+      {hoveredNode && <NodeTooltip node={hoveredNode.node} x={hoveredNode.x} y={hoveredNode.y} />}
+
+      {/* Node details modal */}
       <Dialog open={detailsOpen} onOpenChange={(open) => { setDetailsOpen(open); if (!open) { setSelectedNode(null); clearHighlight() } }}>
         <DialogContent className="bg-bg-surface/95 backdrop-blur-md border border-border-default rounded-xl shadow-lg text-text-primary overflow-hidden max-w-7xl w-[90vw]">
           <DialogHeader>

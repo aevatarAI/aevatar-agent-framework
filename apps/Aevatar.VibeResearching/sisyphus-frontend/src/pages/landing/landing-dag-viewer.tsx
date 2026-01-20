@@ -1,29 +1,23 @@
 // ============================================================
-//  Landing DAG Viewer - Interactive Full DAG Display
+//  Landing DAG Viewer - Canvas-based Interactive DAG Display
 //  Data source: Global DAG API (real data from backend)
 // ============================================================
 
 import { useCallback, useMemo, useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import {
-  ReactFlow,
-  Background,
-  Controls,
-  useNodesState,
-  useEdgesState,
-  BackgroundVariant,
-  MarkerType,
-  type Node,
-  type Edge,
-  type ReactFlowInstance,
-} from '@xyflow/react'
-import { RotateCcw, Sparkles, Loader2, GitBranch, RefreshCw } from 'lucide-react'
+import { RotateCcw, Sparkles, Loader2, GitBranch, RefreshCw, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { nodeTypes } from '@/components/sisyphus/workflow-topology/cyber-node'
-import { getLayoutedElements } from '@/components/sisyphus/workflow-topology/dag-layout'
 import { getGlobalDagSnapshot, type DagSnapshot, type DagNode as ApiDagNode } from '@/lib/axiom-client'
 import type { DAGGraph, DAGNode } from '@/types'
-import '@xyflow/react/dist/style.css'
+import {
+  createPersistentSimulation,
+  findCenterNode,
+  type LayoutNode,
+  type LayoutEdge,
+  type SimulationManager,
+} from '@/components/sisyphus/workflow-topology/radial-force-layout'
+import { CanvasRenderer, type Transform } from '@/components/sisyphus/workflow-topology/canvas-renderer'
+import { InteractionManager } from '@/components/sisyphus/workflow-topology/interaction-manager'
 
 // ─── Transform API data to frontend format ───
 function transformApiData(snapshot: DagSnapshot): DAGGraph {
@@ -63,12 +57,83 @@ function calculateStats(data: DAGGraph | null) {
   }
 }
 
+// ─── Tooltip Component ───
+interface TooltipProps {
+  node: LayoutNode
+  x: number
+  y: number
+}
+
+function NodeTooltip({ node, x, y }: TooltipProps) {
+  const style = node.kind === 'Plan'
+    ? { bg: '#3b82f6', border: '#60a5fa' }
+    : { bg: '#22c55e', border: '#4ade80' }
+
+  return (
+    <div
+      className="fixed z-[100] pointer-events-none"
+      style={{ left: x + 15, top: y - 10 }}
+    >
+      <div
+        className="px-3 py-2.5 rounded-lg text-xs font-mono"
+        style={{
+          minWidth: '180px',
+          maxWidth: '320px',
+          background: 'rgba(10, 15, 25, 0.98)',
+          border: `2px solid ${style.border}`,
+          boxShadow: `0 0 30px ${style.bg}40, 0 4px 20px rgba(0,0,0,0.5)`,
+        }}
+      >
+        <div className="flex flex-wrap items-center gap-1.5 mb-2">
+          {node.kind && (
+            <span className={cn(
+              "text-[9px] px-1.5 py-0.5 rounded shrink-0",
+              node.kind === 'Plan' ? "bg-blue-500/20 text-blue-400" : "bg-green-500/20 text-green-400"
+            )}>
+              {node.kind}
+            </span>
+          )}
+          {node.planStatus && (
+            <span className={cn(
+              "text-[9px] px-1.5 py-0.5 rounded shrink-0",
+              node.planStatus === 'Active' && "bg-blue-500/20 text-blue-400",
+              node.planStatus === 'Completed' && "bg-green-500/20 text-green-400"
+            )}>
+              {node.planStatus}
+            </span>
+          )}
+        </div>
+        <div className="font-bold truncate mb-2 pb-2 border-b border-slate-600/50" style={{ color: style.bg }}>
+          {node.id.length > 24 ? node.id.slice(0, 22) + '..' : node.id}
+        </div>
+        <div className="text-slate-200 leading-relaxed text-[11px] line-clamp-2">
+          {node.label}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function LandingDagViewer() {
   const navigate = useNavigate()
-  const reactFlowInstance = useRef<ReactFlowInstance | null>(null)
-  const [selectedNode, setSelectedNode] = useState<DAGNode | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const rendererRef = useRef<CanvasRenderer | null>(null)
+  const interactionRef = useRef<InteractionManager | null>(null)
+  const simulationRef = useRef<SimulationManager | null>(null)
+  const positionCacheRef = useRef<Map<string, { x: number; y: number }>>(new Map())
+  const animationRef = useRef<number>(0)
 
-  // ─── Data Loading State ───
+  const [selectedNode, setSelectedNode] = useState<DAGNode | null>(null)
+  const [hoveredNode, setHoveredNode] = useState<{ node: LayoutNode; x: number; y: number } | null>(null)
+  const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, scale: 1 })
+  const [canvasSize, setCanvasSize] = useState({ width: 600, height: 500 })
+
+  // Layout state
+  const [layoutNodes, setLayoutNodes] = useState<LayoutNode[]>([])
+  const [layoutEdges, setLayoutEdges] = useState<LayoutEdge[]>([])
+
+  // Data Loading State
   const [dagData, setDagData] = useState<DAGGraph | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -101,119 +166,190 @@ export function LandingDagViewer() {
 
   const stats = useMemo(() => calculateStats(dagData), [dagData])
 
-  // ─── Transform DAG to ReactFlow Format ───
-  const { nodes: initialNodes, edges: initialEdges } = useMemo(() => {
-    if (!dagData) return { nodes: [], edges: [] }
+  // ─── Convert DAG to Layout format ───
+  const { filteredNodes, filteredEdges, centerNodeId } = useMemo(() => {
+    if (!dagData) return { filteredNodes: [], filteredEdges: [], centerNodeId: null }
 
-    // Show all nodes (no filtering in Landing Page)
-    const visibleNodeIds = new Set(dagData.nodes.map(n => n.id))
+    const nodes: LayoutNode[] = dagData.nodes.map((node) => ({
+      id: node.id,
+      label: node.label || node.id,
+      kind: node.kind as 'Plan' | 'Knowledge' | undefined,
+      planStatus: node.planStatus as 'Pending' | 'Active' | 'Completed' | undefined,
+      isOtherSession: false,
+      level: 0,
+    }))
 
-    const nodes: Node[] = dagData.nodes.map((node) => {
-      const isSelected = node.id === selectedNode?.id
-      const isActivePlan = node.kind === 'Plan' && node.planStatus === 'Active'
+    const edges: LayoutEdge[] = dagData.edges.map((e, i) => ({
+      id: `e-${e.source}-${e.target}-${i}`,
+      source: e.source,
+      target: e.target,
+      type: e.type,
+    }))
 
-      return {
-        id: node.id,
-        type: 'cyber',
-        data: {
-          id: node.id,
-          label: node.label,
-          status: node.status || 'pending',
-          selected: isSelected,
-          kind: node.kind as 'Plan' | 'Knowledge' | undefined,
-          planStatus: node.planStatus as 'Pending' | 'Active' | 'Completed' | undefined,
-          highlighted: isActivePlan,
-          dimmed: false,
-          isOtherSession: false,
-        },
-        position: { x: 0, y: 0 },
+    const center = findCenterNode(nodes, edges)
+    return { filteredNodes: nodes, filteredEdges: edges, centerNodeId: center }
+  }, [dagData])
+
+  // ─── Calculate layout with persistent simulation ───
+  useEffect(() => {
+    simulationRef.current?.destroy()
+    simulationRef.current = null
+
+    if (filteredNodes.length === 0) {
+      setLayoutNodes([])
+      setLayoutEdges([])
+      return
+    }
+
+    const manager = createPersistentSimulation(
+      filteredNodes,
+      filteredEdges,
+      {
+        width: canvasSize.width,
+        height: canvasSize.height,
+        centerNodeId,
+        existingPositions: positionCacheRef.current,
+      },
+      (nodes) => {
+        setLayoutNodes([...nodes])
+        nodes.forEach(n => {
+          if (n.x !== undefined && n.y !== undefined) {
+            positionCacheRef.current.set(n.id, { x: n.x, y: n.y })
+          }
+        })
       }
-    })
-
-    const filteredEdges = dagData.edges.filter(
-      (edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target)
     )
 
-    const edges: Edge[] = filteredEdges.map((edge, i) => {
-      const isMotivatedBy = edge.type === 'motivated_by'
-      const edgeColor = isMotivatedBy ? '#f59e0b' : '#00f0ff'
+    simulationRef.current = manager
+    setLayoutNodes([...manager.nodes])
+    setLayoutEdges([...manager.edges])
 
-      return {
-        id: `e-${edge.source}-${edge.target}-${i}`,
-        source: edge.source,
-        target: edge.target,
-        animated: true,
-        style: {
-          stroke: edgeColor,
-          strokeWidth: isMotivatedBy ? 1.5 : 2,
-          strokeDasharray: isMotivatedBy ? '5 3' : undefined,
-        },
-        markerEnd: {
-          type: MarkerType.ArrowClosed,
-          color: edgeColor,
-          width: isMotivatedBy ? 16 : 20,
-          height: isMotivatedBy ? 16 : 20,
-        },
-        label: isMotivatedBy ? '✨' : undefined,
-        labelStyle: isMotivatedBy ? { fontSize: 10 } : undefined,
+    manager.nodes.forEach(n => {
+      if (n.x !== undefined && n.y !== undefined) {
+        positionCacheRef.current.set(n.id, { x: n.x, y: n.y })
       }
     })
 
-    return getLayoutedElements(nodes, edges, 'TB')
-  }, [dagData, selectedNode])
+    return () => {
+      manager.destroy()
+    }
+  }, [filteredNodes, filteredEdges, centerNodeId, canvasSize])
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
-
-  // Update nodes/edges when data or filter changes
+  // ─── Initialize renderer and interaction ───
   useEffect(() => {
-    setNodes(initialNodes)
-    setEdges(initialEdges)
-  }, [initialNodes, initialEdges, setNodes, setEdges])
+    const canvas = canvasRef.current
+    if (!canvas) return
 
-  // ─── Fit View after nodes update ───
+    const renderer = new CanvasRenderer(canvas, {
+      selectedNodeId: selectedNode?.id,
+    })
+    renderer.resize(canvasSize.width, canvasSize.height)
+    rendererRef.current = renderer
+
+    const interaction = new InteractionManager(
+      canvas,
+      (x, y, nodes) => renderer.hitTest(x, y, nodes),
+      {
+        onTransformChange: setTransform,
+        onNodeClick: (node) => {
+          if (node && dagData) {
+            const dagNode = dagData.nodes.find(n => n.id === node.id)
+            setSelectedNode(dagNode || null)
+          }
+        },
+        onNodeHover: (node, x, y) => {
+          setHoveredNode(node ? { node, x, y } : null)
+        },
+        onNodeDrag: (node, x, y) => {
+          simulationRef.current?.updateNodePosition(node.id, x, y)
+        },
+        onNodeDragEnd: (node) => {
+          simulationRef.current?.setDraggedNode(null)
+          simulationRef.current?.reheat()
+        },
+        onBackgroundClick: () => setSelectedNode(null),
+      }
+    )
+    interactionRef.current = interaction
+
+    return () => {
+      interaction.destroy()
+      cancelAnimationFrame(animationRef.current)
+    }
+  }, [canvasSize, dagData])
+
+  // ─── Update renderer config ───
   useEffect(() => {
-    if (reactFlowInstance.current && nodes.length > 0) {
+    rendererRef.current?.setConfig({ selectedNodeId: selectedNode?.id })
+  }, [selectedNode])
+
+  // ─── Render loop ───
+  useEffect(() => {
+    const render = () => {
+      const renderer = rendererRef.current
+      if (renderer && layoutNodes.length > 0) {
+        renderer.setTransform(transform)
+        renderer.render(layoutNodes, layoutEdges)
+      }
+      animationRef.current = requestAnimationFrame(render)
+    }
+    render()
+    return () => cancelAnimationFrame(animationRef.current)
+  }, [layoutNodes, layoutEdges, transform])
+
+  // ─── Update interaction nodes ───
+  useEffect(() => {
+    interactionRef.current?.setNodes(layoutNodes)
+    interactionRef.current?.setTransform(transform)
+  }, [layoutNodes, transform])
+
+  // ─── Resize handling ───
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (entry) {
+        const { width, height } = entry.contentRect
+        setCanvasSize({ width, height: Math.max(400, height) })
+        rendererRef.current?.resize(width, Math.max(400, height))
+      }
+    })
+
+    resizeObserver.observe(container)
+    return () => resizeObserver.disconnect()
+  }, [])
+
+  // ─── Auto-fit on load ───
+  useEffect(() => {
+    if (layoutNodes.length > 0 && interactionRef.current) {
       setTimeout(() => {
-        reactFlowInstance.current?.fitView({ padding: 0.15, duration: 400 })
+        interactionRef.current?.fitView(layoutNodes, canvasSize.width, canvasSize.height)
       }, 100)
     }
-  }, [nodes.length])
-
-  // ─── Node Click Handler ───
-  const onNodeClick = useCallback((_: unknown, node: Node) => {
-    if (!dagData) return
-    const dagNode = dagData.nodes.find(n => n.id === node.id)
-    setSelectedNode(dagNode || null)
-  }, [dagData])
+  }, [layoutNodes.length > 0 ? 'loaded' : 'empty'])
 
   // ─── Reset View ───
   const handleResetView = useCallback(() => {
-    reactFlowInstance.current?.fitView({ padding: 0.15, duration: 400 })
-  }, [])
+    interactionRef.current?.fitView(layoutNodes, canvasSize.width, canvasSize.height)
+  }, [layoutNodes, canvasSize])
 
-  // ─── Empty State Component ───
+  // ─── Empty State ───
   const EmptyState = () => (
     <div className="flex-1 flex items-center justify-center p-8">
       <div className="text-center max-w-md">
-        {/* Decorative Icon */}
         <div className="relative mx-auto mb-8">
           <div className="size-24 rounded-2xl bg-gradient-to-br from-neon-cyan/20 to-neon-purple/20 flex items-center justify-center border border-neon-cyan/30">
             <GitBranch className="size-12 text-neon-cyan/60" />
           </div>
-          {/* Floating particles */}
           <div className="absolute -top-2 -right-2 size-4 rounded-full bg-neon-gold/40 animate-pulse" />
           <div className="absolute -bottom-1 -left-1 size-3 rounded-full bg-neon-purple/40 animate-pulse" style={{ animationDelay: '0.5s' }} />
         </div>
-
-        <h3 className="font-display text-xl font-bold text-text-primary mb-3">
-          Knowledge Graph Awaits
-        </h3>
-        
+        <h3 className="font-display text-xl font-bold text-text-primary mb-3">Knowledge Graph Awaits</h3>
         <p className="text-sm text-text-secondary leading-relaxed mb-6">
-          No research sessions yet. Start your first research session to build your knowledge graph — every hypothesis verified, every fact connected.
+          No research sessions yet. Start your first research session to build your knowledge graph.
         </p>
-
         <div className="flex flex-col items-center gap-3">
           <button
             onClick={() => navigate('/app')}
@@ -222,7 +358,6 @@ export function LandingDagViewer() {
             <Sparkles className="size-4" />
             <span>Start First Research</span>
           </button>
-          
           <button
             onClick={fetchDagData}
             className="inline-flex items-center gap-2 px-4 py-2 text-sm text-text-muted hover:text-neon-cyan transition-colors"
@@ -231,16 +366,11 @@ export function LandingDagViewer() {
             <span>Refresh</span>
           </button>
         </div>
-
-        {/* Bottom hint */}
-        <p className="mt-8 text-xs text-text-dimmed font-mono">
-          "Facts are nodes. Derivations are edges."
-        </p>
       </div>
     </div>
   )
 
-  // ─── Loading State Component ───
+  // ─── Loading State ───
   const LoadingState = () => (
     <div className="flex-1 flex items-center justify-center">
       <div className="text-center">
@@ -250,16 +380,14 @@ export function LandingDagViewer() {
     </div>
   )
 
-  // ─── Error State Component ───
+  // ─── Error State ───
   const ErrorState = () => (
     <div className="flex-1 flex items-center justify-center p-8">
       <div className="text-center max-w-md">
         <div className="size-16 rounded-xl bg-red-500/20 flex items-center justify-center mx-auto mb-4 border border-red-500/30">
           <X className="size-8 text-red-400" />
         </div>
-        <h3 className="font-display text-lg font-bold text-text-primary mb-2">
-          Failed to Load
-        </h3>
+        <h3 className="font-display text-lg font-bold text-text-primary mb-2">Failed to Load</h3>
         <p className="text-sm text-text-secondary mb-4">{error}</p>
         <button
           onClick={fetchDagData}
@@ -272,49 +400,55 @@ export function LandingDagViewer() {
     </div>
   )
 
-  // ─── Determine content to render ───
+  // ─── Render Content ───
   const renderContent = () => {
     if (isLoading) return <LoadingState />
     if (error) return <ErrorState />
     if (!dagData || dagData.nodes.length === 0) return <EmptyState />
 
     return (
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onNodeClick={onNodeClick}
-        nodeTypes={nodeTypes}
-        fitView
-        fitViewOptions={{ padding: 0.15, maxZoom: 1.5, minZoom: 0.1 }}
-        minZoom={0.1}
-        maxZoom={2}
-        onInit={(instance) => { reactFlowInstance.current = instance }}
-        proOptions={{ hideAttribution: true }}
-        style={{ background: 'transparent' }}
-      >
-        <Background
-          variant={BackgroundVariant.Dots}
-          gap={20}
-          size={1}
-          color="rgba(0, 255, 136, 0.15)"
-        />
-        <Controls
-          className="!bg-bg-surface/90 !backdrop-blur-md !border !border-neon-cyan/30 !rounded-lg !shadow-none [&>button]:!bg-transparent [&>button]:!border-0 [&>button]:!border-b [&>button]:!border-border-subtle [&>button]:!text-neon-cyan [&>button]:!w-8 [&>button]:!h-8 [&>button]:!p-0 [&>button:hover]:!bg-neon-cyan/20 [&>button:last-child]:!border-b-0 [&>button>svg]:!w-4 [&>button>svg]:!h-4 [&>button>svg]:!fill-neon-cyan"
-          position="bottom-right"
-        />
-      </ReactFlow>
+      <div ref={containerRef} className="w-full h-full relative">
+        <canvas ref={canvasRef} className="w-full h-full" style={{ cursor: 'grab' }} />
+        {/* Zoom controls */}
+        <div className="absolute bottom-4 right-4 z-40 flex flex-col gap-1 p-1 rounded-lg bg-bg-surface/90 backdrop-blur-md border border-neon-cyan/30">
+          <button
+            onClick={() => interactionRef.current?.setZoom(transform.scale * 1.2, canvasSize.width / 2, canvasSize.height / 2)}
+            className="p-1.5 rounded hover:bg-neon-cyan/20 text-neon-cyan transition-colors"
+            title="Zoom in"
+          >
+            <svg className="size-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+          </button>
+          <button
+            onClick={() => interactionRef.current?.setZoom(transform.scale / 1.2, canvasSize.width / 2, canvasSize.height / 2)}
+            className="p-1.5 rounded hover:bg-neon-cyan/20 text-neon-cyan transition-colors"
+            title="Zoom out"
+          >
+            <svg className="size-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M20 12H4" />
+            </svg>
+          </button>
+          <button
+            onClick={handleResetView}
+            className="p-1.5 rounded hover:bg-neon-cyan/20 text-neon-cyan transition-colors"
+            title="Fit view"
+          >
+            <svg className="size-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
+            </svg>
+          </button>
+        </div>
+        {hoveredNode && <NodeTooltip node={hoveredNode.node} x={hoveredNode.x} y={hoveredNode.y} />}
+      </div>
     )
   }
 
   return (
     <div className="flex h-[600px]">
-      {/* ─── Left: DAG Visualization ─── */}
+      {/* Left: DAG Visualization */}
       <div className="flex-[1.5] relative">
         {renderContent()}
-
-        {/* ─── Top Controls (only show when data exists) ─── */}
         {dagData && dagData.nodes.length > 0 && (
           <div className="absolute top-4 right-4 z-30 flex items-center gap-2">
             <button
@@ -335,16 +469,14 @@ export function LandingDagViewer() {
         )}
       </div>
 
-      {/* ─── Right: Sidebar ─── */}
+      {/* Right: Sidebar */}
       <div className="w-80 border-l border-border-subtle bg-bg-surface/80 backdrop-blur-md overflow-y-auto flex flex-col">
         <div className="p-4 space-y-6 flex-1">
-          {/* Stats - Global DAG Knowledge Count */}
           <div className="space-y-3">
             <h3 className="font-display text-xs text-neon-cyan tracking-wider">KNOWLEDGE GRAPH</h3>
             <StatCard label="KNOWLEDGE NODES" value={stats.knowledgeCount} color="green" />
           </div>
 
-          {/* Selected Node */}
           {selectedNode && (
             <div className="space-y-3">
               <h3 className="font-display text-xs text-neon-purple tracking-wider">SELECTED NODE</h3>
@@ -371,18 +503,12 @@ export function LandingDagViewer() {
                     </span>
                   )}
                 </div>
-                <p className="text-sm font-medium text-text-primary leading-snug">
-                  {selectedNode.label}
-                </p>
-                <p className="text-xs text-text-dimmed font-mono">
-                  {selectedNode.id}
-                </p>
+                <p className="text-sm font-medium text-text-primary leading-snug">{selectedNode.label}</p>
+                <p className="text-xs text-text-dimmed font-mono">{selectedNode.id}</p>
                 {selectedNode.proof && (
                   <div className="pt-2 border-t border-border-subtle">
                     <span className="text-xs text-neon-cyan">Proof:</span>
-                    <p className="text-xs text-text-secondary mt-1">
-                      {selectedNode.proof}
-                    </p>
+                    <p className="text-xs text-text-secondary mt-1">{selectedNode.proof}</p>
                   </div>
                 )}
                 {selectedNode.attestationsCount && (
@@ -396,7 +522,6 @@ export function LandingDagViewer() {
           )}
         </div>
 
-        {/* CTA */}
         <div className="p-4 border-t border-border-subtle">
           <button
             onClick={() => navigate('/app')}
@@ -405,9 +530,7 @@ export function LandingDagViewer() {
             <Sparkles className="size-4" />
             <span>Start Your Research</span>
           </button>
-          <p className="mt-2 text-xs text-text-dimmed text-center">
-            Build your own knowledge graph
-          </p>
+          <p className="mt-2 text-xs text-text-dimmed text-center">Build your own knowledge graph</p>
         </div>
       </div>
     </div>

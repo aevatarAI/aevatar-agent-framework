@@ -151,7 +151,7 @@ internal sealed partial class VibeOrchestrator
                 var status = ResolveStatus(progress);
                 var stepName = string.IsNullOrWhiteSpace(evt.NodeId) ? (evt.Phase ?? string.Empty) : evt.NodeId;
 
-                var mapped = AgUiExecutionTraceMapper.Map(evt);
+                var mapped = AgUiTraceProjector.Map(evt);
                 var toPublish = new List<AgUiEvent>(mapped.Count);
 
                 lock (gate)

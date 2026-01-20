@@ -12,6 +12,11 @@ namespace Aevatar.Agents.Abstractions.Tracing;
 // ============================================================
 public static class ExecutionTraceEventFields
 {
+    // Identity
+    public const string AgentId = "agent_id";
+    public const string SessionId = "session_id";
+    public const string MessageId = "message_id";
+
     // Core
     public const string Status = "status";
     public const string Progress = "progress";
@@ -49,6 +54,14 @@ public static class ExecutionTraceEventFields
     public const string PromptTokens = "prompt_tokens";
     public const string CompletionTokens = "completion_tokens";
 
+    // LLM/tool lifecycle
+    public const string Phase = "phase";
+    public const string LlmModel = "llm_model";
+    public const string ToolName = "tool_name";
+    public const string ToolCallId = "tool_call_id";
+    public const string DurationMs = "duration_ms";
+    public const string Error = "error";
+
     // Optional LLM context (keep short; prefer external storage for large payloads)
     public const string SystemPrompt = "system_prompt";
     public const string UserPrompt = "user_prompt";
@@ -62,6 +75,18 @@ public static class ExecutionTraceEventStatus
     public const string Completed = "completed";
     public const string Failed = "failed";
     public const string Cancelled = "cancelled";
+}
+
+public static class ExecutionTraceEventPhase
+{
+    public const string SessionStart = "session.start";
+    public const string SessionStop = "session.stop";
+    public const string LlmRequest = "llm.request";
+    public const string LlmResponse = "llm.response";
+    public const string ToolStart = "tool.start";
+    public const string ToolProgress = "tool.progress";
+    public const string ToolEnd = "tool.end";
+    public const string Error = "error";
 }
 
 public static class ExecutionTraceEventFieldValue

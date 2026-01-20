@@ -144,7 +144,15 @@ internal sealed class NotebookToolManager : IAevatarToolManager
         CancellationToken cancellationToken = default)
     {
         var sink = NotebookStreamEventContext.Current;
-        var toolCallId = Guid.NewGuid().ToString("N");
+        var toolCallId = context?.ToolCallId;
+        if (string.IsNullOrWhiteSpace(toolCallId))
+        {
+            toolCallId = Guid.NewGuid().ToString("N");
+            if (context != null)
+                context.ToolCallId = toolCallId;
+        }
+        if (context != null && string.IsNullOrWhiteSpace(context.ToolName))
+            context.ToolName = toolName;
 
         if (sink != null)
         {

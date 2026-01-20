@@ -278,7 +278,10 @@ public sealed class ExternalProcessHook : IAevatarAgentHook
             {
                 foreach (var prop in metaObj.EnumerateObject())
                 {
-                    context.Metadata[prop.Name] = ConvertJsonValue(prop.Value);
+                    var value = ConvertJsonValue(prop.Value);
+                    if (value is null)
+                        continue;
+                    context.Metadata[prop.Name] = value;
                 }
             }
         }

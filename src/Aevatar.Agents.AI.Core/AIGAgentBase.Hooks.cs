@@ -37,6 +37,7 @@ public abstract partial class AIGAgentBase
     protected virtual IEnumerable<IAevatarAgentHook> CreateBuiltInHooks()
         => new IAevatarAgentHook[]
         {
+            new ExecutionTraceProgressHook((evt, ct) => PublishAsync(evt, EventDirection.Down, ct), Logger),
             new ToolOutputTruncationHook(),
             new ContextBudgetMonitorHook(Logger)
         };
@@ -88,7 +89,8 @@ public abstract partial class AIGAgentBase
         AevatarLLMResponse? llmResponse = null,
         string? toolName = null,
         Dictionary<string, object>? toolArguments = null,
-        ToolExecutionResult? toolResult = null)
+        ToolExecutionResult? toolResult = null,
+        string? toolCallId = null)
     {
         var pipeline = GetHookPipeline();
         var policy = pipeline.CreatePolicySnapshot(AllowInternalTools, AllowDangerousTools);
@@ -109,7 +111,8 @@ public abstract partial class AIGAgentBase
             LlmResponse = llmResponse,
             ToolName = toolName,
             ToolArguments = toolArguments,
-            ToolResult = toolResult
+            ToolResult = toolResult,
+            ToolCallId = toolCallId
         };
     }
 
@@ -331,11 +334,17 @@ public abstract partial class AIGAgentBase
         }
 
         var requestId = executionContext.GetSessionId?.Invoke() ?? Guid.NewGuid().ToString("N");
+        if (string.IsNullOrWhiteSpace(executionContext.ToolCallId))
+            executionContext.ToolCallId = Guid.NewGuid().ToString("N");
+        if (string.IsNullOrWhiteSpace(executionContext.ToolName))
+            executionContext.ToolName = toolName;
+
         var ctx = CreateHookContext(
             requestId,
             llmRequest: llmRequest,
             toolName: toolName,
-            toolArguments: args);
+            toolArguments: args,
+            toolCallId: executionContext.ToolCallId);
 
         await pipeline.RunBeforeToolExecuteAsync(ctx, cancellationToken);
 

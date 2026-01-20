@@ -88,6 +88,7 @@ public sealed class AevatarAgentHookContext
     public string? ToolName { get; set; }
     public Dictionary<string, object>? ToolArguments { get; set; }
     public ToolExecutionResult? ToolResult { get; set; }
+    public string? ToolCallId { get; set; }
 
     /// <summary>
     /// Free-form metadata for observability (truncation flags, downgrade reason, etc).

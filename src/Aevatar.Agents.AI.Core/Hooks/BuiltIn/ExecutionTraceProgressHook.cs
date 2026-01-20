@@ -1,0 +1,265 @@
+using Aevatar.Agents.Abstractions.Tracing;
+using Aevatar.Agents.AI.Abstractions;
+using Google.Protobuf.WellKnownTypes;
+using Microsoft.Extensions.Logging;
+
+namespace Aevatar.Agents.AI.Core.Hooks.BuiltIn;
+
+/// <summary>
+/// Emit ExecutionTraceEvent for session/LLM/tool lifecycle (best-effort).
+/// </summary>
+public sealed class ExecutionTraceProgressHook : IAevatarAgentHook
+{
+    private readonly Func<ExecutionTraceEvent, CancellationToken, Task> _publish;
+    private readonly ILogger? _logger;
+
+    public int Priority => -1000;
+
+    public ExecutionTraceProgressHook(
+        Func<ExecutionTraceEvent, CancellationToken, Task> publish,
+        ILogger? logger = null)
+    {
+        _publish = publish ?? throw new ArgumentNullException(nameof(publish));
+        _logger = logger;
+    }
+
+    public Task OnSessionStartAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
+    {
+        return EmitSessionAsync(
+            context,
+            ExecutionTraceEventPhase.SessionStart,
+            ExecutionTraceEventStatus.Running,
+            progress: 0,
+            cancellationToken);
+    }
+
+    public Task OnStopAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
+    {
+        var status = MapStopStatus(context.StopStatus);
+        return EmitSessionAsync(
+            context,
+            ExecutionTraceEventPhase.SessionStop,
+            status,
+            progress: status == ExecutionTraceEventStatus.Completed ? 1.0 : null,
+            cancellationToken);
+    }
+
+    public Task BeforeLLMRequestAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
+    {
+        return EmitLlmAsync(
+            context,
+            ExecutionTraceEventPhase.LlmRequest,
+            ExecutionTraceEventStatus.Running,
+            cancellationToken);
+    }
+
+    public Task AfterLLMResponseAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
+    {
+        return EmitLlmAsync(
+            context,
+            ExecutionTraceEventPhase.LlmResponse,
+            ExecutionTraceEventStatus.Completed,
+            cancellationToken);
+    }
+
+    public Task BeforeToolExecuteAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
+    {
+        return EmitToolAsync(
+            context,
+            ExecutionTraceEventPhase.ToolStart,
+            ExecutionTraceEventStatus.Running,
+            cancellationToken);
+    }
+
+    public Task AfterToolExecuteAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
+    {
+        var status = context.ToolResult?.IsSuccess == false
+            ? ExecutionTraceEventStatus.Failed
+            : ExecutionTraceEventStatus.Completed;
+        return EmitToolAsync(
+            context,
+            ExecutionTraceEventPhase.ToolEnd,
+            status,
+            cancellationToken);
+    }
+
+    public Task OnErrorAsync(AevatarAgentHookContext context, Exception exception, CancellationToken cancellationToken)
+    {
+        return EmitErrorAsync(context, exception, cancellationToken);
+    }
+
+    private Task EmitSessionAsync(
+        AevatarAgentHookContext context,
+        string phase,
+        string status,
+        double? progress,
+        CancellationToken cancellationToken)
+    {
+        var evt = CreateBaseEvent(context, phase, status, progress);
+        evt.NodeId = $"session:{context.RequestId}";
+        evt.Message = phase;
+
+        if (context.Duration.HasValue)
+        {
+            evt.Fields[ExecutionTraceEventFields.DurationMs] =
+                ExecutionTraceEventFieldValue.FromLong((long)context.Duration.Value.TotalMilliseconds);
+        }
+
+        return PublishBestEffortAsync(evt, cancellationToken);
+    }
+
+    private Task EmitLlmAsync(
+        AevatarAgentHookContext context,
+        string phase,
+        string status,
+        CancellationToken cancellationToken)
+    {
+        var evt = CreateBaseEvent(context, phase, status, null);
+        evt.NodeId = "llm";
+        evt.Message = phase;
+
+        var model = context.LlmRequest?.Settings?.ModelId;
+        if (!string.IsNullOrWhiteSpace(model))
+        {
+            evt.Fields[ExecutionTraceEventFields.LlmModel] =
+                ExecutionTraceEventFieldValue.FromString(model);
+        }
+
+        if (context.LlmResponse?.Usage != null)
+        {
+            evt.Fields[ExecutionTraceEventFields.PromptTokens] =
+                ExecutionTraceEventFieldValue.FromLong(context.LlmResponse.Usage.PromptTokens);
+            evt.Fields[ExecutionTraceEventFields.CompletionTokens] =
+                ExecutionTraceEventFieldValue.FromLong(context.LlmResponse.Usage.CompletionTokens);
+            evt.Fields[ExecutionTraceEventFields.TokensUsed] =
+                ExecutionTraceEventFieldValue.FromLong(context.LlmResponse.Usage.TotalTokens);
+        }
+
+        return PublishBestEffortAsync(evt, cancellationToken);
+    }
+
+    private Task EmitToolAsync(
+        AevatarAgentHookContext context,
+        string phase,
+        string status,
+        CancellationToken cancellationToken)
+    {
+        var evt = CreateBaseEvent(context, phase, status, null);
+        evt.NodeId = $"tool:{context.ToolCallId ?? context.ToolName ?? "unknown"}";
+        evt.Message = BuildToolMessage(context, phase);
+
+        if (!string.IsNullOrWhiteSpace(context.ToolName))
+        {
+            evt.Fields[ExecutionTraceEventFields.ToolName] =
+                ExecutionTraceEventFieldValue.FromString(context.ToolName);
+        }
+
+        if (!string.IsNullOrWhiteSpace(context.ToolCallId))
+        {
+            evt.Fields[ExecutionTraceEventFields.ToolCallId] =
+                ExecutionTraceEventFieldValue.FromString(context.ToolCallId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(context.ToolResult?.ErrorMessage))
+        {
+            evt.Fields[ExecutionTraceEventFields.Error] =
+                ExecutionTraceEventFieldValue.FromString(Trim(context.ToolResult.ErrorMessage, 400));
+        }
+
+        if (context.ToolResult?.Duration != null)
+        {
+            evt.Fields[ExecutionTraceEventFields.DurationMs] =
+                ExecutionTraceEventFieldValue.FromLong((long)context.ToolResult.Duration.ToTimeSpan().TotalMilliseconds);
+        }
+
+        return PublishBestEffortAsync(evt, cancellationToken);
+    }
+
+    private Task EmitErrorAsync(
+        AevatarAgentHookContext context,
+        Exception exception,
+        CancellationToken cancellationToken)
+    {
+        var evt = CreateBaseEvent(context, ExecutionTraceEventPhase.Error, ExecutionTraceEventStatus.Failed, null);
+        evt.NodeId = $"error:{context.RequestId}";
+        evt.Message = Trim(exception.Message, 400);
+        evt.Fields[ExecutionTraceEventFields.Error] =
+            ExecutionTraceEventFieldValue.FromString(Trim(exception.Message, 400));
+        return PublishBestEffortAsync(evt, cancellationToken);
+    }
+
+    private ExecutionTraceEvent CreateBaseEvent(
+        AevatarAgentHookContext context,
+        string phase,
+        string status,
+        double? progress)
+    {
+        var evt = new ExecutionTraceEvent
+        {
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
+            Phase = phase,
+            Message = string.Empty,
+            NodeId = phase
+        };
+
+        evt.Fields[ExecutionTraceEventFields.Status] =
+            ExecutionTraceEventFieldValue.FromString(status);
+        evt.Fields[ExecutionTraceEventFields.Phase] =
+            ExecutionTraceEventFieldValue.FromString(phase);
+        evt.Fields[ExecutionTraceEventFields.SessionId] =
+            ExecutionTraceEventFieldValue.FromString(context.RequestId);
+        evt.Fields[ExecutionTraceEventFields.ExecutionId] =
+            ExecutionTraceEventFieldValue.FromString(context.RequestId);
+        evt.Fields[ExecutionTraceEventFields.AgentId] =
+            ExecutionTraceEventFieldValue.FromString(context.AgentId);
+        evt.Fields[ExecutionTraceEventFields.MessageId] =
+            ExecutionTraceEventFieldValue.FromString(context.RequestId);
+
+        if (progress.HasValue)
+        {
+            evt.Fields[ExecutionTraceEventFields.Progress] =
+                ExecutionTraceEventFieldValue.FromDouble(progress.Value);
+        }
+
+        return evt;
+    }
+
+    private async Task PublishBestEffortAsync(ExecutionTraceEvent evt, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _publish(evt, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogDebug(ex, "ExecutionTraceProgressHook publish failed.");
+        }
+    }
+
+    private static string MapStopStatus(AevatarAgentHookStopStatus? status)
+    {
+        return status switch
+        {
+            AevatarAgentHookStopStatus.Completed => ExecutionTraceEventStatus.Completed,
+            AevatarAgentHookStopStatus.Aborted => ExecutionTraceEventStatus.Cancelled,
+            AevatarAgentHookStopStatus.Error => ExecutionTraceEventStatus.Failed,
+            _ => ExecutionTraceEventStatus.Completed
+        };
+    }
+
+    private static string BuildToolMessage(AevatarAgentHookContext ctx, string phase)
+    {
+        var tool = ctx.ToolName ?? "tool";
+        return phase == ExecutionTraceEventPhase.ToolStart
+            ? $"tool.start:{tool}"
+            : $"tool.end:{tool}";
+    }
+
+    private static string Trim(string? value, int maxChars)
+    {
+        var text = (value ?? string.Empty).Replace("\r", "").Trim();
+        if (text.Length <= maxChars)
+            return text;
+        return text[..maxChars];
+    }
+}

@@ -344,15 +344,13 @@ public sealed class AxiomReasoningEventBridge
                 }
                 else
                 {
-                    // Try first {...} block
-                    var firstBrace = trimmed.IndexOf('{');
-                    var lastBrace = trimmed.LastIndexOf('}');
-                    if (firstBrace >= 0 && lastBrace > firstBrace)
+                    // Try extracting first complete JSON object using bracket matching
+                    var extracted = ExtractFirstJsonObject(trimmed);
+                    if (extracted != null)
                     {
-                        var obj = trimmed[firstBrace..(lastBrace + 1)].Trim();
                         try
                         {
-                            using var doc = JsonDocument.Parse(obj);
+                            using var doc = JsonDocument.Parse(extracted);
                             root = doc.RootElement.Clone();
                         }
                         catch
@@ -475,13 +473,11 @@ public sealed class AxiomReasoningEventBridge
                 }
             }
 
-            // 3) Best-effort: take first {...} block (handles accidental pre/post text)
-            var firstBrace = trimmed.IndexOf('{');
-            var lastBrace = trimmed.LastIndexOf('}');
-            if (firstBrace >= 0 && lastBrace > firstBrace)
+            // 3) Best-effort: extract first complete JSON object using bracket matching
+            var extracted = ExtractFirstJsonObject(trimmed);
+            if (extracted != null && extracted.Length > 0)
             {
-                var obj = trimmed[firstBrace..(lastBrace + 1)].Trim();
-                if (obj.Length > 0) yield return obj;
+                yield return extracted;
             }
         }
 
@@ -594,5 +590,63 @@ public sealed class AxiomReasoningEventBridge
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// Extract the first complete JSON object from a string using bracket matching.
+    /// This correctly handles cases where LLM outputs duplicate JSON fragments after the first object.
+    /// </summary>
+    private static string? ExtractFirstJsonObject(string content)
+    {
+        var start = content.IndexOf('{');
+        if (start < 0)
+            return null;
+
+        var depth = 0;
+        var inString = false;
+        var escaped = false;
+
+        for (var i = start; i < content.Length; i++)
+        {
+            var c = content[i];
+
+            if (escaped)
+            {
+                escaped = false;
+                continue;
+            }
+
+            if (c == '\\')
+            {
+                escaped = true;
+                continue;
+            }
+
+            if (c == '"')
+            {
+                inString = !inString;
+                continue;
+            }
+
+            if (inString)
+                continue;
+
+            if (c == '{')
+            {
+                depth++;
+            }
+            else if (c == '}')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    // Found the first complete JSON object
+                    return content[start..(i + 1)];
+                }
+            }
+        }
+
+        // No complete JSON object found
+        return null;
     }
 }

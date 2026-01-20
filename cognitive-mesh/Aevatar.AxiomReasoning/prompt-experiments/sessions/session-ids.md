@@ -203,3 +203,6 @@ $$
 | `082a61b5dd2c` | 2026-01-19 10:11:17 UTC | Failed | hypothesis_promotion_loop_hpa |
 | `0a90766a5527` | 2026-01-20 01:34:50 UTC | Failed | hypothesis_promotion_loop_hpa |
 | `459b7cfcc5aa` | 2026-01-20 01:43:32 UTC | Failed | hypothesis_promotion_loop_hpa |
+| `756932dfa2bc` | 2026-01-20 01:55:04 UTC | Failed | hypothesis_promotion_loop_hpa |
+| `5ad5d9e5df7e` | 2026-01-20 02:01:06 UTC | Failed | hypothesis_promotion_loop_hpa |
+| `79f1f7c5cb17` | 2026-01-20 02:21:15 UTC | Failed | hypothesis_promotion_loop_hpa |

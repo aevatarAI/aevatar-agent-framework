@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core.Utils;
 using Aevatar.Agents.AI.Tool.Messages;
@@ -38,6 +39,36 @@ public sealed class AevatarAgentHookContext
 
     /// <summary>Request correlation id (e.g. ChatRequest.RequestId).</summary>
     public string RequestId { get; }
+
+    /// <summary>
+    /// Chat request snapshot (optional, may be null for internal/tool-only calls).
+    /// </summary>
+    public ChatRequest? ChatRequest { get; set; }
+
+    /// <summary>
+    /// Whether this hook context is created for streaming flow.
+    /// </summary>
+    public bool IsStreaming { get; set; }
+
+    /// <summary>
+    /// Stop status for session-level hooks (optional).
+    /// </summary>
+    public AevatarAgentHookStopStatus? StopStatus { get; set; }
+
+    /// <summary>
+    /// Stop reason summary (optional).
+    /// </summary>
+    public string? StopReason { get; set; }
+
+    /// <summary>
+    /// Total duration for the session-level hook (optional).
+    /// </summary>
+    public TimeSpan? Duration { get; set; }
+
+    /// <summary>
+    /// Exception snapshot for session stop (optional).
+    /// </summary>
+    public Exception? StopException { get; set; }
 
     /// <summary>
     /// Read-only policy snapshot.
@@ -123,3 +154,13 @@ public readonly record struct AevatarAgentHookPolicy(
     int MaxToolOutputChars,
     int ContextMessageWarn,
     int ContextCharsWarn);
+
+/// <summary>
+/// Stop status for a single agent session (ChatAsync/ChatStreamAsync).
+/// </summary>
+public enum AevatarAgentHookStopStatus
+{
+    Completed = 0,
+    Aborted = 1,
+    Error = 2
+}

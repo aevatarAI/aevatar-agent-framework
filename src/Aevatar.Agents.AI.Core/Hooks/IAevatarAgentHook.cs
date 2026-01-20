@@ -33,6 +33,24 @@ public interface IAevatarAgentHook
         => Task.CompletedTask;
 
     /// <summary>
+    /// Called when a chat session starts (best-effort).
+    /// </summary>
+    Task OnSessionStartAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
+        => Task.CompletedTask;
+
+    /// <summary>
+    /// Called when a chat session ends (best-effort).
+    /// </summary>
+    Task OnSessionEndAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
+        => Task.CompletedTask;
+
+    /// <summary>
+    /// Called when the agent loop stops (best-effort).
+    /// </summary>
+    Task OnStopAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
+        => Task.CompletedTask;
+
+    /// <summary>
     /// Called after receiving response from LLM provider (best-effort).
     /// </summary>
     Task AfterLLMResponseAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)

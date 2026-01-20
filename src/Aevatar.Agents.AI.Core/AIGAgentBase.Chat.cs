@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using Aevatar.Agents.Abstractions.Helpers;
 using Aevatar.Agents.AI.Abstractions;
+using Aevatar.Agents.AI.Core.Hooks;
 using Aevatar.Agents.AI.Core.Messages;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
@@ -94,6 +95,14 @@ public abstract partial class AIGAgentBase
         CancellationToken cancellationToken = default)
     {
         EnsureInitialized();
+
+        var sessionStartedAt = DateTimeOffset.UtcNow;
+        var sessionStarted = false;
+        var stopStatus = AevatarAgentHookStopStatus.Completed;
+        Exception? stopException = null;
+
+        await RunSessionStartHooksAsync(request, isStreaming: false, cancellationToken);
+        sessionStarted = true;
 
         var (provider, model) = GetProviderAndModelForTelemetry();
         using var llmCall = new LlmCallInstrumentationScope(Logger, Id, provider, model, isStreaming: false);
@@ -219,6 +228,7 @@ public abstract partial class AIGAgentBase
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             llmCall.StopWithoutRecording();
+            stopStatus = AevatarAgentHookStopStatus.Aborted;
 
             // External cancellation (e.g., HTTP request aborted). This is expected and should not be
             // logged as an error-level "LLM call failed".
@@ -228,8 +238,19 @@ public abstract partial class AIGAgentBase
         catch (Exception ex)
         {
             llmCall.RecordFailed(ex);
+            stopStatus = AevatarAgentHookStopStatus.Error;
+            stopException = ex;
 
             throw;
+        }
+        finally
+        {
+            if (sessionStarted)
+            {
+                var duration = DateTimeOffset.UtcNow - sessionStartedAt;
+                await RunStopHooksAsync(request, isStreaming: false, stopStatus, duration, stopException);
+                await RunSessionEndHooksAsync(request, isStreaming: false, stopStatus, duration, stopException);
+            }
         }
     }
 
@@ -299,11 +320,16 @@ public abstract partial class AIGAgentBase
     {
         EnsureInitialized();
 
-        var llmRequest = await PrepareChatStreamAsync(request, cancellationToken);
+        var sessionStartedAt = DateTimeOffset.UtcNow;
+        var sessionStarted = false;
+        var stopStatus = AevatarAgentHookStopStatus.Completed;
+        Exception? stopException = null;
 
-        // Stream from LLM (with Hook/Harness stages; best-effort)
-        var enumerator = GenerateLLMStreamWithHooksAsync(request.RequestId, llmRequest, cancellationToken)
-            .GetAsyncEnumerator(cancellationToken);
+        await RunSessionStartHooksAsync(request, isStreaming: true, cancellationToken);
+        sessionStarted = true;
+
+        AevatarLLMRequest? llmRequest = null;
+        IAsyncEnumerator<AevatarLLMToken>? enumerator = null;
 
         var assistantBuffer = EnableChatHistoryInState
             ? new StringBuilder()
@@ -315,11 +341,34 @@ public abstract partial class AIGAgentBase
 
         try
         {
+            llmRequest = await PrepareChatStreamAsync(request, cancellationToken);
+
+            // Stream from LLM (with Hook/Harness stages; best-effort)
+            enumerator = GenerateLLMStreamWithHooksAsync(request.RequestId, llmRequest, cancellationToken)
+                .GetAsyncEnumerator(cancellationToken);
+
             while (true)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var token = await TryReadNextStreamingTokenAsync(enumerator, request, cancellationToken);
+                AevatarLLMToken? token;
+                try
+                {
+                    token = await TryReadNextStreamingTokenAsync(enumerator, request, cancellationToken);
+                }
+                catch (OperationCanceledException oce) when (cancellationToken.IsCancellationRequested)
+                {
+                    stopStatus = AevatarAgentHookStopStatus.Aborted;
+                    stopException = oce;
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    stopStatus = AevatarAgentHookStopStatus.Error;
+                    stopException = ex;
+                    throw;
+                }
+
                 if (token == null)
                     break;
 
@@ -330,34 +379,52 @@ public abstract partial class AIGAgentBase
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    switch (StreamingToolCalls)
+                    string? finalText;
+                    try
                     {
-                        case StreamingToolCallMode.EmitFinalAnswerAsSingleChunk:
+                        switch (StreamingToolCalls)
                         {
-                            var finalText = await ExecuteToolCallFromStreamingTokenAsync(
-                                request,
-                                llmRequest,
-                                token,
-                                assistantBuffer,
-                                reasoningBuffer,
-                                cancellationToken);
-                            if (!string.IsNullOrEmpty(finalText))
+                            case StreamingToolCallMode.EmitFinalAnswerAsSingleChunk:
                             {
-                                cancellationToken.ThrowIfCancellationRequested();
-                                assistantBuffer?.Append(finalText);
-                                yield return finalText;
+                                finalText = await ExecuteToolCallFromStreamingTokenAsync(
+                                    request,
+                                    llmRequest,
+                                    token,
+                                    assistantBuffer,
+                                    reasoningBuffer,
+                                    cancellationToken);
+                                break;
                             }
-
-                            completedSuccessfully = true;
-                            yield break;
+                            case StreamingToolCallMode.ContinueStreamingAfterTools:
+                                throw new NotSupportedException(
+                                    "ContinueStreamingAfterTools is not supported yet. " +
+                                    "The current provider streaming pipeline cannot resume after executing tool calls.");
+                            default:
+                                throw new ArgumentOutOfRangeException();
                         }
-                        case StreamingToolCallMode.ContinueStreamingAfterTools:
-                            throw new NotSupportedException(
-                                "ContinueStreamingAfterTools is not supported yet. " +
-                                "The current provider streaming pipeline cannot resume after executing tool calls.");
-                        default:
-                            throw new ArgumentOutOfRangeException();
                     }
+                    catch (OperationCanceledException oce) when (cancellationToken.IsCancellationRequested)
+                    {
+                        stopStatus = AevatarAgentHookStopStatus.Aborted;
+                        stopException = oce;
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        stopStatus = AevatarAgentHookStopStatus.Error;
+                        stopException = ex;
+                        throw;
+                    }
+
+                    if (!string.IsNullOrEmpty(finalText))
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        assistantBuffer?.Append(finalText);
+                        yield return finalText;
+                    }
+
+                    completedSuccessfully = true;
+                    yield break;
                 }
 
                 var content = token.Content;
@@ -384,7 +451,10 @@ public abstract partial class AIGAgentBase
         }
         finally
         {
-            await enumerator.DisposeAsync();
+            if (enumerator != null)
+            {
+                await enumerator.DisposeAsync();
+            }
 
             await PersistStreamingAssistantOutputAsync(
                 request,
@@ -398,6 +468,16 @@ public abstract partial class AIGAgentBase
             if (!cancellationToken.IsCancellationRequested)
             {
                 await CompactChatHistoryIfNeededAsync(cancellationToken);
+            }
+
+            if (sessionStarted)
+            {
+                if (!completedSuccessfully && stopStatus == AevatarAgentHookStopStatus.Completed)
+                    stopStatus = AevatarAgentHookStopStatus.Aborted;
+
+                var duration = DateTimeOffset.UtcNow - sessionStartedAt;
+                await RunStopHooksAsync(request, isStreaming: true, stopStatus, duration, stopException);
+                await RunSessionEndHooksAsync(request, isStreaming: true, stopStatus, duration, stopException);
             }
         }
     }

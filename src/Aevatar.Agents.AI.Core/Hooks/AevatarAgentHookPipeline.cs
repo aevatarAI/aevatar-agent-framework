@@ -56,6 +56,18 @@ public sealed class AevatarAgentHookPipeline
         => RunStageAsync("BeforeLLMRequest", context, cancellationToken,
             (h, ctx, ct) => h.BeforeLLMRequestAsync(ctx, ct));
 
+    public Task RunOnSessionStartAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
+        => RunStageAsync("SessionStart", context, cancellationToken,
+            (h, ctx, ct) => h.OnSessionStartAsync(ctx, ct));
+
+    public Task RunOnSessionEndAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
+        => RunStageAsync("SessionEnd", context, cancellationToken,
+            (h, ctx, ct) => h.OnSessionEndAsync(ctx, ct));
+
+    public Task RunOnStopAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
+        => RunStageAsync("Stop", context, cancellationToken,
+            (h, ctx, ct) => h.OnStopAsync(ctx, ct));
+
     public Task RunAfterLLMResponseAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
         => RunStageAsync("AfterLLMResponse", context, cancellationToken,
             (h, ctx, ct) => h.AfterLLMResponseAsync(ctx, ct));

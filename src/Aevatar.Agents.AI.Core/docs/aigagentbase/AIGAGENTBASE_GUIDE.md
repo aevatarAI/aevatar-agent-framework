@@ -162,6 +162,7 @@ YAML 应用由 `AgentYamlConfigApplier` 驱动，并通过以下 hook 统一策�
 ## 14) Hooks & Harness
 
 Hook/Harness 提供 LLM/Tool 生命周期的横切治理能力（限流、策略、输出截断等）。
+此外补齐会话级阶段：`OnSessionStart` / `OnStop` / `OnSessionEnd`。
 详见：`../HOOKS_HARNESS.md`
 
 ## 15) Telemetry / Observability

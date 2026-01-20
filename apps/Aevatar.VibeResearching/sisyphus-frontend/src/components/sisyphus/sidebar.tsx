@@ -44,7 +44,9 @@ const Sidebar: React.FC<SidebarProps> = ({
   onOpenSettings,
   activeView,
 }) => {
-  const { sessions, currentSessionId } = useSisyphusStore();
+  // FINE-GRAINED SUBSCRIPTIONS: Only subscribe to what we need
+  const sessions = useSisyphusStore((s) => s.sessions);
+  const currentSessionId = useSisyphusStore((s) => s.currentSessionId);
   const [collapsed, setCollapsed] = useState(false);
 
   const handleCreateSession = () => {

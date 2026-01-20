@@ -31,7 +31,7 @@ const transformDagData = (rawData: unknown): DAGGraph | null => {
 };
 
 const App: React.FC = () => {
-  const { currentSessionId, isConnected, setSessions, setCurrentSession, resetForNewSession, setDag, updateWorker, restoreMilestoneForSession } = useSisyphusStore();
+  const { currentSessionId, isConnected, setSessions, setCurrentSession, resetForNewSession, setDag, updateWorker, restoreMilestoneForSession, setActiveMilestoneNodeId } = useSisyphusStore();
   
   // Resizable panel state
   const [leftPanelWidth, setLeftPanelWidth] = useState(DEFAULT_LEFT_WIDTH);
@@ -187,6 +187,16 @@ const App: React.FC = () => {
         const dagData = transformDagData(rawDag);
         if (dagData) {
           setDag(dagData);
+          
+          // Detect active milestone from DAG nodes (planStatus === 'Active')
+          // This ensures milestone is set even after page refresh
+          const activeNode = dagData.nodes.find(
+            (n: { planStatus?: string }) => n.planStatus === 'Active'
+          );
+          if (activeNode) {
+            console.log('[App] Detected active milestone from DAG:', activeNode.id);
+            setActiveMilestoneNodeId(activeNode.id, sessionId);
+          }
         }
       }
 
@@ -216,7 +226,7 @@ const App: React.FC = () => {
       }
       console.warn('[App] Failed to load session data:', err);
     }
-  }, [currentSessionId, resetForNewSession, setCurrentSession, setDag, updateWorker, restoreMilestoneForSession]);
+  }, [currentSessionId, resetForNewSession, setCurrentSession, setDag, updateWorker, restoreMilestoneForSession, setActiveMilestoneNodeId]);
 
   // Create session handler - creates new session and switches to it
   const handleCreateSession = useCallback(async () => {

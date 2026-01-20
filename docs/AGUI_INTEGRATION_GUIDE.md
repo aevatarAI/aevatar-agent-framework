@@ -4,6 +4,87 @@
 
 AG-UI (Agent UI) 是一个标准化的 Agent 事件流协议，用于在 Web UI 中实时展示 Agent 的执行状态、对话历史和推理过程。它提供了一套统一的事件类型和流式传输机制，让前端能够以一致的方式展示不同 Agent 系统的运行状态。
 
+## 前端对接（框架层 AG-UI）
+
+框架层已经统一把 **ExecutionTraceEvent → AG-UI** 做了投影，前端只需要订阅 SSE 并消费标准事件即可。
+
+### 1) SSE 入口
+
+```
+GET /api/sessions/{sessionId}/agui/events
+```
+
+响应为 `text/event-stream`，每条事件是一个 JSON：
+
+```
+data: { ...json... }
+
+```
+
+说明：
+- JSON 使用 camelCase（后端 `System.Text.Json` 统一配置）。
+- `type` 是主分发字段，`timestamp` 为 Unix epoch ms。
+- **快照优先**：连接后先收到 `MESSAGES_SNAPSHOT` / `STATE_SNAPSHOT` 等快照，再进入实时流。
+- **不 replay**：断线重连后只发快照，不回放历史 token/tool 事件。
+
+### 2) 标准事件（前端必须处理）
+
+- `MESSAGES_SNAPSHOT`：消息历史快照（刷新恢复）。
+- `STATE_SNAPSHOT` / `STATE_DELTA`：UI 状态快照与增量（JSON Patch）。
+- `RUN_STARTED` / `RUN_FINISHED` / `RUN_ERROR`：一次会话 run 的生命周期。
+- `STEP_STARTED` / `STEP_FINISHED`：步骤级进度。
+- `TEXT_MESSAGE_START` / `TEXT_MESSAGE_CONTENT` / `TEXT_MESSAGE_END`：流式文本。
+- `TOOL_CALL_START` / `TOOL_CALL_RESULT` / `TOOL_CALL_END`（可选 `TOOL_CALL_ARGS`）：工具执行。
+- `CUSTOM`：系统扩展事件（看 `name` 字段）。
+
+部分系统还会发送 **typed events**（如 `PIVOT_*`, `AGENT_STATUS_REPORT`），前端可按需支持。
+
+### 3) ExecutionTraceEvent → AG-UI 的映射（关键）
+
+框架会把内部 trace 投影为 AG-UI（`AgUiTraceProjector`），对应关系如下：
+
+- `session.start` / `session.stop` → `RUN_STARTED` / `RUN_FINISHED` / `RUN_ERROR`
+- `tool.start` / `tool.progress` / `tool.end` → `TOOL_CALL_START` / `TOOL_CALL_RESULT` / `TOOL_CALL_END`
+- `llm.request` / `llm.response`
+  - 若带 `assistant_response`：输出 `TEXT_MESSAGE_*`
+  - 否则：输出 `CUSTOM`（`name = "aevatar.llm.trace"`）
+- 其它 phase：回落到 `STEP_* + CUSTOM`（`AgUiExecutionTraceMapper`）
+
+> 前端只需要消费 AG-UI，不需要解析 ExecutionTraceEvent。
+
+### 4) 最小示例（EventSource）
+
+```javascript
+const es = new EventSource(`/api/sessions/${sessionId}/agui/events`);
+
+es.onmessage = (e) => {
+  const evt = JSON.parse(e.data);
+  switch (evt.type) {
+    case "MESSAGES_SNAPSHOT":
+      renderMessages(evt.messages);
+      break;
+    case "TEXT_MESSAGE_CONTENT":
+      appendDelta(evt.messageId, evt.delta);
+      break;
+    case "TOOL_CALL_RESULT":
+      updateToolResult(evt.toolCallId, evt.result);
+      break;
+    case "CUSTOM":
+      handleCustom(evt.name, evt.value);
+      break;
+    default:
+      // ignore or log
+      break;
+  }
+};
+```
+
+### 5) 推荐处理习惯
+
+- 用 `messageId` / `toolCallId` 做去重与聚合。
+- `TEXT_MESSAGE_*` 可能是一次性输出，也可能是多次增量；统一按 delta 拼接即可。
+- `CUSTOM` 事件按 `name` 分发，未知事件直接忽略。
+
 ## 为什么需要 AG-UI？
 
 ### 1. **标准化前端对接**

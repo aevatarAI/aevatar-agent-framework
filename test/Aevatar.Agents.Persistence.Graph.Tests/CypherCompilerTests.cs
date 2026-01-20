@@ -21,7 +21,7 @@ public class CypherCompilerTests
 
         var cmd = _compiler.Compile(new GraphPlan { Operation = op });
 
-        cmd.Text.ShouldContain("CREATE (n:__Generic");
+        cmd.Text.ShouldContain("MERGE (n:__Generic");
         cmd.Text.ShouldContain("SET n:Person");
         cmd.Parameters.ShouldContainKey("props");
         var props = cmd.Parameters["props"] as IReadOnlyDictionary<string, object?>;

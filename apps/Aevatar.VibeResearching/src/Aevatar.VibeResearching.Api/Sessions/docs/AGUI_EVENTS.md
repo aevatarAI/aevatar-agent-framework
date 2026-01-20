@@ -3,6 +3,10 @@
 This document explains how to consume AG-UI events from Vibe Researching,
 including **Cognitive maker consensus progress** (DAG consensus).
 
+AG-UI is produced by **framework-level ExecutionTraceEvent projection**
+(`AgUiTraceProjector`) plus Vibe-specific `CUSTOM` events. Frontend only
+needs to consume AG-UI.
+
 ## 1) SSE endpoint
 
 ```
@@ -18,18 +22,20 @@ data: { ...json... }
 
 Notes:
 - No replay: the stream is live only.
-- Bootstrap events are sent immediately after connect (snapshots).
+- Bootstrap events are sent immediately after connect (snapshot-first).
 
 ## 2) Bootstrap events (sent on connect)
 
 These are **best-effort** and may be missing if data is not available.
 
 - `MESSAGES_SNAPSHOT`: last assistant/user messages (for chat UI).
+- `STATE_SNAPSHOT`: workspace/materials snapshot (for inspectors/graph panel).
 - `CUSTOM`:
   - `aevatar.vibe.message_meta_snapshot`
   - `aevatar.ui.tools_snapshot`
   - `aevatar.ui.run_steps_snapshot`
   - `aevatar.scientific.session`
+  - `aevatar.scientific.tools_snapshot` (async; may arrive slightly later)
   - `aevatar.vibe.brief_snapshot`
   - `aevatar.vibe.delivery_snapshot`
   - `aevatar.vibe.dag_snapshot`
@@ -43,10 +49,24 @@ Standard AG-UI events:
 - `RUN_STARTED`, `RUN_FINISHED`, `RUN_ERROR`
 - `STEP_STARTED`, `STEP_FINISHED`
 - `TEXT_MESSAGE_START`, `TEXT_MESSAGE_CONTENT`, `TEXT_MESSAGE_END`
+- `TOOL_CALL_START`, `TOOL_CALL_RESULT`, `TOOL_CALL_END` (optional: `TOOL_CALL_ARGS`)
 - `STATE_SNAPSHOT`, `STATE_DELTA`
 - `CUSTOM` (extension point)
 
-## 3.1) Step names (core workflow)
+## 3.1) Framework trace projection (ExecutionTraceEvent → AG-UI)
+
+Framework hooks emit `ExecutionTraceEvent`, then project to AG-UI:
+
+- `session.start/stop` → `RUN_STARTED` / `RUN_FINISHED` / `RUN_ERROR`
+- `tool.start/progress/end` → `TOOL_CALL_START` / `TOOL_CALL_RESULT` / `TOOL_CALL_END`
+- `llm.request/response`:
+  - If `assistant_response` exists → `TEXT_MESSAGE_*`
+  - Otherwise → `CUSTOM` (`name = "aevatar.llm.trace"`)
+- Other phases → `STEP_*` + `CUSTOM` fallback (`aevatar.workflow.execution_event`)
+
+> Frontend should treat `CUSTOM` by `name` and ignore unknowns.
+
+## 3.2) Step names (core workflow)
 
 These appear in `STEP_STARTED` / `STEP_FINISHED`:
 

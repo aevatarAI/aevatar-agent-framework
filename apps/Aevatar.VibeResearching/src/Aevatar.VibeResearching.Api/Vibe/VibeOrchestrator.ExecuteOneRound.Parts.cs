@@ -53,6 +53,14 @@ internal sealed partial class VibeOrchestrator
                 ctx.EmitAssistantDelta,
                 ct);
 
+            if (pivotIntent == null)
+            {
+                _host.Logger.LogDebug(
+                    "Pivot detection returned null for session {SessionId}",
+                    session.Id);
+                return;
+            }
+
             var pivotEmitter = _pivot.FeedbackEmitter;
             var pivotId = (pivotIntent.PivotId ?? string.Empty).Trim();
 

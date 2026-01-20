@@ -96,31 +96,31 @@ public partial class MakerCoordinatorGAgent
 
         if (progress.Voting != null)
         {
-            traceEvent.Fields[ExecutionTraceEventFields.VoteRound] =
+            traceEvent.Fields[ExecutionTraceEventMakerFields.VoteRound] =
                 ExecutionTraceEventFieldValue.FromInt(progress.Voting.Round);
-            traceEvent.Fields[ExecutionTraceEventFields.VoteK] =
+            traceEvent.Fields[ExecutionTraceEventMakerFields.VoteK] =
                 ExecutionTraceEventFieldValue.FromInt(progress.Voting.VotesNeeded);
-            traceEvent.Fields[ExecutionTraceEventFields.VoteCurrentVotes] =
+            traceEvent.Fields[ExecutionTraceEventMakerFields.VoteCurrentVotes] =
                 ExecutionTraceEventFieldValue.FromInt(progress.Voting.LeaderVotes);
         }
 
         if (progress.Proposal != null)
         {
-            traceEvent.Fields[ExecutionTraceEventFields.ProposalId] =
+            traceEvent.Fields[ExecutionTraceEventMakerFields.ProposalId] =
                 ExecutionTraceEventFieldValue.FromString(progress.Proposal.ProposalId);
 
             if (!string.IsNullOrWhiteSpace(progress.Proposal.WorkerId))
             {
-                traceEvent.Fields[ExecutionTraceEventFields.WorkerId] =
+                traceEvent.Fields[ExecutionTraceEventMakerFields.WorkerId] =
                     ExecutionTraceEventFieldValue.FromString(progress.Proposal.WorkerId);
             }
         }
 
         if (progress.StreamingToken != null)
         {
-            traceEvent.Fields[ExecutionTraceEventFields.WorkerId] =
+            traceEvent.Fields[ExecutionTraceEventMakerFields.WorkerId] =
                 ExecutionTraceEventFieldValue.FromString(progress.StreamingToken.WorkerId);
-            traceEvent.Fields[ExecutionTraceEventFields.ProposalId] =
+            traceEvent.Fields[ExecutionTraceEventMakerFields.ProposalId] =
                 ExecutionTraceEventFieldValue.FromString(progress.StreamingToken.ProposalId);
 
             if (progress.StreamingToken.IsLastToken &&

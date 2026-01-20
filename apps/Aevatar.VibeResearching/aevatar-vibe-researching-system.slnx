@@ -25,6 +25,7 @@
     <Project Path="..\..\src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
     <Project Path="..\..\src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
     <Project Path="..\..\src\Aevatar.Agents.AGUI\Aevatar.Agents.AGUI.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Maker\Aevatar.Agents.Maker.csproj" />
     <Project Path="..\..\src\Aevatar.Agents.AI\Aevatar.Agents.AI.csproj" />
     <Project Path="..\..\src\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
     <Project Path="..\..\src\Aevatar.Agents.AI.MEAI\Aevatar.Agents.AI.MEAI.csproj" />

@@ -77,7 +77,15 @@ public sealed class ResearchToolManager : IAevatarToolManager
         CancellationToken cancellationToken = default)
     {
         var sink = ResearchStreamEventContext.Current;
-        var toolCallId = Guid.NewGuid().ToString("N");
+        var toolCallId = context?.ToolCallId;
+        if (string.IsNullOrWhiteSpace(toolCallId))
+        {
+            toolCallId = Guid.NewGuid().ToString("N");
+            if (context != null)
+                context.ToolCallId = toolCallId;
+        }
+        if (context != null && string.IsNullOrWhiteSpace(context.ToolName))
+            context.ToolName = toolName;
         var startedAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         long lastProgressAtMs = startedAtMs;
         string? lastProgressMsg = null;
@@ -110,12 +118,24 @@ public sealed class ResearchToolManager : IAevatarToolManager
             await Safe(async () => await sink.EmitToolStartAsync(toolCallId, toolName, cancellationToken));
         }
 
+        Func<string, CancellationToken, Task>? prevProgress = null;
+
         // Attach progress callback to tool execution context (optional).
-        var prevProgress = context?.ReportProgressAsync;
         if (context != null)
         {
+            prevProgress = context.ReportProgressAsync;
             context.ReportProgressAsync = async (msg, ct) =>
             {
+                try
+                {
+                    if (prevProgress != null)
+                        await prevProgress(msg, ct);
+                }
+                catch
+                {
+                    // best-effort
+                }
+
                 try { await EmitProgressAsync(msg, ct); } catch { /* best-effort */ }
             };
         }

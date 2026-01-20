@@ -1,5 +1,7 @@
 using System.Text;
 using Aevatar.Agents.AGUI;
+using Aevatar.Agents.Abstractions.Tracing;
+using Google.Protobuf.WellKnownTypes;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
@@ -982,13 +984,13 @@ internal sealed class ResearchRunExecutor
             // Frontend expects tools to be attached to the assistant message of the current run
             var messageId = $"msg:{_threadId}:assistant:{_runId}";
 
-            _hub.Publish(new ToolCallStartEvent
-            {
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                MessageId = messageId,
-                ToolCallId = toolCallId,
-                ToolName = toolName
-            });
+            PublishTraceEvents(BuildToolTraceEvent(
+                phase: ExecutionTraceEventPhase.ToolStart,
+                status: ExecutionTraceEventStatus.Running,
+                toolCallId: toolCallId,
+                toolName: toolName,
+                messageId: messageId,
+                message: $"tool.start:{toolName}"));
 
             _hub.Publish(new CustomEvent
             {
@@ -1001,19 +1003,18 @@ internal sealed class ResearchRunExecutor
         public Task EmitToolProgressAsync(string toolCallId, string toolName, string message, CancellationToken ct)
         {
             // NOTE:
-            // - Use standard TOOL_CALL_RESULT as a "progress update" channel (best-effort).
-            // - Frontend treats it as a preview update and keeps status=running until TOOL_CALL_END.
+            // - Emit ExecutionTraceEvent and project to AG-UI (best-effort).
             var messageId = $"msg:{_threadId}:assistant:{_runId}";
             var payload = (message ?? string.Empty).Replace("\r", "").Trim();
             if (payload.Length > 2000) payload = payload[..2000];
 
-            _hub.Publish(new ToolCallResultEvent
-            {
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                MessageId = messageId,
-                ToolCallId = toolCallId,
-                Result = payload
-            });
+            PublishTraceEvents(BuildToolTraceEvent(
+                phase: ExecutionTraceEventPhase.ToolProgress,
+                status: ExecutionTraceEventStatus.Running,
+                toolCallId: toolCallId,
+                toolName: toolName,
+                messageId: messageId,
+                message: payload));
 
             return Task.CompletedTask;
         }
@@ -1030,20 +1031,15 @@ internal sealed class ResearchRunExecutor
             var isMcp = await _runtime.IsMcpToolAsync(_sessionId, toolName, ct);
             var messageId = $"msg:{_threadId}:assistant:{_runId}";
 
-            _hub.Publish(new ToolCallResultEvent
-            {
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                MessageId = messageId,
-                ToolCallId = toolCallId,
-                Result = resultPreview ?? (error ?? string.Empty)
-            });
-
-            _hub.Publish(new ToolCallEndEvent
-            {
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                MessageId = messageId,
-                ToolCallId = toolCallId
-            });
+            PublishTraceEvents(BuildToolTraceEvent(
+                phase: ExecutionTraceEventPhase.ToolEnd,
+                status: success ? ExecutionTraceEventStatus.Completed : ExecutionTraceEventStatus.Failed,
+                toolCallId: toolCallId,
+                toolName: toolName,
+                messageId: messageId,
+                message: resultPreview ?? (error ?? string.Empty),
+                durationMs: durationMs,
+                error: error));
 
             _hub.Publish(new CustomEvent
             {
@@ -1062,6 +1058,63 @@ internal sealed class ResearchRunExecutor
                     resultPreview
                 }
             });
+        }
+
+        private void PublishTraceEvents(ExecutionTraceEvent traceEvent)
+        {
+            var mapped = AgUiTraceProjector.Map(traceEvent);
+            for (var i = 0; i < mapped.Count; i++)
+            {
+                _hub.Publish(mapped[i]);
+            }
+        }
+
+        private ExecutionTraceEvent BuildToolTraceEvent(
+            string phase,
+            string status,
+            string toolCallId,
+            string toolName,
+            string messageId,
+            string message,
+            long? durationMs = null,
+            string? error = null)
+        {
+            var evt = new ExecutionTraceEvent
+            {
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
+                Phase = phase,
+                Message = message ?? string.Empty,
+                NodeId = $"tool:{toolCallId}"
+            };
+
+            evt.Fields[ExecutionTraceEventFields.Status] =
+                ExecutionTraceEventFieldValue.FromString(status);
+            evt.Fields[ExecutionTraceEventFields.SessionId] =
+                ExecutionTraceEventFieldValue.FromString(_sessionId);
+            evt.Fields[ExecutionTraceEventFields.ExecutionId] =
+                ExecutionTraceEventFieldValue.FromString(_runId);
+            evt.Fields[ExecutionTraceEventFields.ToolName] =
+                ExecutionTraceEventFieldValue.FromString(toolName);
+            evt.Fields[ExecutionTraceEventFields.ToolCallId] =
+                ExecutionTraceEventFieldValue.FromString(toolCallId);
+            evt.Fields[ExecutionTraceEventFields.MessageId] =
+                ExecutionTraceEventFieldValue.FromString(messageId);
+            evt.Fields[ExecutionTraceEventFields.Phase] =
+                ExecutionTraceEventFieldValue.FromString(phase);
+
+            if (durationMs.HasValue)
+            {
+                evt.Fields[ExecutionTraceEventFields.DurationMs] =
+                    ExecutionTraceEventFieldValue.FromLong(durationMs.Value);
+            }
+
+            if (!string.IsNullOrWhiteSpace(error))
+            {
+                evt.Fields[ExecutionTraceEventFields.Error] =
+                    ExecutionTraceEventFieldValue.FromString(error);
+            }
+
+            return evt;
         }
     }
 }

@@ -15,6 +15,9 @@
 
 接口：`src/Aevatar.Agents.AI.Core/Hooks/IAevatarAgentHook.cs`
 
+- `OnSessionStartAsync`（会话开始）
+- `OnSessionEndAsync`（会话结束）
+- `OnStopAsync`（agent loop 停止）
 - `BeforeLLMRequestAsync`
 - `AfterLLMResponseAsync`
 - `BeforeToolExecuteAsync`
@@ -28,6 +31,7 @@
 为了避免 “同步 vs 流式” 两套行为分叉，`ChatStreamAsync` 目前做了 **最小对齐**：
 
 - **会执行**
+  - `OnSessionStartAsync` / `OnStopAsync` / `OnSessionEndAsync`
   - `BeforeLLMRequestAsync`：在打开流之前执行（可用于预算监控、给 request 打标、收敛工具可见性）
   - `OnErrorAsync`：当 streaming 过程中发生异常时执行（best-effort）
 - **不会执行**
@@ -92,6 +96,57 @@ public sealed class MyHook : IAevatarAgentHook
 
 services.AddSingleton<IAevatarAgentHook, MyHook>();
 ```
+
+## 可选 Hook：ToolDenyListHook（按工具名拒绝）
+
+```csharp
+services.Configure<ToolDenyListHookOptions>(configuration.GetSection("Aevatar:AI:ToolDenyList"));
+services.AddSingleton<IAevatarAgentHook, ToolDenyListHook>();
+```
+
+```json
+{
+  "Aevatar": {
+    "AI": {
+      "ToolDenyList": {
+        "DeniedTools": ["bash", "run_terminal_cmd"],
+        "DenyReason": "Disabled by host policy."
+      }
+    }
+  }
+}
+```
+
+## 外部脚本 Hook（stdio JSON runner）
+
+当你需要复用 Cursor hooks 风格的脚本时，可以注册外部脚本 runner：
+
+```csharp
+services.Configure<AevatarExternalHookOptions>(configuration.GetSection("Aevatar:AI:ExternalHooks"));
+services.AddSingleton<IAevatarAgentHook, ExternalProcessHook>();
+```
+
+```json
+{
+  "Aevatar": {
+    "AI": {
+      "ExternalHooks": {
+        "IncludeChatMessageContent": false,
+        "Commands": [
+          { "Stage": "BeforeToolExecute", "Command": "./hooks/audit.sh" },
+          { "Stage": "OnStop", "Command": "./hooks/session-end.sh", "TimeoutMs": 5000 }
+        ]
+      }
+    }
+  }
+}
+```
+
+脚本输出可选字段（stdin/out 均为 JSON）：
+
+- `deny_tool`: true/false（仅在 tool 阶段有效）
+- `deny_reason`: string
+- `metadata`: object（合并到 `context.Metadata`）
 
 注入机制（best-effort）：
 - `AIGAgentFactory` 会在创建 agent 时以 **显式/类型安全** 的方式注入：

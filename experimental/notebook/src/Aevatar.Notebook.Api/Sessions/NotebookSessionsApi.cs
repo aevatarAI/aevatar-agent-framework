@@ -12,6 +12,7 @@ using Aevatar.Notebook.Api.Infrastructure;
 using Aevatar.Notebook.Context;
 using Aevatar.Notebook.Streaming;
 using Aevatar.Notebook.Tracing;
+using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Options;
 
 namespace Aevatar.Notebook.Api.Sessions;
@@ -441,13 +442,13 @@ internal static class NotebookSessionsApi
         {
             var messageId = $"msg:{_threadId}:tool:{toolCallId}";
 
-            _hub.Publish(new ToolCallStartEvent
-            {
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                MessageId = messageId,
-                ToolCallId = toolCallId,
-                ToolName = toolName
-            });
+            PublishTraceEvents(BuildToolTraceEvent(
+                phase: ExecutionTraceEventPhase.ToolStart,
+                status: ExecutionTraceEventStatus.Running,
+                toolCallId: toolCallId,
+                toolName: toolName,
+                messageId: messageId,
+                message: $"tool.start:{toolName}"));
 
             _hub.Publish(new CustomEvent
             {
@@ -468,20 +469,15 @@ internal static class NotebookSessionsApi
         {
             var messageId = $"msg:{_threadId}:tool:{toolCallId}";
 
-            _hub.Publish(new ToolCallResultEvent
-            {
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                MessageId = messageId,
-                ToolCallId = toolCallId,
-                Result = error ?? (success ? "Success" : "Failed")
-            });
-
-            _hub.Publish(new ToolCallEndEvent
-            {
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                MessageId = messageId,
-                ToolCallId = toolCallId
-            });
+            PublishTraceEvents(BuildToolTraceEvent(
+                phase: ExecutionTraceEventPhase.ToolEnd,
+                status: success ? ExecutionTraceEventStatus.Completed : ExecutionTraceEventStatus.Failed,
+                toolCallId: toolCallId,
+                toolName: toolName,
+                messageId: messageId,
+                message: error ?? (success ? "Success" : "Failed"),
+                durationMs: durationMs,
+                error: error));
 
             _hub.Publish(new CustomEvent
             {
@@ -490,6 +486,63 @@ internal static class NotebookSessionsApi
                 Value = new { threadId = _threadId, runId = _runId, toolCallId, toolName, success, durationMs, error = Trunc(error, 240) }
             });
             return Task.CompletedTask;
+        }
+
+        private void PublishTraceEvents(ExecutionTraceEvent traceEvent)
+        {
+            var mapped = AgUiTraceProjector.Map(traceEvent);
+            for (var i = 0; i < mapped.Count; i++)
+            {
+                _hub.Publish(mapped[i]);
+            }
+        }
+
+        private ExecutionTraceEvent BuildToolTraceEvent(
+            string phase,
+            string status,
+            string toolCallId,
+            string toolName,
+            string messageId,
+            string message,
+            long? durationMs = null,
+            string? error = null)
+        {
+            var evt = new ExecutionTraceEvent
+            {
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
+                Phase = phase,
+                Message = message ?? string.Empty,
+                NodeId = $"tool:{toolCallId}"
+            };
+
+            evt.Fields[ExecutionTraceEventFields.Status] =
+                ExecutionTraceEventFieldValue.FromString(status);
+            evt.Fields[ExecutionTraceEventFields.SessionId] =
+                ExecutionTraceEventFieldValue.FromString(_threadId);
+            evt.Fields[ExecutionTraceEventFields.ExecutionId] =
+                ExecutionTraceEventFieldValue.FromString(_runId);
+            evt.Fields[ExecutionTraceEventFields.ToolName] =
+                ExecutionTraceEventFieldValue.FromString(toolName);
+            evt.Fields[ExecutionTraceEventFields.ToolCallId] =
+                ExecutionTraceEventFieldValue.FromString(toolCallId);
+            evt.Fields[ExecutionTraceEventFields.MessageId] =
+                ExecutionTraceEventFieldValue.FromString(messageId);
+            evt.Fields[ExecutionTraceEventFields.Phase] =
+                ExecutionTraceEventFieldValue.FromString(phase);
+
+            if (durationMs.HasValue)
+            {
+                evt.Fields[ExecutionTraceEventFields.DurationMs] =
+                    ExecutionTraceEventFieldValue.FromLong(durationMs.Value);
+            }
+
+            if (!string.IsNullOrWhiteSpace(error))
+            {
+                evt.Fields[ExecutionTraceEventFields.Error] =
+                    ExecutionTraceEventFieldValue.FromString(error);
+            }
+
+            return evt;
         }
 
         private static string Trunc(string? s, int maxChars)

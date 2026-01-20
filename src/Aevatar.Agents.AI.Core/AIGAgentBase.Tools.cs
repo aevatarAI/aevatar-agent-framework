@@ -11,6 +11,7 @@ using Aevatar.Agents.AI.Tool.Tools.BuiltIn;
 using Aevatar.Agents.AI.Tool.Tools.CustomTools;
 using Aevatar.Agents.AI.Tool.Tools.CoreTools;
 using Aevatar.Agents.Abstractions.Attributes;
+using Aevatar.Agents.Abstractions.Tracing;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
@@ -403,7 +404,83 @@ public abstract partial class AIGAgentBase
         cancellationToken.ThrowIfCancellationRequested();
 
         var msgId = Guid.NewGuid().ToString("N");
-        var tcId = Guid.NewGuid().ToString("N");
+        var tcId = context?.ToolCallId;
+        if (string.IsNullOrWhiteSpace(tcId))
+            tcId = Guid.NewGuid().ToString("N");
+        if (context != null)
+        {
+            context.ToolCallId = tcId;
+            context.ToolName ??= toolName;
+        }
+
+        var sessionId = context?.GetSessionId?.Invoke() ?? Guid.NewGuid().ToString("N");
+        var lastProgressAtMs = 0L;
+        string? lastProgressMsg = null;
+
+        async Task EmitTraceProgressAsync(string msg, CancellationToken ct)
+        {
+            msg = NormalizeProgressMessage(msg);
+            if (msg.Length == 0)
+                return;
+
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var since = now - lastProgressAtMs;
+            if (since < 800 && string.Equals(lastProgressMsg, msg, StringComparison.Ordinal))
+                return;
+            if (since < 500)
+                return;
+
+            lastProgressAtMs = now;
+            lastProgressMsg = msg;
+
+            var evt = new ExecutionTraceEvent
+            {
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
+                Phase = ExecutionTraceEventPhase.ToolProgress,
+                Message = msg,
+                NodeId = $"tool:{tcId}"
+            };
+
+            evt.Fields[ExecutionTraceEventFields.Status] =
+                ExecutionTraceEventFieldValue.FromString(ExecutionTraceEventStatus.Running);
+            evt.Fields[ExecutionTraceEventFields.SessionId] =
+                ExecutionTraceEventFieldValue.FromString(sessionId);
+            evt.Fields[ExecutionTraceEventFields.ExecutionId] =
+                ExecutionTraceEventFieldValue.FromString(sessionId);
+            evt.Fields[ExecutionTraceEventFields.AgentId] =
+                ExecutionTraceEventFieldValue.FromString(Id.ToString());
+            evt.Fields[ExecutionTraceEventFields.ToolName] =
+                ExecutionTraceEventFieldValue.FromString(toolName);
+            evt.Fields[ExecutionTraceEventFields.ToolCallId] =
+                ExecutionTraceEventFieldValue.FromString(tcId);
+            evt.Fields[ExecutionTraceEventFields.Phase] =
+                ExecutionTraceEventFieldValue.FromString(ExecutionTraceEventPhase.ToolProgress);
+            evt.Fields[ExecutionTraceEventFields.MessageId] =
+                ExecutionTraceEventFieldValue.FromString(sessionId);
+
+            try
+            {
+                await PublishAsync(evt, EventDirection.Down, ct);
+            }
+            catch
+            {
+                // best-effort only
+            }
+        }
+
+        if (context != null)
+        {
+            var previous = context.ReportProgressAsync;
+            context.ReportProgressAsync = async (msg, ct) =>
+            {
+                if (previous != null)
+                {
+                    await previous(msg, ct);
+                }
+
+                await EmitTraceProgressAsync(msg, ct);
+            };
+        }
 
         // Publish START (Protobuf)
         await PublishAsync(new ToolCallStartEvent
@@ -462,6 +539,14 @@ public abstract partial class AIGAgentBase
         }, EventDirection.Down, cancellationToken);
 
         return result;
+    }
+
+    private static string NormalizeProgressMessage(string? msg, int maxChars = 2000)
+    {
+        var text = (msg ?? string.Empty).Replace("\r", "").Trim();
+        if (text.Length == 0)
+            return string.Empty;
+        return text.Length <= maxChars ? text : text[..maxChars];
     }
 
     private string BuildToolInstructionBlock()

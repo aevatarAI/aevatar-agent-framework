@@ -1,5 +1,6 @@
 using Aevatar.Agents.Core.Secrets;
 using Aevatar.Agents.Knowledge.Graph;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
@@ -41,6 +42,7 @@ internal sealed class VibeCore
     public required AgentProvidersStore AgentProviders { get; init; }
     public required IAevatarUserSecretsStore UserSecrets { get; init; }
     public required IKnowledgeGraphClientFactory GraphFactory { get; init; }
+    public required IConfiguration Configuration { get; init; }
 
     public static VibeCore Create(IServiceProvider sp) => new()
     {
@@ -56,7 +58,8 @@ internal sealed class VibeCore
         Paper = sp.GetRequiredService<PaperService>(),
         AgentProviders = sp.GetRequiredService<AgentProvidersStore>(),
         UserSecrets = sp.GetRequiredService<IAevatarUserSecretsStore>(),
-        GraphFactory = sp.GetRequiredService<IKnowledgeGraphClientFactory>()
+        GraphFactory = sp.GetRequiredService<IKnowledgeGraphClientFactory>(),
+        Configuration = sp.GetRequiredService<IConfiguration>()
     };
 }
 

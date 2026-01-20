@@ -412,6 +412,7 @@ internal sealed partial class VibeOrchestrator
                           new() { Agent = "planner", Task = "Produce an executable plan and unknowns" },
                           new() { Agent = "reasoner", Task = "Provide grounded reasoning with explicit hypotheses" },
                           new() { Agent = "librarian", Task = "List key evidence and missing gaps" },
+                          new() { Agent = "verifier", Task = "Verify reasoning correctness and identify gaps" },
                           new() { Agent = "dag_builder", Task = "Propose a DAG mutation candidate in strict JSON" }
                       };
 
@@ -501,12 +502,34 @@ internal sealed partial class VibeOrchestrator
                         resolveProvider: () => resolveProvider("verifier"),
                         emitAssistantDelta: ctx.EmitAssistantDelta,
                         ct: ct);
-                    outputs[agent] = await RunVerifierAsync(
-                        ctx,
-                        getDagSnapshot(),
-                        outputs.TryGetValue("reasoner", out var r) ? r : null,
-                        provider,
-                        ct);
+
+                    // Check if multi-stage verification is enabled (default: true)
+                    var useMultiStage = _core.Configuration?.GetValue<bool?>("Vibe:MultiStageVerification:Enabled") ?? true;
+
+                    if (useMultiStage)
+                    {
+                        // Multi-stage verification: Scout (2 workers) + Prover (5 workers)
+                        var multiStageResult = await RunMultiStageVerifierAsync(
+                            ctx,
+                            getDagSnapshot(),
+                            outputs.TryGetValue("reasoner", out var reasonerOut) ? reasonerOut : null,
+                            provider,
+                            ct);
+                        outputs[agent] = multiStageResult.Summary;
+
+                        // Store verification pass/fail status for downstream use
+                        outputs["verifier_passed"] = multiStageResult.OverallPass.ToString();
+                    }
+                    else
+                    {
+                        // Legacy single-pass verification
+                        outputs[agent] = await RunVerifierAsync(
+                            ctx,
+                            getDagSnapshot(),
+                            outputs.TryGetValue("reasoner", out var r) ? r : null,
+                            provider,
+                            ct);
+                    }
                     break;
                 }
                 case "dag_builder":

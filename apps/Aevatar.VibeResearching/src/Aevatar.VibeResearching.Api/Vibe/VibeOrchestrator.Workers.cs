@@ -107,6 +107,8 @@ internal sealed partial class VibeOrchestrator
         public const string LibrarianStreaming = "正在整理文献摘要...";
         public const string VerifierStart = "正在验证推理步骤的正确性...";
         public const string VerifierStreaming = "正在检查边界条件...";
+        public const string VerifierScoutStart = "🔍 Scout 阶段：快速检测反例和缺失前提 (2 workers)...";
+        public const string VerifierProverStart = "📐 Prover 阶段：验证推理过程正确性 (5 workers, 需 ≥3 通过)...";
         public const string DagBuilderStart = "正在构建知识图谱节点...";
         public const string DagBuilderStreaming = "正在生成 DAG 结构...";
         public const string PaperEditorStart = "正在更新论文草稿...";

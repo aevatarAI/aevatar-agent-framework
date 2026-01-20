@@ -45,7 +45,7 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
 
   return (
     <DialogContext.Provider value={{ onClose }}>
-      <div className="fixed inset-0 z-50">
+      <div className="fixed inset-0 z-[10000]">
         {/* Backdrop */}
         <div 
           className="fixed inset-0 bg-background/90 backdrop-blur-sm animate-fade-in"

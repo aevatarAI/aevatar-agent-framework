@@ -731,7 +731,6 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
       addRawEvent(event)
       // Flexible parsing: data may be nested differently
       const raw = event.value as Record<string, unknown>
-      console.log("[AxiomStream] dag_snapshot raw:", JSON.stringify(raw, null, 2))
       
       // Try to find nodes/edges at various paths
       const dagData = (raw?.dag || raw) as Record<string, unknown>

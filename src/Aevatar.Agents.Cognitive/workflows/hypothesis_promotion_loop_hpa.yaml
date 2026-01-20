@@ -276,7 +276,7 @@ steps:
           ```
 
           Then state.existing_hypothesis should be:
-          ["H1: The native structure corresponds to the global minimum.“, "H2: TM-score is length-independent."]
+          "H1: The native structure corresponds to the global minimum.\nH2: TM-score is length-independent."
 
           (Note: The text "ContinueOnFailure:" is NOT included because it's the next header)
 
@@ -284,7 +284,7 @@ steps:
           {
             "focus": string,
             "seed_hypothesis": string,
-            "existing_hypothesis": [string],
+            "existing_hypothesis": string,
             "axioms": [string],
             "assumptions": [
               { "id": string, "statement": string, "motivation": string }

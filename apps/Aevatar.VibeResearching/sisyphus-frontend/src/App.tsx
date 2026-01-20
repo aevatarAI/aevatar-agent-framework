@@ -386,7 +386,8 @@ const App: React.FC = () => {
                   className="h-full overflow-hidden py-4 pl-1 pr-4 transition-all duration-300"
                   style={{ width: `${100 - leftPanelWidth}%` }}
                 >
-                  <WorkflowTopology sessionId={currentSessionId} fullHeight />
+                  {/* key forces complete remount on session change, avoiding stale state issues */}
+                  <WorkflowTopology key={currentSessionId} sessionId={currentSessionId} fullHeight />
                 </div>
               )}
             </>

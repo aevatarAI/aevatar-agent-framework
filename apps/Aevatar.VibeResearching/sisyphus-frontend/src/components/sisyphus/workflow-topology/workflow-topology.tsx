@@ -127,7 +127,6 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
   const interactionRef = useRef<InteractionManager | null>(null)
   const simulationRef = useRef<SimulationManager | null>(null)
   const positionCacheRef = useRef<Map<string, { x: number; y: number }>>(new Map())
-  const lastSessionIdRef = useRef<string | null>(null)
   const animationRef = useRef<number>(0)
 
   // State
@@ -139,6 +138,7 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
   const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, scale: 1 })
   const [hoveredNode, setHoveredNode] = useState<{ node: LayoutNode; x: number; y: number } | null>(null)
   const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 })
+  const [isRendererReady, setIsRendererReady] = useState(false)
 
   // Layout nodes/edges
   const [layoutNodes, setLayoutNodes] = useState<LayoutNode[]>([])
@@ -157,8 +157,8 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
 
     const isHighlighting = highlightMode !== 'none'
 
-    // Filter nodes
-    const filteredDagNodes = dag.nodes.slice(0, 200).filter((node) => {
+    // Filter nodes (no hard limit - performance optimized in force layout)
+    const filteredDagNodes = dag.nodes.filter((node) => {
       if (filterMode === 'all') return true
       const isOtherSession = node.sessionId ? node.sessionId !== sessionId : false
       const isCurrentSession = !isOtherSession
@@ -186,9 +186,8 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
       }
     })
 
-    // Filter edges
+    // Filter edges (no hard limit)
     const edges: LayoutEdge[] = (dag.edges || [])
-      .slice(0, 400)
       .filter(e => visibleNodeIds.has(e.source) && visibleNodeIds.has(e.target))
       .map((e, i) => ({
         id: `e-${e.source}-${e.target}-${i}`,
@@ -207,6 +206,11 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
 
   // ── Calculate layout with persistent simulation ──
   useEffect(() => {
+    // Wait for renderer to be ready before creating simulation
+    if (!isRendererReady || canvasSize.width <= 0 || canvasSize.height <= 0) {
+      return
+    }
+
     // Cleanup previous simulation
     simulationRef.current?.destroy()
     simulationRef.current = null
@@ -217,19 +221,6 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
       return
     }
 
-    // Skip if canvas size is invalid
-    if (canvasSize.width <= 0 || canvasSize.height <= 0) {
-      return
-    }
-
-    // Check if session changed - clear cache and reset transform
-    const sessionChanged = lastSessionIdRef.current !== sessionId
-    if (sessionChanged) {
-      positionCacheRef.current.clear()
-      setTransform({ x: canvasSize.width / 2, y: canvasSize.height / 2, scale: 1 })
-      lastSessionIdRef.current = sessionId
-    }
-
     // Create persistent simulation with position cache
     const manager = createPersistentSimulation(
       filteredNodes,
@@ -238,7 +229,7 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
         width: canvasSize.width,
         height: canvasSize.height,
         centerNodeId,
-        existingPositions: sessionChanged ? undefined : positionCacheRef.current,
+        existingPositions: positionCacheRef.current,
       },
       (nodes) => {
         // Update layout and cache positions
@@ -266,18 +257,26 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
     return () => {
       manager.destroy()
     }
-  }, [filteredNodes, filteredEdges, centerNodeId, canvasSize, sessionId])
+  }, [filteredNodes, filteredEdges, centerNodeId, canvasSize, isRendererReady])
 
   // ── Initialize renderer and interaction manager ──
+  // Using dag.nodes.length as dependency to re-run when canvas becomes available
+  const hasData = (dag?.nodes?.length ?? 0) > 0
   useEffect(() => {
     const canvas = canvasRef.current
     const container = containerRef.current
-    if (!canvas || !container) return
+    if (!canvas || !container) {
+      // Canvas not available yet (empty state), will retry when data arrives
+      return
+    }
+
+    // Skip if already initialized
+    if (rendererRef.current) return
 
     // Get actual container size for initial resize
     const rect = container.getBoundingClientRect()
-    const actualWidth = rect.width
-    const actualHeight = Math.max(300, rect.height - 120)
+    const actualWidth = rect.width > 0 ? rect.width : 800
+    const actualHeight = Math.max(300, rect.height > 0 ? rect.height - 120 : 480)
 
     // Create renderer with actual dimensions
     const renderer = new CanvasRenderer(canvas, {
@@ -287,11 +286,6 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
     })
     renderer.resize(actualWidth, actualHeight)
     rendererRef.current = renderer
-
-    // Update canvasSize state to match actual dimensions
-    if (canvasSize.width !== actualWidth || canvasSize.height !== actualHeight) {
-      setCanvasSize({ width: actualWidth, height: actualHeight })
-    }
 
     // Create interaction manager
     const interaction = new InteractionManager(
@@ -325,12 +319,19 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
     )
     interactionRef.current = interaction
 
+    // Set canvas size and mark renderer as ready
+    setCanvasSize({ width: actualWidth, height: actualHeight })
+    setIsRendererReady(true)
+
     // Cleanup
     return () => {
       interaction.destroy()
+      rendererRef.current = null
+      interactionRef.current = null
+      setIsRendererReady(false)
       cancelAnimationFrame(animationRef.current)
     }
-  }, [canvasSize.width, canvasSize.height])
+  }, [hasData]) // Re-run when data becomes available
 
   // ── Update renderer config when selection changes ──
   useEffect(() => {

@@ -126,8 +126,10 @@ export function LandingDagViewer() {
 
   const [selectedNode, setSelectedNode] = useState<DAGNode | null>(null)
   const [hoveredNode, setHoveredNode] = useState<{ node: LayoutNode; x: number; y: number } | null>(null)
-  const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, scale: 1 })
+  // Initialize transform to center (will be updated by fitView)
+  const [transform, setTransform] = useState<Transform>({ x: 300, y: 250, scale: 1 })
   const [canvasSize, setCanvasSize] = useState({ width: 600, height: 500 })
+  const [isCanvasReady, setIsCanvasReady] = useState(false)
 
   // Layout state
   const [layoutNodes, setLayoutNodes] = useState<LayoutNode[]>([])
@@ -179,12 +181,18 @@ export function LandingDagViewer() {
       level: 0,
     }))
 
-    const edges: LayoutEdge[] = dagData.edges.map((e, i) => ({
-      id: `e-${e.source}-${e.target}-${i}`,
-      source: e.source,
-      target: e.target,
-      type: e.type,
-    }))
+    // Build node ID set for edge filtering (prevent "node not found" errors)
+    const nodeIds = new Set(nodes.map(n => n.id))
+
+    // Filter edges: only include edges where both source and target exist
+    const edges: LayoutEdge[] = dagData.edges
+      .filter(e => nodeIds.has(e.source) && nodeIds.has(e.target))
+      .map((e, i) => ({
+        id: `e-${e.source}-${e.target}-${i}`,
+        source: e.source,
+        target: e.target,
+        type: e.type,
+      }))
 
     const center = findCenterNode(nodes, edges)
     return { filteredNodes: nodes, filteredEdges: edges, centerNodeId: center }
@@ -198,6 +206,11 @@ export function LandingDagViewer() {
     if (filteredNodes.length === 0) {
       setLayoutNodes([])
       setLayoutEdges([])
+      return
+    }
+
+    // Skip if canvas size is not ready
+    if (canvasSize.width <= 0 || canvasSize.height <= 0) {
       return
     }
 
@@ -263,7 +276,7 @@ export function LandingDagViewer() {
         onNodeDrag: (node, x, y) => {
           simulationRef.current?.updateNodePosition(node.id, x, y)
         },
-        onNodeDragEnd: (node) => {
+        onNodeDragEnd: (_node) => {
           simulationRef.current?.setDraggedNode(null)
           simulationRef.current?.reheat()
         },
@@ -276,6 +289,7 @@ export function LandingDagViewer() {
       interaction.destroy()
       cancelAnimationFrame(animationRef.current)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- selectedNode used in callback, not as dependency
   }, [canvasSize, dagData])
 
   // ─── Update renderer config ───
@@ -308,27 +322,43 @@ export function LandingDagViewer() {
     const container = containerRef.current
     if (!container) return
 
-    const resizeObserver = new ResizeObserver((entries) => {
-      const entry = entries[0]
-      if (entry) {
-        const { width, height } = entry.contentRect
-        setCanvasSize({ width, height: Math.max(400, height) })
-        rendererRef.current?.resize(width, Math.max(400, height))
+    // Initial size check
+    const updateSize = () => {
+      const rect = container.getBoundingClientRect()
+      const width = rect.width
+      const height = Math.max(400, rect.height)
+      if (width > 0 && height > 0) {
+        setCanvasSize({ width, height })
+        rendererRef.current?.resize(width, height)
+        if (!isCanvasReady) {
+          setTransform({ x: width / 2, y: height / 2, scale: 1 })
+          setIsCanvasReady(true)
+        }
       }
+    }
+
+    // Run initial size check
+    updateSize()
+
+    const resizeObserver = new ResizeObserver(() => {
+      updateSize()
     })
 
     resizeObserver.observe(container)
     return () => resizeObserver.disconnect()
-  }, [])
+  }, [isCanvasReady])
 
   // ─── Auto-fit on load ───
   useEffect(() => {
-    if (layoutNodes.length > 0 && interactionRef.current) {
-      setTimeout(() => {
+    if (layoutNodes.length > 0 && interactionRef.current && isCanvasReady && canvasSize.width > 0) {
+      // Delay to ensure canvas and layout are both ready
+      const timeoutId = setTimeout(() => {
         interactionRef.current?.fitView(layoutNodes, canvasSize.width, canvasSize.height)
-      }, 100)
+      }, 150)
+      return () => clearTimeout(timeoutId)
     }
-  }, [layoutNodes.length > 0 ? 'loaded' : 'empty'])
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- fitView only on initial load, not on every layoutNodes change
+  }, [layoutNodes.length, isCanvasReady, canvasSize.width, canvasSize.height])
 
   // ─── Reset View ───
   const handleResetView = useCallback(() => {
@@ -407,8 +437,8 @@ export function LandingDagViewer() {
     if (!dagData || dagData.nodes.length === 0) return <EmptyState />
 
     return (
-      <div ref={containerRef} className="w-full h-full relative">
-        <canvas ref={canvasRef} className="w-full h-full" style={{ cursor: 'grab' }} />
+      <div ref={containerRef} className="w-full h-full relative bg-[#0c0f14]">
+        <canvas ref={canvasRef} className="w-full h-full block" style={{ cursor: 'grab' }} />
         {/* Zoom controls */}
         <div className="absolute bottom-4 right-4 z-40 flex flex-col gap-1 p-1 rounded-lg bg-bg-surface/90 backdrop-blur-md border border-neon-cyan/30">
           <button
@@ -447,7 +477,7 @@ export function LandingDagViewer() {
   return (
     <div className="flex h-[600px]">
       {/* Left: DAG Visualization */}
-      <div className="flex-[1.5] relative">
+      <div className="flex-[1.5] h-full relative">
         {renderContent()}
         {dagData && dagData.nodes.length > 0 && (
           <div className="absolute top-4 right-4 z-30 flex items-center gap-2">

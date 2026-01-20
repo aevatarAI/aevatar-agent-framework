@@ -75,7 +75,10 @@ export class CanvasRenderer {
     this.canvas.height = height * this.dpr
     this.canvas.style.width = `${width}px`
     this.canvas.style.height = `${height}px`
-    this.ctx.scale(this.dpr, this.dpr)
+    // Use setTransform instead of scale to avoid cumulative scaling
+    // ctx.scale() is cumulative, calling resize() multiple times would
+    // multiply the scale factor each time (e.g., dpr^n after n calls)
+    this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0)
   }
 
   render(nodes: LayoutNode[], edges: LayoutEdge[]): void {
@@ -250,11 +253,13 @@ export class CanvasRenderer {
     ctx.fillStyle = textColor
     ctx.fillText(`${emoji} ${kindLabel}`, x, y - 8)
 
-    // Draw ID (truncated)
-    const idCore = this.extractIdCore(node.id)
-    ctx.font = '10px monospace'
+    // Draw label (truncated) or fallback to ID
+    const displayText = node.label
+      ? (node.label.length > 12 ? node.label.slice(0, 12) + '…' : node.label)
+      : this.extractIdCore(node.id)
+    ctx.font = '9px system-ui'
     ctx.globalAlpha = 0.85
-    ctx.fillText(idCore, x, y + 8)
+    ctx.fillText(displayText, x, y + 8)
 
     ctx.restore()
   }

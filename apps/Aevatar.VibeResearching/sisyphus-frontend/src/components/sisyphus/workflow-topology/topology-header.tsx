@@ -5,9 +5,12 @@
 import { Network, RefreshCw, FileText, Maximize2, Minimize2, Crosshair } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
+import { type LayoutMode } from './force-layout'
 
 export interface TopologyHeaderProps {
   onLayout: (direction: 'TB' | 'LR') => void
+  onLayoutModeChange?: (mode: LayoutMode) => void
+  layoutMode?: LayoutMode
   onRefresh: () => void
   onCollapse?: () => void
   onSummary?: () => void
@@ -24,6 +27,8 @@ export interface TopologyHeaderProps {
 
 export function TopologyHeader({
   onLayout,
+  onLayoutModeChange,
+  layoutMode = 'force',
   onRefresh,
   onCollapse,
   onSummary,
@@ -163,37 +168,41 @@ export function TopologyHeader({
             <TooltipContent>Refresh</TooltipContent>
           </Tooltip>
 
-          {/* Layout Buttons */}
-          <div className="flex items-center gap-1 p-1 rounded-lg bg-bg-elevated border border-border-subtle">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => onLayout('TB')}
-                  aria-label="Vertical layout"
-                  className="p-1.5 rounded-md bg-neon-cyan/10 border border-neon-cyan/40 text-neon-cyan hover:bg-neon-cyan/20 hover:border-neon-cyan/60 active:scale-95 transition-all"
-                >
+          {/* Layout Mode Toggle - cycles through: force ↔ dagre-tb */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => {
+                  const nextMode = layoutMode === 'force' ? 'dagre-tb' : 'force'
+                  if (nextMode === 'dagre-tb') onLayout('TB')
+                  onLayoutModeChange?.(nextMode)
+                }}
+                aria-label="Toggle layout mode"
+                className={cn(
+                  "p-1.5 rounded-md border active:scale-95 transition-all",
+                  layoutMode === 'force' && "bg-neon-green/20 border-neon-green/60 text-neon-green shadow-[0_0_8px_rgba(0,255,136,0.25)]",
+                  (layoutMode === 'dagre-tb' || layoutMode === 'dagre-lr') && "bg-neon-cyan/20 border-neon-cyan/60 text-neon-cyan shadow-[0_0_8px_rgba(0,240,255,0.25)]"
+                )}
+              >
+                {layoutMode === 'force' ? (
+                  <svg className="size-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="3" />
+                    <circle cx="12" cy="5" r="2" />
+                    <circle cx="19" cy="12" r="2" />
+                    <circle cx="12" cy="19" r="2" />
+                    <circle cx="5" cy="12" r="2" />
+                  </svg>
+                ) : (
                   <svg className="size-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m0 0l-4-4m4 4l4-4" />
                   </svg>
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>Vertical layout</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => onLayout('LR')}
-                  aria-label="Horizontal layout"
-                  className="p-1.5 rounded-md bg-neon-gold/10 border border-neon-gold/40 text-neon-gold hover:bg-neon-gold/20 hover:border-neon-gold/60 active:scale-95 transition-all"
-                >
-                  <svg className="size-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 12h16m0 0l-4-4m4 4l-4 4" />
-                  </svg>
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>Horizontal layout</TooltipContent>
-            </Tooltip>
-          </div>
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {layoutMode === 'force' ? 'Cluster (click for Tree)' : 'Tree (click for Cluster)'}
+            </TooltipContent>
+          </Tooltip>
         </div>
       </div>
     </TooltipProvider>

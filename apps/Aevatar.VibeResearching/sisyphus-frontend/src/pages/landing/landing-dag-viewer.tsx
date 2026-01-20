@@ -17,7 +17,7 @@ import {
   type Edge,
   type ReactFlowInstance,
 } from '@xyflow/react'
-import { RotateCcw, Sparkles, Loader2, GitBranch, RefreshCw } from 'lucide-react'
+import { RotateCcw, Sparkles, Loader2, GitBranch, RefreshCw, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { nodeTypes } from '@/components/sisyphus/workflow-topology/cyber-node'
 import { getLayoutedElements } from '@/components/sisyphus/workflow-topology/dag-layout'

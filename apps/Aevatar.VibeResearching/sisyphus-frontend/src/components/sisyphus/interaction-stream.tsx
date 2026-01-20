@@ -1,8 +1,8 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback, memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { useSisyphusStore, type AgentMessage } from '@/store/sisyphus-store';
-import { useStreamContentStore, selectAgentStream, type AgentStreamState } from '@/store/stream-content-store';
+import { useSisyphusStore } from '@/store/sisyphus-store';
+import { useStreamContentStore, selectAgentStream } from '@/store/stream-content-store';
 import { cn } from '@/lib/utils';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogCloseButton } from '@/components/ui/dialog';
 import Composer from './composer';
@@ -674,7 +674,6 @@ const InteractionStream: React.FC<InteractionStreamProps> = ({ sessionId }) => {
   const inputMode = useSisyphusStore((s) => s.inputMode);
   const currentRunId = useSisyphusStore((s) => s.currentRunId);
   const agentRoster = useSisyphusStore((s) => s.agentRoster);
-  const agentProviders = useSisyphusStore((s) => s.agentProviders);
 
   // Use isolated stream store for detecting if RA has content
   const raStreamData = useStreamContentStore(selectAgentStream('research_assistant'));

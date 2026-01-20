@@ -28,7 +28,9 @@ import '@xyflow/react/dist/style.css'
 
 import { type NodeFilterMode } from './dag-node-styles'
 import { getLayoutedElements } from './dag-layout'
+import { getForceLayoutedElements, type LayoutMode } from './force-layout'
 import { nodeTypes } from './cyber-node'
+import { edgeTypes } from './floating-edge'
 import { NodeLegend } from './node-legend'
 import { NodeDetailsPanel } from './node-details-panel'
 import { TopologyHeader } from './topology-header'
@@ -56,12 +58,15 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
   const [summaryOpen, setSummaryOpen] = useState(false)
   const [filterMode, setFilterMode] = useState<NodeFilterMode>('all')
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>('force')
   const prevActiveMilestone = useRef<string | null>(null)
   const prevSessionId = useRef<string>(sessionId)
   const isProgrammaticMove = useRef(false)
   const refreshInProgress = useRef(false)
   const prevNodeCount = useRef(0)
   const hasUserInteracted = useRef(false)
+  // Cache node positions for incremental layout updates
+  const nodePositionsCache = useRef<Map<string, { x: number; y: number }>>(new Map())
 
   const selectedNodeForDialog = useMemo(() => {
     if (!selectedNodeId || !dag?.nodes) return null
@@ -143,14 +148,18 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
     setFilterMode(newMode)
   }, [])
 
-  // Auto-follow active milestone (always on)
+  // Auto-follow active milestone (always on) and re-layout when center changes
   useEffect(() => {
     if (!activeMilestoneNodeId) return
     if (activeMilestoneNodeId === prevActiveMilestone.current) return
+    // Clear position cache when center node changes - forces full re-layout
+    if (layoutMode === 'force') {
+      nodePositionsCache.current.clear()
+    }
     const timer = setTimeout(() => focusOnNode(activeMilestoneNodeId), 300)
     prevActiveMilestone.current = activeMilestoneNodeId
     return () => clearTimeout(timer)
-  }, [activeMilestoneNodeId, focusOnNode])
+  }, [activeMilestoneNodeId, focusOnNode, layoutMode])
 
   // Re-focus when session changes
   useEffect(() => {
@@ -158,6 +167,8 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
     prevSessionId.current = sessionId
     hasUserInteracted.current = false
     prevNodeCount.current = 0
+    // Clear position cache for new session
+    nodePositionsCache.current.clear()
     // Delay to allow DAG data to load for new session
     const timer = setTimeout(smartFocus, 500)
     return () => clearTimeout(timer)
@@ -258,6 +269,28 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
 
     const edges: Edge[] = filteredDagEdges.map((edge, i) => {
       const isMotivatedBy = edge.type === 'motivated_by'
+      
+      // Force mode: floating edges that connect to node circumference
+      if (layoutMode === 'force') {
+        return {
+          id: `e-${edge.source}-${edge.target}-${i}`,
+          source: edge.source,
+          target: edge.target,
+          type: 'floating',
+          style: { 
+            stroke: isMotivatedBy ? 'rgba(245, 158, 11, 0.5)' : 'rgba(0, 240, 255, 0.4)', 
+            strokeWidth: 1.5 
+          },
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: isMotivatedBy ? 'rgba(245, 158, 11, 0.7)' : 'rgba(0, 240, 255, 0.6)',
+            width: 12,
+            height: 12,
+          },
+        }
+      }
+      
+      // Dagre mode: styled edges with arrows
       const edgeColor = isMotivatedBy ? '#f59e0b' : '#00f0ff'
       return {
         id: `e-${edge.source}-${edge.target}-${i}`,
@@ -269,8 +302,14 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
       }
     })
 
-    return getLayoutedElements(nodes, edges, 'TB')
-  }, [dag, selectedNodeId, highlightMode, highlightedNodeIds, sessionId, activeMilestoneNodeId, filterMode])
+    // Apply layout based on current mode
+    // For force layout, pass existing positions to enable incremental updates
+    if (layoutMode === 'force') {
+      return getForceLayoutedElements(nodes, edges, activeMilestoneNodeId, 800, 600, nodePositionsCache.current)
+    }
+    const direction = layoutMode === 'dagre-lr' ? 'LR' : 'TB'
+    return getLayoutedElements(nodes, edges, direction)
+  }, [dag, selectedNodeId, highlightMode, highlightedNodeIds, sessionId, activeMilestoneNodeId, filterMode, layoutMode])
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
@@ -278,6 +317,12 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
   useEffect(() => {
     setNodes(initialNodes)
     setEdges(initialEdges)
+    
+    // Update position cache with new positions
+    initialNodes.forEach(node => {
+      nodePositionsCache.current.set(node.id, { x: node.position.x, y: node.position.y })
+    })
+    
     const currentCount = initialNodes.length
     const wasEmpty = prevNodeCount.current === 0
     const nowHasNodes = currentCount > 0
@@ -293,11 +338,48 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
     if (!isProgrammaticMove.current) hasUserInteracted.current = true
   }, [])
 
+  // Update position cache when nodes are dragged
+  const handleNodesChange = useCallback((changes: Parameters<typeof onNodesChange>[0]) => {
+    onNodesChange(changes)
+    // Update cache for position changes (drag events)
+    changes.forEach(change => {
+      if (change.type === 'position' && change.position) {
+        nodePositionsCache.current.set(change.id, { x: change.position.x, y: change.position.y })
+      }
+    })
+  }, [onNodesChange])
+
   const onLayout = useCallback((direction: 'TB' | 'LR') => {
     const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(nodes, edges, direction)
     setNodes([...layoutedNodes])
     setEdges([...layoutedEdges])
   }, [nodes, edges, setNodes, setEdges])
+
+  // Handle layout mode change (including force layout)
+  const onLayoutModeChange = useCallback((mode: LayoutMode) => {
+    setLayoutMode(mode)
+    // Clear position cache to force full re-layout
+    nodePositionsCache.current.clear()
+    // Trigger re-layout by updating nodes with new layout
+    if (mode === 'force') {
+      const { nodes: layoutedNodes, edges: layoutedEdges } = getForceLayoutedElements(
+        nodes, edges, activeMilestoneNodeId, 800, 600
+      )
+      setNodes([...layoutedNodes])
+      setEdges([...layoutedEdges])
+      // Update cache with new positions
+      layoutedNodes.forEach(node => {
+        nodePositionsCache.current.set(node.id, { x: node.position.x, y: node.position.y })
+      })
+    }
+    // For dagre modes, onLayout will be called by the button's onClick
+    // Fit view after layout change
+    setTimeout(() => {
+      if (reactFlowInstance.current) {
+        reactFlowInstance.current.fitView({ padding: 0.2, duration: 300 })
+      }
+    }, 100)
+  }, [nodes, edges, setNodes, setEdges, activeMilestoneNodeId])
 
   const onNodeClick = useCallback((_: unknown, node: Node) => {
     setSelectedNode(node.id)
@@ -433,7 +515,8 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
         )}
       >
         <TopologyHeader
-          onLayout={onLayout} onRefresh={handleRefresh} refreshing={refreshing}
+          onLayout={onLayout} onLayoutModeChange={onLayoutModeChange} layoutMode={layoutMode}
+          onRefresh={handleRefresh} refreshing={refreshing}
           nodeCount={0} edgeCount={0} activeMilestone={activeMilestoneNodeId}
           onFullscreenToggle={toggleFullscreen} isFullscreen={isFullscreen}
           onFocusActive={focusOnActiveMilestone}
@@ -471,10 +554,10 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
       {/* Header - always on top */}
       <div className="relative z-30 flex-shrink-0 bg-[#0c0f14]">
         <TopologyHeader
-          onLayout={onLayout} onRefresh={handleRefresh} onCollapse={isFullscreen ? undefined : onCollapse}
-          onSummary={() => setSummaryOpen(true)}
+          onLayout={onLayout} onLayoutModeChange={onLayoutModeChange} layoutMode={layoutMode}
+          onRefresh={handleRefresh} onCollapse={isFullscreen ? undefined : onCollapse}
+          onSummary={() => setSummaryOpen(true)} onFocusActive={focusOnActiveMilestone}
           onFullscreenToggle={toggleFullscreen} isFullscreen={isFullscreen}
-          onFocusActive={focusOnActiveMilestone}
           refreshing={refreshing} nodeCount={nodeCount} edgeCount={edgeCount}
           planCount={dagStats.planCount} knowledgeCount={dagStats.knowledgeCount}
           activeMilestone={activeMilestoneNodeId}
@@ -485,8 +568,8 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
       <div className={cn("flex-1 relative z-10", isFullscreen ? "min-h-0" : "min-h-[350px]")}>
         <div className="absolute inset-0 bg-[#0c0f14]">
           <ReactFlow
-            nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
-            onNodeClick={onNodeClick} onMoveEnd={handleMoveEnd} nodeTypes={nodeTypes}
+            nodes={nodes} edges={edges} onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange}
+            onNodeClick={onNodeClick} onMoveEnd={handleMoveEnd} nodeTypes={nodeTypes} edgeTypes={edgeTypes}
             fitView={false} fitViewOptions={{ padding: 0.3, maxZoom: 1.5, minZoom: 0.1 }}
             defaultViewport={{ x: 0, y: 0, zoom: 1.2 }} minZoom={0.1} maxZoom={2}
             onInit={(instance) => { reactFlowInstance.current = instance }}

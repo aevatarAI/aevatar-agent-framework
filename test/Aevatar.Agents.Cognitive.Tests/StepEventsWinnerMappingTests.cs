@@ -39,12 +39,12 @@ public sealed class StepEventsWinnerMappingTests
 
         var trace = (ExecutionTraceEvent)method!.Invoke(null, new object?[] { stepEvent, stepEvent.Message })!;
 
-        trace.Fields[ExecutionTraceEventFields.WinnerProposalId].StringValue.ShouldBe("decompose.gen[1]");
-        trace.Fields[ExecutionTraceEventFields.WinnerHash].StringValue.ShouldBe("ABCDEF1234567890");
-        trace.Fields[ExecutionTraceEventFields.WinnerVotes].IntValue.ShouldBe(3);
-        trace.Fields[ExecutionTraceEventFields.WinnerRunnerUpVotes].IntValue.ShouldBe(1);
-        trace.Fields[ExecutionTraceEventFields.WinnerClusterCount].IntValue.ShouldBe(2);
-        trace.Fields[ExecutionTraceEventFields.WinnerSemantic].BoolValue.ShouldBeTrue();
-        trace.Fields[ExecutionTraceEventFields.WinnerIsConsensus].BoolValue.ShouldBeTrue();
+        trace.Fields[ExecutionTraceEventMakerFields.WinnerProposalId].StringValue.ShouldBe("decompose.gen[1]");
+        trace.Fields[ExecutionTraceEventMakerFields.WinnerHash].StringValue.ShouldBe("ABCDEF1234567890");
+        trace.Fields[ExecutionTraceEventMakerFields.WinnerVotes].IntValue.ShouldBe(3);
+        trace.Fields[ExecutionTraceEventMakerFields.WinnerRunnerUpVotes].IntValue.ShouldBe(1);
+        trace.Fields[ExecutionTraceEventMakerFields.WinnerClusterCount].IntValue.ShouldBe(2);
+        trace.Fields[ExecutionTraceEventMakerFields.WinnerSemantic].BoolValue.ShouldBeTrue();
+        trace.Fields[ExecutionTraceEventMakerFields.WinnerIsConsensus].BoolValue.ShouldBeTrue();
     }
 }

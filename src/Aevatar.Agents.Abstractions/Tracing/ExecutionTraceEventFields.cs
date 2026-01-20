@@ -9,6 +9,7 @@ namespace Aevatar.Agents.Abstractions.Tracing;
 //  NOTE:
 //  - fields 只承载“轻量、可索引”的信息；大块内容请使用 message 或外部存储。
 //  - status 使用小写：pending/running/completed/failed/cancelled
+//  - 业务扩展字段在上层模块定义（如 ExecutionTraceEventMakerFields）
 // ============================================================
 public static class ExecutionTraceEventFields
 {
@@ -26,27 +27,10 @@ public static class ExecutionTraceEventFields
     public const string ParentStepId = "parent_step_id";
     public const string Depth = "depth";
 
-    // Voting
-    public const string VoteRound = "vote_round";
-    public const string VoteMaxRounds = "vote_max_rounds";
-    public const string VoteK = "vote_k";
-    public const string VoteCurrentVotes = "vote_current_votes";
-    public const string WinnerProposalId = "winner_proposal_id";
-    public const string WinnerHash = "winner_hash";
-    public const string WinnerVotes = "winner_votes";
-    public const string WinnerRunnerUpVotes = "winner_runner_up_votes";
-    public const string WinnerClusterCount = "winner_cluster_count";
-    public const string WinnerSemantic = "winner_semantic";
-    public const string WinnerIsConsensus = "winner_is_consensus";
-
     // Parallel / fan-out
     public const string ParallelTotal = "parallel_total";
     public const string ParallelCompleted = "parallel_completed";
     public const string ParallelFailed = "parallel_failed";
-
-    // Worker / proposal
-    public const string WorkerId = "worker_id";
-    public const string ProposalId = "proposal_id";
 
     // Token / cost
     public const string TokensUsed = "tokens_used";

@@ -217,31 +217,31 @@ internal sealed partial class VibeOrchestrator
         if (progress.Depth.HasValue)
             evt.Fields[ExecutionTraceEventFields.Depth] = ExecutionTraceEventFieldValue.FromInt(progress.Depth.Value);
         if (!string.IsNullOrWhiteSpace(progress.TaskId))
-            evt.Fields[ExecutionTraceEventFields.WorkerId] = ExecutionTraceEventFieldValue.FromString(progress.TaskId);
+            evt.Fields[ExecutionTraceEventMakerFields.WorkerId] = ExecutionTraceEventFieldValue.FromString(progress.TaskId);
 
         if (progress.VoteRound.HasValue)
-            evt.Fields[ExecutionTraceEventFields.VoteRound] = ExecutionTraceEventFieldValue.FromInt(progress.VoteRound.Value);
+            evt.Fields[ExecutionTraceEventMakerFields.VoteRound] = ExecutionTraceEventFieldValue.FromInt(progress.VoteRound.Value);
         if (progress.VoteMaxRounds.HasValue)
-            evt.Fields[ExecutionTraceEventFields.VoteMaxRounds] = ExecutionTraceEventFieldValue.FromInt(progress.VoteMaxRounds.Value);
+            evt.Fields[ExecutionTraceEventMakerFields.VoteMaxRounds] = ExecutionTraceEventFieldValue.FromInt(progress.VoteMaxRounds.Value);
         if (progress.VoteK.HasValue)
-            evt.Fields[ExecutionTraceEventFields.VoteK] = ExecutionTraceEventFieldValue.FromInt(progress.VoteK.Value);
+            evt.Fields[ExecutionTraceEventMakerFields.VoteK] = ExecutionTraceEventFieldValue.FromInt(progress.VoteK.Value);
         if (progress.VoteCurrentVotes.HasValue)
-            evt.Fields[ExecutionTraceEventFields.VoteCurrentVotes] = ExecutionTraceEventFieldValue.FromInt(progress.VoteCurrentVotes.Value);
+            evt.Fields[ExecutionTraceEventMakerFields.VoteCurrentVotes] = ExecutionTraceEventFieldValue.FromInt(progress.VoteCurrentVotes.Value);
 
         if (!string.IsNullOrWhiteSpace(progress.WinnerProposalId))
-            evt.Fields[ExecutionTraceEventFields.WinnerProposalId] = ExecutionTraceEventFieldValue.FromString(progress.WinnerProposalId);
+            evt.Fields[ExecutionTraceEventMakerFields.WinnerProposalId] = ExecutionTraceEventFieldValue.FromString(progress.WinnerProposalId);
         if (!string.IsNullOrWhiteSpace(progress.WinnerHash))
-            evt.Fields[ExecutionTraceEventFields.WinnerHash] = ExecutionTraceEventFieldValue.FromString(progress.WinnerHash);
+            evt.Fields[ExecutionTraceEventMakerFields.WinnerHash] = ExecutionTraceEventFieldValue.FromString(progress.WinnerHash);
         if (progress.WinnerVotes.HasValue)
-            evt.Fields[ExecutionTraceEventFields.WinnerVotes] = ExecutionTraceEventFieldValue.FromInt(progress.WinnerVotes.Value);
+            evt.Fields[ExecutionTraceEventMakerFields.WinnerVotes] = ExecutionTraceEventFieldValue.FromInt(progress.WinnerVotes.Value);
         if (progress.WinnerRunnerUpVotes.HasValue)
-            evt.Fields[ExecutionTraceEventFields.WinnerRunnerUpVotes] = ExecutionTraceEventFieldValue.FromInt(progress.WinnerRunnerUpVotes.Value);
+            evt.Fields[ExecutionTraceEventMakerFields.WinnerRunnerUpVotes] = ExecutionTraceEventFieldValue.FromInt(progress.WinnerRunnerUpVotes.Value);
         if (progress.WinnerClusterCount.HasValue)
-            evt.Fields[ExecutionTraceEventFields.WinnerClusterCount] = ExecutionTraceEventFieldValue.FromInt(progress.WinnerClusterCount.Value);
+            evt.Fields[ExecutionTraceEventMakerFields.WinnerClusterCount] = ExecutionTraceEventFieldValue.FromInt(progress.WinnerClusterCount.Value);
         if (progress.WinnerSemantic.HasValue)
-            evt.Fields[ExecutionTraceEventFields.WinnerSemantic] = ExecutionTraceEventFieldValue.FromBool(progress.WinnerSemantic.Value);
+            evt.Fields[ExecutionTraceEventMakerFields.WinnerSemantic] = ExecutionTraceEventFieldValue.FromBool(progress.WinnerSemantic.Value);
         if (progress.WinnerIsConsensus.HasValue)
-            evt.Fields[ExecutionTraceEventFields.WinnerIsConsensus] = ExecutionTraceEventFieldValue.FromBool(progress.WinnerIsConsensus.Value);
+            evt.Fields[ExecutionTraceEventMakerFields.WinnerIsConsensus] = ExecutionTraceEventFieldValue.FromBool(progress.WinnerIsConsensus.Value);
 
         if (progress.ParallelTotal.HasValue)
             evt.Fields[ExecutionTraceEventFields.ParallelTotal] = ExecutionTraceEventFieldValue.FromInt(progress.ParallelTotal.Value);

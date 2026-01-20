@@ -169,4 +169,27 @@ output:
         op0.ContainsKey("where").ShouldBeTrue();
         op0["where"].ShouldBeOfType<Dictionary<string, object?>>();
     }
+
+    [Fact]
+    public void Parse_ShouldMapAgentField_ToParameters()
+    {
+        var yaml = @"
+name: agent-call
+steps:
+  - id: call
+    type: llm_call
+    agent: planner
+    prompt: ""hello""
+    output: text
+output:
+  result: ""{{response}}""
+";
+
+        var parser = new WorkflowParser();
+        var wf = parser.Parse(yaml);
+
+        var step = wf.Steps.Single(s => s.Id == "call");
+        step.Parameters.TryGetValue("agent", out var agent).ShouldBeTrue();
+        agent?.ToString().ShouldBe("planner");
+    }
 }

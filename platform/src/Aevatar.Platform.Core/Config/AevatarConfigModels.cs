@@ -50,7 +50,7 @@ public sealed class ProviderConfig
 
 public sealed class AgentsConfig
 {
-    public string DefaultWorkflow { get; set; } = "hermes";
+    public string DefaultWorkflow { get; set; } = "agent_router";
 
     public string DefaultProfile { get; set; } = "coding";
 

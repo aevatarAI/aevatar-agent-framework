@@ -306,8 +306,11 @@ public sealed class WorkflowExecutor
             }
 
             var nextInput = input with { WorkflowName = workflowName };
-            var result = await ExecuteSingleRoleAsync(plan.Plan, nextInput, ct);
-            return result with { SelectedWorkflow = workflowName };
+            var result = await ExecuteAsync(plan.Plan, nextInput, ct);
+            var selected = string.IsNullOrWhiteSpace(result.SelectedWorkflow)
+                ? workflowName
+                : result.SelectedWorkflow;
+            return result with { SelectedWorkflow = selected };
         }
         catch (Exception ex)
         {
@@ -374,8 +377,11 @@ public sealed class WorkflowExecutor
             }
 
             var nextInput = input with { WorkflowName = workflowName };
-            var result = await ExecuteSingleRoleStreamAsync(plan.Plan, nextInput, onDelta, ct);
-            return result with { SelectedWorkflow = workflowName };
+            var result = await ExecuteStreamingAsync(plan.Plan, nextInput, onDelta, ct);
+            var selected = string.IsNullOrWhiteSpace(result.SelectedWorkflow)
+                ? workflowName
+                : result.SelectedWorkflow;
+            return result with { SelectedWorkflow = selected };
         }
         catch (Exception ex)
         {

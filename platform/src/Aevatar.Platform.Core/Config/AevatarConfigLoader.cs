@@ -62,6 +62,10 @@ public sealed class AevatarConfigLoader
 
         Directory.CreateDirectory(Path.Combine(effective.ConfigDirectory, "tools"));
 
+        // 启动时同步 repo workflows -> ~/.aevatar/workflows (best-effort).
+        TrySyncRepoWorkflows(effective.ConfigDirectory);
+        TrySyncRepoSkills(effective.ConfigDirectory);
+
         TryWriteFileIfMissing(
             Path.Combine(effective.ConfigDirectory, "agents", $"{HermesRoleId}.yaml"),
             BuildHermesAgentYaml());
@@ -69,6 +73,10 @@ public sealed class AevatarConfigLoader
         TryWriteFileIfMissing(
             Path.Combine(effective.ConfigDirectory, "workflows", $"{HermesWorkflowName}.yaml"),
             BuildHermesWorkflowYaml());
+
+        TryWriteFileIfMissing(
+            Path.Combine(effective.ConfigDirectory, "workflows", $"{AgentCreatorWorkflowName}.yaml"),
+            BuildAgentCreatorWorkflowYaml());
     }
 
     private static string ResolveConfigDirectory()
@@ -154,7 +162,11 @@ public sealed class AevatarConfigLoader
     }
 
     private const string HermesRoleId = "hermes";
-    private const string HermesWorkflowName = "hermes";
+    private const string HermesWorkflowName = "agent_router";
+    private const string AgentCreatorWorkflowName = "agent_creator";
+    private const string RepoWorkflowsRelativePath = "src/Aevatar.Agents.Cognitive/workflows";
+    private const string RepoSkillsRelativePath = "src/Aevatar.Agents.Cognitive/skills";
+    private const int MaxLegacySuffixAttempts = 1000;
 
     private static string BuildHermesAgentYaml()
         => """
@@ -176,14 +188,16 @@ skills: []
 
 system_prompt: |
   You are Hermes, a workflow router agent.
-  Your job is to match the user's intent to the most suitable workflow in ~/.aevatar/workflows.
-  If no workflow fits, create a new workflow YAML/JSON under ~/.aevatar/workflows.
+  Your job is to match the user's intent to the most suitable workflow in ~/.aevatar/workflows,
+  or choose "direct" when a single agent is enough.
+  If no workflow fits, create a new workflow YAML under ~/.aevatar/workflows.
   If the workflow needs new roles, create role YAML files under ~/.aevatar/agents.
   Requirements:
   - Use Cognitive Mesh DSL v0.1 with fields: dsl_version, goal, strategy, budget, nodes, edges, constraints.
   - node.type must be one of: built-in agent types (DivergentAgent, ConvergentAgent, WorkerAgent, CriticAgent, MetaAgent),
     global roles (~/.aevatar/agents/*.yaml), or local roles (./aevatar/agents/*.yaml).
   - Prefer minimal topology (1-3 nodes) unless the task demands collaboration.
+  - If single-agent, use "direct" and ensure exactly one agent YAML exists (do not create a workflow file).
   - Ask clarifying questions when requirements are ambiguous.
   - Respond in Chinese by default.
   - Use file_read/file_write to inspect and create workflow/agent files when needed.
@@ -195,18 +209,32 @@ system_prompt: |
         => """
 dsl_version: "0.1"
 goal:
-  name: "hermes_router"
-  success_metric: "Select or create a workflow and roles that satisfy the user's intent."
+  name: "agent_router"
+  success_metric: "Route to a suitable workflow or direct agent based on user intent."
+strategy: "cot"
+budget:
+  max_steps: 4
+  token_limit: 6000
+nodes:
+  - id: "router"
+    type: "hermes"
+edges: []
+constraints: []
+""";
+
+    private static string BuildAgentCreatorWorkflowYaml()
+        => """
+dsl_version: "0.1"
+goal:
+  name: "agent_creator"
+  success_metric: "Create missing agents/workflows to satisfy the user's intent."
 strategy: "cot"
 budget:
   max_steps: 6
   token_limit: 8000
 nodes:
-  - id: "hermes"
+  - id: "creator"
     type: "hermes"
-    params:
-      role: "router"
-      note: "Workflow selection or creation"
 edges: []
 constraints: []
 """;
@@ -457,6 +485,197 @@ constraints: []
         {
             // best-effort only
         }
+    }
+
+    private static void TrySyncRepoWorkflows(string configDir)
+    {
+        if (string.IsNullOrWhiteSpace(configDir))
+            return;
+
+        try
+        {
+            var sourceDir = ResolveRepoWorkflowsDirectory();
+            if (string.IsNullOrWhiteSpace(sourceDir) || !Directory.Exists(sourceDir))
+                return;
+
+            var targetDir = Path.Combine(configDir, "workflows");
+            Directory.CreateDirectory(targetDir);
+
+            if (IsSameDirectory(sourceDir, targetDir))
+                return;
+
+            var timestamp = DateTimeOffset.Now.ToString("yyyyMMdd_HHmmss");
+            foreach (var file in Directory.EnumerateFiles(sourceDir))
+            {
+                if (!IsWorkflowFile(Path.GetExtension(file)))
+                    continue;
+
+                var fileName = Path.GetFileName(file);
+                if (string.IsNullOrWhiteSpace(fileName))
+                    continue;
+
+                var destPath = Path.Combine(targetDir, fileName);
+                if (File.Exists(destPath))
+                    MoveToLegacy(destPath, timestamp);
+
+                File.Copy(file, destPath, overwrite: true);
+            }
+        }
+        catch
+        {
+            // best-effort only
+        }
+    }
+
+    private static void TrySyncRepoSkills(string configDir)
+    {
+        if (string.IsNullOrWhiteSpace(configDir))
+            return;
+
+        try
+        {
+            var sourceDir = ResolveRepoSkillsDirectory();
+            if (string.IsNullOrWhiteSpace(sourceDir) || !Directory.Exists(sourceDir))
+                return;
+
+            var targetDir = Path.Combine(configDir, "skills");
+            Directory.CreateDirectory(targetDir);
+
+            if (IsSameDirectory(sourceDir, targetDir))
+                return;
+
+            var timestamp = DateTimeOffset.Now.ToString("yyyyMMdd_HHmmss");
+            CopyDirectoryFiles(sourceDir, targetDir, timestamp);
+        }
+        catch
+        {
+            // best-effort only
+        }
+    }
+
+    private static string? ResolveRepoWorkflowsDirectory()
+    {
+        var current = Directory.GetCurrentDirectory();
+        var root = FindRepoRoot(current);
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            root = FindRepoRoot(AppContext.BaseDirectory);
+            if (string.IsNullOrWhiteSpace(root))
+                return null;
+        }
+
+        var candidate = Path.Combine(root, RepoWorkflowsRelativePath);
+        return Directory.Exists(candidate) ? candidate : null;
+    }
+
+    private static string? ResolveRepoSkillsDirectory()
+    {
+        var current = Directory.GetCurrentDirectory();
+        var root = FindRepoRoot(current);
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            root = FindRepoRoot(AppContext.BaseDirectory);
+            if (string.IsNullOrWhiteSpace(root))
+                return null;
+        }
+
+        var candidate = Path.Combine(root, RepoSkillsRelativePath);
+        return Directory.Exists(candidate) ? candidate : null;
+    }
+
+    private static string? FindRepoRoot(string startDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(startDirectory))
+            return null;
+
+        var current = new DirectoryInfo(startDirectory);
+        while (current != null)
+        {
+            var gitPath = Path.Combine(current.FullName, ".git");
+            if (Directory.Exists(gitPath) || File.Exists(gitPath))
+                return current.FullName;
+            current = current.Parent;
+        }
+
+        return null;
+    }
+
+    private static bool IsWorkflowFile(string ext)
+        => ext.Equals(".yaml", StringComparison.OrdinalIgnoreCase)
+           || ext.Equals(".yml", StringComparison.OrdinalIgnoreCase)
+           || ext.Equals(".json", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsSameDirectory(string left, string right)
+    {
+        var leftFull = Path.GetFullPath(left)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var rightFull = Path.GetFullPath(right)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return string.Equals(leftFull, rightFull, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void CopyDirectoryFiles(string sourceDir, string targetDir, string timestamp)
+    {
+        IEnumerable<string> files;
+        try
+        {
+            files = Directory.EnumerateFiles(sourceDir, "*", SearchOption.AllDirectories);
+        }
+        catch
+        {
+            return;
+        }
+
+        foreach (var file in files)
+        {
+            var rel = Path.GetRelativePath(sourceDir, file);
+            if (string.IsNullOrWhiteSpace(rel))
+                continue;
+
+            var destPath = Path.Combine(targetDir, rel);
+            var destDir = Path.GetDirectoryName(destPath);
+            if (!string.IsNullOrWhiteSpace(destDir))
+                Directory.CreateDirectory(destDir);
+
+            if (File.Exists(destPath))
+                MoveToLegacy(destPath, timestamp);
+
+            File.Copy(file, destPath, overwrite: true);
+        }
+    }
+
+    private static string MoveToLegacy(string path, string timestamp)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return path;
+        if (string.IsNullOrWhiteSpace(timestamp))
+            return path;
+        if (!File.Exists(path))
+            return path;
+
+        var legacyPath = BuildLegacyPath(path, timestamp);
+        File.Move(path, legacyPath);
+        return legacyPath;
+    }
+
+    private static string BuildLegacyPath(string path, string timestamp, string tag = "legacy")
+    {
+        var dir = Path.GetDirectoryName(path) ?? string.Empty;
+        var name = Path.GetFileNameWithoutExtension(path);
+        var ext = Path.GetExtension(path);
+        var baseName = $"{name}_{tag}_{timestamp}";
+        var legacyPath = Path.Combine(dir, $"{baseName}{ext}");
+        if (!File.Exists(legacyPath))
+            return legacyPath;
+
+        for (var i = 2; i < MaxLegacySuffixAttempts; i++)
+        {
+            legacyPath = Path.Combine(dir, $"{baseName}_{i}{ext}");
+            if (!File.Exists(legacyPath))
+                return legacyPath;
+        }
+
+        return Path.Combine(dir, $"{baseName}_{Guid.NewGuid():N}{ext}");
     }
 }
 

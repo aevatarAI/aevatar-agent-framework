@@ -67,7 +67,7 @@ public abstract partial class AIGAgentBase
         return AgentSkillsRuntime.GetEffectiveRoots();
     }
 
-    private async Task RegisterAgentSkillsToolsAsync(CancellationToken cancellationToken = default)
+    protected async Task RegisterAgentSkillsToolsAsync(CancellationToken cancellationToken = default)
     {
         // Disabled -> don't expose tools to the model.
         if (!EnableAgentSkills)

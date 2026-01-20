@@ -22,6 +22,7 @@ public sealed class PlatformSmokeTests
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         Assert.Contains("run", names);
+        Assert.Contains("tui", names);
         Assert.Contains("serve", names);
         Assert.Contains("web", names);
         Assert.Contains("attach", names);
@@ -32,6 +33,7 @@ public sealed class PlatformSmokeTests
         Assert.Contains("models", names);
         Assert.Contains("mcp", names);
         Assert.Contains("auth", names);
+        Assert.Contains("github", names);
         Assert.Contains("stats", names);
         Assert.Contains("export", names);
         Assert.Contains("import", names);
@@ -45,11 +47,14 @@ public sealed class PlatformSmokeTests
     {
         var parser = RootCommands.BuildParser();
 
-        var result = parser.Parse(new[] { "--workflow", "standard", "--profile", "coding", "-c", "hi" });
+        var result = parser.Parse(new[] { "--workflow", "hermes", "--profile", "coding", "--provider", "openai", "--command", "hi" });
         Assert.Empty(result.Errors);
 
         var result2 = parser.Parse(new[] { "sessions", "list" });
         Assert.Empty(result2.Errors);
+
+        var result3 = parser.Parse(new[] { "run", "--continue", "--session", "abc", "hello" });
+        Assert.Empty(result3.Errors);
     }
 
     [Fact]
@@ -115,7 +120,7 @@ public sealed class PlatformSmokeTests
             {
                 SessionId = string.Empty,
                 Profile = "coding",
-                ActiveWorkflow = "standard",
+                ActiveWorkflow = "hermes",
                 WorkingDirectory = root,
                 Provider = "test",
                 Model = "test-model"

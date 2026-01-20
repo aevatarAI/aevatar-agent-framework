@@ -22,6 +22,8 @@ Sessions/
   SessionUiSnapshotStore.cs            # artifacts/ui/ui_snapshot.json + runs/{runId}/ui_events.jsonl
   SessionUiTraceRecorder.cs            # 订阅 session.Events，把 STEP/TOOL/META/MESSAGE_END 落盘
 
+  docs/AGUI_EVENTS.md                  # Frontend guide for AG-UI events
+
   # Session file manager (local-only)
   - /api/sessions/{id}/files/tree      # 目录树（bounded）
   - /api/sessions/{id}/files?path=...  # 读取文件（text-like, size-limited）

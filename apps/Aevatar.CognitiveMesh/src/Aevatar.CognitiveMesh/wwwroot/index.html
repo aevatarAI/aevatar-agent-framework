@@ -588,15 +588,15 @@
                     </div>
                 </div>
 
-                <!-- Cognitive DSL Options (v2) -->
+                <!-- Cognitive DSL Options -->
                 <div id="cognitive-options" class="strategy-options hidden">
-                    <h4>🚀 COGNITIVE DSL Configuration (v2)</h4>
+                    <h4>🚀 COGNITIVE DSL Configuration</h4>
                     <div class="form-group">
                         <label>WORKFLOW</label>
                         <select id="new-cognitive-workflow">
                             <option value="direct">direct - 直接对话</option>
-                            <option value="maker-v2" selected>maker-v2 - MAKER 共识 (v2)</option>
-                            <option value="uot-combinational-v2">uot-combinational-v2 - 组合创意 (v2)</option>
+                            <option value="maker" selected>maker - MAKER 共识</option>
+                            <option value="uot-combinational">uot-combinational - 组合创意</option>
                         </select>
                     </div>
                     <div class="form-row">
@@ -623,7 +623,7 @@
                         <label>SEMANTIC_SIMILARITY (0-1, 投票聚类)</label>
                         <input type="number" id="new-cognitive-similarity" value="0.85" min="0" max="1" step="0.05" />
                     </div>
-                    <p class="option-hint">💡 v2 版本使用 DSL 工作流定义，Coordinator + Worker 真正 Actor 并行</p>
+                    <p class="option-hint">💡 DSL 工作流定义，Coordinator + Worker 真正 Actor 并行</p>
                 </div>
             </div>
             <div class="modal-footer">

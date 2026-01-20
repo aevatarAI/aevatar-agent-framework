@@ -140,11 +140,11 @@ SSE endpoint：`GET /api/sessions/{sessionId}/agui/events`
 默认采用 **verifier-quorum**（轻量）：几个 `verifier` 同意即可落盘。
 
 - 配置：`src/VibeResearching.Api/appsettings.json` → `Vibe:DagConsensus`
-  - `Mode`: `verifier-quorum` | `maker-v2`
+  - `Mode`: `verifier-quorum` | `maker`
   - `VerifierCount` / `Quorum`: 门限投票
 - 执行器：`DagConsensusRunner`
   - `verifier-quorum`: 直接调用 `VibeVerifierAgent` 做投票（更轻）
-  - `maker-v2`: 调用 `CognitiveStrategy.ExecuteAsync`（更重，作为可选模式）
+  - `maker`: 调用 `CognitiveStrategy.ExecuteAsync`（更重，作为可选模式）
 - 产物落盘：`artifacts/dag/consensus/*.json`
 - 输出约束：解析失败/超时/结构性问题会被阻断并 staged（保留候选以便后续再审）
 
@@ -152,13 +152,13 @@ SSE endpoint：`GET /api/sessions/{sessionId}/agui/events`
 
 - **长期切换**：修改 `src/VibeResearching.Api/appsettings.json`：
   - 轻量：`"Mode": "verifier-quorum"`
-  - 重：`"Mode": "maker-v2"`
+  - 重：`"Mode": "maker"`
 
 - **临时切换（一次启动）**：用环境变量覆盖（`__` 表示层级）：
 
 ```bash
-# 切换为 maker-v2（更重，但更强的“共识/审查”）
-Vibe__DagConsensus__Mode=maker-v2 dotnet run --project src/VibeResearching.Api/VibeResearching.Api.csproj
+# 切换为 maker（更重，但更强的“共识/审查”）
+Vibe__DagConsensus__Mode=maker dotnet run --project src/VibeResearching.Api/VibeResearching.Api.csproj
 ```
 
 ---

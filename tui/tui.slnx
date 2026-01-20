@@ -1,0 +1,20 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/samples/">
+    <Project Path="samples/Tui.Samples/Tui.Samples.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Tui.Core/Tui.Core.csproj" />
+    <Project Path="src/Tui.Declarative/Tui.Declarative.csproj" />
+    <Project Path="src/Tui.Widgets/Tui.Widgets.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/Tui.Core.Tests/Tui.Core.Tests.csproj" />
+    <Project Path="test/Tui.Declarative.Tests/Tui.Declarative.Tests.csproj" />
+    <Project Path="test/Tui.Widgets.Tests/Tui.Widgets.Tests.csproj" />
+  </Folder>
+</Solution>

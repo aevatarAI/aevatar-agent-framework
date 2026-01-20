@@ -97,6 +97,31 @@ public record PrimitiveResult
     
     /// <summary>Assistant response</summary>
     public string? AssistantResponse { get; init; }
+
+    // ─────────────────────────────────────────────────────────
+    //  Vote winner (explicit, vote primitive only)
+    // ─────────────────────────────────────────────────────────
+
+    /// <summary>Winner proposal step id (e.g. stepId.gen[n])</summary>
+    public string? WinnerProposalId { get; init; }
+
+    /// <summary>Winner content hash (16 chars, SHA256 prefix)</summary>
+    public string? WinnerHash { get; init; }
+
+    /// <summary>Winner votes</summary>
+    public int? WinnerVotes { get; init; }
+
+    /// <summary>Runner-up votes</summary>
+    public int? WinnerRunnerUpVotes { get; init; }
+
+    /// <summary>Number of clusters</summary>
+    public int? WinnerClusterCount { get; init; }
+
+    /// <summary>Whether semantic clustering was used</summary>
+    public bool? WinnerSemantic { get; init; }
+
+    /// <summary>Whether consensus was reached</summary>
+    public bool? WinnerIsConsensus { get; init; }
     
     /// <summary>Create success result</summary>
     public static PrimitiveResult Ok(object? value = null, int tokensUsed = 0, int llmCalls = 0) => new()

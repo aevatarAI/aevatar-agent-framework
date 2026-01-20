@@ -88,15 +88,15 @@ src/
 
 ```
 ~/.aevatar/
-├── config.yaml              # 主配置
-├── secrets.yaml             # 敏感信息 (gitignore)
+├── config.json              # 主配置
+├── secrets.json             # 敏感信息 (加密)
 ├── agents/                  # ✅ Agent YAML（role 配置，跨应用复用）
 │   ├── coder.yaml
 │   ├── reviewer.yaml
 │   └── ...
 ├── skills/                  # ✅ Agent Skills（可选，SKILL.md）
 ├── workflows/               # Cognitive Mesh DSL
-│   ├── standard.json        # 默认工作流
+│   ├── hermes.yaml          # 默认工作流
 │   ├── code-review.json
 │   └── ...
 ├── mcp/
@@ -127,14 +127,14 @@ public class AevatarConfigLoader
     public AevatarConfig Load()
     {
         // 1. 加载主配置
-        var configPath = Path.Combine(_configDir, "config.yaml");
-        var config = LoadYaml<AevatarConfig>(configPath);
+        var configPath = Path.Combine(_configDir, "config.json");
+        var config = LoadJson<AevatarConfig>(configPath);
         
         // 2. 合并 secrets
-        var secretsPath = Path.Combine(_configDir, "secrets.yaml");
+        var secretsPath = Path.Combine(_configDir, "secrets.json");
         if (File.Exists(secretsPath))
         {
-            var secrets = LoadYaml<SecretsConfig>(secretsPath);
+            var secrets = LoadSecretsStore(secretsPath);
             MergeSecrets(config, secrets);
         }
         
@@ -172,8 +172,8 @@ public class AevatarConfigLoader
 aevatar config init
 
 # 会创建以下文件：
-# ~/.aevatar/config.yaml      (带注释的模板)
-# ~/.aevatar/secrets.yaml     (空模板，需用户填写)
+# ~/.aevatar/config.json      (默认模板)
+# ~/.aevatar/secrets.json     (加密存储，由 aevatar-config 写入)
 # ~/.aevatar/agents/          (预置 Agent 配置)
 # ~/.aevatar/workflows/       (预置工作流)
 ```
@@ -534,7 +534,7 @@ var executeOption = new Option<string>("-c", "执行单次任务");
 rootCommand.AddOption(executeOption);
 
 // --workflow: 指定工作流
-var workflowOption = new Option<string>("--workflow", () => "standard", "工作流名称");
+var workflowOption = new Option<string>("--workflow", () => "hermes", "工作流名称");
 rootCommand.AddOption(workflowOption);
 
 // --model: 指定模型
@@ -640,7 +640,7 @@ public class InteractiveSession
 | ReviewerAgent | 2 | 代码审查 Agent |
 | RouterAgent | 1 | 任务路由 |
 | DSL 运行时 | 2 | 基于 CognitiveDslCompiler |
-| 预置工作流 | 2 | standard, code-review |
+| 预置工作流 | 2 | hermes, code-review |
 | Event Sourcing 会话 | 2 | 会话持久化与恢复 |
 
 **验收标准**: code-review 工作流可用，会话可恢复
@@ -707,7 +707,7 @@ platform/
 │       └── platform.proto
 │
 ├── templates/                         # 默认配置模板
-│   ├── config.yaml
+│   ├── config.json
 │   ├── agents/
 │   └── workflows/
 │

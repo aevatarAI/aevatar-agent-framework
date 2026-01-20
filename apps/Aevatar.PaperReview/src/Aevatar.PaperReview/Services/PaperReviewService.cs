@@ -524,7 +524,7 @@ public sealed class PaperReviewService
             // - 至少 1h，避免中途超时导致前面产出作废
             MaxDuration = TimeSpan.FromHours(1),
             Context = ctx,
-            CognitiveWorkflow = "maker-v2",
+            CognitiveWorkflow = "maker",
             CognitiveWorkerCount = n,
             CognitiveConsensusK = k,
             CognitiveMaxRounds = 10,

@@ -44,7 +44,7 @@
 - 条件：`accept_count >= K && strong_refutation_count == 0` → 验证阶段；否则 → 投票阶段。
 
 ### A.6 验证阶段（MAKER + vote verify）
-- `workflow_call` → `maker-v2`
+- `workflow_call` → `maker`
 - `vote` 严格验证，输出 `{ proved, final_proof, depends_on }`
 - `proved=true` → Promote A to Theorem；否则 → 回退到 B pool 选下一条 hypothesis。
 

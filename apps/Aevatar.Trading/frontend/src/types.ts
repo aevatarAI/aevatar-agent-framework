@@ -7,6 +7,8 @@ export type TradingSystemStatus = {
   sentimentAnalyst: string;
   technicalAnalyst: string;
   coordinator: string;
+  decisionTrigger: string;
+  policyManager: string;
   riskManager: string;
   executor: string;
   tradeAudit: string;
@@ -105,6 +107,23 @@ export type FillInfo = {
 // =============================================================================
 
 export type MetaResponse = {
+  exchange?: {
+    type: string;
+    mode: string;
+    symbols: string[];
+    enableWebsocket: boolean;
+    enableRestPolling: boolean;
+    capabilities: {
+      supportsWebSocket: boolean;
+      supportsPositions: boolean;
+      supportsFundingRate: boolean;
+      supportsOpenInterest: boolean;
+      supportsFills: boolean;
+      supportsBalances: boolean;
+      supportsOrders: boolean;
+      supportsKlines: boolean;
+    };
+  };
   trading: {
     symbol: string;
     interval: string;
@@ -112,6 +131,41 @@ export type MetaResponse = {
     minConfidenceToTrade: number;
     maxPositionPct: number;
     maxTotalPositionPct: number;
+  };
+  trigger?: {
+    priceChangePct: number;
+    priceChangeAbs: number;
+    windowSeconds: number;
+    cooldownSeconds: number;
+    triggerOnStartup: boolean;
+  };
+  policy?: {
+    trading: {
+      symbol: string;
+      interval: string;
+      executionMode: string;
+      minConfidenceToTrade: number;
+      maxPositionPct: number;
+      maxTotalPositionPct: number;
+    };
+    risk: {
+      maxConsecutiveLosses: number;
+      cooldownMinutes: number;
+      stopLossPct: number;
+      takeProfitPct: number;
+    };
+    analysis: {
+      sentimentWeight: number;
+      technicalWeight: number;
+      newsWeight: number;
+    };
+    trigger: {
+      priceChangePct: number;
+      priceChangeAbs: number;
+      windowSeconds: number;
+      cooldownSeconds: number;
+      triggerOnStartup: boolean;
+    };
   };
   weex: {
     mode: string; // "Contract" | "Spot"
@@ -132,6 +186,84 @@ export type MetaResponse = {
     baseUrl: string;
     uploadPath: string;
   };
+};
+
+// =============================================================================
+// Policy / Trigger / Positions
+// =============================================================================
+
+export type TradingPolicyConfig = {
+  trading?: {
+    symbol?: string;
+    interval?: string;
+    executionMode?: string;
+    minConfidenceToTrade?: number;
+    maxPositionPct?: number;
+    maxTotalPositionPct?: number;
+    maxLossPerTrade?: number;
+    maxDailyLoss?: number;
+    minBaseAssetUsdOnStart?: number;
+  };
+  risk?: {
+    maxConsecutiveLosses?: number;
+    cooldownMinutes?: number;
+    stopLossPct?: number;
+    takeProfitPct?: number;
+  };
+  analysis?: {
+    sentimentWeight?: number;
+    technicalWeight?: number;
+    newsWeight?: number;
+  };
+  trigger?: {
+    priceChangePct?: number;
+    priceChangeAbs?: number;
+    windowSeconds?: number;
+    cooldownSeconds?: number;
+    triggerOnStartup?: boolean;
+  };
+};
+
+export type TradingPolicyUpdatedEvent = {
+  updatedBy: string;
+  reason: string;
+  policy: TradingPolicyConfig;
+  timestamp: string;
+};
+
+export type UpdatePolicyRequest = {
+  policy: TradingPolicyConfig;
+  updatedBy?: string;
+  reason?: string;
+};
+
+export type UpdatePolicyResponse = {
+  message: string;
+  event: TradingPolicyUpdatedEvent;
+};
+
+export type DecisionTriggerRequest = {
+  symbol: string;
+  reason?: string;
+  deltaPct?: number;
+  deltaAbs?: number;
+};
+
+export type DecisionTriggerEvent = {
+  triggerId: string;
+  symbol: string;
+  reason: string;
+  deltaPct: number;
+  deltaAbs: number;
+  basePrice: number;
+  latestPrice: number;
+  timestamp: string;
+};
+
+export type PositionsResponse = {
+  supported: boolean;
+  count: number;
+  positions: PositionInfo[];
 };
 
 export type AuditLatestResponse = {

@@ -72,7 +72,7 @@ public class WorkflowParserTests
     }
 
     [Fact]
-    public void Parse_ShouldSupportDefaultsInMakerV2()
+    public void Parse_ShouldSupportDefaultsInMaker()
     {
         var parser = new WorkflowParser();
         var wf = parser.ParseFile(Path.Combine(
@@ -80,9 +80,9 @@ public class WorkflowParserTests
             "src",
             "Aevatar.Agents.Cognitive",
             "workflows",
-            "maker-v2.yaml"));
+            "maker.yaml"));
 
-        wf.Name.ShouldBe("maker-v2");
+        wf.Name.ShouldBe("maker");
         wf.Steps.Count.ShouldBeGreaterThan(0);
     }
 

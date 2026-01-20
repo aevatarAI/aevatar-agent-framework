@@ -34,13 +34,19 @@ public sealed class PlatformMeshCompiler
 
     private readonly GlobalAgentYamlRegistry _roles;
     private readonly CognitiveDslOptions _baseOptions;
+    private readonly string? _localAgentRoot;
+    private readonly string? _configAgentsDir;
 
     public PlatformMeshCompiler(
         GlobalAgentYamlRegistry? roles = null,
-        CognitiveDslOptions? baseOptions = null)
+        CognitiveDslOptions? baseOptions = null,
+        string? localAgentRoot = null,
+        string? configAgentsDir = null)
     {
         _roles = roles ?? new GlobalAgentYamlRegistry(NullLogger<GlobalAgentYamlRegistry>.Instance);
         _baseOptions = baseOptions ?? CognitiveDslOptions.Default;
+        _localAgentRoot = string.IsNullOrWhiteSpace(localAgentRoot) ? null : localAgentRoot.Trim();
+        _configAgentsDir = string.IsNullOrWhiteSpace(configAgentsDir) ? null : configAgentsDir.Trim();
     }
 
     public PlatformMeshCompileResult Compile(string raw)
@@ -102,8 +108,58 @@ public sealed class PlatformMeshCompiler
         var mergedAgents = new HashSet<string>(_baseOptions.AllowedAgentTypes, StringComparer.OrdinalIgnoreCase);
         foreach (var role in _roles.GetKnownRoles())
             mergedAgents.Add(role);
+        foreach (var role in GetLocalRoles(_localAgentRoot))
+            mergedAgents.Add(role);
+        foreach (var role in GetRolesFromDirectory(_configAgentsDir))
+            mergedAgents.Add(role);
 
         return _baseOptions.With(allowedAgentTypes: mergedAgents);
+    }
+
+    private static IReadOnlyCollection<string> GetLocalRoles(string? root)
+    {
+        try
+        {
+            var baseDir = string.IsNullOrWhiteSpace(root) ? Directory.GetCurrentDirectory() : root;
+            if (string.IsNullOrWhiteSpace(baseDir))
+                return Array.Empty<string>();
+
+            var dir = Path.Combine(baseDir, "aevatar", "agents");
+            return GetRolesFromDirectory(dir);
+        }
+        catch
+        {
+            return Array.Empty<string>();
+        }
+    }
+
+    private static IReadOnlyCollection<string> GetRolesFromDirectory(string? dir)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir))
+                return Array.Empty<string>();
+
+            var roles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var file in Directory.EnumerateFiles(dir, "*.*", SearchOption.TopDirectoryOnly))
+            {
+                var ext = Path.GetExtension(file);
+                if (!ext.Equals(".yaml", StringComparison.OrdinalIgnoreCase) &&
+                    !ext.Equals(".yml", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var name = Path.GetFileNameWithoutExtension(file);
+                var key = GlobalAgentYamlRegistry.NormalizeRoleKey(name);
+                if (key.Length > 0)
+                    roles.Add(key);
+            }
+
+            return roles;
+        }
+        catch
+        {
+            return Array.Empty<string>();
+        }
     }
 
     private static string CoerceToJson(string raw)

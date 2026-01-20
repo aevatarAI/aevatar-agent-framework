@@ -94,7 +94,7 @@ function tryExtractList(x: unknown): unknown[] {
   if (!isObj(x)) return [];
 
   const obj = x as Record<string, unknown>;
-  for (const k of ["data", "list", "items", "rows", "records", "result"]) {
+  for (const k of ["positions", "fills", "data", "list", "items", "rows", "records", "result"]) {
     const got = tryExtractList(obj[k]);
     if (got.length) return got;
   }

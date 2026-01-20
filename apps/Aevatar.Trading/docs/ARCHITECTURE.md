@@ -110,6 +110,7 @@ apps/Aevatar.Trading/
 ├── docs/                              # 文档目录
 │   └── ARCHITECTURE.md                # 本文档
 │   └── FRONTEND.md                    # 前端（演示 UI）说明
+│   └── CONFIGURATION.md               # 统一配置说明（交易所/凭证/策略）
 │   └── AI_WARS_DOTNET_SKILLS.md        # AI Wars API → DotNet File Skills 索引
 │   └── TRADING_WORKFLOW.md             # 面向客户：多智能体交易闭环与“谁在何时如何下单”
 │
@@ -134,11 +135,24 @@ apps/Aevatar.Trading/
 │   │   │   └── TechnicalAnalystAgent.cs
 │   │   ├── Coordinator/
 │   │   │   └── TradingCoordinatorAgent.cs
+│   │   ├── Triggers/
+│   │   │   └── DecisionTriggerAgent.cs
+│   │   ├── Policy/
+│   │   │   ├── PolicyManagerAgent.cs
+│   │   │   └── TradingPolicyTools.cs
 │   │   ├── RiskControl/
 │   │   │   └── RiskManagerAgent.cs
+│   │   ├── Streaming/
+│   │   │   └── MarketChatAgent.cs
 │   │   └── Execution/
 │   │       └── ExecutorAgent.cs
 │   └── Infrastructure/
+│       ├── Exchanges/
+│       │   ├── IExchangeClient.cs
+│       │   ├── ExchangeCapabilities.cs
+│       │   ├── ExchangeCredentialsResolver.cs
+│       │   ├── WeexExchangeClient.cs
+│       │   └── OkxExchangeClient.cs
 │       └── WeexApi/
 │           ├── IWeexApiClient.cs
 │           ├── WeexApiClientBase.cs
@@ -168,8 +182,17 @@ apps/Aevatar.Trading/
 │   ├── Program.cs
 │   ├── AiWarsSkillEndpoints.cs         # ✅ 把 Tools/DotNetSkills/ai-wars/** 映射为 HTTP endpoints（Swagger 可见）
 │   ├── appsettings.json
+│   ├── AgUi/
+│   │   ├── TradeAgUiEndpoints.cs        # /api/agui/events (SSE)
+│   │   ├── TradeAgUiAuditBridge.cs      # trade-audit -> AG-UI 事件桥
+│   │   ├── TradeAgUiHub.cs              # AG-UI 消息与事件 Hub
+│   │   ├── TradeAgUiJson.cs             # AG-UI JSON 序列化配置
+│   │   └── TradeAgUiStreamSink.cs       # Agent -> AG-UI 输出适配器
 │   ├── Controllers/
 │   │   ├── TradingController.cs         # 系统控制 + Agent 状态
+│   │   ├── PolicyController.cs          # 策略读写（交易所无关）
+│   │   ├── DecisionController.cs        # 触发决策（交易所无关）
+│   │   ├── PositionsController.cs       # 仓位查询（交易所无关）
 │   │   ├── WeexTestController.cs        # WEEX 联调工具（ticker/balances/orders）
 │   │   ├── AuditController.cs           # 读取 trade-audit/*.md/*.jsonl（给前端展示/下载）
 │   │   └── MetaController.cs            # 安全配置快照（不给 secrets）
@@ -191,6 +214,9 @@ apps/Aevatar.Trading/
 - **2025-12-28**：拆分 `WeexApiClient` → `WeexContractApiClient`（AI Wars 合约）+ `WeexSpotApiClient`（Spot），通过 `Weex:Mode` 在 DI 层选择；默认使用 **Contract**（合约）。
 - **2025-12-29**：TradeAudit 追加 `trade-audit/*.md` 人类可读策略日志；新增 `AuditController`/`MetaController` 供前端 Dashboard 展示策略/余额/订单闭环。
 - **2025-12-29**：新增 `AiWarsSkillEndpoints`：自动扫描 `Tools/DotNetSkills/ai-wars/**`，并将每个 endpoint 以 `/api/ai-wars/{toolName}` 暴露到 Swagger（便于“看得见、点得动”）。
+- **2026-01-17**：新增交易所抽象与 Trigger/Policy 体系（DecisionTriggerAgent / PolicyManagerAgent），并引入策略/触发/仓位 API，前端改为以仓位与决策为中心的布局。
+- **2026-01-17**：引入 AG-UI SSE：`/api/agui/events`（trade-audit → TextMessage streaming），前端支持 AGUI 方式展示 AI Chat。
+- **2026-01-17**：统一 ExchangeCredentials 解析逻辑到 `ExchangeCredentialsResolver`，消除 Program/DI 逻辑重复。
 
 ---
 
@@ -343,7 +369,7 @@ public class NewsAnalystAgent : AIGAgentBase<NewsAnalysisState>
 
 ### 5. TradingCoordinatorAgent (首席交易决策者)
 
-**职责**：综合各分析师意见，做出最终交易决策
+**职责**：综合各分析师意见，做出最终交易决策（入口由 `DecisionTriggerEvent` 驱动）
 
 ```csharp
 public class TradingCoordinatorAgent : AIGAgentBase<CoordinatorState>
@@ -409,6 +435,26 @@ public class TradingCoordinatorAgent : AIGAgentBase<CoordinatorState>
 | 新闻分析 | 30% | 事件驱动调整 |
 
 **输出事件**：`TradingDecisionEvent`
+
+---
+
+### 5.1 DecisionTriggerAgent (价格触发器)
+
+**职责**：监听 `MarketTickEvent`，在价格变化达到阈值并满足冷却条件时触发决策
+
+**输入事件**：`MarketTickEvent`、`TradingPolicyUpdatedEvent`
+
+**输出事件**：`DecisionTriggerEvent`
+
+---
+
+### 5.2 PolicyManagerAgent (策略参数管理器)
+
+**职责**：集中管理交易策略参数，校验更新并广播给下游
+
+**输入**：AI 工具调用 / 配置启动
+
+**输出事件**：`TradingPolicyUpdatedEvent`
 
 ---
 
@@ -542,6 +588,17 @@ PENDING → SUBMITTED → PARTIAL_FILLED → FILLED
 ---
 
 ## 事件流设计
+
+### AG-UI SSE（前端流式）
+
+- **数据源**：
+  - `MarketChatAgent`（ChatStreamAsync → 实时 token 流）
+  - `trade-audit/*.md`（TradeAuditAgent 产出，补充审计摘要）
+- **事件桥**：
+  - `TradeAgUiStreamSink`：Agent → AG-UI（TextMessageStart/Content/End）
+  - `TradeAgUiAuditBridge`：Audit → AG-UI（TextMessageStart/Content/End）
+- **交互入口**：`POST /api/agui/chat`（用户输入 → MarketChatAgent）
+- **前端订阅**：`GET /api/agui/events`（snapshot-first + SSE）
 
 ### 核心事件定义 (Protobuf)
 

@@ -1,3 +1,4 @@
+using Aevatar.Agents.Abstractions.Tracing;
 using Aevatar.Agents.Cognitive.Messages;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
@@ -56,7 +57,15 @@ public partial class CognitiveCoordinatorGAgent
         string? userPrompt = null,
         string? assistantResponse = null,
         // Red-Flag information
-        string? redFlagReason = null)
+        string? redFlagReason = null,
+        // Vote winner (explicit)
+        string? winnerProposalId = null,
+        string? winnerHash = null,
+        int? winnerVotes = null,
+        int? winnerRunnerUpVotes = null,
+        int? winnerClusterCount = null,
+        bool? winnerSemantic = null,
+        bool? winnerIsConsensus = null)
     {
         var now = DateTime.UtcNow;
         var durationMs = 0;
@@ -70,6 +79,7 @@ public partial class CognitiveCoordinatorGAgent
             durationMs = (int)(now - startTime).TotalMilliseconds;
         }
 
+        var resolvedMessage = message ?? GetDefaultMessage(step, status);
         var evt = new WorkflowStepEvent
         {
             RunId = CustomState.ExecutionId ?? "",
@@ -78,7 +88,7 @@ public partial class CognitiveCoordinatorGAgent
             StepType = step.Type,
             Status = status,
             Progress = progress,
-            Message = message ?? GetDefaultMessage(step, status),
+            Message = resolvedMessage,
             Timestamp = Timestamp.FromDateTime(now),
             ParentStepId = parentStepId ?? "",
             Depth = CustomState.CurrentDepth,
@@ -100,6 +110,26 @@ public partial class CognitiveCoordinatorGAgent
             RedFlagReason = redFlagReason ?? ""
         };
 
+        var hasWinner =
+            !string.IsNullOrWhiteSpace(winnerProposalId) ||
+            !string.IsNullOrWhiteSpace(winnerHash) ||
+            winnerVotes.HasValue ||
+            winnerRunnerUpVotes.HasValue ||
+            winnerClusterCount.HasValue ||
+            winnerSemantic.HasValue ||
+            winnerIsConsensus.HasValue;
+
+        if (hasWinner)
+        {
+            evt.WinnerProposalId = winnerProposalId ?? "";
+            evt.WinnerHash = winnerHash ?? "";
+            if (winnerVotes.HasValue) evt.WinnerVotes = winnerVotes.Value;
+            if (winnerRunnerUpVotes.HasValue) evt.WinnerRunnerUpVotes = winnerRunnerUpVotes.Value;
+            if (winnerClusterCount.HasValue) evt.WinnerClusterCount = winnerClusterCount.Value;
+            if (winnerSemantic.HasValue) evt.WinnerSemantic = winnerSemantic.Value;
+            if (winnerIsConsensus.HasValue) evt.WinnerIsConsensus = winnerIsConsensus.Value;
+        }
+
         // When multiple tasks parallel (vote streaming), avoid List concurrent writes causing memory corruption/hang
         lock (_stepEventsLock)
         {
@@ -107,8 +137,156 @@ public partial class CognitiveCoordinatorGAgent
         }
         _onStepEvent?.Invoke(evt);
 
+        // Publish unified ExecutionTraceEvent for external streaming (best-effort, no await).
+        var traceEvent = BuildExecutionTraceEvent(evt, resolvedMessage);
+        _ = PublishAsync(traceEvent);
+
         Logger.LogDebug("[Workflow] Step {StepId} ({Type}): {Status} - {Message}",
-            step.Id, step.Type, status, message);
+            step.Id, step.Type, status, resolvedMessage);
+    }
+
+    private static ExecutionTraceEvent BuildExecutionTraceEvent(WorkflowStepEvent evt, string resolvedMessage)
+    {
+        var traceEvent = new ExecutionTraceEvent
+        {
+            Timestamp = evt.Timestamp,
+            Phase = evt.StepType ?? string.Empty,
+            Message = resolvedMessage,
+            NodeId = evt.StepId ?? string.Empty
+        };
+
+        traceEvent.Fields[ExecutionTraceEventFields.Status] =
+            ExecutionTraceEventFieldValue.FromString(MapTraceStatus(evt.Status));
+        traceEvent.Fields[ExecutionTraceEventFields.Progress] =
+            ExecutionTraceEventFieldValue.FromDouble(evt.Progress);
+        traceEvent.Fields[ExecutionTraceEventFields.ExecutionId] =
+            ExecutionTraceEventFieldValue.FromString(evt.RunId);
+        traceEvent.Fields[ExecutionTraceEventFields.WorkflowName] =
+            ExecutionTraceEventFieldValue.FromString(evt.WorkflowName);
+        traceEvent.Fields[ExecutionTraceEventFields.StepType] =
+            ExecutionTraceEventFieldValue.FromString(evt.StepType);
+        traceEvent.Fields[ExecutionTraceEventFields.Depth] =
+            ExecutionTraceEventFieldValue.FromInt(evt.Depth);
+
+        if (!string.IsNullOrWhiteSpace(evt.ParentStepId))
+        {
+            traceEvent.Fields[ExecutionTraceEventFields.ParentStepId] =
+                ExecutionTraceEventFieldValue.FromString(evt.ParentStepId);
+        }
+
+        if (evt.VoteMaxRounds > 0)
+        {
+            traceEvent.Fields[ExecutionTraceEventFields.VoteRound] =
+                ExecutionTraceEventFieldValue.FromInt(evt.VoteRound);
+            traceEvent.Fields[ExecutionTraceEventFields.VoteMaxRounds] =
+                ExecutionTraceEventFieldValue.FromInt(evt.VoteMaxRounds);
+            traceEvent.Fields[ExecutionTraceEventFields.VoteK] =
+                ExecutionTraceEventFieldValue.FromInt(evt.VoteK);
+            traceEvent.Fields[ExecutionTraceEventFields.VoteCurrentVotes] =
+                ExecutionTraceEventFieldValue.FromInt(evt.VoteCurrentVotes);
+        }
+
+        if (evt.ParallelTotal > 0)
+        {
+            traceEvent.Fields[ExecutionTraceEventFields.ParallelTotal] =
+                ExecutionTraceEventFieldValue.FromInt(evt.ParallelTotal);
+            traceEvent.Fields[ExecutionTraceEventFields.ParallelCompleted] =
+                ExecutionTraceEventFieldValue.FromInt(evt.ParallelCompleted);
+            traceEvent.Fields[ExecutionTraceEventFields.ParallelFailed] =
+                ExecutionTraceEventFieldValue.FromInt(evt.ParallelFailed);
+        }
+
+        if (evt.TokensUsed > 0)
+        {
+            traceEvent.Fields[ExecutionTraceEventFields.TokensUsed] =
+                ExecutionTraceEventFieldValue.FromLong(evt.TokensUsed);
+        }
+
+        if (evt.LlmCalls > 0)
+        {
+            traceEvent.Fields[ExecutionTraceEventFields.LlmCalls] =
+                ExecutionTraceEventFieldValue.FromInt(evt.LlmCalls);
+        }
+
+        if (!string.IsNullOrWhiteSpace(evt.SystemPrompt))
+        {
+            traceEvent.Fields[ExecutionTraceEventFields.SystemPrompt] =
+                ExecutionTraceEventFieldValue.FromString(evt.SystemPrompt);
+        }
+
+        if (!string.IsNullOrWhiteSpace(evt.UserPrompt))
+        {
+            traceEvent.Fields[ExecutionTraceEventFields.UserPrompt] =
+                ExecutionTraceEventFieldValue.FromString(evt.UserPrompt);
+        }
+
+        if (!string.IsNullOrWhiteSpace(evt.AssistantResponse))
+        {
+            traceEvent.Fields[ExecutionTraceEventFields.AssistantResponse] =
+                ExecutionTraceEventFieldValue.FromString(evt.AssistantResponse);
+        }
+
+        var hasWinner =
+            !string.IsNullOrWhiteSpace(evt.WinnerProposalId) ||
+            !string.IsNullOrWhiteSpace(evt.WinnerHash) ||
+            evt.WinnerVotes > 0 ||
+            evt.WinnerRunnerUpVotes > 0 ||
+            evt.WinnerClusterCount > 0 ||
+            evt.WinnerSemantic ||
+            evt.WinnerIsConsensus;
+
+        if (hasWinner)
+        {
+            if (!string.IsNullOrWhiteSpace(evt.WinnerProposalId))
+            {
+                traceEvent.Fields[ExecutionTraceEventFields.WinnerProposalId] =
+                    ExecutionTraceEventFieldValue.FromString(evt.WinnerProposalId);
+            }
+
+            if (!string.IsNullOrWhiteSpace(evt.WinnerHash))
+            {
+                traceEvent.Fields[ExecutionTraceEventFields.WinnerHash] =
+                    ExecutionTraceEventFieldValue.FromString(evt.WinnerHash);
+            }
+
+            if (evt.WinnerVotes > 0)
+            {
+                traceEvent.Fields[ExecutionTraceEventFields.WinnerVotes] =
+                    ExecutionTraceEventFieldValue.FromInt(evt.WinnerVotes);
+            }
+
+            if (evt.WinnerRunnerUpVotes > 0)
+            {
+                traceEvent.Fields[ExecutionTraceEventFields.WinnerRunnerUpVotes] =
+                    ExecutionTraceEventFieldValue.FromInt(evt.WinnerRunnerUpVotes);
+            }
+
+            if (evt.WinnerClusterCount > 0)
+            {
+                traceEvent.Fields[ExecutionTraceEventFields.WinnerClusterCount] =
+                    ExecutionTraceEventFieldValue.FromInt(evt.WinnerClusterCount);
+            }
+
+            traceEvent.Fields[ExecutionTraceEventFields.WinnerSemantic] =
+                ExecutionTraceEventFieldValue.FromBool(evt.WinnerSemantic);
+            traceEvent.Fields[ExecutionTraceEventFields.WinnerIsConsensus] =
+                ExecutionTraceEventFieldValue.FromBool(evt.WinnerIsConsensus);
+        }
+
+        return traceEvent;
+    }
+
+    private static string MapTraceStatus(StepStatus status)
+    {
+        return status switch
+        {
+            StepStatus.Pending => ExecutionTraceEventStatus.Pending,
+            StepStatus.Running => ExecutionTraceEventStatus.Running,
+            StepStatus.Completed => ExecutionTraceEventStatus.Completed,
+            StepStatus.Failed => ExecutionTraceEventStatus.Failed,
+            StepStatus.Skipped => ExecutionTraceEventStatus.Cancelled,
+            _ => ExecutionTraceEventStatus.Running
+        };
     }
 
     private static string GetDefaultMessage(StepDefinition step, StepStatus status)

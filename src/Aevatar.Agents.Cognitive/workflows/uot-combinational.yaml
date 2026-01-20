@@ -1,54 +1,84 @@
 # ============================================================
-#  UoT Combinational - 跨域类比 + 思维合成
+#  Universe of Thoughts (C-UoT) - 跨域类比 + 思维合成
+#  
+#  Combinational Creative Reasoning - 组合式创意推理
+#  
+#  六步流程:
+#  1. 类比检索 - 从不同领域找到类似问题
+#  2. 思想分解 - 将解决方案分解为原子思想
+#  3. 选择宿主 - 选择基础解决方案
+#  4. 选择捐赠者 - 远距离优先选择思想
+#  5. 合成方案 - 组合宿主+捐赠思想
+#  6. 评估排序 - 可行性/效用/新颖性
 # ============================================================
 
 name: uot-combinational
-version: "1.0"
-description: 跨域类比 + 思维合成的创意推理
+description: "C-UoT Creative Reasoning - Cross-domain analogy and thought recombination"
 
+# ============================================================
+#  输入参数
+# ============================================================
 inputs:
   - name: problem
     type: string
     required: true
+    description: "待解决的问题"
+  
   - name: domain_hint
     type: string
-    default: ""
+    required: false
+    description: "问题所属领域提示"
+  
   - name: max_analogies
     type: int
     default: 5
+    description: "最大类比数量"
+  
+  - name: max_candidates
+    type: int
+    default: 5
+    description: "最大候选方案数量"
 
+# ============================================================
+#  步骤定义
+# ============================================================
 steps:
-  # Step 1: 类比检索
+  # --------------------------------------------------------
+  #  Step 1: 类比检索 - 从不同领域找到类似问题
+  # --------------------------------------------------------
   - id: retrieve_analogies
     type: llm_call
     prompt: |
-      Find {{max_analogies}} analogous problems from different domains.
+      Find {{max_analogies}} analogous problems from DIFFERENT domains that share structural
+      similarities with the following problem:
       
-      Original Problem: {{problem}}
-      {{#if domain_hint}}
-      Domain hint: {{domain_hint}}
-      {{/if}}
+      Problem: {{problem}}
+      {% if domain_hint %}
+      Original Domain: {{domain_hint}}
+      {% endif %}
       
-      Look for problems with similar:
-      - Constraints or resource limitations
-      - Coordination/synchronization needs
-      - Optimization objectives
+      For each analogy, provide:
+      1. Domain (must be different from original)
+      2. Problem description
+      3. Known solutions in that domain
+      4. Structural similarity explanation
       
-      Output as JSON array:
-      ```json
+      Format as JSON array:
       [
         {
           "id": "analogy_1",
-          "description": "Problem description",
-          "domain": "Domain name",
-          "solution": "How this problem is typically solved"
+          "domain": "biology",
+          "problem": "How do ant colonies efficiently allocate workers?",
+          "solutions": ["pheromone trails", "local rules", "distributed sensing"],
+          "similarity": "Both involve resource allocation without central control"
         }
       ]
-      ```
     output: json_array
     store: analogies
 
-  # Step 2: 思维分解 (并发)
+  # --------------------------------------------------------
+  #  Step 2: 并行分解每个类比的解决方案为原子思想
+  # --------------------------------------------------------
   - id: decompose_thoughts
     type: fan_out
     for_each: analogies
@@ -56,138 +86,229 @@ steps:
     step:
       type: llm_call
       prompt: |
-        Decompose this solution into atomic thoughts/mechanisms:
+        Decompose the solutions from this analogous problem into atomic, recombinable thoughts:
         
         Domain: {{item.domain}}
-        Solution: {{item.solution}}
+        Problem: {{item.problem}}
+        Solutions: {{item.solutions | json}}
         
-        Output as JSON array:
-        ```json
+        Extract 3-5 atomic thoughts (key principles, mechanisms, or patterns) that could
+        potentially transfer to other domains.
+        
+        Format as JSON array:
         [
           {
             "id": "thought_1",
-            "content": "Description of the thought/mechanism",
-            "mechanism": "The core principle"
+            "content": "Decentralized decision making through local signals",
+            "type": "mechanism",
+            "source_domain": "{{item.domain}}",
+            "abstraction_level": "high"
           }
         ]
-        ```
       output: json_array
     reduce: flatten
-    store: thoughts
+    store: all_thoughts
 
-  # Step 3: 宿主选择
+  # --------------------------------------------------------
+  #  Step 3: 选择宿主解决方案和替换位点
+  # --------------------------------------------------------
   - id: select_host
     type: llm_call
     prompt: |
-      Select the best host structure for creative transfer.
+      Given the original problem and extracted thoughts, select the BEST base solution
+      (host) and identify 2-3 positions where thoughts could be substituted.
       
-      Original problem: {{problem}}
+      Original Problem: {{problem}}
       
-      Available analogies:
-      {{analogies | json}}
+      Available Analogies:
+      {% for a in analogies %}
+      - [{{a.id}}] {{a.domain}}: {{a.problem}}
+        Solutions: {{a.solutions | json}}
+      {% endfor %}
       
-      Select ONE analogy as the host structure. The host provides the overall framework.
+      Criteria for host selection:
+      1. Most structurally similar to original problem
+      2. Most complete solution framework
+      3. Has clear substitution opportunities
       
-      Output as JSON:
-      ```json
+      Format as JSON:
       {
-        "selected_id": "analogy_1",
-        "rationale": "Why this is the best host"
+        "host_analogy_id": "analogy_1",
+        "host_solution": "The base solution approach...",
+        "substitution_sites": [
+          {"position": 1, "current_thought": "...", "reason": "..."},
+          {"position": 2, "current_thought": "...", "reason": "..."}
+        ]
       }
-      ```
     output: json
-    store: host
+    store: host_selection
 
-  # Step 4: 供体选择
+  # --------------------------------------------------------
+  #  Step 4: 为每个替换位点选择远距离捐赠思想
+  # --------------------------------------------------------
   - id: select_donors
     type: llm_call
     prompt: |
-      Select donor thoughts that are far-yet-analogical to the host.
+      For each substitution site in the host solution, select a DONOR thought from 
+      a DIFFERENT domain using the Far-then-Analogical heuristic:
       
-      Host: {{host}}
+      1. First prioritize thoughts from DISTANT domains (maximize novelty)
+      2. Then verify analogical compatibility (ensure feasibility)
       
-      Available thoughts:
-      {{thoughts | json}}
+      Host Solution: {{host_selection.host_solution}}
       
-      Select 3-5 thoughts that could create novel combinations when substituted into the host.
+      Substitution Sites:
+      {% for site in host_selection.substitution_sites %}
+      - Position {{site.position}}: {{site.current_thought}}
+        Reason for substitution: {{site.reason}}
+      {% endfor %}
       
-      Output as JSON array:
-      ```json
+      Available Thoughts:
+      {% for thought in all_thoughts %}
+      - [{{thought.id}}] ({{thought.source_domain}}): {{thought.content}}
+      {% endfor %}
+      
+      For each site, select a donor thought that:
+      - Comes from a DIFFERENT domain than the host
+      - Has high potential for creative recombination
+      - Maintains structural compatibility
+      
+      Format as JSON array:
       [
         {
-          "thought_id": "thought_1",
-          "substitution_point": "Where to substitute in the host",
-          "expected_novelty": "What novel capability this creates"
+          "site_position": 1,
+          "donor_thought_id": "thought_3",
+          "donor_content": "...",
+          "rationale": "This thought from biology can replace..."
         }
       ]
-      ```
     output: json_array
-    store: donors
+    store: donor_selections
 
-  # Step 5: 合成候选 (并发)
-  - id: synthesize
+  # --------------------------------------------------------
+  #  Step 5: 合成创意候选方案 (并行生成多个变体)
+  # --------------------------------------------------------
+  - id: synthesize_candidates
     type: fan_out
-    for_each: donors
-    max_concurrency: 5
+    for_each: donor_selections
+    max_concurrency: 3
     step:
       type: llm_call
       prompt: |
-        Synthesize a new solution by combining:
+        Synthesize a creative solution by substituting the donor thought into the host:
         
-        Host structure: {{host}}
-        Donor thought: {{item}}
-        Original problem: {{problem}}
+        Original Problem: {{problem}}
         
-        Create a novel, concrete solution that leverages both the host structure and donor thought.
+        Host Solution: {{host_selection.host_solution}}
         
-        Output as JSON:
-        ```json
+        Substitution:
+        - Position: {{item.site_position}}
+        - Donor Thought: {{item.donor_content}}
+        - Rationale: {{item.rationale}}
+        
+        Create a NEW solution that integrates the donor thought while maintaining coherence.
+        The result should be creative yet practical.
+        
+        Format as JSON:
         {
-          "solution": "Detailed description of the synthesized solution",
-          "mechanism": "How the combination creates value",
-          "implementation": "Key steps to implement"
+          "id": "candidate_{{item.site_position}}",
+          "solution": "The synthesized creative solution...",
+          "novel_elements": ["element1", "element2"],
+          "integration_explanation": "How the donor thought was integrated..."
         }
-        ```
       output: json
     reduce: collect
     store: candidates
 
-  # Step 6: 评估排序
-  - id: evaluate
+  # --------------------------------------------------------
+  #  Step 6: 评估候选方案 (可行性/效用/新颖性)
+  # --------------------------------------------------------
+  - id: evaluate_candidates
+    type: fan_out
+    for_each: candidates
+    max_concurrency: 3
+    step:
+      type: llm_call
+      prompt: |
+        Evaluate this creative solution on three dimensions:
+        
+        Original Problem: {{problem}}
+        
+        Candidate Solution: {{item.solution}}
+        Novel Elements: {{item.novel_elements | json}}
+        
+        Rate each dimension from 0.0 to 1.0:
+        
+        1. FEASIBILITY (Hard Constraint):
+           - Can this actually be implemented?
+           - Are there fundamental barriers?
+           - Score < 0.5 = REJECT
+        
+        2. UTILITY:
+           - How well does it solve the problem?
+           - What value does it provide?
+        
+        3. NOVELTY:
+           - How different is it from existing solutions?
+           - Does it offer new perspectives?
+        
+        Format as JSON:
+        {
+          "candidate_id": "{{item.id}}",
+          "feasibility": 0.8,
+          "feasibility_rationale": "...",
+          "utility": 0.7,
+          "utility_rationale": "...",
+          "novelty": 0.9,
+          "novelty_rationale": "...",
+          "composite_score": 0.0,
+          "recommendation": "ACCEPT or REJECT"
+        }
+      output: json
+    reduce: collect
+    store: evaluations
+
+  # --------------------------------------------------------
+  #  Step 7: 选择最佳方案
+  # --------------------------------------------------------
+  - id: select_best
     type: llm_call
     prompt: |
-      Evaluate and rank these candidate solutions.
+      Select the BEST creative solution based on evaluations:
       
-      Original problem: {{problem}}
+      Original Problem: {{problem}}
       
-      Candidates:
-      {{candidates | json}}
+      Candidates and Evaluations:
+      {% for i in (0..candidates.size - 1) %}
+      ---
+      Candidate {{i + 1}}: {{candidates[i].solution | truncate: 200}}
+      - Feasibility: {{evaluations[i].feasibility}}
+      - Utility: {{evaluations[i].utility}}
+      - Novelty: {{evaluations[i].novelty}}
+      - Recommendation: {{evaluations[i].recommendation}}
+      {% endfor %}
       
-      Score each candidate on three dimensions (0-1 scale):
-      - Feasibility: How practically implementable is it?
-      - Utility: How well does it solve the problem?
-      - Novelty: How creative/innovative is it?
+      Selection criteria (in order):
+      1. Must have feasibility >= 0.5 (hard constraint)
+      2. Maximize composite = 0.5 * utility + 0.5 * novelty
       
-      Output as JSON array, sorted by total score descending:
-      ```json
-      [
-        {
-          "candidate_index": 0,
-          "solution": "Brief description",
-          "feasibility": 0.8,
-          "utility": 0.9,
-          "novelty": 0.7,
-          "total_score": 2.4,
-          "rationale": "Why these scores"
-        }
-      ]
-      ```
-    output: json_array
-    store: final_candidates
+      Format as JSON:
+      {
+        "best_candidate_index": 0,
+        "best_solution": "...",
+        "selection_rationale": "...",
+        "composite_score": 0.0
+      }
+    output: json
+    store: best_selection
 
+# ============================================================
+#  输出定义
+# ============================================================
 output:
-  best_solution: "{{final_candidates[0]}}"
-  all_candidates: "{{final_candidates}}"
-  analogies_used: "{{analogies | length}}"
-  thoughts_generated: "{{thoughts | length}}"
-
+  solution: "{{best_selection.best_solution}}"
+  score: "{{best_selection.composite_score}}"
+  rationale: "{{best_selection.selection_rationale}}"
+  analogies_explored: "{{analogies | size}}"
+  thoughts_extracted: "{{all_thoughts | size}}"
+  candidates_generated: "{{candidates | size}}"

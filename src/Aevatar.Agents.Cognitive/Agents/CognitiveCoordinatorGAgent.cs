@@ -345,7 +345,14 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
                 progress: 1.0f,
                 systemPrompt: result.SystemPrompt,
                 userPrompt: result.UserPrompt,
-                assistantResponse: result.AssistantResponse);
+                assistantResponse: result.AssistantResponse,
+                winnerProposalId: result.WinnerProposalId,
+                winnerHash: result.WinnerHash,
+                winnerVotes: result.WinnerVotes,
+                winnerRunnerUpVotes: result.WinnerRunnerUpVotes,
+                winnerClusterCount: result.WinnerClusterCount,
+                winnerSemantic: result.WinnerSemantic,
+                winnerIsConsensus: result.WinnerIsConsensus);
 
             return result;
         }

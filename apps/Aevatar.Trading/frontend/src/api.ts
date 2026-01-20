@@ -1,3 +1,12 @@
+import type {
+  DecisionTriggerEvent,
+  DecisionTriggerRequest,
+  PositionsResponse,
+  TradingPolicyConfig,
+  UpdatePolicyRequest,
+  UpdatePolicyResponse,
+} from "./types";
+
 // =============================================================================
 // API Client（最小封装，避免重复 if/else）
 //
@@ -58,6 +67,42 @@ export function prettyJson(x: unknown): string {
   } catch {
     return String(x);
   }
+}
+
+// =============================================================================
+// AG-UI Chat
+// =============================================================================
+export async function sendAgUiChat(message: string, userId?: string): Promise<void> {
+  await apiFetch("/api/agui/chat", {
+    method: "POST",
+    body: JSON.stringify({ message, userId }),
+  });
+}
+
+// =============================================================================
+// Policy / Decision / Positions
+// =============================================================================
+export function fetchPolicy(): Promise<TradingPolicyConfig> {
+  return apiFetch<TradingPolicyConfig>("/api/policy");
+}
+
+export function updatePolicy(payload: UpdatePolicyRequest): Promise<UpdatePolicyResponse> {
+  return apiFetch<UpdatePolicyResponse>("/api/policy", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function triggerDecision(payload: DecisionTriggerRequest): Promise<DecisionTriggerEvent> {
+  return apiFetch<DecisionTriggerEvent>("/api/decision/trigger", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function fetchPositions(symbol?: string): Promise<PositionsResponse> {
+  const qs = symbol ? `?${new URLSearchParams({ symbol }).toString()}` : "";
+  return apiFetch<PositionsResponse>(`/api/positions${qs}`);
 }
 
 

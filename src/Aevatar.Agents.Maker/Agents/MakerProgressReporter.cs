@@ -1,3 +1,4 @@
+using Aevatar.Agents.Abstractions.Tracing;
 using Aevatar.Agents.Maker.Messages;
 using Google.Protobuf.WellKnownTypes;
 
@@ -39,6 +40,119 @@ public partial class MakerCoordinatorGAgent
             ProposalContent = progress.Proposal?.Content ?? string.Empty,
             ProposalSuccess = progress.Proposal?.Success ?? false
         });
+
+        var traceEvent = BuildExecutionTraceEvent(progress);
+        _ = PublishAsync(traceEvent);
+    }
+
+    private ExecutionTraceEvent BuildExecutionTraceEvent(MakerProgress progress)
+    {
+        var phase = progress.Phase.ToString().ToLowerInvariant();
+        var traceEvent = new ExecutionTraceEvent
+        {
+            Timestamp = Timestamp.FromDateTimeOffset(progress.Timestamp),
+            Phase = phase,
+            Message = progress.Message ?? string.Empty,
+            NodeId = progress.TaskId ?? string.Empty
+        };
+
+        traceEvent.Fields[ExecutionTraceEventFields.Status] =
+            ExecutionTraceEventFieldValue.FromString(MapTraceStatus(progress.Phase));
+        traceEvent.Fields[ExecutionTraceEventFields.Progress] =
+            ExecutionTraceEventFieldValue.FromDouble(GetPhaseProgress(progress.Phase));
+        traceEvent.Fields[ExecutionTraceEventFields.ExecutionId] =
+            ExecutionTraceEventFieldValue.FromString(CustomState.ExecutionId ?? string.Empty);
+        traceEvent.Fields[ExecutionTraceEventFields.WorkflowName] =
+            ExecutionTraceEventFieldValue.FromString("maker");
+        traceEvent.Fields[ExecutionTraceEventFields.StepType] =
+            ExecutionTraceEventFieldValue.FromString(phase);
+        traceEvent.Fields[ExecutionTraceEventFields.Depth] =
+            ExecutionTraceEventFieldValue.FromInt(progress.Depth);
+
+        var totalLlmCalls = GetTotalLlmCalls();
+        if (totalLlmCalls > 0)
+        {
+            traceEvent.Fields[ExecutionTraceEventFields.LlmCalls] =
+                ExecutionTraceEventFieldValue.FromInt(totalLlmCalls);
+        }
+
+        if (CustomState.TotalTokensUsed > 0)
+        {
+            traceEvent.Fields[ExecutionTraceEventFields.TokensUsed] =
+                ExecutionTraceEventFieldValue.FromLong(CustomState.TotalTokensUsed);
+        }
+
+        if (CustomState.TotalPromptTokens > 0)
+        {
+            traceEvent.Fields[ExecutionTraceEventFields.PromptTokens] =
+                ExecutionTraceEventFieldValue.FromLong(CustomState.TotalPromptTokens);
+        }
+
+        if (CustomState.TotalCompletionTokens > 0)
+        {
+            traceEvent.Fields[ExecutionTraceEventFields.CompletionTokens] =
+                ExecutionTraceEventFieldValue.FromLong(CustomState.TotalCompletionTokens);
+        }
+
+        if (progress.Voting != null)
+        {
+            traceEvent.Fields[ExecutionTraceEventFields.VoteRound] =
+                ExecutionTraceEventFieldValue.FromInt(progress.Voting.Round);
+            traceEvent.Fields[ExecutionTraceEventFields.VoteK] =
+                ExecutionTraceEventFieldValue.FromInt(progress.Voting.VotesNeeded);
+            traceEvent.Fields[ExecutionTraceEventFields.VoteCurrentVotes] =
+                ExecutionTraceEventFieldValue.FromInt(progress.Voting.LeaderVotes);
+        }
+
+        if (progress.Proposal != null)
+        {
+            traceEvent.Fields[ExecutionTraceEventFields.ProposalId] =
+                ExecutionTraceEventFieldValue.FromString(progress.Proposal.ProposalId);
+
+            if (!string.IsNullOrWhiteSpace(progress.Proposal.WorkerId))
+            {
+                traceEvent.Fields[ExecutionTraceEventFields.WorkerId] =
+                    ExecutionTraceEventFieldValue.FromString(progress.Proposal.WorkerId);
+            }
+        }
+
+        if (progress.StreamingToken != null)
+        {
+            traceEvent.Fields[ExecutionTraceEventFields.WorkerId] =
+                ExecutionTraceEventFieldValue.FromString(progress.StreamingToken.WorkerId);
+            traceEvent.Fields[ExecutionTraceEventFields.ProposalId] =
+                ExecutionTraceEventFieldValue.FromString(progress.StreamingToken.ProposalId);
+
+            if (progress.StreamingToken.IsLastToken &&
+                !string.IsNullOrWhiteSpace(progress.StreamingToken.AccumulatedContent))
+            {
+                traceEvent.Fields[ExecutionTraceEventFields.AssistantResponse] =
+                    ExecutionTraceEventFieldValue.FromString(progress.StreamingToken.AccumulatedContent);
+            }
+        }
+
+        return traceEvent;
+    }
+
+    private static string MapTraceStatus(MakerPhase phase)
+    {
+        return phase switch
+        {
+            MakerPhase.Starting => ExecutionTraceEventStatus.Pending,
+            MakerPhase.Completed => ExecutionTraceEventStatus.Completed,
+            MakerPhase.Failed => ExecutionTraceEventStatus.Failed,
+            _ => ExecutionTraceEventStatus.Running
+        };
+    }
+
+    private static double GetPhaseProgress(MakerPhase phase)
+    {
+        return phase switch
+        {
+            MakerPhase.Completed => 1.0,
+            MakerPhase.Failed => 1.0,
+            _ => 0.0
+        };
     }
 
     // ============================================================

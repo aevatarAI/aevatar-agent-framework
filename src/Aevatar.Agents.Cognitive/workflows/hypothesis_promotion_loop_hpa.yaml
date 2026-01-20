@@ -11,7 +11,6 @@
 # ============================================================
 
 name: hypothesis_promotion_loop_hpa
-version: "1.0"
 description: "HPL with HPA: explore hypotheses, compute HPA evidence, verify with MAKER, then promote to theorems."
 
 defaults:
@@ -861,7 +860,7 @@ steps:
         if_true:
           - id: maker_argumentation
             type: workflow_call
-            workflow: maker-v2
+            workflow: maker
             params:
               task: |
                 Provide a structured, dependency-cited argumentation for Hypothesis A.

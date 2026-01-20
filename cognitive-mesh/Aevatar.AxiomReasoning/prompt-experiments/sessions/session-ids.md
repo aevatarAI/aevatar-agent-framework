@@ -202,3 +202,4 @@ $$
 | `18f8a6439cee` | 2026-01-19 09:51:40 UTC | Failed | hypothesis_promotion_loop_hpa |
 | `082a61b5dd2c` | 2026-01-19 10:11:17 UTC | Failed | hypothesis_promotion_loop_hpa |
 | `0a90766a5527` | 2026-01-20 01:34:50 UTC | Failed | hypothesis_promotion_loop_hpa |
+| `459b7cfcc5aa` | 2026-01-20 01:43:32 UTC | Failed | hypothesis_promotion_loop_hpa |

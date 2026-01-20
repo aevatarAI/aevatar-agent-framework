@@ -229,7 +229,7 @@ steps:
             - If state.existing_hypothesis is non-empty, select ONE hypothesis from it as the seed hypothesis (parse it if it's a multi-line string or JSON array).
             - If state.seed_hypothesis is also non-empty, prefer selecting a hypothesis from existing_hypothesis that aligns with seed_hypothesis.
             - The selected hypothesis MUST include depends_on and factor_sequence. If missing, infer them from the statement and available axioms/theorems.
-          - If no ExistingHypothesis is provided, seed an initial hypothesis (current_hypothesis) that is plausibly derivable.
+          - If ExistingHypothesis is "" (empty string), seed an initial hypothesis (current_hypothesis) that is plausibly derivable.
             - Avoid conditional premises like "if G is finite / if boundary area is finite / assume ...".
             - If you notice a missing lemma in motivation, that means the hypothesis is NOT suitable as the seed.
           CRITICAL OUTPUT REQUIREMENTS:

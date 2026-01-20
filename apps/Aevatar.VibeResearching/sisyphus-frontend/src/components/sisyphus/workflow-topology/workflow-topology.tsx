@@ -34,6 +34,7 @@ import { edgeTypes } from './floating-edge'
 import { NodeLegend } from './node-legend'
 import { NodeDetailsPanel } from './node-details-panel'
 import { TopologyHeader } from './topology-header'
+import { resolveCollisions, COLLISION_CONFIG } from './collision-utils'
 
 // ─────────────────────────────────────────────────────────────
 // Props
@@ -349,6 +350,34 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
     })
   }, [onNodesChange])
 
+  // ─── Collision Detection: Push overlapping nodes during drag ───
+  const lastCollisionCheck = useRef<number>(0)
+  const COLLISION_THROTTLE_MS = 32 // ~30fps throttle for smooth performance
+
+  const handleNodeDrag = useCallback((_event: unknown, node: Node) => {
+    // Throttle collision detection for performance
+    const now = performance.now()
+    if (now - lastCollisionCheck.current < COLLISION_THROTTLE_MS) return
+    lastCollisionCheck.current = now
+
+    // Resolve collisions with nearby nodes only
+    const updates = resolveCollisions(node, nodes, COLLISION_CONFIG.minDistance)
+    
+    if (updates.length > 0) {
+      // Use Map for O(1) lookup instead of find() which is O(n)
+      const updateMap = new Map(updates.map(u => [u.id, u.position]))
+      
+      setNodes(prev => prev.map(n => {
+        const newPos = updateMap.get(n.id)
+        return newPos ? { ...n, position: newPos } : n
+      }))
+      // Sync position cache
+      updates.forEach(u => {
+        nodePositionsCache.current.set(u.id, { x: u.position.x, y: u.position.y })
+      })
+    }
+  }, [nodes, setNodes])
+
   const onLayout = useCallback((direction: 'TB' | 'LR') => {
     const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(nodes, edges, direction)
     setNodes([...layoutedNodes])
@@ -569,7 +598,8 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
         <div className="absolute inset-0 bg-[#0c0f14]">
           <ReactFlow
             nodes={nodes} edges={edges} onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange}
-            onNodeClick={onNodeClick} onMoveEnd={handleMoveEnd} nodeTypes={nodeTypes} edgeTypes={edgeTypes}
+            onNodeClick={onNodeClick} onNodeDrag={handleNodeDrag} onMoveEnd={handleMoveEnd}
+            nodeTypes={nodeTypes} edgeTypes={edgeTypes}
             fitView={false} fitViewOptions={{ padding: 0.3, maxZoom: 1.5, minZoom: 0.1 }}
             defaultViewport={{ x: 0, y: 0, zoom: 1.2 }} minZoom={0.1} maxZoom={2}
             onInit={(instance) => { reactFlowInstance.current = instance }}

@@ -4,6 +4,7 @@
     <File Path="docs\CONSTITUTION.md" />
     <File Path="docs\ARCHITECTURE_REFERENCE.md" />
     <File Path="docs\AI_AGENT_MAKER_GUIDE.md" />
+    <File Path="docs\SESSION_API.md" />
     <File Path="docs\ABP_ADMIN_UI_SETUP.md" />
     <File Path="docs\MAKER_ARCHITECTURAL_DESIGN.md" />
     <File Path="docs\MASSTRANSIT_INTEGRATION_PLAN.md" />
@@ -34,6 +35,7 @@
     <Project Path="src\Aevatar.Agents.Cognitive.Streaming\Aevatar.Agents.Cognitive.Streaming.csproj" />
     <Project Path="src\Aevatar.Agents.Configuration\Aevatar.Agents.Configuration.csproj" />
     <Project Path="src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
+    <Project Path="src\Aevatar.Agents.Sessions\Aevatar.Agents.Sessions.csproj" />
     <Project Path="src\Aevatar.Agents.CreativeReasoning\Aevatar.Agents.CreativeReasoning.csproj" />
     <Project Path="src\Aevatar.Agents.Maker\Aevatar.Agents.Maker.csproj" />
     <Project Path="src\Aevatar.Agents.Persistence.Graph\Aevatar.Agents.Persistence.Graph.csproj" />
@@ -47,6 +49,9 @@
     <Project Path="src\Aevatar.Agents.Persistence.Supabase\Aevatar.Agents.Persistence.Supabase.csproj" />
     <Project Path="src\Aevatar.Agents.Persistence.Supabase.GAgent\Aevatar.Agents.Persistence.Supabase.GAgent.csproj" />
     <Project Path="src\Aevatar.Agents.Persistence.Supabase.Memory\Aevatar.Agents.Persistence.Supabase.Memory.csproj" />
+    <Project Path="src\Aevatar.Agents.Persistence.SQLite\Aevatar.Agents.Persistence.SQLite.csproj" />
+    <Project Path="src\Aevatar.Agents.Persistence.SQLite.GAgent\Aevatar.Agents.Persistence.SQLite.GAgent.csproj" />
+    <Project Path="src\Aevatar.Agents.Persistence.SQLite.Memory\Aevatar.Agents.Persistence.SQLite.Memory.csproj" />
     <Project Path="src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
     <Project Path="src\Aevatar.Agents.Runtime.Orleans.MongoDB\Aevatar.Agents.Runtime.Orleans.MongoDB.csproj" />
     <Project Path="src\Aevatar.Agents.Runtime.Orleans\Aevatar.Agents.Runtime.Orleans.csproj" />

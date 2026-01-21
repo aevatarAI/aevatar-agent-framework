@@ -113,6 +113,47 @@ unset SKILLSMP_API_KEY
 - `GET  /api/skillsmp/ai-search?q=...`
 - `POST /api/skillsmp/install`
 
+### 2.7) 持久化（MongoDB / SQLite，可选）
+
+VibeResearching 支持 **session 列表 + agent state** 的持久化，配置任一数据库后会自动开启：
+
+优先级（避免歧义）：
+- **MongoDB 优先**；只有 MongoDB 未配置时才会启用 SQLite
+
+#### MongoDB
+配置项：
+- `MongoDB:ConnectionString`
+- `MongoDB:Database`（默认 `aevatar`）
+
+也支持环境变量：
+- `MONGODB_CONNECTION_STRING` / `AEVATAR_MONGODB_CONNECTION_STRING`
+- `MONGODB_DATABASE`
+
+#### SQLite
+配置项（任选其一）：
+- `SQLite:Enabled=true`（无需路径；自动创建 `workspace/.data/vibe.db`）
+- `SQLite:ConnectionString`（显式连接串）
+- `SQLite:Path`（仅路径时自动组装连接串）
+
+也支持环境变量：
+- `SQLITE_CONNECTION_STRING` / `AEVATAR_SQLITE_CONNECTION_STRING`
+- `SQLITE_PATH` / `AEVATAR_SQLITE_PATH`
+
+启用 SQLite（自动生成 db 文件）：
+```
+SQLite__Enabled=true
+```
+
+示例（连接串）：
+```
+SQLite__ConnectionString=Data Source=/Users/you/aevatar/vibe.db;Cache=Shared
+```
+
+示例（仅路径）：
+```
+SQLite__Path=/Users/you/aevatar/vibe.db
+```
+
 ### 3) Materials（vibe researching grounding）
 
 `src/VibeResearching.Api/appsettings.json` 的 `Materials` 控制 DAG facts 注入：

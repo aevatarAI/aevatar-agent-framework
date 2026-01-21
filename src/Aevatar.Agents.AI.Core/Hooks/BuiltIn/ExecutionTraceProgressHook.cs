@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using Aevatar.Agents.Abstractions.Tracing;
+using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
@@ -12,6 +14,7 @@ public sealed class ExecutionTraceProgressHook : IAevatarAgentHook
 {
     private readonly Func<ExecutionTraceEvent, CancellationToken, Task> _publish;
     private readonly ILogger? _logger;
+    private readonly ConcurrentDictionary<string, byte> _sessionStarts = new(StringComparer.Ordinal);
 
     public int Priority => -1000;
 
@@ -25,6 +28,9 @@ public sealed class ExecutionTraceProgressHook : IAevatarAgentHook
 
     public Task OnSessionStartAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
     {
+        if (!TryMarkSessionStarted(context.RequestId))
+            return Task.CompletedTask;
+
         return EmitSessionAsync(
             context,
             ExecutionTraceEventPhase.SessionStart,
@@ -36,17 +42,36 @@ public sealed class ExecutionTraceProgressHook : IAevatarAgentHook
     public Task OnStopAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
     {
         var status = MapStopStatus(context.StopStatus);
-        return EmitSessionAsync(
+        var task = EmitSessionAsync(
             context,
             ExecutionTraceEventPhase.SessionStop,
             status,
             progress: status == ExecutionTraceEventStatus.Completed ? 1.0 : null,
             cancellationToken);
+        ClearSessionStarted(context.RequestId);
+        return task;
     }
 
     public Task BeforeLLMRequestAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
     {
-        return EmitLlmAsync(
+        return EmitSessionIfMissingAndLlmAsync(context, cancellationToken);
+    }
+
+    private async Task EmitSessionIfMissingAndLlmAsync(
+        AevatarAgentHookContext context,
+        CancellationToken cancellationToken)
+    {
+        if (TryMarkSessionStarted(context.RequestId))
+        {
+            await EmitSessionAsync(
+                context,
+                ExecutionTraceEventPhase.SessionStart,
+                ExecutionTraceEventStatus.Running,
+                progress: 0,
+                cancellationToken);
+        }
+
+        await EmitLlmAsync(
             context,
             ExecutionTraceEventPhase.LlmRequest,
             ExecutionTraceEventStatus.Running,
@@ -194,6 +219,12 @@ public sealed class ExecutionTraceProgressHook : IAevatarAgentHook
         string status,
         double? progress)
     {
+        var sessionId = TryGetContextValue(
+            context.ChatRequest,
+            ChatRequest.SessionIdKey,
+            ChatRequest.SessionIdKeyCamel);
+        var resolvedSessionId = string.IsNullOrWhiteSpace(sessionId) ? context.RequestId : sessionId;
+
         var evt = new ExecutionTraceEvent
         {
             Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
@@ -207,7 +238,7 @@ public sealed class ExecutionTraceProgressHook : IAevatarAgentHook
         evt.Fields[ExecutionTraceEventFields.Phase] =
             ExecutionTraceEventFieldValue.FromString(phase);
         evt.Fields[ExecutionTraceEventFields.SessionId] =
-            ExecutionTraceEventFieldValue.FromString(context.RequestId);
+            ExecutionTraceEventFieldValue.FromString(resolvedSessionId);
         evt.Fields[ExecutionTraceEventFields.ExecutionId] =
             ExecutionTraceEventFieldValue.FromString(context.RequestId);
         evt.Fields[ExecutionTraceEventFields.AgentId] =
@@ -223,6 +254,43 @@ public sealed class ExecutionTraceProgressHook : IAevatarAgentHook
 
         return evt;
     }
+
+    private static string? TryGetContextValue(ChatRequest? request, params string[] keys)
+    {
+        if (request?.Context == null || request.Context.Count == 0)
+            return null;
+
+        foreach (var k in keys)
+        {
+            if (string.IsNullOrWhiteSpace(k)) continue;
+            if (!request.Context.TryGetValue(k, out var v)) continue;
+            if (string.IsNullOrWhiteSpace(v)) continue;
+            return v.Trim();
+        }
+
+        return null;
+    }
+
+    private bool TryMarkSessionStarted(string? requestId)
+    {
+        var id = NormalizeRequestId(requestId);
+        if (id.Length == 0)
+            return false;
+
+        return _sessionStarts.TryAdd(id, 0);
+    }
+
+    private void ClearSessionStarted(string? requestId)
+    {
+        var id = NormalizeRequestId(requestId);
+        if (id.Length == 0)
+            return;
+
+        _sessionStarts.TryRemove(id, out _);
+    }
+
+    private static string NormalizeRequestId(string? requestId)
+        => (requestId ?? string.Empty).Trim();
 
     private async Task PublishBestEffortAsync(ExecutionTraceEvent evt, CancellationToken cancellationToken)
     {

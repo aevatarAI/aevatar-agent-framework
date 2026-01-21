@@ -538,3 +538,5 @@ scripts/.pids/
 /apps/Aevatar.AxiomReasoning/src/Aevatar.AxiomReasoning/output/
 /apps/Aevatar.CognitiveMesh/src/Aevatar.CognitiveMesh/output
 /apps/Aevatar.PaperReview/src/Aevatar.PaperReview/uploads/
+
+*.db

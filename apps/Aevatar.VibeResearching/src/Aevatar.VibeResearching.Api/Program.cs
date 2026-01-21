@@ -6,10 +6,17 @@ using Aevatar.Agents.AI.DependencyInjection;
 using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Runtime.Local;
 using Aevatar.Agents.AI.Tool.MCP.Configuration;
+using Aevatar.Agents.Cognitive.DependencyInjection;
 using Aevatar.Agents.Core.Secrets;
 using Aevatar.Agents.Knowledge.Graph;
+using Aevatar.Agents.Sessions;
 using Aevatar.Agents.Persistence.InMemory.Graph;
+using Aevatar.Agents.Persistence.MongoDB;
+using Aevatar.Agents.Persistence.MongoDB.GAgent;
+using Aevatar.Agents.Persistence.SQLite.GAgent.DependencyInjection;
+using Aevatar.Agents.Persistence.SQLite.GAgent.Stores;
 using Aevatar.Agents.Persistence.Neo4j.Graph.DependencyInjection;
+using Microsoft.Data.Sqlite;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.Options;
 using VibeResearching.Api.Infrastructure;
@@ -110,7 +117,74 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
 });
 
-builder.Services.AddAevatarAgentSystem(b => b.UseLocalRuntime());
+// Optional: MongoDB / SQLite persistence for session registry + agent state
+var mongoConn =
+    builder.Configuration["MongoDB:ConnectionString"] ??
+    builder.Configuration["MONGODB_CONNECTION_STRING"] ??
+    builder.Configuration["AEVATAR_MONGODB_CONNECTION_STRING"];
+
+var mongoDb =
+    builder.Configuration["MongoDB:Database"] ??
+    builder.Configuration["MONGODB_DATABASE"] ??
+    "aevatar";
+
+var sqliteConn =
+    builder.Configuration["SQLite:ConnectionString"] ??
+    builder.Configuration["SQLITE_CONNECTION_STRING"] ??
+    builder.Configuration["AEVATAR_SQLITE_CONNECTION_STRING"];
+
+var sqlitePath =
+    builder.Configuration["SQLite:Path"] ??
+    builder.Configuration["SQLITE_PATH"] ??
+    builder.Configuration["AEVATAR_SQLITE_PATH"];
+
+var sqliteEnabled = builder.Configuration.GetValue<bool?>("SQLite:Enabled") ?? false;
+
+if (string.IsNullOrWhiteSpace(sqliteConn) && string.IsNullOrWhiteSpace(sqlitePath) && sqliteEnabled)
+{
+    var root = Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", ".."));
+    var dataDir = Path.Combine(root, "workspace", ".data");
+    Directory.CreateDirectory(dataDir);
+    sqlitePath = Path.Combine(dataDir, "vibe.db");
+}
+
+if (string.IsNullOrWhiteSpace(sqliteConn) && !string.IsNullOrWhiteSpace(sqlitePath))
+{
+    var builderConn = new SqliteConnectionStringBuilder
+    {
+        DataSource = sqlitePath!.Trim(),
+        Cache = SqliteCacheMode.Shared
+    };
+    sqliteConn = builderConn.ToString();
+}
+
+var useMongo = !string.IsNullOrWhiteSpace(mongoConn);
+var useSqlite = !useMongo && (sqliteEnabled || !string.IsNullOrWhiteSpace(sqliteConn));
+
+if (useMongo)
+{
+    builder.Services.AddAevatarMongoDB(mongoConn!, mongoDb);
+    builder.Services.AddAevatarAgentSystem(options =>
+    {
+        options.StateStoreType = typeof(MongoDBStateStore<>);
+        options.EventRouterStoreType = typeof(MongoDBEventRouterStore);
+    }, b => b.UseLocalRuntime());
+}
+else if (useSqlite)
+{
+    builder.Services.AddAevatarSQLiteGAgent(sqliteConn!);
+    builder.Services.AddAevatarAgentSystem(options =>
+    {
+        options.StateStoreType = typeof(SQLiteStateStore<>);
+        options.EventRouterStoreType = typeof(SQLiteEventRouterStore);
+    }, b => b.UseLocalRuntime());
+}
+else
+{
+    builder.Services.AddAevatarAgentSystem(b => b.UseLocalRuntime());
+}
+builder.Services.AddCognitiveAgents();
+builder.Services.AddAevatarCognitiveSessions();
 
 // Default: enable both MEAI + LLMTornado providers (framework will composite-inject factories).
 builder.Services.AddAevatarLLMProviders();
@@ -204,7 +278,19 @@ if (syncOnly)
     return;
 }
 
+// Best-effort: restore persisted session registry (if any)
+try
+{
+    var sessions = app.Services.GetRequiredService<ResearchSessionManager>();
+    await sessions.LoadPersistedSessionsAsync(CancellationToken.None);
+}
+catch
+{
+    // best-effort only
+}
+
 app.MapGet("/health", () => Results.Text("ok"));
+app.MapAevatarSessionApi();
 
 // Manual sync (no restart)
 app.MapPost("/api/skills/sync", async (SkillPacksSyncService sync, CancellationToken ct) =>

@@ -32,6 +32,17 @@ public abstract partial class AIGAgentBase
 
     /// <summary>
     /// Switch (default: false):
+    /// - When enabled and session_id is present in ChatRequest.Context,
+    ///   ChatAsync / ChatStreamAsync also append MemoryEntry with scope=session.
+    ///
+    /// 中文 + ASCII:
+    /// - 这是跨 Agent 的 Session 级持久化（同一 session_id 下聚合多 Agent 的对话）。
+    /// - 仍是 best-effort，失败不会影响主流程。
+    /// </summary>
+    public bool EnableSessionMemoryStoreAppend { get; set; }
+
+    /// <summary>
+    /// Switch (default: false):
     /// - When enabled, and embedding generator is configured, we persist embeddings into IMemoryVectorIndex.
     /// </summary>
     public bool EnableMemoryVectorIndexAppend { get; set; }
@@ -61,6 +72,7 @@ public abstract partial class AIGAgentBase
         CancellationToken ct)
     {
         await MemoryRuntime.AppendChatMemoryAsync(role, content, request, ct);
+        await AppendSessionChatMemoryAsync(role, content, request, ct);
     }
 
     protected virtual async Task AppendMemoryVectorAsync(MemoryEntry entry, CancellationToken ct)
@@ -79,7 +91,10 @@ public abstract partial class AIGAgentBase
         {
             scopeId = type switch
             {
-                MemoryScopeType.Session => TryGetContextValue(request, "session_id", "sessionId"),
+                MemoryScopeType.Session => TryGetContextValue(
+                    request,
+                    ChatRequest.SessionIdKey,
+                    ChatRequest.SessionIdKeyCamel),
                 MemoryScopeType.Run => TryGetContextValue(request, "run_id", "runId"),
                 MemoryScopeType.Execution => TryGetContextValue(request, "execution_id", "executionId"),
                 MemoryScopeType.Graph => TryGetContextValue(request, "graph_id", "graphId"),
@@ -105,6 +120,49 @@ public abstract partial class AIGAgentBase
         var type = scope.Type.ToString().ToLowerInvariant();
         var id = (scope.ScopeId ?? string.Empty).Trim();
         return $"{type}::{id}";
+    }
+
+    protected virtual async Task AppendSessionChatMemoryAsync(
+        AevatarChatRole role,
+        string content,
+        ChatRequest request,
+        CancellationToken ct)
+    {
+        if (!EnableSessionMemoryStoreAppend)
+            return;
+
+        if (!TryGetSessionId(request, out var sessionId))
+            return;
+
+        var scope = BuildSessionMemoryScope(sessionId);
+        var memoryId = BuildSessionMemoryId(sessionId);
+        await MemoryRuntime.AppendChatMemoryOverrideAsync(role, content, request, scope, memoryId, ct);
+    }
+
+    protected virtual bool TryGetSessionId(ChatRequest request, out string sessionId)
+    {
+        sessionId = string.Empty;
+        var value = TryGetContextValue(request, ChatRequest.SessionIdKey, ChatRequest.SessionIdKeyCamel);
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        sessionId = value.Trim();
+        return sessionId.Length > 0;
+    }
+
+    protected virtual MemoryScope BuildSessionMemoryScope(string sessionId)
+    {
+        return new MemoryScope
+        {
+            Type = MemoryScopeType.Session,
+            ScopeId = sessionId.Trim()
+        };
+    }
+
+    protected virtual string BuildSessionMemoryId(string sessionId)
+    {
+        var id = (sessionId ?? string.Empty).Trim();
+        return $"{MemoryScopeType.Session.ToString().ToLowerInvariant()}::{id}";
     }
 
     // NOTE: helper kept in base because BuildMemoryScope is virtual (override point).

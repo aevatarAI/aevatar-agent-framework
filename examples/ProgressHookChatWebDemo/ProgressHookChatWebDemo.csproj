@@ -14,6 +14,8 @@
     <ProjectReference Include="..\..\src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
     <ProjectReference Include="..\..\src\Aevatar.Agents.AGUI\Aevatar.Agents.AGUI.csproj" />
     <ProjectReference Include="..\..\src\Aevatar.Agents.Cognitive.Streaming\Aevatar.Agents.Cognitive.Streaming.csproj" />
+    <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.SQLite.GAgent\Aevatar.Agents.Persistence.SQLite.GAgent.csproj" />
+    <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.SQLite.Memory\Aevatar.Agents.Persistence.SQLite.Memory.csproj" />
   </ItemGroup>
 
   <ItemGroup>

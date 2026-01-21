@@ -98,6 +98,7 @@ public partial class CognitiveCoordinatorGAgent
 
         // Prepare per-step chat request (system prompt is passed via Context override).
         var chat = ChatRequest.Create(userPrompt);
+        ApplySessionContext(chat);
         chat.StageHint = eventStep.Id ?? string.Empty;
         if (!string.IsNullOrWhiteSpace(effectiveSystemPrompt))
         {

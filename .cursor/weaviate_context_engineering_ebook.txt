@@ -1,0 +1,1593 @@
+C ont e xt
+Engineering
+Designing t he syst ems t hat contr ol what 
+inf ormation r eaches t he model and ho w it 
+maintains coher ence.
+Introduction
+The Ev olution: F r om Pr ompt s t o A ctions
+The Or chestr ation Challenge
+The Ne xt F r ontier of T ool Use
+The F utur e of AI Engineering
+T ools
+Summary
+What Ar e A gent s?
+01
+04
+05
+0 7
+08
+10
+11
+12
+13
+25
+26
+26
+27
+29
+31
+35
+36
+39
+40
+15
+17
+18
+20
+23
+What Is Cont e xt Engineering?
+The Cont e xt Windo w Challenge
+Str at egies and T asks f or A gent s
+Wher e A gent s Fit in Cont e xt Engineering
+A gents
+A Guide t o Chunking Str at egies
+Simple Chunking Str at egies
+A dv anced Chunking Str at egies
+Pr e-Chunking vs.  P ost -Chunking
+Summar y
+R etrie v al
+The Ar chit ectur e of A gent Memor y
+K e y Principles f or Eff ectiv e Memor y ManagementMemory
+Query  A ugment a tion
+Quer y R e writing
+Quer y Expansion
+Quer y Decomposition
+Quer y A gent s
+T able of C ont ents
+Prom p ting  T ec hniques
+Classic Pr ompting T echni ques
+A dv anced Pr ompting T echni ques
+Pr ompting f or T ool Usage
+Using Pr ompt F r ame w orks
+Context engineering
+Introduction
+Ev er y de v eloper who builds wit h Lar ge Language Models (LLMs) e v entually hit s t he same 
+wall.  Y ou star t wit h a po w er ful model t hat can writ e,  summariz e,  and r eason wit h 
+stunning capability .  But when y ou tr y t o apply it t o a r eal-w orld pr oblem,  t he cr acks star t 
+t o appear .  It can't answ er questions about y our priv at e document s.  It has no kno wledge 
+of e v ent s t hat happened y est er da y .  It confident ly mak es t hings up when it doesn't kno w 
+an answ er .
+A dd t o 
+memor y
+User
+Long- T erm Memor y
+Input A gent
+Shor t - T erm Memor y
+Pr ompt
+DatabasesMCP
+Answ er
+1
+3
+2
+4
+7
+8 6
+5
+A ction T ools
+RA G
+V ect or sear ch 
+(r etrie v al)
+A gentic coor dination 
+& decision making
+Updat e pr ompt 
+wit h answ er
+St or e all cont e xt in 
+chat hist or y
+The syst em t hat giv es y our 
+application a sense of hist or y and 
+t he ability t o learn fr om int er actions.
+Memory
+The pr oblem isn't t he model's int elligence.  The 
+pr oblem is t hat it's fundamentally disconnect ed.  
+It's a po w er ful  but  isolat ed br ain,  wit h no access 
+t o y our specific data,  t he liv e int ernet,  or e v en a 
+memor y of y our last con v ersation.  This isolation 
+is a dir ect r esult of it s cor e ar chit ectur al limit : 
+t he cont e xt windo w .  The cont e xt windo w is t he 
+model's activ e w orking memor y —t he finit e 
+space wher e it holds t he instructions and 
+inf ormation f or t he curr ent task.  Ev er y w or d,  
+number ,  and piece of punctuation consumes 
+space in t his windo w .  Just lik e a whit eboar d,  
+once it ’ s full,  older inf ormation get s er ased t o 
+mak e r oom f or ne w instructions,  and impor tant 
+details can be lost.
+Y ou can't fix t his fundamental limitation b y just 
+writing bett er pr ompt s.  Y ou ha v e t o build a 
+syst em ar ound t he model .
+That is Cont e xt Engineering.
+Cont e xt Engineering is t he discipline of 
+designing t he ar chit ectur e t hat f eeds an LLM 
+t he right inf ormation at t he right time.  It ’ s not 
+about changing t he model it self ,  but about 
+building t he bridges t hat connect it t o t he 
+out side w orld,  r etrie ving e xt ernal data,  
+connecting it t o liv e t ools,  and giving it a 
+memor y t o gr ound it s r esponses in f act s,  not 
+just it s tr aining data .
+This ebook is t he blueprint f or t hat syst em.  W e 
+will co v er t he cor e component s r equir ed t o turn 
+a brilliant but isolat ed model int o a r eliable,  
+pr oduction-r eady application .
+Mast ering t hese component s is t he diff er ence 
+betw een a r easonable demo and a truly 
+int elligent syst em.  Let's get t o w ork.
+The decision-making br ain t hat 
+or chestr at es ho w and when t o use 
+inf ormation.
+A gents
+The ar t of tr anslating messy ,  
+ambiguous user r equest s int o 
+pr ecise,  machine-r eadable int ent.
+Query 
+A ugment a tion
+The bridge connecting t he LLM t o 
+y our specific document s and 
+kno wledge bases.
+R etrie v al 
+The skill of giving clear ,  eff ectiv e 
+instructions t o guide t he model's 
+r easoning.
+Promp ting 
+T echniques
+The hands t hat allo w y our 
+application t o tak e dir ect action and 
+int er act wit h liv e data sour ces.
+T oo ls
+01 02Context engineering
+A gents
+A s soon as y ou star t building r eal syst ems wit h lar ge language models,  y ou run int o t he 
+limit s of static pipelines.  A fix ed r ecipe of “r etrie v e,  t hen gener at e” w orks fine f or simple 
+R etrie v al Augment ed Gener ation (RA G) setups,  but it f alls apar t once t he task r equir es 
+judgment,  adaptation,  or multi-st ep r easoning.
+This is wher e agent s come in.  In t he cont e xt of cont e xt engineering,  agent s manage ho w 
+(and ho w w ell) inf ormation flo ws t hr ough a syst em.  Inst ead of blindly f ollo wing a script,  
+agent s can e v aluat e what t he y kno w ,  decide what t he y still need,  select t he right t ools,  
+and adjust t heir str at egy when t hings go wr ong.
+A gent s ar e bot h t he ar chit ect s of t heir cont e xt s and t he users of t hose cont e xt s.  
+Ho w e v er ,  t he y need good pr actices and syst ems t o guide t hem,  because managing 
+cont e xt w ell is difficult,  and getting it wr ong quickly sabotages e v er yt hing else t he agent 
+can do.
+Thinking...User
+Pr ompt
+R esponse
+ AI Agent
+The t erm "agent" get s used br oadly ,  so let ’ s define it in t he cont e xt of building wit h lar ge 
+language models (LLMs).  An AI agent is a syst em t hat can:
+Wha t Are A gents?
+A tt empt t o handle all tasks t hemselv es,  which 
+w orks w ell f or moder at ely comple x w orkflo ws.
+Single-A gent Archit ecture
+Distribut e w ork acr oss specializ ed agent s per 
+task.  Allo ws f or comple x w orkflo ws but intr oduces 
+coor dination challenges.
+Multi-A gent Archit ecture
+R etrie v ed 
+inf ormation 
+r ele v ant?
+Each 
+sub-quer y
+User 
+quer y
+Memor y
+R esponse
+Decompose 
+quer y int o 
+sub-queries
+Quer y r outing 
+& pr ocessing 
+Sear ch 
+t ools
+Gener at e 
+r esponse
+YES
+YES
+NO
+NO
+YES NO
+A dditional 
+inf ormation 
+r equir ed?
+Answ er ed 
+bef or e?
+Mak e dynamic decisions about inf ormation 
+flo w .  Rat her t han f ollo wing a pr edet ermined 
+pat h, agent s decide what t o do ne xt based 
+on what t he y'v e learned.
+Maintain stat e acr oss multiple int er actions.  
+Unlik e simple Q&A syst ems, agent s 
+r emember what t he y'v e done and use t hat 
+hist or y t o inf orm futur e decisions.
+Use t ools adaptiv ely .  The y can 
+select fr om a v ailable t ools and 
+combine t hem in wa ys t hat 
+w er en’ t e xplicit ly pr ogrammed.
+Modify t heir appr oach based 
+on r esult s.  When one strat egy 
+isn’ t w orking, t he y can tr y 
+diff er ent appr oaches.
+1
+3
+2
+4
+R easoningLegend
+T ool Use
+Memor y
+03 04Context engineering
+This is one of t he most critical par t s of managing agentic syst ems.  A gent s don’ t just need 
+memor y and t ools; t he y also need t o monit or and manage t he quality of t heir o wn 
+cont e xt.  That means a v oiding o v erload,  det ecting irr ele v ant or conflicting inf ormation,  
+pruning or compr essing as needed,  and k eeping t heir in-cont e xt memor y clean enough t o 
+r eason eff ectiv ely .
+C ont e xt Hy giene 
+LLMs ha v e limit ed inf ormation capacity because t he cont e xt windo w can only 
+hold so much inf ormation at once.  This fundamental constr aint shapes what 
+agent s and agentic syst ems ar e curr ent ly capable of .
+Ev er y time an agent is pr ocessing inf ormation,  it needs t o mak e decisions about:
+The C ont e xt Windo w Challenge
+What inf ormation should r emain 
+activ e in t he cont e xt windo w
+What should be st or ed e xt ernally 
+and r etrie v ed when needed
+What can be summariz ed or 
+compr essed t o sa v e space
+Ho w much space t o r eser v e f or 
+r easoning and planning
+It ’ s t empting t o assume t hat bigger cont e xt windo ws solv e t his 
+pr oblem,  but t his is simply not t he case.  Longer cont e xt s (hundr eds of 
+t housands or e v en ~1M t ok ens) actually intr oduces ne w f ailur e modes.  
+P er f ormance oft en begins t o degr ade f ar bef or e t he model r eaches 
+maximum t ok en capacity , wher e agent s will become confused,  ha v e 
+higher r at es of hallucination,  or simply st op per f orming at t he le v el 
+t he y ’ r e normally capable of .  This isn’ t just a t echnical limitation,  it ’ s a 
+cor e design challenge of an y AI app.
+C ont e xt Distraction 
+The agent becomes bur dened b y t oo much 
+past inf ormation —hist or y ,  t ool output s,  
+summaries —and o v er -r elies on r epeating 
+past beha vior r at her t han r easoning fr esh.
+C ont e xt C onfusion 
+Irr ele v ant t ools or document s cr o w d t he 
+cont e xt,  distr acting t he model and causing 
+it t o use t he wr ong t ool or instructions.
+C ont e xt Clash 
+Contr adict or y inf ormation wit hin t he 
+cont e xt misleads t he agent,  lea ving it 
+stuck betw een conflicting assumptions.
+Cont e xt
+Cont e xt
+C ont e xt P oisoning 
+Incorr ect or hallucinat ed inf ormation 
+ent ers t he cont e xt.  Because agent s 
+r euse and build upon t hat cont e xt,  
+t hese err ors persist and compound.
+Here are some common types o f errors tha t begin t o happen or incre ase 
+as cont e xt windo w size gro ws:
+Cont e xt
+05 06Context engineering
+Quality V alidation: 
+Checking whet her 
+r etrie v ed inf ormation is 
+consist ent and useful.
+Cont e xt Summarization: 
+P eriodically compr essing 
+accumulat ed hist or y int o 
+summaries t o r educe 
+bur den while pr eser ving 
+k e y kno wledge.
+Cont e xt Pruning: 
+Activ ely r emo ving 
+irr ele v ant or out dat ed 
+cont e xt, eit her wit h 
+specializ ed pruning models 
+or a dedicat ed LLM t ool.
+Cont e xt Offloading: St oring details 
+e xt ernally and r etrie ving t hem only 
+when needed, inst ead of k eeping 
+e v er yt hing in activ e cont e xt.Failed
+Change strat egy
+A daptiv e R etrie v al Str at egies: 
+R ef ormulating queries, swit ching 
+kno wledge bases, or changing chunking 
+strat egies when initial att empt s f ail.
+Dynamic T ool Selection: Inst ead of dumping 
+e v er y possible t ool int o t he pr ompt, agent s 
+filt er and load only t hose r ele v ant t o t he task. 
+This r educes confusion and impr o v es accuracy .
+Multi -Sour ce Synt hes is : 
+Combining inf ormation fr om 
+multiple sour ces, r esolving 
+conflict s, and pr oducing 
+coher ent answ ers.
+Stra t egies and 
+T asks f or A gents
+A gent s ar e able t o eff ectiv ely or chestr at e cont e xt 
+syst ems because of t heir ability t o r eason and 
+mak e decisions in a dynamic wa y.  Her e ar e some 
+of t he most common tasks agent s ar e built f or 
+and emplo y t o manage cont e xt s.
+A gent s ser v e as coor dinat ors in y our cont e xt engineering syst em.  The y don’ t r eplace t he 
+t echniques co v er ed in ot her sections,  inst ead,  t he y or chestr at e t hem int elligent ly .  An 
+agent might apply quer y r e writing when initial sear ches ar e unsuccessful,  choose 
+diff er ent chunking str at egies based on t he type of cont ent it encount ers,  or decide when 
+con v ersation hist or y should be compr essed t o mak e r oom f or ne w inf ormation.  The y 
+pr o vide t he or chestr ation la y er needed t o mak e dynamic,  cont e xt -appr opriat e decisions 
+about inf ormation management.
+Where A gents Fit in C ont e xt Engineering
+Diff erent types o f agents and functions within a cont e xt engineering s yst em:
+V ect or DB Episodic 
+and F actual St or e
+L ONG TERM MEMOR Y
+short TERM MEMOR Y
+MEMOR Y
+Planning R out e t o 
+Specializ ed
+Data Collection 
+Select or
+R etrie v er 
+T ool R out er
+Quer y R e writ er 
+Answ er 
+Synt hesiz er 
+Compr essor
+W orking M emor y
+T ools and AP I s
+V ect or DB 
+Kno wledge 
+Collections
+W eb and Sear ch 
+AP I s
+E XTERN AL KNO WLED GE 
+SO U R C E S
+C AP ABILITI E S AND 
+KNO WLE DGE  SOURCE S
+SUPE R VI SORS
+SP E CIALIZ E D A GE NTS
+Gener at e Final 
+R esponse
+Send Cont e xt 
+f or Synt hesis
+R efine Q uer y
+R eturn T ool 
+R esult s
+R eturn 
+R etrie v ed 
+F act sSync 
+Episodic 
+M emor y
+Quer y and U pdat e
+Send R etrie v al 
+R equest
+0 7 08Context engineering
+Quer y r e writing tr ansf orms t he original user quer y int o a mor e eff ectiv e v ersion f or 
+inf ormation r etrie v al.  Inst ead of just doing r etrie v e-t hen-r ead,  applications no w do a 
+r e writ e-r etrie v e-r ead appr oach.  This t echnique r estructur es oddly writt en questions so 
+t he y can be bett er underst ood b y t he syst em,  r emo v es irr ele v ant cont e xt,  intr oduces 
+common k e yw or ds t hat impr o v e mat ching wit h corr ect cont e xt,  and can split comple x 
+questions int o simpler sub-questions.
+Query R ewriting
+Ho w do i mak e 
+t his w ork when 
+m y api call k eeps 
+f ailing?
+query=”API call failure, 
+troubleshooting 
+authentication headers, 
+rate limiting, network 
+timeout, 500 error”
+Raw Query Query R e-writ er (LLM) R ewritt en Query
+RA G applications ar e sensitiv e t o t he phr asing and specific 
+k e yw or ds of t he quer y ,  so t his t echnique w orks b y:
+R estructuring 
+Uncle ar Questions:
+C ont e xt 
+R emo v al:
+K eyw ord 
+Enhancement:
+T r ansf orms v ague or 
+poorly f ormed user 
+input int o pr ecise,  
+inf ormation-dense 
+t erms.
+Eliminat es irr ele v ant 
+inf ormation t hat 
+could confuse t he 
+r etrie v al pr ocess.
+Intr oduces common 
+t erminology t hat 
+incr eases t he 
+lik elihood of mat ching 
+r ele v ant document s.
+Query 
+A ugment a tion
+One of t he most impor tant st eps of cont e xt engineering is ho w y ou pr epar e and pr esent 
+t he user' s quer y .  W it hout kno wing e x act ly what t he user is asking,  t he LLM cannot 
+pr o vide an accur at e r esponse .
+Though t his sounds simple,  it ' s actually quit e comple x.  Ther e ar e tw o main issues t o t hink 
+about :
+R emember t hat quer y augmentation addr esses t he "garbage in,  garbage out"  pr oblem at 
+t he v er y star t of y our pipeline.  No amount of sophisticat ed r etrie v al algorit hms,  adv anced 
+r er anking models,  or cle v er pr ompt engineering can fully compensat e f or misunderst ood 
+user int ent.
+Users oft en don't int er act wit h 
+chat bot s or input s in t he ideal wa y .
+Diff er ent par t s of t he pipeline need t o 
+deal wit h t he quer y in diff er ent wa ys.
+M an y pr oduct builders will oft en de v elop 
+and t est chat bot s wit h queries t hat pr o vide 
+t he r equest and all additional inf ormation 
+t hat t he LLM w ould need t o understand t he 
+question in a succinct,  per f ect ly 
+punctuat ed,  clear wa y .  U nf or tunat ely ,  in t he 
+r eal w orld,  user int er actions wit h chat bot s 
+can be unclear ,  messy ,  and not complet e.  In 
+or der t o build r obust syst ems,  it ' s impor tant 
+t o implement solutions t hat deal wit h all 
+types of int er actions,  not just ideal ones.
+A question t hat an LLM could understand 
+w ell might not be t he best f ormat t o sear ch 
+t hr ough a v ect or database wit h.  Or ,  a quer y 
+t erm t hat w orks best f or a v ect or database 
+could be incomplet e f or an LLM t o answ er .  
+Ther ef or e,  w e need a wa y t o augment t he 
+quer y t hat suit s diff er ent t ools and st eps 
+wit hin t he pipeline.
+1 2
+09 10Context engineering
+Quer y e xpansion enhances r etrie v al b y gener ating multiple r elat ed queries fr om a single 
+user input.  This appr oach impr o v es r esult s when user queries ar e v ague,  poorly f ormed,  
+or when y ou need br oader co v er age,  such as wit h k e yw or d-based r etrie v al syst ems.
+Query Expansion
+Ho w e v er ,  quer y e xpansion comes wit h challenges 
+t hat need car eful management:
+Query Drif t: Ov er-Expansion: C omput a tional 
+Ov erhe ad:
+Expanded queries 
+ma y div er ge fr om t he 
+user's original int ent,  
+leading t o irr ele v ant or 
+off -t opic r esult s.
+A dding t oo man y 
+t erms can r educe 
+pr ecision and r etrie v e 
+e x cessiv e irr ele v ant 
+document s.
+Pr ocessing multiple 
+queries incr eases 
+syst em lat ency and 
+r esour ce usage.
+Open sour ce 
+NLP t ools
+Natural language pr ocessing t ools
+F r ee nlp libraries
+Open sour ce language pr ocessing platf orms
+NLP soft w ar e w it h open sour ce co de
+Query R e-W rit er (LLM)Raw Query
+Expanded Queries
+Quer y decomposition br eaks do wn comple x,  multi-f acet ed questions int o simpler ,  
+f ocused sub-queries t hat can be pr ocessed independent ly .  This t echnique is especially 
+good f or questions t hat r equir e inf ormation fr om multiple sour ces or in v olv e se v er al 
+r elat ed concept s.
+Query Decomposition
+A ft er r etrie v al,  t he cont e xt engineering syst em must aggr egat e and synt hesi z e r esult s 
+fr om all sub-queries t o gener at e a coher ent,  compr ehensiv e answ er t o t he original 
+comple x quer y .
+Cont e xt W indo w
+Decomposition Phase:
+An LLM analy z es t he original 
+comple x quer y and br eaks it int o 
+smaller ,  f ocused sub-queries.  Each 
+sub-quer y tar get s a specific aspect 
+of t he original question.
+Processin g Phase:
+Each sub-quer y is pr ocessed 
+independent ly t hr ough t he r etrie v al 
+pipeline,  allo wing f or mor e pr ecise 
+mat ching wit h r ele v ant document s.
+The pr ocess typically in v olv es tw o main stages:
+11 12Context engineering
+Finaliz e cont e xt
+Construct quer y
+Ex ecution
+Finish
+R etrie v ed 
+inf ormation 
+r ele v ant?
+R esponse
+Analysis: Use gener ativ e models ( e.g.  lar ge language models) t o analyz e t he 
+task & t he r equir ed queries.  Det ermine t he e x act queries t o per f orm.
+Gener at e a 
+t e xt 
+r esponse?
+YES
+YES
+NO
+NO
+User quer y
+Sear ch A ggr egation
+Choose collection
+Analysis
+Dynamic Quer y Construction: Rat her t han using pr edet ermined quer y patt erns,  
+t he agent construct s queries on-demand based on understanding bot h t he user 
+int ent and t he data schema.  This means it can add filt ers and adjust sear ch 
+t erms aut omatically t o find t he most r ele v ant r esult s in t he database,  as w ell as 
+choosing t o run sear ches,  aggr egations or e v en bot h at t he same time f or y ou.  
+Quer y e x ecution: F ormulat es and sends queries t o t he agent ’ s chosen 
+collection or collections.
+Mult i-co ll ectio n r outing: The agent understands t he structur e of all of y our 
+collections,  so it can int elligent ly decide which data collections t o quer y based 
+on t he user' s question.
+Ev aluat io n: The agent can e v aluat e t he r etrie v ed inf ormation wit hin t he 
+cont e xt of t he original user quer y .  I f t her e is missing inf ormation,  t he agent 
+can tr y a diff er ent kno wledge sour ce or ne w quer y .  
+(Op tiona l)  R es p onse gener ation: R eceiv e t he r esult s fr om t he database,  and use 
+a gener ativ e model t o gener at e t he final r esponse t o t he user ’ s pr ompt / quer y .
+Cont e xtua l a w ar eness: The cont e xt ma y also include pr e vious con v ersation 
+hist or y ,  and an y ot her r ele v ant inf ormation.  The agent can maintain 
+con v ersation cont e xt f or f ollo w-up questions.
+V ect or database
+Collection A
+V ect or database
+Collection B
+Quer y A gent s ar e t he most 
+adv anced f orm of quer y 
+augmentation,  using AI agent s 
+t o int elligent ly handle t he entir e 
+quer y pr ocessing pipeline,  
+combining t he t echniques 
+abo v e.  
+A quer y agent tak es a user ’ s 
+pr ompt/question in natur al 
+language and decides t he best 
+wa y t o structur e t he quer y 
+based on it ’ s kno wledge of t he 
+database and data structur e,  
+and can it er ativ ely decide t o r e-
+quer y and adjust based on t he 
+r esult s r eturned.
+Query A gents
+13 Context engineering
+A Lar ge Language Model is only as good as t he inf ormation it can access.  While LLMs ar e 
+tr ained on massiv e dataset s,  t he y lack kno wledge of y our specific,  priv at e document s 
+and an y inf ormation cr eat ed aft er t heir tr aining was complet ed.  T o build truly int elligent 
+applications,  y ou need t o f eed t hem t he right e xt ernal inf ormation at t he right time.  This 
+pr ocess is called R etrie v al.  Pr e-R etrie v al and R etrie v al st eps mak e up t he first par t s of 
+man y AI ar chit ectur es t hat r ely on cont e xt engineering,  such as R etrie v al Augment ed 
+Gener ation (RA G).  
+Pr e-R etrie v al
+Quer y
+Cont e xt
+R esponse
+V ect or Database
+Pr ompt T emplat e
+Embedding Model
+LLM
+ChunksDocument s
+R etrie v al
+R etrie v al
+The challenge is simple in concept but trick y in pr actice: a r aw dataset of document s is 
+almost alwa ys t oo lar ge t o fit int o an LLM's limit ed cont e xt windo w (t he input s giv en t o an 
+AI model).  W e can't just hand t he model an entir e set of user manuals or r esear ch papers.  
+Inst ead,  w e must find t he per f ect piece of t hose document s,  t he single par agr aph or 
+section t hat contains t he answ er t o a user's quer y .
+T o mak e our v ast kno wledge bases sear chable and find t hat per f ect piece,  w e must first 
+br eak our document s do wn int o smaller ,  manageable par t s.  This f oundational pr ocess,  
+kno wn as chunking,  is t he k e y t o successful r etrie v al.
+Chunking is t he most impor tant decision y ou will mak e f or y our r etrie v al syst em's 
+per f ormance.  It is t he pr ocess of br eaking do wn lar ge document s int o smaller ,  
+manageable pieces.  Get it right,  and y our syst em will be able t o pinpoint r ele v ant f act s 
+wit h sur gical pr ecision.  Get it wr ong,  and e v en t he most adv anced LLM will f ail.
+A Guide t o Chunking T echniques
+P ost-Chunking
+Chunks
+Learn ho w chunking str at egies can help impr o v e y our RA G per f ormance and e xplor e diff er ent chunking 
+met hods.  R ead t he complet e blog post her e: w ea viat e.io/blog/chunking-str at egies-f or -r ag
+Document
+Chunk
+The Cont e xt Windo w
+Syst em pr ompt
+User quer y
+R ele v ant chunks
+You are a helpful AI assistant...
+What is a vector database?
+Doc 1; Chunk 1 Doc 2; Chunk 1
+Doc 2; Chunk 2 Doc 3; Chunk 1
+14 15Context engineering
+When designing y our chunking str at egy ,  y ou must balance tw o competing priorities:
+R etrie v al Pr ecision: Chunks need t o be small and f ocused on a single idea.  This 
+cr eat es a distinct,  pr ecise embedding,  making it easier f or a v ect or sear ch syst em t o 
+find an e x act mat ch f or a user's quer y .  Lar ge chunks t hat mix multiple t opics cr eat e 
+"a v er aged, " noisy embeddings t hat ar e har d t o r etrie v e accur at ely .
+Cont e xtual Richness: Chunks must be lar ge and self -contained enough t o be 
+underst ood.  A ft er a chunk is r etrie v ed,  it is passed t o t he LLM.  If t he chunk is just an 
+isolat ed sent ence wit hout cont e xt,  e v en a po w er ful model will struggle t o gener at e a 
+meaningful r esponse.
+The goal is t o find t he "chunking sw eet spot" ,  cr eating chunks t hat ar e small enough f or 
+pr ecise r etrie v al but complet e enough t o giv e t he LLM t he full cont e xt it needs.
+Y our choice of str at egy will depend on t he natur e of y our document s and t he needs of 
+y our application.
+Cont e xtual richnesslo w high
+high
+R etrie v al pr ecision
+Rich but Unfindable
+Ov ersiz ed chunks t hat contain 
+t he answ er but ha v e "noisy" 
+embeddings,  making t hem 
+impossible f or t he r etrie v al 
+syst em t o find accur at ely .
+The Sw eet Spot (Optimal Chunks)
+Semantically complet e par agr aphs 
+t hat ar e f ocused enough t o be 
+f ound and rich enough t o be 
+underst ood.
+Pr ecise but Incomplet e
+Ov erly small chunks ( e.g.,  
+single sent ences) t hat ar e easy 
+t o find but lack t he cont e xt f or 
+t he LLM t o gener at e a good 
+r esponse.
+The F ailur e Zone
+P oorly construct ed,  r andom 
+chunks t hat ar e neit her 
+findable nor useful,  t he w orst 
+of bot h w orlds.
+The Chunking Stra t egy Ma trix
+R ecursiv e Chunkin g: A mor e int elligent appr oach t hat split s t e xt using a prioritiz ed list of 
+separ at ors (lik e par agr aphs,  t hen sent ences,  t hen w or ds).  It r espect s t he document's 
+natur al structur e and is a solid def ault choice f or unstructur ed t e xt.
+Document -Based Chunkin g: This met hod uses t he document's inher ent structur e.  F or 
+e x ample,  it split s a Mark do wn file b y it s headings ( #, ## ),  an HTML file b y it s tags 
+(<p>, <div>),  or sour ce code b y it s functions.
+This connection c ha ll enges our understand ing of space 
+and t ime. When y ou measur e one entan gl ed par tic le, t he 
+ot her's stat e c han ges instant ly .
+Quantum entan gl ement is a k e y concept in quantum 
+ph ys ics. It occurs wh en par t ic les become li nk ed, so t he 
+stat e of one instant ly aff ect s t he stat e of an ot her , n o 
+matt er t he distance bet w een t hem
+If c hunks ar e t oo  big , spli t a ga in using t he 
+ne xt separat or
+Spli t t he t e xt us ing t he highest - le v el separat or
+R epeat unt il  all  c hunks f it wit hin t he desir ed 
+s iz e while pr eser ving meaning
+Def ine a hierar ch y of separat ors 
+( e. g., para graphs →  sent ences →  w o r ds)1
+2
+3
+4
+V ect oriz e each unit as a standa lone c hunk
+Gr oup c ont ent under each boundar y int o 
+c oh es iv e unit s
+St or e c hunks wit h metadata li nking t hem 
+t o t heir sour ce d ocument and sect ion
+Identify logi cal document boundaries 
+( e. g., chapt ers, sect ions, headings )1
+2
+3
+4
+# Heading  This is a heading. -- ## Subheading  This is a
+subheading. W e can c ont inue wit h mor e c ont ent her e. -- 
+## This is a sec ond subheading  Her e is diff er ent c ont ent.
+c hunk 2 c hunk 3c hunk 1
+Pho t osynt hes is is one of natur e's m ost v ita l pr ocesses.
+o v erlap o v erlap
+Simple Chunking T echniques
+Fix ed -Siz e Chunkin g: The simplest met hod.  The t e xt is split int o chunks of a 
+pr edet ermined siz e ( e.g.,  512 t ok ens).  It's f ast and easy but can awkwar dly cut sent ences 
+in half .  U sing an o v erlap ( e.g.,  50 t ok ens) betw een chunks helps mitigat e t his.
+1 6 1 7Context engineering
+Lat e Chunking: An ar chit ectur al patt ern t hat in v er t s t he standar d pr ocess.  It embeds 
+t he entir e document first t o cr eat e t ok en-le v el embeddings wit h full cont e xt.  Only t hen is 
+t he document split int o chunks,  wit h each chunk's embedding deriv ed fr om t hese pr e-
+comput ed,  cont e xt -rich t ok ens.
+Hier ar chical Chunking: Cr eat es multiple la y ers of chunks at diff er ent le v els of detail ( e.g.,  
+t op-le v el summaries,  mid-le v el sections,  and gr anular par agr aphs).  This allo ws a r etrie v al 
+syst em t o star t wit h a br oad o v er vie w and t hen drill do wn int o specifics as needed.
+Tit le
+Abstract
+Intr o
+ Intr o
+Met hod
+R ef er ence
+Chunk 3Documents
+Tit le
+R ef er ence Chunk 5
+Met hod Chunk 4
+Abstr act Chunk 2
+Chunk 1
+“ Alice w ent f or a walk in t he w oods one da y 
+and on her walk, she spott ed somet hing. She 
+saw a rabbit hole at t he base of a lar ge tr ee. 
+She f ell int o t he hole and f ound herself in a 
+strange new w orld. ”
+Embedding Model
+1
+2
+3
+4
+Embed t he entir e document using a 
+long-cont e xt model t o generat e 
+t ok en-le v el embeddings .
+Pr eser v e cont e xt  because t he 
+embeddings w er e cr eat ed wit h full 
+document cont e xt, each t ok en 
+pr eser v es it s r elationship t o t ok ens in 
+neighboring chunks. 
+P ool str at egically  inst ead of pooling all 
+t ok ens int o one v ect or , lat e chunking 
+pools t ok ens accor ding t o y our chunking 
+strat egy t o get multiple cont e xtually -
+awar e embeddings per document.
+Chunk t he t ok en embeddings  
+(inst ead of t he raw t e xt ).
+L L M - B a s e d  C h u n k i n g :   U s e s  a  L a r g e  L a n g u a g e  M o d e l  t o  i n t e l l i g e n t l y  p r o c e s s  a  d o c u m e n t  
+a n d  g e n e r a t e  s e m a n t i c a l l y  c o h e r e n t  c h u n k s .  I n s t e a d  o f  r e l y i n g  o n  f i x e d  r u l e s ,  t h e  L L M  c a n  
+i d e n t i f y  l o g i c a l  p r o p o s i t i o n s  o r  s u m m a r i z e  s e c t i o n s  t o  c r e a t e  m e a n i n g - p r e s e r v i n g  p i e c e s .
+A g e n t i c  C h u n k i n g :   T h i s  t a k e s  t h e  c o n c e p t  a  s t e p  f u r t h e r  t h e n  L L M - B a s e d  C h u n k i n g .  A n  A I  
+a g e n t  d y n a m i c a l l y  a n a l y z e s  a  d o c u m e n t ' s  s t r u c t u r e  a n d  c o n t e n t  t o  s e l e c t  t h e   b e s t   c h u n k i n g  
+s t r a t e g y  ( o r  c o m b i n a t i o n  o f  s t r a t e g i e s )  t o  a p p l y  f o r  t h a t  s p e c i f i c  d o c u m e n t .
+Semantic Chunking:  Inst ead of using separ at ors,  t his t echnique split s t e xt based on 
+meaning.  It gr oups semantically r elat ed sent ences t oget her and cr eat es a ne w chunk 
+only when t he t opic shift s,  r esulting in highly coher ent,  self -contained chunks.
+A dv anced Chunking T echniques
+The wat er cy cle is a continuous pr ocess b y which wat er mo v es 
+t hr ough t he Ear t h and atmospher e. It in v olv es pr ocesses such as 
+e v aporation, condensation, pr ecipitation, and collection. Ev aporation 
+occurs when t he sun heat s up wat er in ri v ers, lak es, or oceans, 
+turning it int o v apor or st eam. This v apor rises int o t he air and cools 
+do wn, f orming clouds. Ev entually , t he clouds become hea vy and 
+wat er f alls back t o t he ear t h as pr ecipitation, which can be rain, 
+sno w , sleet, or hail. This wat er t hen collect s in bodies of wat er , 
+continuing t he cy cle.
+Calculat e cosine distance betw een all pairs
+V ect oriz e windo ws of sent ences
+Mer ge until br eakpoint is r eached
+Split t e xt int o sent ences or paragraphs1
+2
+3
+4
+Ale x lo v es r eading.
+Ale x visit ed t he librar y .Ale x visit ed t he librar y . 
+He lo v es r eading.
+Pr opositionsInput t e xt LLM
+Markdown
+HTML
+PDF
+DocxDocx
+Document s Selecting Met hod Chunks Optimiz ed 
+Chunks
+Analy z es document 
+f ormat and cont ent Semantic Chunking
+Document -based Chunking
+Fix ed-siz e Chunking
+Hybrid 
+Appr oach
+1 8 1 9Context engineering
+Be y ond ho w y ou chunk,  a k e y syst em design choice is when y ou chunk.  This decision 
+leads t o tw o primar y ar chit ectur al patt erns.
+Pre-Chunking vs. P ost-Chunking
+Pre-ChunkingPre-Processing
+R etrie v al b y semantic similarity
+V ect or Database
+Embedded Chunks
+R etrie v ed Cont e xt
+Augment ed
+Gener ation
+Quer y
+Output
+Document s Chunks
+Embedding Model
+Lar ge Language Model
+Pr ompt T emplat e
+Clean t e xt (r emo v e headers, 
+f oot ers, special charact ers, et c.)
+Split document s int o smaller chunks ( e.g., 500 t ok ens 
+per chunk, semantic chunks, hierar chical chunks).
+The most common met hod,  wher e all data pr ocessing happens up fr ont and o ffline,  
+bef or e an y user queries come in.
+Pre-Chunking
+W orkflo w
+R etrie v al is e xtr emely f ast at quer y 
+time because all t he w ork has alr eady 
+been done.  The syst em only needs t o 
+per f orm a quick similarity sear ch.
+The chunking str at egy is fix ed.  If y ou 
+decide t o change y our chunk siz e or 
+met hod,  y ou must r e -pr ocess y our 
+entir e dataset.
+PRO CON
+Clean Data -> Chunk Document s -> Embed & St or e Chunks
+An ad v anced,  r eal-time alt ernativ e wher e chunking happens a ft er a document has been 
+r etrie v ed,  in dir ect r esponse t o a user ' s quer y .
+P ost-Chunking
+W orkflo w
+I t' s highly fle xible.  Y ou can cr eat e 
+dynamic chunking str at egies t hat ar e 
+specific t o t he cont e xt of t he user ' s 
+quer y ,  pot entially leading t o mor e 
+r ele v ant r esult s.
+I t adds lat ency .  The chunking 
+pr ocess happens in r eal -time,  making 
+t he first r esponse slo w er f or t he end -
+user .  I t also r e quir es mor e comple x 
+in fr astructur e t o manage.
+PRO CON
+Pre-Processing
+R etrie v al b y semantic similarity
+V ect or Database
+R etrie v e full document s, t hen chunk and r erank bef or e adding 
+t o LLM cont e xt w indo w . St or e chunk ed document s.
+P ost-ChunkingR etrie v ed Cont e xt
+Augment ed
+Gener ation
+Quer y
+Output
+Document s
+Embedding Model
+Lar ge Language Model
+Pr ompt T emplat e
+Clean t e xt (r emo v e headers, 
+f oot ers, special charact ers, et c.)
+Chunks
+W e built a post -chunking str at egy int o Elysia,  our open sour ce agentic RA G fr ame w ork.  
+Y ou can r ead mor e about t hat her e: 
+https://w ea viat e.io/blog/elysia-agentic-r ag#chunk -on-demand-smar t er -document -pr ocessing
+St or e Document s -> R etr ie v e R ele v ant Document -> Chunk D ynam icall y
+20 21Context engineering
+Guide t o Choosing Y our Chunking Stra t egy
+Chunking 
+Str at egy
+Fix ed-Siz e
+R ecursiv e
+Document -
+Based
+Semantic
+LLM-Based
+A gentic
+Lat e 
+Chunking
+Hier ar chical
+Ho w It W orks
+Split s b y t ok en or 
+charact er count.
+Split s t e xt b y 
+r epeat edly dividing 
+it until it fit s t he 
+desir ed chunk siz e, 
+oft en pr eser ving 
+some structur e.
+Split s only at 
+document 
+boundaries or b y 
+structural element s 
+lik e headers.
+Split s t e xt at natural 
+meaning boundaries 
+(t opics, ideas).
+Uses a language 
+model t o decide 
+chunk boundaries 
+based on cont e xt 
+and meaning.
+Let s an AI agent 
+decide ho w t o split 
+based on meaning 
+and structur e.
+Embeds t he whole 
+document first, t hen 
+deriv es chunk 
+embeddings fr om it.
+B r eaks t e xt int o 
+multiple le v els 
+(sections →  
+paragraphs →  
+sent ences).
+Small or simple 
+docs, or when speed 
+matt ers most.
+Document s wher e 
+some structur e 
+should be 
+maintained but 
+speed is still 
+impor tant.
+Collections of 
+shor t, standalone 
+document s or 
+highly structur ed 
+files.
+T echnical, academic, 
+or narrativ e 
+document s wher e 
+t opics shift wit hout 
+clear separat ors.
+Comple x t e xt wher e 
+meaning-awar e 
+chunking impr o v es 
+do wnstr eam tasks 
+lik e Q& A.
+Comple x, nuanced 
+document s t hat 
+r equir e cust om 
+strat egies.
+Use cases wher e 
+chunks need 
+awar eness of t he full 
+document's cont e xt.
+Lar ge, structur ed 
+document s wher e 
+bot h summar y and 
+detail ar e needed.
+M eeting not es, 
+shor t blog post s, 
+emails, simple F A Q s.
+R esear ch ar ticles, 
+pr oduct guides, 
+shor t r epor t s.
+News ar ticles, 
+cust omer suppor t 
+tick et s, M ark do wn 
+files.
+Scientific papers, 
+t e xt books, no v els, 
+whit epapers.
+Long r epor t s, legal 
+opinions, medical 
+r ecor ds.
+R egulat or y filings, 
+multi-section 
+contract s, 
+corporat e policies.
+Case studies, 
+compr ehensiv e 
+manuals, long-f orm 
+analysis r epor t s.
+Emplo y ee 
+handbooks, 
+go v ernment 
+r egulations, 
+softwar e 
+documentation.
+Compl e x ity Best F or Ex a mpl es
+The eff ectiv eness of y our R etrie v al Augmentation syst em is not det ermined b y a single 
+“magic” bullet,  but b y a series of deliber at e engineering choices.  The quality of t he 
+cont e xt y ou pr o vide t o an LLM is a dir ect r esult of tw o k e y decisions:
+Summary
+The Chunking Stra t egy The Archit ectural P a tt ern
+The met hod y ou choose t o br eak 
+do wn y our document s.
+The point at which y ou per f orm 
+t he chunking.
+The " Ho w" The "W hen"
+Mast ering t hese tw o element s is fundamental t o cont e xt engineering.  A w ell-designed 
+r etrie v al syst em is t he diff er ence betw een an LLM t hat guesses and one t hat pr o vides 
+f act -based,  r eliable,  and cont e xtually r ele v ant answ ers.
+22 23Context engineering
+Promp ting 
+T echniques
+Pr ompt engineering is t he pr actice of designing,  r efining,  and optimizing input s (pr ompt s) 
+giv en t o Lar ge Language Models (LLMs) t o get y our desir ed output.  The quality and 
+eff ectiv eness of LLMs ar e hea vily influenced b y t he pr ompt s t he y r eceiv e,  and t he wa y 
+y ou phr ase a pr ompt can dir ect ly aff ect t he accur acy ,  usefulness,  and clarity of t he 
+r esponse.
+It ’ s essentially about int er acting wit h AI efficient ly: giving it instructions,  e x amples,  or 
+questions t hat guide t he model t o war d t he output y ou need.
+In t his section,  w e’ll go o v er pr ompting t echniques t hat ar e essential f or impr o ving 
+R etrie v al-Augment ed Gener ation (RA G) applications and o v er all LLM per f ormance.
+Impor tant Not e: Pr ompt engineering f ocuses on ho w y ou phr ase 
+instructions f or t he LLM.  Cont e xt engineering,  on t he ot her 
+hand,  is about structuring t he inf ormation and kno wledge y ou 
+pr o vide t o t he model,  such as r etrie v ed document s,  user 
+hist or y ,  or domain-specific data,  t o maximiz e t he model’ s 
+understanding and r ele v ance.  Man y of t he t echniques belo w 
+(Co T ,  F e w-shot,  T o T ,  R eA ct) ar e most eff ectiv e when combined 
+wit h w ell-engineer ed cont e xt.
+This t echnique in v olv es asking t he model 
+t o “t hink st ep-b y-st ep” and br eak do wn 
+comple x r easoning int o int ermediat e 
+st eps.  This is especially helpful when 
+r etrie v ed document s ar e dense or contain 
+conflicting inf ormation t hat r equir es 
+car eful analysis.  By v erbalizing it s 
+r easoning pr ocess,  t he LLM can come at 
+mor e accur at e and logical conclusions.
+Chain o f Thought 
+This appr oach pr o vides t he LLM wit h a 
+f e w e x amples in t he cont e xt windo w t hat 
+demonstr at e t he type of output or 
+“golden” answ ers y ou want.  Sho wing 
+e x amples helps t he model understand 
+t he desir ed f ormat,  style,  or r easoning 
+appr oach,  impr o ving r esponse accur acy 
+and r ele v ance,  especially f or specializ ed 
+or t echnical domains.
+F ew-Sho t Promp ting
+Combining Co T and F e w-shot e x amples is a po w er ful wa y t o guide bot h t he model’ s 
+r easoning pr ocess and it s output f ormat f or maximum efficiency .
+Classic Promp ting T echniques
+Pr ompt
+R esponse
+I nput Des ir ed 
+out c ome
+Exa mple
+I nput Des ir ed 
+out c ome
+Exa mple
+LLM: pa tt ern  r ec ognit ion 
+(f orma t , st yle, l ogic)
+I nput Des ir ed 
+out c ome
+Exa mple
+...
+R esponse
+Pr ompt
+Th ought
+Th ought
+Pro Tip #1:  Pro Tip #2: 
+Mak e t he model r easoning in Chain of 
+Thought v er y specific t o y our use-case.  
+F or e x ample,  y ou might ask t he model t o:
+Maximiz e efficiency and r educe 
+t ok en count,  asking t he model t o 
+r eason in a " dr aft "  f orm,  using no 
+mor e t han 5 w or ds per sent ence.  
+This mak es sur e t hat t he model ' s 
+t hought pr ocess is visible while 
+r educing output t ok en count.
+E v aluat e t he en vir onmen t
+R epeat an y r ele v ant inf ormatio n
+E xplain t he impor tance of t his inf ormation 
+t o t he curr ent r equest
+2 4 25Context engineering
+B u i l d i n g  o n  c l a s s i c  t e c h n i q u e s ,  a d v a n c e d  s t r a t e g i e s  g u i d e  L L M s  i n  m o r e  s o p h i s t i c a t e d  w a y s :
+A dv anced Promp ting Stra t egies
+T o T builds on Co T b y instructing t he model 
+t o e xplor e and e v aluat e multiple r easoning 
+pat hs in par allel,  much lik e a decision tr ee.  
+The model can gener at e se v er al diff er ent 
+solutions t o a pr oblem and choose t he best 
+r esult.  This is especially useful in RA G 
+when t her e ar e man y pot ential pieces of 
+e vidence,  and t he model needs t o w eigh 
+diff er ent possible answ ers based on 
+multiple r etrie v ed document s.
+T ree o f Thoughts (T oT): 
+Promp ting f or T ool Usage
+When y our LLM int er act s wit h e xt ernal t ools,  clear pr ompting ensur es corr ect t ool 
+selection and usage.
+D e f i n i n g  P a r a m e t e r s  a n d  E x e c u t i o n  C o n d i t i o n s
+L L M s  c a n  s o m e t i m e s  m a k e  i n c o r r e c t  t o o l  s e l e c t i o n s  o r  
+u s e  t o o l s  i n  s u b o p t i m a l  w a y s .  T o  p r e v e n t  t h i s ,  p r o m p t s  
+s h o u l d  c l e a r l y  d e f i n e :
+Ex amples: Include f e w-shot e x amples 
+sho w casing corr ect t ool selection and 
+usage f or v arious queries.  F or instance:
+User Quer y: 
+"What's t he w eat her lik e in P aris?" -> 
+Use W eat her_API wit h city ="P aris"
+User Quer y: 
+"Find me a r estaur ant near t he Eiff el 
+T o w er . " -> Use R estaur ant_Sear ch_ T ool 
+wit h location="Eiff el T o w er"
+When t o u se  a t oo l: 
+Specify scenarios or 
+conditions t hat trigger 
+a par ticular t ool.
+Ho w t o use a  t ool: 
+Pr o vide e xpect ed 
+input s,  par amet ers,  and 
+desir ed output s.
+This fr ame w ork combines Co T wit h agent s,  
+enabling t he model t o " R eason "  (t hink ) and 
+" A ct "  dynamically .  The model gener at es bot h 
+r easoning tr aces and actions in an int erlea v ed 
+manner ,  allo wing it t o int er act wit h e xt ernal 
+t ools or data sour ces and ad just it s r easoning 
+it er ativ ely .  R eA ct can impr o v e RA G pipelines b y 
+enabling LLMs t o int er act wit h r etrie v ed 
+document s in r eal time,  updating r easoning 
+and actions based on e xt ernal kno wledge t o 
+giv e mor e accur at e and r ele v ant r esponses.
+R eA ct Promp ting:
+I f y ou ar e building a pr o ject t hat r equir es e xt ensiv e pr ompting or want t o syst ematically 
+impr o v e y our LLM r esult s,  y ou could consider using fr ame w orks lik e: DSPy ,  Llama 
+Pr ompt Ops,  Synalinks.
+That said,  y ou don ’ t necessarily need t o use a fr ame w ork.  F ollo wing t he pr ompting 
+guidelines out lined ( clear instructions,  Chain of Thought,  F e w-shot Learning,  and 
+adv anced str at egies ) can achie v e highly eff ectiv e r esult s wit hout additional fr ame w orks .
+Think of t hese fr ame w orks as optional helpers f or comple x pr o ject s,  not a r equir ement 
+f or e v er y da y pr ompt engineering.
+Using Promp t F rame w or ks
+This v er y pr ecise guidance,  which should be included as par t of y our o v er all t ool 
+description,  helps t he LLM understand t he e x act boundaries and functionalities of each 
+a v ailable t ool,  minimi z ing err or ,  and impr o ving o v er all syst em r eliability .
+Pro Tip: Ho w t o W rit e an Eff ectiv e T oo l Descrip tion
+The LLM' s decision t o use y our t ool depends entir ely on it s 
+description.  Mak e it count:
+Use an A ctiv e V erb:  S tar t wit h a clear action. 
+get_curr ent_w eat her is bett er t han w eat her_data.
+Be Sp ecific Ab out I np ut s: Clearly stat e what ar gu men t s 
+t he  t ool e xpec t s and  t hei r f ormat ( e.g., ci ty (string) ,  
+dat e (string ,  YYYY -MM-DD)).
+Describ e t he Out p ut : T ell t he model what t o e xpect in 
+r eturn ( e.g., r eturns a JSON object wit h "high" ,  "lo w" ,  
+and "conditions" .).
+Mention Limitations : If t he t oo l only  w orks  f or a spec ific 
+r egion  or time fr ame,  sa y  so ( e.g., Not e: O nly  w orks  f or 
+c ities in  t he U S A.).
+26 27Context engineering
+Memory
+When y ou'r e building agent s,  memor y isn't just a bonus f eatur e - it's t he v er y t hing t hat 
+br eat hes lif e int o t hem.  Wit hout it,  an LLM is just a po w er ful but stat eless t e xt pr ocessor 
+t hat r esponds t o one quer y at a time wit h no sense of hist or y .  Memor y tr ansf orms t hese 
+models int o somet hing t hat f eels mor e dynamic and,  dar e w e sa y ,  mor e ‘human’ ,  t hat ’ s 
+capable of holding ont o cont e xt,  learning fr om t he past,  and adapting on t he fly .
+Andr ej Karpat h y ga v e us t he per f ect analogy when he compar ed an LLM’ s cont e xt 
+windo w t o a comput er ’ s RAM and t he model it self t o t he CPU .  In t his vie w ,  t he cont e xt 
+windo w is t he agent's activ e consciousness,  wher e all it s "w orking t hought s" ar e held.  
+But just lik e a lapt op wit h t oo man y br o wser tabs open,  t his RAM can fill up f ast.  Ev er y 
+message,  e v er y t ool output,  e v er y piece of inf ormation consumes pr ecious t ok ens.
+Source: Andrej K arpa th y: S o f tw are Is Changing (A gain)
+This is wher e cont e xt engineering becomes an ar t.  The goal isn’ t t o sho v e mor e data int o 
+t he pr ompt but t o design syst ems t hat mak e t he most of t he activ e cont e xt windo w - 
+k eeping essential inf ormation wit hin r each while gr acefully offloading e v er yt hing else 
+int o smar t er ,  mor e persist ent st or age.
+Memor y in an AI agent is all about r etaining inf ormation t o na vigat e changing tasks,  
+r emember what w ork ed ( or didn't),  and t hink ahead.  T o build r obust agent s,  w e need t o 
+t hink in la y ers,  oft en blending diff er ent types of memor y f or t he best r esult s.
+The Archit ecture o f A gent Memory
+Cont e xt Offloading is t he pr actice of st oring inf ormation out side t he LLM’ s activ e cont e xt windo w ,  
+oft en in e xt ernal t ools or v ect or databases.  This fr ees up t he limit ed t ok en space so t hat only t he most 
+r ele v ant inf o sta ys in cont e xt.
+Shor t-T erm Memory
+User:  “Wha t’s the w e a ther?”
+AI: “It’s sunn y , 2 4°C”
+User: “ Should I bring a j ack et?”
+C ont e xt Wind o w
+AI:  “ No  nee d, i t’s w ar m!”
+Shor t -t erm memor y is t he agent's 
+immediat e w orkspace.  It's t he "no w , " 
+stuff ed int o t he cont e xt windo w t o fuel 
+on-t he-fly decisions and r easoning.  This 
+is po w er ed b y in-cont e xt learning,  wher e 
+y ou pack r ecent con v ersations,  actions,  
+or data dir ect ly int o t he pr ompt.
+Because it's constr ained b y t he model's 
+t ok en limit,  t he main challenge is 
+efficiency .  And,  t he trick is t o k eep t his 
+str eamlined t o r educe cost s and lat ency 
+wit hout missing an y details t hat might be 
+impor tant f or t he ne xt pr ocessing st eps.
+Long-T erm Memory
+Long-t erm memor y mo v es past t he immediat e 
+cont e xt windo w ,  st oring inf ormation e xt ernally 
+f or quick r etrie v al when needed.  This is what 
+allo ws an agent t o build a persist ent 
+understanding of it s w orld and it s users o v er 
+time.  It's commonly po w er ed b y R etrie v al-
+Augment ed Gener ation (RA G),  wher e t he agent 
+queries an e xt ernal kno wledge base (lik e a 
+v ect or database) t o pull in r ele v ant inf ormation.
+This memor y can st or e diff er ent kinds of 
+inf ormation,  lik e f or e x ample : episodic memor y t o 
+st or e specific e v ent s or past int er actions,  or 
+semantic memor y t hat holds gener al kno wledge 
+and f act s.  This could also be inf ormation fr om 
+compan y document s,  pr oduct manuals,  or a 
+cur at ed domain-kno wledge base,  allo wing t he 
+agent t o answ er questions wit h f actual accur acy .
+Ex t ernal St or age
+Episodic Semantic
+Pr ocedur al
+V ect or 
+Database
+28 29Context engineering
+Calculat or Pyt ho n
+Int erpr et er T erminal
+File Syst em
+(+embeddings)
+Et hernet
+Disk RAM
+CPU
+Ot her LLMs
+Br o wser
+Sof t wa r e 1 . 0 t ools
+“classi cal compu t er ”
+P eripheral de vices  I/O
+LLM
+Cont e x t
+Windo w
+Video Audio
+In r eality ,  most modern syst ems use a h ybrid appr oach,  blending shor t -t erm memor y f or 
+speed wit h long-t erm memor y f or dept h.  Some adv anced ar chit ectur es e v en intr oduce 
+additional la y ers:
+W orking Memor y: A t empor ar y holding ar ea f or inf ormation r elat ed t o a specific,  
+multi-st ep task.  F or e x ample,  if an agent is booking a trip,  it s w orking memor y might 
+hold t he destination,  dat es,  and budget until t he task is complet e,  wit hout clutt ering 
+t he long-t erm st or e.
+Pr ocedur al Memor y: This helps an agent learn and mast er r outines.  By obser ving 
+successful w orkflo ws,  t he agent can int ernaliz e a sequence of st eps f or a r ecurring 
+task,  making it f ast er and mor e r eliable o v er time.
+Hybrid Memory Setup
+Quer y
+“Book me a 
+flight t o T oky o 
+in December . ”
+R etrie v e
+“User pr ef er ences, 
+tra v el domain 
+kno wledge, 
+booking r outines, 
+et c. ”
+T ask Stat e
+“St or e t he task -
+specific stat e in 
+t he w orking 
+memor y ”
+Cont e xt Windo w
+Thought
+“Need t o check 
+budget, dat es, 
+pr ef er ences”
+T ool Call
+“Flight s API, 
+W eat her API, 
+Calendar , et c. ”
+Thought
+“R e view t he 
+cont e xt & 
+decide”
+...
+R espo nse
+“R espond & t hen 
+clear t he stat e & 
+updat e memor y ”
+Sh or t - T erm  Mem or y
+W orkin g Mem or y Long- T erm  Mem or y
+A t emporar y scrat chpad or buff er bo x.
+Immediat e r easoning space, bounded b y cont e xt limit.
+P ersist ent st orage syst em t o r etain and r ecall 
+inf ormation acr oss sessions.
+"task_id": "book_flight_001"
+"task_type": "travel_booking"
+"task_status": "in_progress"
+"task_context":
+"destination": "Tokyo"
+"origin": "San Francisco"
+“tools_available”: “...”
+T ask  Cont e xt
+"dates":
+"departure": "2025-12-15"
+"return": "2025-12-22"
+"constraints":
+"budget_max": 1200,       
+"preferred_time": "morning",     
+"preferred_airlines": 
+["JAL", "ANA"]
+P ar am et ers
+"intermediate_results":    
+"flights_found": 12    
+"top_candidates":      
+"flight": "JAL005", "price": 1150, ...     
+"flight": "ANA106", "price": 1180, ...   
+"next_steps": ["compare_amenities", "check_baggage_policy", 
+"confirm_selection"]
+Ne xt St eps/R esult s
+( general + domain kno w ledge )
+Semantic Memor y
+(learned r outines / decision w orkflo w s )
+Pr ocedur al Memor y
+Episodic Memor y
+(past e v ent s / int eractions / pr ef er ences )
+R etrie v al
+t he agent r etrie v es 
+r ele v ant kno wledge t o 
+inf orm it s curr ent 
+decision lik e past tra v el 
+pr ef er ences, tra v el 
+domain kno wledge 
+(airlines, airpor t codes, 
+visa rules, et c.), or 
+learned w orkflo ws.
+Memor y St or age
+aft er an int eraction, 
+or t ool call, t he agent 
+sa v es impor tant 
+inf ormation, new user 
+pr ef er ences, or 
+successful out comes/
+w orkflo ws t o it s 
+permanent memor y 
+f or futur e use.
+1 3
+2 4
+T ask Stat e St or age
+t he agent sends 
+specific, in-pr ogr ess 
+task details t o a 
+t emporar y scrat chpad 
+t o k eep t he main 
+cont e xt windo w fr om 
+getting clutt er ed.
+T ask Cont e xt R ecall 
+t he agent pulls t he 
+r ele v ant task details 
+back int o it s activ e 
+r easoning space t o 
+continue a multi-st ep 
+pr ocess.
+E ff ectiv e memor y management can mak e or br eak an LLM agent.  P oor memor y pr actices 
+lead t o err or pr opagation,  wher e bad inf ormation get s r etrie v ed and amplifies mistak es 
+acr oss futur e tasks.
+Here are some o f the st ar ting principles f or getting things right:
+K ey Principles f or Eff ectiv e Memory 
+Management
+Prune and R efine Y our Memories
+M emor y isn ' t a writ e-once syst em.  It needs r egular maint enance.  P eriodically 
+scan y our long-t erm st or age t o r emo v e duplicat e entries,  mer ge r elat ed 
+inf ormation,  or discar d out dat ed f act s.  A simple metric f or t his could be t he 
+r ecency and r etrie v al fr equency .  If a memor y is old and r ar ely accessed,  it 
+might be a candidat e f or deletion,  especially in e v olving en vir onment s wher e 
+old inf ormation can become a liability .  
+F or e x ample,  a cust omer suppor t agent might aut omatically prune 
+con v ersation logs t hat ar e o v er 90  da ys old and mark ed as r esolv ed,  closed,  
+or no longer activ e in t he memor y .  It could just r etain t he summaries (f or tr end 
+det ection and analysis ) r at her t han full w or d-t o-w or d tr anscript s.
+Pruned
+Mer ged
+30 31Context engineering
+Be Selectiv e About Wha t Y ou St ore
+Not e v er y int er action deser v es a permanent spot in long-t erm st or age.  One must 
+implement some sor t of filt ering crit eria t o assess inf ormation f or quality and 
+r ele v ance bef or e sa ving it.  A bad piece of r etrie v ed inf ormation can oft en lead t o 
+cont e xt pollution,  wher e t he agent r epeat edly mak es t he same mistak es.  One 
+wa y t o pr e v ent t his is t o ha v e t he LLM "r eflect" on an int er action and assign an 
+impor tance scor e bef or e committing it t o memor y .
+Delet ed
+T ailor the Archit ecture t o the T ask
+Ther e is no one-siz e-fit s-all memor y solution.  A cust omer ser vice bot needs a 
+str ong episodic memor y t o r ecall user hist or y ,  while an agent t hat analyz es 
+financial r epor t s needs a r obust semantic memor y filled wit h domain-specific 
+kno wledge.  Alwa ys star t wit h t he simplest appr oach t hat w orks (lik e a basic 
+con v ersational buff er wit h last ‘n’ queries/r esponses) and gr adually la y er in mor e 
+adv anced mechanisms as t he use case demands it.
+Episodic 
+Memor y
+Semantic 
+Memor y
+Optional additions:
+Quer y 
+Augmentation
+T ools 
+Query Output
+Ultimat ely ,  memor y is what ele v at es LLM agent s fr om simple r esponders t o int elligent 
+cont e xt -awar e syst ems.  Eff ectiv e memor y isn’ t simply a passiv e st or age…  It ’ s an activ e,  
+managed pr ocess! The goal is t o build agent s t hat don't just st or e memor y ,  but 
+can manage it - kno wing what t o r emember ,  what t o f or get,  and ho w t o use t he past t o 
+r eason about t he futur e.
+Mast er the Ar t o f R etrie v al
+Eff ectiv e memor y is less about ho w much y ou can st or e and mor e about ho w w ell 
+y ou can r etrie v e t he right piece of inf ormation at t he right time.  A simple blind 
+sear ch is oft en not enough,  so adv anced t echniques lik e r er anking (using an LLM 
+t o r e-or der r etrie v ed r esult s f or r ele v ance) and it er ativ e r etrie v al (r efining/
+e xpanding a sear ch quer y o v er multiple st eps) can be used t o impr o v e t he quality 
+of r etrie v ed inf ormation.   
+T ools lik e t he Quer y A gent and P ersonalization A gent off er t hese capabilities out 
+of t he bo x,  enabling sear ches acr oss multiple collections and r er anking based on 
+user pr ef er ences and int er action hist or y .
+R er an king
+A dd t o 
+C ont e x t
+R etrie v alE x panded Queries
+32 33Context engineering
+T ools
+If memor y giv es an agent a sense of self ,  t hen t ools ar e what giv e it superpo w ers.  By 
+t hemselv es,  LLMs ar e brilliant con v ersationalist s and t e xt manipulat ors,  but t he y liv e 
+inside a bubble.  The y can't check t he curr ent w eat her ,  book a flight,  or look up r eal-time 
+st ock prices.  The y ar e,  b y design,  disconnect ed fr om t he living,  br eat hing w orld of data 
+and action.
+This is wher e t ools come in.  A "t ool" is an yt hing t hat connect s an LLM agent t o t he 
+out side w orld,  allo wing it t o tak e dir ect “action” in t he r eal w orld and r etrie v e inf ormation 
+r equir ed t o fulfill a task.  Int egr ating t ools ele v at es an agent fr om just being a 
+kno wledgeable consultant t o somet hing t hat can actually get t hings done.
+Cont e xt engineering f or t ools isn't just giving an agent a list of APIs and instructions.  It's 
+about cr eating a cohesiv e w orkflo w wher e t he agent can understand what t ools ar e 
+a v ailable,  decide corr ect ly which one t o use f or a specific task,  and int erpr et t he r esult s 
+t o mo v e f or war d.
+The journe y t o modern t ool use has been a r apid e v olution.  Initially ,  de vs tried t o get 
+action out of LLMs wit h good old pr ompt engineering b y tricking t he model int o 
+gener ating t e xt t hat look ed lik e a command.  It was cle v er but pr one t o err ors.
+The r eal br eakt hr ough was function calling,  aka t ool calling.  This capability ,  no w nativ e t o 
+most models,  allo ws an LLM t o output structur ed JSON t hat can contain t he name of a 
+function t o call and t he ar gument s t o use.
+With this, there are a bunch o f possibilities:
+The w ork of cont e xt engineering her e is in ho w y ou pr esent t hese t ools.  A w ell-writt en 
+t ool description is lik e a mini-pr ompt t hat guides t he model,  making it cr ystal clear what 
+t he t ool does,  what input s it needs,  and what it r eturns.
+The Ev olution: F rom Promp ts t o A ctions
+A tr a v el agent bot can use a 
+sear ch_flight s t ool,  and when a 
+user asks,  "Find me a flight t o 
+T ok y o ne xt T uesda y , " t he LLM 
+doesn't guess t he answ er .  It 
+gener at es a call t o t he function y ou 
+pr o vided,  which in turn queries a 
+r eal airline API.
+F or a comple x r equest lik e "Plan a 
+w eek end trip t o San F r ancisco f or 
+me, " t he agent might need t o chain 
+se v er al t ools t oget her: find _flight s,  
+sear ch_hot els,  and 
+get_local _e v ent s.  This r equir es t he 
+agent t o r eason,  plan,  and e x ecut e 
+a multi-st ep w orkflo w .
+A Simple T ool A Chain o f T ools
+R epeat Until Goal Satisfied
+Quer y R esponseObser v ationA ctionThought
+34 35Context engineering
+G iving an agent a t ool is easy (most ly).  Getting it t o use t hat t ool r eliably ,  saf ely ,  and 
+eff ectiv ely is wher e t he r eal w ork begins.  The centr al task of cont e xt engineering 
+is or chestr ation,  i.e.,  managing t he flo w of inf ormation and decision-making as t he agent 
+r easons about which t ool t o use.
+This in v olv es a f e w k e y st eps t hat happen in t he cont e xt windo w .  Let ’ s br eak do wn t hese 
+k e y or chestr ation st eps using Glo w e,  a skincar e domain kno wledge app po w er ed b y our 
+Elysia or chestr ation fr ame w ork,  as our running e x ample.
+The Orchestra tion Challenge
+T ool Disco v er y: The agent needs t o kno w what t ools it has at it s disposal.  This is 
+usually done b y pr o viding a list of a v ailable t ools and t heir descriptions in t he syst em 
+pr ompt.  The quality of t hese descriptions is v er y critical.  The y ar e t he agent's only 
+guide t o understanding what each t ool does,  allo wing t he model t o understand when 
+t o use a t ool and,  mor e impor tant ly ,  when t o a v oid it.
+In Glo w e,  w e configur e a set of specializ ed t ools (St ep 5) wit h pr ecise descriptions when initializing 
+e v er y ne w chat tr ee.
+T ool Selection and Planning (Thought): When f aced wit h a user r equest,  t he agent 
+must r eason about whet her a t ool is needed.  If so,  which one? F or comple x tasks,  it 
+might e v en need t o chain multiple t ools t oget her ,  f orming a plan ( e.g.,  "First,  sear ch 
+t he w eb f or t he w eat her; t hen,  use t he email t ool t o send a summar y").
+Her e,  t he decision agent corr ect ly analyz ed t he incoming r equest and select ed t he pr oduct_agent t ool.
+A r gument F or mulation ( A ction): O nce a t ool is select ed,  t he agent must figur e out 
+what ar gument s t o pass t o it.  I f t he t ool is get_w eat her( city ,  dat e),  t he agent needs t o 
+e xtr act "San F r ancisco "  and " t omorr o w "  fr om t he user's quer y and f ormat t hem 
+corr ect ly .  This could also be a structur ed r equest or API call wit h t he necessar y 
+inf ormation t o use t he t ool.
+I n t his case,  t he pr oduct_agent r equir ed a t e x t quer y f or sear ching t he pr oduct s collection.  Notice 
+ho w t he agent also corr ect ed it sel f ( sel f -healing )  a ft er gener ating an ill -f ormed ar gument t hat initially 
+caused an err or (anot her k e y piece of or chestr ation ).
+36 37Context engineering
+R eflection (Obser v ation): A ft er e x ecuting t he t ool,  t he output (t he "obser v ation") is 
+f ed back int o t he cont e xt windo w .  The agent t hen r eflect s on t his output t o decide it s 
+ne xt st ep.  W as t he t ool successful? Did it pr oduce t he inf ormation needed t o answ er 
+t he user's quer y? Or did it r eturn an err or t hat r equir es a diff er ent appr oach?
+A s y ou can see,  or chestr ation happens t hr ough t his po w er ful f eedback loop,  oft en called 
+t he Thought -A ction-Obser v ation cy cle.  The agent obser v es t he out come of it s action 
+and uses t hat ne w inf ormation t o fuel it s ne xt "t hought, " deciding whet her t he task is 
+complet e,  if it needs t o use anot her t ool,  or if it should ask t he user f or clarification.
+This Thought -A ction-Obser v ation cy cle f orms t he fundamental r easoning loop in modern agentic 
+fr ame w orks lik e Elysia.
+The Ne xt F rontier o f T ool Use
+The e v olution of t ool use is mo ving mor e and mor e t o war ds standar dization.  While 
+function/t ool calling w orks w ell,  it cr eat es a fr agment ed ecosyst em wher e each AI 
+application needs cust om int egr ations wit h e v er y e xt ernal syst em.  The Model Cont e xt 
+Pr ot ocol (MCP),  intr oduced b y Ant hr opic in lat e 202 4 ,  addr esses t his b y pr o viding a 
+univ ersal standar d f or connecting AI applications t o e xt ernal data sour ces and t ools.  
+The y call it "USB-C f or AI" - a single pr ot ocol t hat an y MCP -compatible AI application can 
+use t o connect t o an y MCP ser v er .
+So,  inst ead of building cust om int egr ations f or each t ool,  de v elopers can just cr eat e 
+individual MCP ser v ers t hat e xpose t heir syst ems t hr ough t his standar diz ed int er f ace.  
+An y AI application t hat suppor t s MCP can t hen easily connect t o t hese ser v ers using t he 
+JSON-RPC based pr ot ocol f or client -ser v er communication.  This tr ansf orms t he MxN 
+int egr ation pr oblem (wher e M applications each need cust om code f or N t ools) int o a 
+much simpler M + N pr oblem.
+This shift t o war ds composable,  standar diz ed ar chit ectur es,  wher e fr ame w orks enable 
+de v elopers t o build agent s fr om modular ,  int er oper able component s,  r epr esent s t he 
+futur e of AI t ooling.  It changes t he engineer's r ole fr om writing cust om int egr ations t o 
+or chestr ating adaptiv e syst ems t hat can easily connect t o an y standar diz ed e xt ernal 
+syst em.
+T raditional Int egra tion vs MCP Approach
+Model 1 Database
+G it
+Cloud St or age
+Model 3
+Model 2
+T r aditional: NxM Connections
+E ach model needs cust om int egr ation 
+wit h each data sour ce
+9 T otal Connections
+Visual inspir ed b y :  https://humanloop.com/blog/mcp
+MCP: N+M Connections
+Models and data sour ces only need 
+t o int egr at e once wit h MCP
+6 T otal Connections
+Database
+G it
+Cloud St or age
+MCPModel 1
+Model 3
+Model 2
+38 39Context engineering
+Summary
+Cont e xt engineering is about mor e t han just pr ompting lar ge language models,  building 
+r etrie v al syst ems,  or designing AI ar chit ectur es.  It ’ s about building int er connect ed,  
+dynamic syst ems t hat r eliably w ork acr oss a v ariety of uses and users.  All t he 
+component s described in t his ebook will continue t o e v olv e as ne w t echniques,  models,  
+and disco v eries ar e made,  but t he diff er ence betw een truly functional syst ems and t he AI 
+apps t hat f ail will be ho w w ell t he y engineer cont e xt acr oss t heir entir e ar chit ectur e.  W e 
+ar e no longer t hinking in t erms of just pr ompting a model,  w e’ r e looking at ho w w e 
+ar chit ect entir e cont e xt syst ems.
+Visual inspired b y Eff ectiv e cont e xt engineering f or AI agents, Anthropic
+Syst em Pr ompt Syst em Pr ompt
+User Message
+Message Hist or y
+User Message
+Message Hist or y
+Assistant
+Message
+Assistant
+Message
+Doc
+T ool
+T ool
+T ool
+Memor y File Memor y File
+Memor y File
+T ool
+T ool
+T ool
+T ool
+T ool Call
+T ool R esult
+Doc Doc
+Doc Doc
+Doc
+Curation
+P ossible cont e xt t o giv e model
+Simple Promp t Engineering C ont e xt Engineering
+Cont e xt windo wCont e xt windo w
+Domain Kno wledge
+Compr ehensiv e 
+Instructions
+Cont e xt enginee ring is made up  of t he com ponent s desc ribed in t his eboo k:
+A gent s t o act as t he syst em's decision-making br ain.
+Quer y Augmentation t o tr anslat e messy human r equest s int o actionable int ent.
+R etrie v al t o connect t he model t o f act s and kno wledge bases.
+Memor y t o giv e y our syst em a sense of hist or y and t he po w er t o learn.
+T ools t o giv e y our application hands t o int er act wit h liv e data and APIs.
+W e ar e mo ving on fr om being pr ompt ers who talk t o a  model and inst e ad,  becoming 
+ar c hit ect s w ho bu ild t he w orld t he model liv es in.  W e - t he bu ilders,  t he enginee rs,  and 
+t he c r eat ors - k no w t he trut h: t he best AI syst ems ar en ’ t born fr om bigge r models,  bu t 
+fr om bett er enginee ring .
+W e c an ’ t wait t o see w hat y ou  bu ild 
+R e ady t o build the ne xt 
+genera tion o f AI applic a tions?
+Star t t oda y wit h a 14 da y fr ee trial 
+of W ea viat e Cloud (W CD).
+Contact UsT r y No w
+User
+AI  A gent
+LLM
+W e a via t e V ect or 
+D a t a tbase
+Gloss ary
+Memory
+T ool s
+40 4 1Context engineering

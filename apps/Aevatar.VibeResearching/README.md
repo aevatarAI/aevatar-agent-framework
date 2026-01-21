@@ -45,26 +45,31 @@ This project provides a unified interface for scientific research, allowing you 
     
     All of them write into user secrets (default `~/.aevatar/secrets.json`, encrypted). You can still override per-app via `src/VibeResearching.Api/appsettings.secrets.json` (see example file).
 
-2.  **(Optional) Seed DAG knowledge**:
+2.  **(Optional) Enable persistence (MongoDB / SQLite)**:
+    - Configure either `MongoDB:*` or `SQLite:*` in `src/VibeResearching.Api/appsettings.json`
+    - For SQLite, `SQLite:Enabled=true` will auto-create `workspace/.data/vibe.db`
+    - See `docs/CONFIGURATION.md` → "持久化（MongoDB / SQLite）"
+
+3.  **(Optional) Seed DAG knowledge**:
     - Use the UI or DAG mutation APIs to add initial knowledge nodes.
 
-3.  **(Optional) Choose MCP mode**:
+4.  **(Optional) Choose MCP mode**:
     `src/VibeResearching.Api/appsettings.json` controls whether Claude Scientific Skills runs via hosted MCP or local Docker.
 
-4.  **One-Click Start**:
+5.  **One-Click Start**:
     ```bash
     ./boot.sh
     ```
     This will launch both the Backend API and the Frontend Web Interface.
 
-5.  **Manual Start (Alternative)**:
+6.  **Manual Start (Alternative)**:
     - **Backend**: `cd src/VibeResearching.Api && ASPNETCORE_URLS=http://localhost:5678 dotnet run`
     - **Frontend**: `cd sisyphus-frontend && VITE_API_BASE_URL=http://localhost:5678 npm run dev -- --port 5173`
 
-6.  **Aspire AppHost (Alternative)**:
+7.  **Aspire AppHost (Alternative)**:
     - `cd VibeResearching.AppHost && dotnet run`
 
-7.  **Access**: Open `http://localhost:5173`.
+8.  **Access**: Open `http://localhost:5173`.
 
 ### Core Endpoints (AG-UI)
 

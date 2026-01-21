@@ -2,11 +2,16 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Aevatar.Agents.AGUI;
+using Aevatar.Agents.Abstractions.EventSourcing;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.MEAI;
 using Aevatar.Agents.Core.Extensions;
+using Aevatar.Agents.Persistence.SQLite.GAgent.DependencyInjection;
+using Aevatar.Agents.Persistence.SQLite.GAgent.Stores;
+using Aevatar.Agents.Persistence.SQLite.Memory.DependencyInjection;
 using Aevatar.Agents.Runtime.Local;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using ProgressHookChatWebDemo;
 
@@ -22,7 +27,20 @@ builder.Services.Configure<DemoOptions>(builder.Configuration.GetSection("Progre
 builder.Services.Configure<LLMProvidersConfig>(builder.Configuration.GetSection("LLMProviders"));
 
 builder.Services.AddSingleton<ILLMProviderFactory, MEAILLMProviderFactory>();
-builder.Services.AddAevatarLocalRuntime();
+
+var sqliteConn = builder.Configuration["ProgressHookChatWebDemo:SqliteConnection"];
+if (string.IsNullOrWhiteSpace(sqliteConn))
+{
+    var dbPath = Path.Combine(builder.Environment.ContentRootPath, "progress-demo.db");
+    sqliteConn = $"Data Source={dbPath}";
+}
+builder.Services.AddAevatarSQLiteGAgent(sqliteConn);
+builder.Services.AddAevatarSQLiteMemory();
+
+builder.Services.AddAevatarAgentSystem(
+    configureStores: options => { options.StateStoreType = typeof(SQLiteStateStore<>); },
+    configure: b => b.UseLocalRuntime());
+
 builder.Services.AddSingleton<SessionStore>();
 
 var app = builder.Build();
@@ -49,6 +67,72 @@ app.MapGet("/api/sessions/new", (SessionStore store) =>
     var id = Guid.NewGuid().ToString("N");
     store.GetOrCreate(id);
     return Results.Ok(new { sessionId = id });
+});
+
+app.MapGet("/api/sessions", async (SessionStore store, Aevatar.Agents.Abstractions.Memory.IMemoryStore memoryStore, CancellationToken ct) =>
+{
+    var resources = await memoryStore.ListResourcesAsync(
+        Aevatar.Agents.Abstractions.Memory.MemoryScopeType.Session,
+        limit: 200,
+        ct);
+    var sessions = new HashSet<string>(store.ListSessions(), StringComparer.Ordinal);
+    foreach (var id in resources
+        .Select(r => r.Scope?.ScopeId)
+        .Where(id => !string.IsNullOrWhiteSpace(id))
+        .Select(id => id!))
+    {
+        sessions.Add(id);
+    }
+
+    return Results.Ok(new { sessions = sessions.OrderBy(id => id, StringComparer.Ordinal).ToList() });
+});
+
+app.MapGet("/api/sessions/{sessionId}/info", async (
+    string sessionId,
+    SessionStore store,
+    IOptions<DemoOptions> options,
+    CancellationToken ct) =>
+{
+    var info = await store.GetSessionInfoAsync(sessionId, options.Value.MaxSnapshotMessages, ct);
+    return Results.Ok(new
+    {
+        sessionId = info.SessionId,
+        createdAt = info.CreatedAt,
+        updatedAt = info.UpdatedAt,
+        messageCount = info.MessageCount,
+        memoryEnabled = info.MemoryEnabled,
+        memoryEntries = info.MemoryEntries,
+        memoryHasMore = info.MemoryHasMore,
+        lastMessage = info.LastMessage == null
+            ? null
+            : new
+            {
+                id = info.LastMessage.Id,
+                role = info.LastMessage.Role,
+                content = info.LastMessage.Content
+            }
+    });
+});
+
+app.MapGet("/api/sessions/{sessionId}/state/history", async (
+    string sessionId,
+    SessionStore store,
+    IOptions<DemoOptions> options,
+    CancellationToken ct) =>
+{
+    var history = await store.GetStateHistoryAsync(sessionId, options.Value.MaxSnapshotMessages, ct);
+    var list = history.Select(msg => new
+        {
+            id = msg.Id,
+            role = msg.Role.ToString().ToLowerInvariant(),
+            content = msg.Content ?? string.Empty,
+            timestamp = msg.Timestamp == null
+                ? null
+                : msg.Timestamp.ToDateTime().ToUniversalTime().ToString("O")
+        })
+        .ToList();
+
+    return Results.Ok(new { history = list });
 });
 
 app.MapPost("/api/sessions/{sessionId}/input", async (

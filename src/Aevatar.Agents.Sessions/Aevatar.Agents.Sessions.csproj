@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <Authors>Aevatar Team</Authors>
+    <Description>Session APIs for Aevatar Cognitive workflows</Description>
+    <PackageProjectUrl>https://github.com/aevatar/agent-framework</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/aevatar/agent-framework</RepositoryUrl>
+    <PackageTags>agents;ai;sessions;cognitive</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.AI.Abstractions\Aevatar.Agents.AI.Abstractions.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.Cognitive\Aevatar.Agents.Cognitive.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" />
+    <PackageReference Include="Grpc.Tools">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Protobuf Include="session_messages.proto"
+              GrpcServices="None"
+              AdditionalImportDirs="..\Aevatar.Agents.Abstractions;..\Aevatar.Agents.AI.Abstractions;..\Aevatar.Agents.Cognitive" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Keep nested bin/obj excluded from default globs -->
+    <Compile Remove="**\bin\**" />
+    <Compile Remove="**\obj\**" />
+    <None Remove="**\bin\**" />
+    <None Remove="**\obj\**" />
+    <EmbeddedResource Remove="**\bin\**" />
+    <EmbeddedResource Remove="**\obj\**" />
+  </ItemGroup>
+
+</Project>

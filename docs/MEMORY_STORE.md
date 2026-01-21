@@ -70,6 +70,7 @@
 框架不会默认把对话写入 MemoryStore（避免“隐藏 IO”）。需要在 Agent 中显式开启：
 
 - `EnableMemoryStoreAppend = true`
+- `EnableSessionMemoryStoreAppend = true`（需要 `ChatRequest.Context["session_id"]`，写入 `scope=session`，用于跨 Agent 的会话聚合）
 - `MemoryStoreScopeType = PrivateAgent / Session / Run / ...`
 - （可选）`MemoryStoreScopeIdOverride` / `MemoryIdOverride`
 

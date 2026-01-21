@@ -1,0 +1,55 @@
+name: context_query_augmentation
+description: Query rewrite + expansion + decomposition for retrieval.
+
+inputs:
+  - name: task
+    type: string
+    required: true
+  - name: domain
+    type: string
+    default: ""
+  - name: constraints
+    type: string
+    default: ""
+
+steps:
+  - id: rewrite
+    type: llm_call
+    agent: context_query_rewriter
+    prompt: |
+      Task: {{task}}
+      Domain: {{domain}}
+      Constraints: {{constraints}}
+      Return JSON only.
+    output: json
+    strict_parse: true
+    store: rewrite
+
+  - id: expand
+    type: llm_call
+    agent: context_query_expander
+    prompt: |
+      Base query: {{ rewrite.query }}
+      Task: {{task}}
+      Domain: {{domain}}
+      Constraints: {{constraints}}
+      Return JSON only.
+    output: json
+    strict_parse: true
+    store: expansions
+
+  - id: decompose
+    type: llm_call
+    agent: context_query_decomposer
+    prompt: |
+      Task: {{task}}
+      Base query: {{ rewrite.query }}
+      Return JSON only.
+    output: json
+    strict_parse: true
+    store: decomposition
+
+output:
+  rewrite: "{{ rewrite }}"
+  expansions: "{{ expansions }}"
+  decomposition: "{{ decomposition }}"

@@ -1,0 +1,99 @@
+syntax = "proto3";
+
+package aevatar.sessions;
+
+option csharp_namespace = "Aevatar.Agents.Sessions";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+import "ai_abstractions_messages.proto";
+import "memory.proto";
+import "execution_trace.proto";
+import "cognitive_messages.proto";
+
+// ============================================================
+//  Session Contracts (Cognitive Workflow)
+// ============================================================
+
+message SessionState {
+  string session_id = 1;
+  string workflow_name = 2;
+  string provider_name = 3;
+  int32 worker_count = 4;
+
+  string coordinator_id = 5;
+  repeated string worker_ids = 6;
+  repeated string agent_ids = 7;
+
+  string execution_id = 8;
+  Aevatar.Agents.Cognitive.Messages.ExecutionStatus status = 9;
+
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+
+  map<string, string> tags = 12;
+}
+
+message StartSessionRequest {
+  string session_id = 1;
+  string workflow_name = 2;
+  string provider_name = 3;
+  int32 worker_count = 4;
+  map<string, google.protobuf.Value> variables = 5;
+
+  // History / memory toggles (best-effort)
+  bool enable_agent_memory = 6;
+  bool enable_session_memory = 7;
+}
+
+message StartSessionResponse {
+  SessionState state = 1;
+}
+
+message SessionAgentsResponse {
+  string session_id = 1;
+  string coordinator_id = 2;
+  repeated string worker_ids = 3;
+  repeated string agent_ids = 4;
+}
+
+message SessionAgentStateBundle {
+  string agent_id = 1;
+  Aevatar.Agents.AI.AevatarAIAgentState state = 2;
+}
+
+message SessionAgentStatesResponse {
+  repeated SessionAgentStateBundle agents = 1;
+}
+
+message SessionAgentHistory {
+  string agent_id = 1;
+  repeated Aevatar.Agents.AI.AevatarChatMessage history = 2;
+}
+
+message SessionAgentHistoriesResponse {
+  repeated SessionAgentHistory agents = 1;
+}
+
+message SessionMemoryEntriesResponse {
+  repeated Aevatar.Agents.Memory.MemoryEntry entries = 1;
+}
+
+message SessionMemoryResourcesResponse {
+  repeated Aevatar.Agents.Memory.MemoryResourceSummary resources = 1;
+}
+
+message SessionTraceResponse {
+  Aevatar.Agents.Tracing.ExecutionTrace trace = 1;
+}
+
+message WorkflowInfo {
+  string name = 1;
+  string version = 2;
+  string description = 3;
+}
+
+message WorkflowListResponse {
+  repeated WorkflowInfo workflows = 1;
+}

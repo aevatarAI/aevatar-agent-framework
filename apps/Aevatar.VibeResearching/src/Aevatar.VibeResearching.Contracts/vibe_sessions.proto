@@ -20,6 +20,9 @@ message VibeSessionRecord {
   string dag_id = 3; // empty => per-session
   google.protobuf.Timestamp created_at = 4;
   google.protobuf.Timestamp updated_at = 5;
+  string coordinator_id = 6;
+  repeated string worker_ids = 7;
+  repeated string agent_ids = 8;
 }
 
 message VibeSessionIndex {

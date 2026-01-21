@@ -8,26 +8,34 @@ using Microsoft.Extensions.Logging;
 namespace Aevatar.Agents.AI.Core.Hooks.BuiltIn;
 
 /// <summary>
-/// Emit ExecutionTraceEvent for session/LLM/tool lifecycle (best-effort).
+/// Emit ExecutionTraceEvent for LLM/tool lifecycle (best-effort).
+/// Session lifecycle events are opt-in and should be emitted at explicit
+/// session boundaries (e.g., session create/close), not per request.
 /// </summary>
 public sealed class ExecutionTraceProgressHook : IAevatarAgentHook
 {
     private readonly Func<ExecutionTraceEvent, CancellationToken, Task> _publish;
     private readonly ILogger? _logger;
     private readonly ConcurrentDictionary<string, byte> _sessionStarts = new(StringComparer.Ordinal);
+    private readonly bool _emitSessionLifecycle;
 
     public int Priority => -1000;
 
     public ExecutionTraceProgressHook(
         Func<ExecutionTraceEvent, CancellationToken, Task> publish,
-        ILogger? logger = null)
+        ILogger? logger = null,
+        bool emitSessionLifecycle = false)
     {
         _publish = publish ?? throw new ArgumentNullException(nameof(publish));
         _logger = logger;
+        _emitSessionLifecycle = emitSessionLifecycle;
     }
 
     public Task OnSessionStartAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
     {
+        if (!_emitSessionLifecycle)
+            return Task.CompletedTask;
+
         if (!TryMarkSessionStarted(context.RequestId))
             return Task.CompletedTask;
 
@@ -41,6 +49,9 @@ public sealed class ExecutionTraceProgressHook : IAevatarAgentHook
 
     public Task OnStopAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
     {
+        if (!_emitSessionLifecycle)
+            return Task.CompletedTask;
+
         var status = MapStopStatus(context.StopStatus);
         var task = EmitSessionAsync(
             context,
@@ -53,9 +64,13 @@ public sealed class ExecutionTraceProgressHook : IAevatarAgentHook
     }
 
     public Task BeforeLLMRequestAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
-    {
-        return EmitSessionIfMissingAndLlmAsync(context, cancellationToken);
-    }
+        => _emitSessionLifecycle
+            ? EmitSessionIfMissingAndLlmAsync(context, cancellationToken)
+            : EmitLlmAsync(
+                context,
+                ExecutionTraceEventPhase.LlmRequest,
+                ExecutionTraceEventStatus.Running,
+                cancellationToken);
 
     private async Task EmitSessionIfMissingAndLlmAsync(
         AevatarAgentHookContext context,

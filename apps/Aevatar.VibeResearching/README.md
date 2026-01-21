@@ -50,26 +50,32 @@ This project provides a unified interface for scientific research, allowing you 
     - For SQLite, `SQLite:Enabled=true` will auto-create `workspace/.data/vibe.db`
     - See `docs/CONFIGURATION.md` → "持久化（MongoDB / SQLite）"
 
-3.  **(Optional) Seed DAG knowledge**:
+3.  **Workflows (Cognitive Session API)**:
+    - Project-local workflows live in `src/VibeResearching.Api/workflows/`.
+    - Default workflows: `vibe_researching` (planner → reasoner → librarian → verifier → dag_builder → consensus → paper_editor) and `maker`.
+    - List them via `GET /api/workflows`.
+    - Mesh config (`default_mesh.yaml` / `mesh.json`) is separate from Cognitive workflows.
+
+4.  **(Optional) Seed DAG knowledge**:
     - Use the UI or DAG mutation APIs to add initial knowledge nodes.
 
-4.  **(Optional) Choose MCP mode**:
+5.  **(Optional) Choose MCP mode**:
     `src/VibeResearching.Api/appsettings.json` controls whether Claude Scientific Skills runs via hosted MCP or local Docker.
 
-5.  **One-Click Start**:
+6.  **One-Click Start**:
     ```bash
     ./boot.sh
     ```
     This will launch both the Backend API and the Frontend Web Interface.
 
-6.  **Manual Start (Alternative)**:
+7.  **Manual Start (Alternative)**:
     - **Backend**: `cd src/VibeResearching.Api && ASPNETCORE_URLS=http://localhost:5678 dotnet run`
     - **Frontend**: `cd sisyphus-frontend && VITE_API_BASE_URL=http://localhost:5678 npm run dev -- --port 5173`
 
-7.  **Aspire AppHost (Alternative)**:
+8.  **Aspire AppHost (Alternative)**:
     - `cd VibeResearching.AppHost && dotnet run`
 
-8.  **Access**: Open `http://localhost:5173`.
+9.  **Access**: Open `http://localhost:5173`.
 
 ### Core Endpoints (AG-UI)
 
@@ -86,6 +92,11 @@ This project provides a unified interface for scientific research, allowing you 
 - `POST /api/sessions/{id}/facts/{factId}/verifications`
 - `POST /api/sessions/{id}/facts/{factId}/promote`
 - `GET  /api/sessions/{id}/agui/events` (SSE, snapshot-first)
+- `GET  /api/sessions/{id}/agents` (persisted agent list)
+- `GET  /api/sessions/{id}/agents/states?includeHistory=false&historyLimit=50`
+- `GET  /api/sessions/{id}/agents/{agentId}/history?limit=50`
+
+Frontend integration: `docs/FRONTEND_SESSION_API.md`
 
 ## 📚 Documentation
 

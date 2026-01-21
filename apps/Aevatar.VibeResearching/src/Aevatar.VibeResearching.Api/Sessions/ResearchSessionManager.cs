@@ -23,6 +23,7 @@ public sealed class ResearchSessionManager
 {
     private readonly ConcurrentDictionary<string, ResearchSession> _sessions = new(StringComparer.Ordinal);
     private readonly SessionUiTraceRecorder _uiTrace;
+    private readonly IVibeSessionStore? _sessionStore;
     private readonly IStateStore<VibeSessionIndex>? _indexStore;
     private readonly ILogger<ResearchSessionManager>? _logger;
     private readonly SemaphoreSlim _indexLock = new(1, 1);
@@ -30,10 +31,12 @@ public sealed class ResearchSessionManager
 
     public ResearchSessionManager(
         SessionUiTraceRecorder uiTrace,
+        IVibeSessionStore? sessionStore = null,
         IStateStore<VibeSessionIndex>? indexStore = null,
         ILogger<ResearchSessionManager>? logger = null)
     {
         _uiTrace = uiTrace ?? throw new ArgumentNullException(nameof(uiTrace));
+        _sessionStore = sessionStore;
         _indexStore = indexStore;
         _logger = logger;
     }
@@ -81,16 +84,13 @@ public sealed class ResearchSessionManager
 
     public async Task LoadPersistedSessionsAsync(CancellationToken ct = default)
     {
-        if (_indexStore == null)
-            return;
-
         try
         {
-            var index = await LoadIndexAsync(ct);
-            if (index.Sessions.Count == 0)
+            var records = await LoadPersistedRecordsAsync(ct);
+            if (records.Count == 0)
                 return;
 
-            foreach (var record in index.Sessions)
+            foreach (var record in records)
             {
                 ct.ThrowIfCancellationRequested();
                 if (string.IsNullOrWhiteSpace(record.SessionId))
@@ -111,12 +111,18 @@ public sealed class ResearchSessionManager
 
     public async Task PersistSessionAsync(ResearchSession session, CancellationToken ct = default)
     {
-        if (_indexStore == null)
-            return;
-
         try
         {
-            await UpsertIndexEntryAsync(session, ct);
+            if (_sessionStore != null)
+            {
+                await _sessionStore.SaveAsync(BuildRecord(session), ct);
+                return;
+            }
+
+            if (_indexStore != null)
+            {
+                await UpsertIndexEntryAsync(session, ct);
+            }
         }
         catch (Exception ex)
         {
@@ -215,6 +221,18 @@ public sealed class ResearchSessionManager
         {
             _indexLock.Release();
         }
+    }
+
+    private async Task<IReadOnlyList<VibeSessionRecord>> LoadPersistedRecordsAsync(CancellationToken ct)
+    {
+        if (_sessionStore != null)
+            return await _sessionStore.ListAsync(ct);
+
+        if (_indexStore == null)
+            return Array.Empty<VibeSessionRecord>();
+
+        var index = await LoadIndexAsync(ct);
+        return index.Sessions;
     }
 
     private static VibeSessionRecord BuildRecord(ResearchSession session)

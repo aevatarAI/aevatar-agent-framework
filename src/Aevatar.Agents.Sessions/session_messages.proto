@@ -27,7 +27,7 @@ message SessionState {
   repeated string agent_ids = 7;
 
   string execution_id = 8;
-  Aevatar.Agents.Cognitive.Messages.ExecutionStatus status = 9;
+  aevatar.agents.cognitive.ExecutionStatus status = 9;
 
   google.protobuf.Timestamp created_at = 10;
   google.protobuf.Timestamp updated_at = 11;

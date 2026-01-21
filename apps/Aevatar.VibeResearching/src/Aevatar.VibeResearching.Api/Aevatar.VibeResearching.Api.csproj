@@ -38,7 +38,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <None Include="../../../../src/Aevatar.Agents.Cognitive/workflows/maker.yaml" Link="workflows/maker.yaml">
+        <None Include="workflows/*.yaml">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </None>
     </ItemGroup>

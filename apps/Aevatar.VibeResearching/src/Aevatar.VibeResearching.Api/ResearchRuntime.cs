@@ -6,9 +6,12 @@ using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.Core.Configuration;
 using Microsoft.Extensions.Options;
 using Aevatar.Agents.AI.Tool.Abstractions;
+using Google.Protobuf.WellKnownTypes;
 using VibeResearching.Vibe;
 using VibeResearching.Api.Infrastructure;
+using VibeResearching.Api.Sessions;
 using VibeResearching.Api.Vibe.Mesh;
+using VibeResearching.Contracts.Sessions;
 
 namespace VibeResearching.Api;
 
@@ -28,6 +31,7 @@ public sealed class ResearchRuntime
     private readonly SkillPacksSyncService _skillPacksSync;
     private readonly TimeSpan _skillPacksRetryMinInterval;
     private readonly GlobalAgentYamlRegistry _roles;
+    private readonly IVibeSessionStore? _sessionStore;
 
     // Per-process retry throttle (best-effort). We don't want to run `git pull` on every request.
     private DateTimeOffset _lastSkillPacksRetryKickoffUtc = DateTimeOffset.MinValue;
@@ -41,13 +45,15 @@ public sealed class ResearchRuntime
         IOptionsMonitor<LLMProvidersConfig> llm,
         SkillPacksSyncService skillPacksSync,
         IOptions<SkillPacksOptions> skillPacksOptions,
-        GlobalAgentYamlRegistry roles)
+        GlobalAgentYamlRegistry roles,
+        IVibeSessionStore? sessionStore = null)
     {
         _actorFactory = actorFactory;
         _logger = logger;
         _llm = llm;
         _skillPacksSync = skillPacksSync;
         _roles = roles ?? throw new ArgumentNullException(nameof(roles));
+        _sessionStore = sessionStore;
 
         var seconds = skillPacksOptions?.Value?.RetryMinIntervalSeconds ?? 60;
         // Keep it sane: prevent accidental zero/negative or extremely spammy values.
@@ -380,6 +386,55 @@ public sealed class ResearchRuntime
 
     private static string BuildAgentId(string sessionId) => $"sra-{sessionId}";
 
+    private async Task TrackAgentAsync(
+        SessionEntry entry,
+        string agentId,
+        string? providerName,
+        bool isWorker,
+        bool isCoordinator,
+        CancellationToken ct)
+    {
+        if (_sessionStore == null)
+            return;
+
+        agentId = (agentId ?? string.Empty).Trim();
+        if (agentId.Length == 0)
+            return;
+
+        try
+        {
+            var record = await _sessionStore.GetAsync(entry.SessionId, ct)
+                         ?? new VibeSessionRecord { SessionId = entry.SessionId };
+
+            if (string.IsNullOrWhiteSpace(record.ProviderName) && !string.IsNullOrWhiteSpace(providerName))
+                record.ProviderName = providerName!.Trim();
+
+            if (isCoordinator && string.IsNullOrWhiteSpace(record.CoordinatorId))
+                record.CoordinatorId = agentId;
+
+            if (!record.AgentIds.Contains(agentId))
+                record.AgentIds.Add(agentId);
+
+            if (isWorker && !record.WorkerIds.Contains(agentId))
+                record.WorkerIds.Add(agentId);
+
+            if (IsDefaultTimestamp(record.CreatedAt))
+                record.CreatedAt = Timestamp.FromDateTime(DateTime.UtcNow);
+            record.UpdatedAt = Timestamp.FromDateTime(DateTime.UtcNow);
+
+            await _sessionStore.SaveAsync(record, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex,
+                "[ResearchRuntime] Failed to persist session agent list for {SessionId}",
+                entry.SessionId);
+        }
+    }
+
+    private static bool IsDefaultTimestamp(Timestamp? ts)
+        => ts == null || (ts.Seconds == 0 && ts.Nanos == 0);
+
     private async Task<SessionEntry> GetOrCreateEntryAsync(string? sessionId, CancellationToken ct)
     {
         var sid = NormalizeSessionId(sessionId);
@@ -496,6 +551,13 @@ public sealed class ResearchRuntime
             entry.McpToolNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             entry.MainIsReady = true;
+            await TrackAgentAsync(
+                entry,
+                entry.MainAgentId,
+                entry.MainProviderName,
+                isWorker: false,
+                isCoordinator: true,
+                ct);
         }
         catch (Exception ex)
         {
@@ -563,6 +625,13 @@ public sealed class ResearchRuntime
                 await AgentYamlConfigApplier.ApplyAsync(entry.PlannerAgent, yaml, role, ct);
 
             entry.PlannerIsReady = true;
+            await TrackAgentAsync(
+                entry,
+                entry.PlannerAgentId,
+                entry.PlannerProviderName,
+                isWorker: true,
+                isCoordinator: false,
+                ct);
         }
         catch (Exception ex)
         {
@@ -629,6 +698,13 @@ public sealed class ResearchRuntime
                 await AgentYamlConfigApplier.ApplyAsync(entry.ReasonerAgent, yaml, role, ct);
 
             entry.ReasonerIsReady = true;
+            await TrackAgentAsync(
+                entry,
+                entry.ReasonerAgentId,
+                entry.ReasonerProviderName,
+                isWorker: true,
+                isCoordinator: false,
+                ct);
         }
         catch (Exception ex)
         {
@@ -682,6 +758,13 @@ public sealed class ResearchRuntime
             }, ct);
 
             entry.ResearchAssistantIsReady = true;
+            await TrackAgentAsync(
+                entry,
+                entry.ResearchAssistantAgentId,
+                entry.ResearchAssistantProviderName,
+                isWorker: true,
+                isCoordinator: false,
+                ct);
         }
         catch (Exception ex)
         {
@@ -748,6 +831,13 @@ public sealed class ResearchRuntime
                 await AgentYamlConfigApplier.ApplyAsync(entry.LibrarianAgent, yaml, role, ct);
 
             entry.LibrarianIsReady = true;
+            await TrackAgentAsync(
+                entry,
+                entry.LibrarianAgentId,
+                entry.LibrarianProviderName,
+                isWorker: true,
+                isCoordinator: false,
+                ct);
         }
         catch (Exception ex)
         {
@@ -814,6 +904,13 @@ public sealed class ResearchRuntime
                 await AgentYamlConfigApplier.ApplyAsync(entry.VerifierAgent, yaml, role, ct);
 
             entry.VerifierIsReady = true;
+            await TrackAgentAsync(
+                entry,
+                entry.VerifierAgentId,
+                entry.VerifierProviderName,
+                isWorker: true,
+                isCoordinator: false,
+                ct);
         }
         catch (Exception ex)
         {
@@ -882,6 +979,13 @@ public sealed class ResearchRuntime
             }, ct);
 
             inst.IsReady = true;
+            await TrackAgentAsync(
+                entry,
+                inst.AgentId,
+                inst.ProviderName,
+                isWorker: true,
+                isCoordinator: false,
+                ct);
         }
         catch (Exception ex)
         {
@@ -959,6 +1063,13 @@ public sealed class ResearchRuntime
                 await AgentYamlConfigApplier.ApplyAsync(entry.DagBuilderAgent, yaml, role, ct);
 
             entry.DagBuilderIsReady = true;
+            await TrackAgentAsync(
+                entry,
+                entry.DagBuilderAgentId,
+                entry.DagBuilderProviderName,
+                isWorker: true,
+                isCoordinator: false,
+                ct);
         }
         catch (Exception ex)
         {
@@ -1025,6 +1136,13 @@ public sealed class ResearchRuntime
                 await AgentYamlConfigApplier.ApplyAsync(entry.PaperEditorAgent, yaml, role, ct);
 
             entry.PaperEditorIsReady = true;
+            await TrackAgentAsync(
+                entry,
+                entry.PaperEditorAgentId,
+                entry.PaperEditorProviderName,
+                isWorker: true,
+                isCoordinator: false,
+                ct);
         }
         catch (Exception ex)
         {
@@ -1105,6 +1223,13 @@ public sealed class ResearchRuntime
                 await AgentYamlConfigApplier.ApplyAsync(inst.Agent, yaml, role, ct);
 
             inst.IsReady = true;
+            await TrackAgentAsync(
+                entry,
+                inst.AgentId,
+                inst.ProviderName,
+                isWorker: true,
+                isCoordinator: false,
+                ct);
         }
         catch (Exception ex)
         {

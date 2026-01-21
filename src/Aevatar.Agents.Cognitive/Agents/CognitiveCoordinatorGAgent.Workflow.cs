@@ -52,10 +52,13 @@ public partial class CognitiveCoordinatorGAgent
 
         try
         {
-            await EmitSessionTraceAsync(
-                ExecutionTraceEventPhase.SessionStart,
-                ExecutionTraceEventStatus.Running,
-                error: null);
+            if (string.IsNullOrWhiteSpace(SessionId))
+            {
+                await EmitSessionTraceAsync(
+                    ExecutionTraceEventPhase.SessionStart,
+                    ExecutionTraceEventStatus.Running,
+                    error: null);
+            }
 
             // Get workflow definition
             var workflow = _workflowRegistry.Get(request.WorkflowName);

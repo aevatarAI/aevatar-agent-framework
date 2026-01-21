@@ -18,7 +18,7 @@ public class ExecutionTraceProgressHookTests
         {
             published.Add(evt);
             return Task.CompletedTask;
-        });
+        }, emitSessionLifecycle: true);
 
         var ctx = CreateContext();
         ctx.StopStatus = AevatarAgentHookStopStatus.Completed;

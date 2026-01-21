@@ -215,6 +215,18 @@ ASP.NET Core 配置支持 `__` 表示层级，例如：
 Vibe__DagConsensus__Mode=maker dotnet run --project src/VibeResearching.Api/VibeResearching.Api.csproj
 ```
 
+### 4.6) Cognitive Workflows（Session API）
+
+Session API 使用 Cognitive Workflow（YAML），与 Mesh（`mesh.json / default_mesh.yaml`）**不是同一概念**。
+
+- 目录：`src/VibeResearching.Api/workflows/`
+- 默认提供：
+  - `vibe_researching`（planner → reasoner → librarian → verifier → dag_builder → consensus → paper_editor）
+  - `maker`（DAG 共识使用）
+- 列表接口：`GET /api/workflows`
+
+如需覆盖/自定义，可以直接修改该目录下的 YAML。
+
 ### 5) 端口与环境变量
 
 - **后端端口**：默认 `5678`（仓库政策：禁止 `5000`）

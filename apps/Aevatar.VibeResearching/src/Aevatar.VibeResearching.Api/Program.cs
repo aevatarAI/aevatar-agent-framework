@@ -7,6 +7,7 @@ using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Runtime.Local;
 using Aevatar.Agents.AI.Tool.MCP.Configuration;
 using Aevatar.Agents.Cognitive.DependencyInjection;
+using Aevatar.Agents.Cognitive.Primitives;
 using Aevatar.Agents.Core.Secrets;
 using Aevatar.Agents.Knowledge.Graph;
 using Aevatar.Agents.Sessions;
@@ -183,14 +184,28 @@ else
 {
     builder.Services.AddAevatarAgentSystem(b => b.UseLocalRuntime());
 }
-builder.Services.AddCognitiveAgents();
-builder.Services.AddAevatarCognitiveSessions();
+// Cognitive workflows (session API + DAG consensus): load from project-local workflows directory.
+var workflowsDir = Path.Combine(builder.Environment.ContentRootPath, "workflows");
+builder.Services.AddCognitiveAgents(options =>
+{
+    options.WorkflowsDirectory = workflowsDir;
+    options.LoadBuiltInWorkflows = true;
+});
+// builder.Services.AddAevatarCognitiveSessions();
 
 // Default: enable both MEAI + LLMTornado providers (framework will composite-inject factories).
 builder.Services.AddAevatarLLMProviders();
 
 builder.Services.AddSingleton<ResearchRuntime>();
 builder.Services.AddSingleton<MaterialsService>();
+if (useMongo || useSqlite)
+{
+    builder.Services.AddSingleton<IVibeSessionStore, VibeSessionStore>();
+}
+else
+{
+    builder.Services.AddSingleton<IVibeSessionStore, FileVibeSessionStore>();
+}
 builder.Services.AddSingleton<ResearchSessionManager>();
 builder.Services.AddSingleton<SessionUiSnapshotStore>();
 builder.Services.AddSingleton<SessionUiTraceRecorder>();
@@ -222,7 +237,8 @@ builder.Services.AddSingleton<BriefStore>();
 // - 这里默认用 InMemory 图后端（开发/测试最快，无外部依赖）
 // - DagStore 会把图快照同步落盘到 artifacts/dag/snapshot.json，保证可审阅/可恢复
 // ==========================================
-builder.Services.AddAevatarGraphNeo4j();
+// builder.Services.AddAevatarGraphNeo4j();
+builder.Services.AddAevatarGraphInMemory();
 builder.Services.AddKnowledgeGraph();
 
 // Vibe: DAG/Graph store (SSoT: KnowledgeGraph + file snapshot mirror)
@@ -290,7 +306,18 @@ catch
 }
 
 app.MapGet("/health", () => Results.Text("ok"));
-app.MapAevatarSessionApi();
+// NOTE: Cognitive Session API registers /api/sessions (conflicts with current Vibe API).
+// Enable only when we switch the frontend to the protobuf contract.
+// app.MapAevatarSessionApi();
+
+// Workflow list for current frontend (JSON list of names).
+app.MapGet("/api/workflows", (IWorkflowRegistry workflows) =>
+{
+    var list = workflows.List()
+        .OrderBy(x => x, StringComparer.Ordinal)
+        .ToList();
+    return Results.Json(list);
+});
 
 // Manual sync (no restart)
 app.MapPost("/api/skills/sync", async (SkillPacksSyncService sync, CancellationToken ct) =>

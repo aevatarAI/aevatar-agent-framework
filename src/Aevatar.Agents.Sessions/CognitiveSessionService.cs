@@ -1,5 +1,6 @@
 using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions.Extensions;
 using Aevatar.Agents.Abstractions.Helpers;
 using Aevatar.Agents.Abstractions.Memory;
 using Aevatar.Agents.Abstractions.Tracing;
@@ -12,6 +13,7 @@ using Aevatar.Agents.Cognitive.Utilities;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using WorkflowDefinition = Aevatar.Agents.Cognitive.Primitives.WorkflowDefinition;
 
 namespace Aevatar.Agents.Sessions;
 
@@ -122,6 +124,7 @@ public sealed class CognitiveSessionService
 
         await coordinatorActor.PublishEventAsync(startEvent, EventDirection.Down, ct);
 
+        var executionId = await ResolveExecutionIdWithRetryAsync(coordinatorActor.Id, ct);
         var now = Timestamp.FromDateTime(DateTime.UtcNow);
         var state = new SessionState
         {
@@ -130,7 +133,7 @@ public sealed class CognitiveSessionService
             ProviderName = providerName,
             WorkerCount = workerCount,
             CoordinatorId = coordinatorActor.Id,
-            ExecutionId = string.Empty,
+            ExecutionId = string.IsNullOrWhiteSpace(executionId) ? string.Empty : executionId,
             Status = ExecutionStatus.EsPending,
             CreatedAt = now,
             UpdatedAt = now
@@ -146,6 +149,7 @@ public sealed class CognitiveSessionService
             await AppendSessionIndexEntryAsync(state, ct);
         }
 
+        await EmitSessionStartTraceAsync(state, executionId, ct);
         return state;
     }
 
@@ -452,6 +456,67 @@ public sealed class CognitiveSessionService
         catch
         {
             return string.Empty;
+        }
+    }
+
+    private async Task<string> ResolveExecutionIdWithRetryAsync(string coordinatorId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(coordinatorId))
+            return string.Empty;
+
+        const int maxAttempts = 10;
+        const int delayMs = 50;
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var executionId = await TryResolveExecutionIdAsync(coordinatorId, ct);
+            if (!string.IsNullOrWhiteSpace(executionId))
+                return executionId;
+
+            if (attempt < maxAttempts - 1)
+                await Task.Delay(delayMs, ct);
+        }
+
+        _logger.LogDebug("ExecutionId not ready for coordinator {CoordinatorId}", coordinatorId);
+        return string.Empty;
+    }
+
+    private async Task EmitSessionStartTraceAsync(
+        SessionState state,
+        string? executionId,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(state.SessionId) || string.IsNullOrWhiteSpace(state.CoordinatorId))
+            return;
+
+        var evt = SessionTraceEventFactory.CreateSessionStart(
+            sessionId: state.SessionId,
+            executionId: string.IsNullOrWhiteSpace(executionId) ? null : executionId,
+            agentId: state.CoordinatorId,
+            workflowName: state.WorkflowName);
+
+        await PublishSessionTraceAsync(state.CoordinatorId, evt, ct);
+    }
+
+    private async Task PublishSessionTraceAsync(
+        string coordinatorId,
+        ExecutionTraceEvent evt,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(coordinatorId))
+            return;
+
+        var actor = await _actorManager.GetActorAsync(coordinatorId);
+        if (actor == null)
+            return;
+
+        try
+        {
+            await actor.PublishEventAsync(evt, EventDirection.Down, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to publish session trace for {CoordinatorId}", coordinatorId);
         }
     }
 

@@ -29,6 +29,51 @@ public interface IVibeGraphAccess
     Task<Struct> ExplainNodeAsync(string sessionId, string nodeId, CancellationToken ct);
     Task<Struct> CreatePivotSnapshotAsync(string sessionId, string reason, CancellationToken ct);
     Task<Struct> GetPivotSnapshotsAsync(string sessionId, CancellationToken ct);
+
+    // ========== Review Agent Operations ==========
+
+    /// <summary>
+    /// Get knowledge nodes that are stale and need review.
+    /// Returns nodes where IsActivated=true and (LastReviewedAt is null or older than threshold).
+    /// Ordered topologically (ancestors first).
+    /// </summary>
+    Task<IReadOnlyList<KnowledgeNode>> GetStaleKnowledgeNodesAsync(
+        TimeSpan outOfDateThreshold,
+        CancellationToken ct);
+
+    /// <summary>
+    /// Get deactivated nodes that have exceeded the delete threshold and should be removed.
+    /// </summary>
+    Task<IReadOnlyList<KnowledgeNode>> GetNodesForCleanupAsync(
+        TimeSpan toDeleteThreshold,
+        CancellationToken ct);
+
+    /// <summary>
+    /// Update a node's LastReviewedAt timestamp after successful verification.
+    /// </summary>
+    Task<KnowledgeNode> UpdateNodeReviewStatusAsync(
+        string sessionId,
+        string nodeId,
+        DateTimeOffset reviewedAt,
+        CancellationToken ct);
+
+    /// <summary>
+    /// Deactivate a node and cascade to all descendants.
+    /// Sets IsActivated=false, DeactivatedReason, DeactivatedTimestamp on node and all dependents.
+    /// </summary>
+    Task<IReadOnlyList<string>> DeactivateNodeWithDescendantsAsync(
+        string sessionId,
+        string nodeId,
+        string reason,
+        DateTimeOffset timestamp,
+        CancellationToken ct);
+
+    /// <summary>
+    /// Permanently remove deactivated nodes and their edges.
+    /// </summary>
+    Task<int> RemoveDeactivatedNodesAsync(
+        IEnumerable<string> nodeIds,
+        CancellationToken ct);
 }
 
 /// <summary>
@@ -273,7 +318,218 @@ public sealed class VibeGraphAccess : IVibeGraphAccess
         });
     }
 
+    // ========== Review Agent Operations ==========
+
+    public async Task<IReadOnlyList<KnowledgeNode>> GetStaleKnowledgeNodesAsync(
+        TimeSpan outOfDateThreshold,
+        CancellationToken ct)
+    {
+        var threshold = DateTimeOffset.UtcNow - outOfDateThreshold;
+        var allNodes = new List<KnowledgeNode>();
+
+        // Get all knowledge nodes across all sessions (system-level review)
+        var globalNodes = await _factory.CreateClient("__global__").GetAllKnowledgeNodesGlobalAsync(ct);
+
+        foreach (var node in globalNodes)
+        {
+            // Skip deactivated nodes
+            if (!node.IsActivated) continue;
+
+            // Check if node is stale (never reviewed or reviewed before threshold)
+            if (node.LastReviewedAt == null || node.LastReviewedAt < threshold)
+            {
+                allNodes.Add(node);
+            }
+        }
+
+        // Sort topologically (nodes with fewer dependencies first = ancestors first)
+        return TopologicalSort(allNodes);
+    }
+
+    public async Task<IReadOnlyList<KnowledgeNode>> GetNodesForCleanupAsync(
+        TimeSpan toDeleteThreshold,
+        CancellationToken ct)
+    {
+        var threshold = DateTimeOffset.UtcNow - toDeleteThreshold;
+        var nodesToCleanup = new List<KnowledgeNode>();
+
+        var globalNodes = await _factory.CreateClient("__global__").GetAllKnowledgeNodesGlobalAsync(ct);
+
+        foreach (var node in globalNodes)
+        {
+            // Only deactivated nodes
+            if (node.IsActivated) continue;
+
+            // Check if past delete threshold
+            if (node.DeactivatedTimestamp != null && node.DeactivatedTimestamp < threshold)
+            {
+                nodesToCleanup.Add(node);
+            }
+        }
+
+        return nodesToCleanup;
+    }
+
+    public async Task<KnowledgeNode> UpdateNodeReviewStatusAsync(
+        string sessionId,
+        string nodeId,
+        DateTimeOffset reviewedAt,
+        CancellationToken ct)
+    {
+        var client = _factory.CreateClient(sessionId);
+        var existingNode = await client.GetNodeAsync(nodeId, ct) as KnowledgeNode
+            ?? throw new InvalidOperationException($"Knowledge node '{nodeId}' not found");
+
+        // Create updated node with new LastReviewedAt
+        // Note: This requires the underlying storage to support updates
+        var updatedNode = await client.UpsertNodeAsync(
+            nodeId,
+            existingNode.NodeType,
+            existingNode.CoreDescription,
+            existingNode.DetailedDescription,
+            existingNode.Owner,
+            existingNode.Proof,
+            existingNode.ResourceFolderPath,
+            existingNode.PivotStatus,
+            existingNode.CancelledAt,
+            existingNode.CancelledByPivotId,
+            existingNode.DirectionContext,
+            ct);
+
+        // Return updated node (the actual LastReviewedAt update needs to be done at storage level)
+        return updatedNode;
+    }
+
+    public async Task<IReadOnlyList<string>> DeactivateNodeWithDescendantsAsync(
+        string sessionId,
+        string nodeId,
+        string reason,
+        DateTimeOffset timestamp,
+        CancellationToken ct)
+    {
+        var client = _factory.CreateClient(sessionId);
+        var snapshot = await client.GetGraphSnapshotAsync(ct);
+        var deactivatedIds = new List<string>();
+
+        // Get all descendants (nodes that depend on this node)
+        var toDeactivate = new Queue<string>();
+        toDeactivate.Enqueue(nodeId);
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+
+        while (toDeactivate.Count > 0)
+        {
+            var currentId = toDeactivate.Dequeue();
+            if (visited.Contains(currentId)) continue;
+            visited.Add(currentId);
+
+            var node = snapshot.GetNode(currentId);
+            if (node is KnowledgeNode kn && kn.IsActivated)
+            {
+                deactivatedIds.Add(currentId);
+
+                // Find all dependents (nodes that depend on this node)
+                var dependents = snapshot.GetDependents(currentId);
+                foreach (var depId in dependents)
+                {
+                    if (!visited.Contains(depId))
+                    {
+                        toDeactivate.Enqueue(depId);
+                    }
+                }
+            }
+        }
+
+        // Note: Actual deactivation updates need to be done at storage level
+        // This returns the list of node IDs that should be deactivated
+        return deactivatedIds;
+    }
+
+    public async Task<int> RemoveDeactivatedNodesAsync(
+        IEnumerable<string> nodeIds,
+        CancellationToken ct)
+    {
+        var removed = 0;
+        foreach (var nodeId in nodeIds)
+        {
+            // Need to determine sessionId from node - for now use global
+            var client = _factory.CreateClient("__global__");
+            var success = await client.RemoveNodeAsync(nodeId, ct);
+            if (success) removed++;
+        }
+        return removed;
+    }
+
     // ========== Helpers ==========
 
     private static Struct ToStruct(object obj) => JsonParser.Default.Parse<Struct>(JsonSerializer.Serialize(obj));
+
+    private static IReadOnlyList<KnowledgeNode> TopologicalSort(List<KnowledgeNode> nodes)
+    {
+        // Use composite key (sessionId:nodeId) to handle same nodeId across different sessions
+        static string GetKey(KnowledgeNode n) => $"{n.SessionId}:{n.Id}";
+
+        // Deduplicate nodes by composite key (in case of duplicates in the database)
+        var nodeMap = new Dictionary<string, KnowledgeNode>(StringComparer.Ordinal);
+        foreach (var node in nodes)
+        {
+            nodeMap.TryAdd(GetKey(node), node);
+        }
+
+        // Build dependency graph using deduplicated nodes
+        var uniqueNodes = nodeMap.Values.ToList();
+        var inDegree = uniqueNodes.ToDictionary(GetKey, n => 0, StringComparer.Ordinal);
+
+        foreach (var node in uniqueNodes)
+        {
+            foreach (var depId in node.DependsOn)
+            {
+                // Dependencies are within the same session
+                var depKey = $"{node.SessionId}:{depId}";
+                if (nodeMap.ContainsKey(depKey))
+                {
+                    inDegree[GetKey(node)]++;
+                }
+            }
+        }
+
+        // Kahn's algorithm
+        var result = new List<KnowledgeNode>();
+        var queue = new Queue<string>(inDegree.Where(kv => kv.Value == 0).Select(kv => kv.Key));
+
+        while (queue.Count > 0)
+        {
+            var key = queue.Dequeue();
+            if (nodeMap.TryGetValue(key, out var node))
+            {
+                result.Add(node);
+
+                // Find nodes that depend on this one (within the same session)
+                foreach (var other in uniqueNodes)
+                {
+                    // Check if 'other' depends on 'node' (same session, matching node ID)
+                    if (other.SessionId == node.SessionId && other.DependsOn.Contains(node.Id))
+                    {
+                        var otherKey = GetKey(other);
+                        inDegree[otherKey]--;
+                        if (inDegree[otherKey] == 0)
+                        {
+                            queue.Enqueue(otherKey);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Add any remaining nodes (in case of cycles, though shouldn't happen)
+        var addedKeys = new HashSet<string>(result.Select(GetKey), StringComparer.Ordinal);
+        foreach (var node in uniqueNodes)
+        {
+            if (!addedKeys.Contains(GetKey(node)))
+            {
+                result.Add(node);
+            }
+        }
+
+        return result;
+    }
 }

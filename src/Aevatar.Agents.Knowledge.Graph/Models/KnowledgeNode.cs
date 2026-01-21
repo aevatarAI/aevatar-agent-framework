@@ -91,6 +91,34 @@ public sealed class KnowledgeNode : IGraphNode
     /// </summary>
     public string? DirectionContext { get; init; }
 
+    // ========== Review Agent fields ==========
+
+    /// <summary>
+    /// When this node was last reviewed by the Review Agent.
+    /// Null for nodes that have never been reviewed.
+    /// New nodes should set this to CreatedAt.
+    /// </summary>
+    public DateTimeOffset? LastReviewedAt { get; init; }
+
+    /// <summary>
+    /// Whether this node is currently activated (valid).
+    /// False = deactivated due to failed verification.
+    /// Default: true for all new nodes.
+    /// </summary>
+    public bool IsActivated { get; init; } = true;
+
+    /// <summary>
+    /// Reason why verification failed (null if node is activated).
+    /// Set by Review Agent when verification fails.
+    /// </summary>
+    public string? DeactivatedReason { get; init; }
+
+    /// <summary>
+    /// When this node was deactivated (null if node is activated).
+    /// Used to determine when node should be permanently deleted.
+    /// </summary>
+    public DateTimeOffset? DeactivatedTimestamp { get; init; }
+
     // ========== IGraphNode.Explain() implementation ==========
 
     /// <inheritdoc />

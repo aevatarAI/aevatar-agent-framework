@@ -121,7 +121,10 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
             ResourceUri = resourceUri,
             CreatedAt = now,
             UpdatedAt = now,
-            DependsOn = dependsOnList
+            DependsOn = dependsOnList,
+            // Review Agent: set LastReviewedAt = CreatedAt so new nodes aren't immediately stale
+            LastReviewedAt = now,
+            IsActivated = true
         };
 
         await _store.AddKnowledgeNodeAsync(node, cancellationToken);
@@ -206,7 +209,10 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
                 PivotStatus = pivotStatus ?? PivotNodeStatus.Active,
                 CancelledAt = cancelledAt,
                 CancelledByPivotId = cancelledByIn,
-                DirectionContext = directionIn
+                DirectionContext = directionIn,
+                // Review Agent: set LastReviewedAt = CreatedAt so new nodes aren't immediately stale
+                LastReviewedAt = now,
+                IsActivated = true
             };
 
             await _store.AddKnowledgeNodeAsync(created, cancellationToken);
@@ -253,7 +259,12 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
             PivotStatus = mergedPivotStatus,
             CancelledAt = mergedCancelledAt,
             CancelledByPivotId = mergedCancelledByPivotId,
-            DirectionContext = mergedDirectionContext
+            DirectionContext = mergedDirectionContext,
+            // Preserve Review Agent fields from existing node
+            LastReviewedAt = existing.LastReviewedAt,
+            IsActivated = existing.IsActivated,
+            DeactivatedReason = existing.DeactivatedReason,
+            DeactivatedTimestamp = existing.DeactivatedTimestamp
         };
 
         await _store.AddKnowledgeNodeAsync(updated, cancellationToken);
@@ -371,7 +382,12 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
                 PivotStatus = knowledgeNode.PivotStatus,
                 CancelledAt = knowledgeNode.CancelledAt,
                 CancelledByPivotId = knowledgeNode.CancelledByPivotId,
-                DirectionContext = knowledgeNode.DirectionContext
+                DirectionContext = knowledgeNode.DirectionContext,
+                // Preserve Review Agent fields
+                LastReviewedAt = knowledgeNode.LastReviewedAt,
+                IsActivated = knowledgeNode.IsActivated,
+                DeactivatedReason = knowledgeNode.DeactivatedReason,
+                DeactivatedTimestamp = knowledgeNode.DeactivatedTimestamp
             };
             await _store.AddKnowledgeNodeAsync(updatedKnowledge, cancellationToken);
         }
@@ -1083,7 +1099,10 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
             Proof = proof,
             CreatedAt = now,
             UpdatedAt = now,
-            DependsOn = dependsOnList
+            DependsOn = dependsOnList,
+            // Review Agent: set LastReviewedAt = CreatedAt so new nodes aren't immediately stale
+            LastReviewedAt = now,
+            IsActivated = true
         };
 
         await _store.AddKnowledgeNodeAsync(node, cancellationToken);

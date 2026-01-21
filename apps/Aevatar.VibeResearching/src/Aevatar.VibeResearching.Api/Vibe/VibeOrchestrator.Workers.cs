@@ -13,6 +13,7 @@ using VibeResearching.Api.Vibe.Dag;
 using VibeResearching.Api.Vibe.Trace;
 using VibeResearching.Api.Workspace;
 using VibeResearching.Contracts.Collab;
+using VibeResearching.Vibe;
 
 namespace VibeResearching.Api.Vibe;
 
@@ -119,7 +120,7 @@ internal sealed partial class VibeOrchestrator
     //  Workers
     // ============================================================
 
-    private async Task<string> RunPlannerAsync(
+    private async Task<(string Output, AgentPromptRecord? PromptRecord)> RunPlannerAsync(
         VibeRoundContext ctx,
         SraDagSnapshot dag,
         string? providerName,
@@ -131,12 +132,15 @@ internal sealed partial class VibeOrchestrator
         var messageId = $"msg:{session.Id}:planner:{ctx.RunId}";
         StartAgentMessage(session, messageId, agent: "planner", stepName: "vibe.planner", providerName: providerName);
 
+        var userMessage = BuildWorkerMessage("planner", ctx.Question, dag, attachments: ctx.Input.AttachmentPaths);
+        var systemPrompt = VibePlannerAgent.GetSystemPrompt();
+
         try
         {
             var (planner, plannerId) = await _core.Runtime.GetPlannerAgentAsync(session.Id, providerName, ct);
             var req = new ChatRequest
             {
-                Message = BuildWorkerMessage("planner", ctx.Question, dag, attachments: ctx.Input.AttachmentPaths),
+                Message = userMessage,
                 RequestId = ctx.Input.RequestId ?? Guid.NewGuid().ToString("N"),
                 StageHint = "session:vibe:planner"
             };
@@ -153,7 +157,17 @@ internal sealed partial class VibeOrchestrator
 
             EmitAgentDelta(session, messageId, "assistant", "\n\n");
             session.Events.Publish(new StepFinishedEvent { Timestamp = NowMs(), StepName = "vibe.planner" });
-            return Bound(sb.ToString(), 20_000);
+            
+            var output = Bound(sb.ToString(), 20_000);
+            var promptRecord = new AgentPromptRecord(
+                AgentName: "planner",
+                SystemPrompt: systemPrompt,
+                UserPrompt: userMessage,
+                MaterialsContext: ctx.Materials.RenderedContext,
+                RawOutput: output,
+                Timestamp: DateTimeOffset.UtcNow
+            );
+            return (output, promptRecord);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -164,7 +178,16 @@ internal sealed partial class VibeOrchestrator
             var msg = $"[planner error] {ex.Message}\n\n";
             EmitAgentDelta(session, messageId, "assistant", msg);
             session.Events.Publish(new StepFinishedEvent { Timestamp = NowMs(), StepName = "vibe.planner" });
-            return msg;
+            
+            var promptRecord = new AgentPromptRecord(
+                AgentName: "planner",
+                SystemPrompt: systemPrompt,
+                UserPrompt: userMessage,
+                MaterialsContext: ctx.Materials.RenderedContext,
+                RawOutput: msg,
+                Timestamp: DateTimeOffset.UtcNow
+            );
+            return (msg, promptRecord);
         }
         finally
         {
@@ -172,7 +195,7 @@ internal sealed partial class VibeOrchestrator
         }
     }
 
-    private async Task<string> RunReasonerAsync(
+    private async Task<(string Output, AgentPromptRecord? PromptRecord)> RunReasonerAsync(
         VibeRoundContext ctx,
         SraDagSnapshot dag,
         string? plannerOutput,
@@ -185,6 +208,10 @@ internal sealed partial class VibeOrchestrator
         var messageId = $"msg:{session.Id}:reasoner:{ctx.RunId}";
         StartAgentMessage(session, messageId, agent: "reasoner", stepName: "vibe.reasoner", providerName: providerName);
 
+        var userMessage = BuildWorkerMessage("reasoner", ctx.Question, dag, attachments: ctx.Input.AttachmentPaths,
+            extra: string.IsNullOrWhiteSpace(plannerOutput) ? null : $"Planner output (excerpt):\n{Bound(plannerOutput!, 3000)}");
+        var systemPrompt = VibeReasonerAgent.GetSystemPrompt();
+
         try
         {
             var (reasoner, reasonerId) = await _core.Runtime.GetReasonerAgentAsync(session.Id, providerName, ct);
@@ -194,8 +221,7 @@ internal sealed partial class VibeOrchestrator
 
             var req = new ChatRequest
             {
-                Message = BuildWorkerMessage("reasoner", ctx.Question, dag, attachments: ctx.Input.AttachmentPaths,
-                    extra: string.IsNullOrWhiteSpace(plannerOutput) ? null : $"Planner output (excerpt):\n{Bound(plannerOutput!, 3000)}"),
+                Message = userMessage,
                 RequestId = ctx.Input.RequestId ?? Guid.NewGuid().ToString("N"),
                 StageHint = "session:vibe:reasoner"
             };
@@ -223,7 +249,17 @@ internal sealed partial class VibeOrchestrator
 
             EmitAgentDelta(session, messageId, "assistant", "\n\n");
             session.Events.Publish(new StepFinishedEvent { Timestamp = NowMs(), StepName = "vibe.reasoner" });
-            return Bound(sb.ToString(), 40_000);
+            
+            var output = Bound(sb.ToString(), 40_000);
+            var promptRecord = new AgentPromptRecord(
+                AgentName: "reasoner",
+                SystemPrompt: systemPrompt,
+                UserPrompt: userMessage,
+                MaterialsContext: ctx.Materials.RenderedContext,
+                RawOutput: output,
+                Timestamp: DateTimeOffset.UtcNow
+            );
+            return (output, promptRecord);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -234,7 +270,16 @@ internal sealed partial class VibeOrchestrator
             var msg = $"[reasoner error] {ex.Message}\n\n";
             EmitAgentDelta(session, messageId, "assistant", msg);
             session.Events.Publish(new StepFinishedEvent { Timestamp = NowMs(), StepName = "vibe.reasoner" });
-            return msg;
+            
+            var promptRecord = new AgentPromptRecord(
+                AgentName: "reasoner",
+                SystemPrompt: systemPrompt,
+                UserPrompt: userMessage,
+                MaterialsContext: ctx.Materials.RenderedContext,
+                RawOutput: msg,
+                Timestamp: DateTimeOffset.UtcNow
+            );
+            return (msg, promptRecord);
         }
         finally
         {
@@ -242,7 +287,7 @@ internal sealed partial class VibeOrchestrator
         }
     }
 
-    private async Task<string> RunLibrarianAsync(
+    private async Task<(string Output, AgentPromptRecord? PromptRecord)> RunLibrarianAsync(
         VibeRoundContext ctx,
         SraDagSnapshot dag,
         string? providerName,
@@ -254,12 +299,15 @@ internal sealed partial class VibeOrchestrator
         var messageId = $"msg:{session.Id}:librarian:{ctx.RunId}";
         StartAgentMessage(session, messageId, agent: "librarian", stepName: "vibe.librarian", providerName: providerName);
 
+        var userMessage = BuildWorkerMessage("librarian", ctx.Question, dag, attachments: ctx.Input.AttachmentPaths);
+        var systemPrompt = VibeLibrarianAgent.GetSystemPrompt();
+
         try
         {
             var (lib, libId) = await _core.Runtime.GetLibrarianAgentAsync(session.Id, providerName, ct);
             var req = new ChatRequest
             {
-                Message = BuildWorkerMessage("librarian", ctx.Question, dag, attachments: ctx.Input.AttachmentPaths),
+                Message = userMessage,
                 RequestId = ctx.Input.RequestId ?? Guid.NewGuid().ToString("N"),
                 StageHint = "session:vibe:librarian"
             };
@@ -287,7 +335,17 @@ internal sealed partial class VibeOrchestrator
             EmitAgentDelta(session, messageId, "assistant", "\n\n");
 
             session.Events.Publish(new StepFinishedEvent { Timestamp = NowMs(), StepName = "vibe.librarian" });
-            return Bound(sb.ToString(), 20_000);
+            
+            var output = Bound(sb.ToString(), 20_000);
+            var promptRecord = new AgentPromptRecord(
+                AgentName: "librarian",
+                SystemPrompt: systemPrompt,
+                UserPrompt: userMessage,
+                MaterialsContext: ctx.Materials.RenderedContext,
+                RawOutput: output,
+                Timestamp: DateTimeOffset.UtcNow
+            );
+            return (output, promptRecord);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -298,7 +356,16 @@ internal sealed partial class VibeOrchestrator
             var msg = $"[librarian error] {ex.Message}\n\n";
             EmitAgentDelta(session, messageId, "assistant", msg);
             session.Events.Publish(new StepFinishedEvent { Timestamp = NowMs(), StepName = "vibe.librarian" });
-            return msg;
+            
+            var promptRecord = new AgentPromptRecord(
+                AgentName: "librarian",
+                SystemPrompt: systemPrompt,
+                UserPrompt: userMessage,
+                MaterialsContext: ctx.Materials.RenderedContext,
+                RawOutput: msg,
+                Timestamp: DateTimeOffset.UtcNow
+            );
+            return (msg, promptRecord);
         }
         finally
         {

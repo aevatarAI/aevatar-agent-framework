@@ -24,7 +24,9 @@ public sealed record VerificationWorkerResult(
     string WorkerId,
     bool Accept,
     string Reason,
-    string RawOutput
+    string RawOutput,
+    string? SystemPrompt = null,
+    string? UserPrompt = null
 );
 
 /// <summary>

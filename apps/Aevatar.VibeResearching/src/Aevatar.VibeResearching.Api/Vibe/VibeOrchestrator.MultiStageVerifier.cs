@@ -180,6 +180,24 @@ internal sealed partial class VibeOrchestrator
                     sb.AppendLine($"**Reason**: {r.Reason}");
                     sb.AppendLine();
                     sb.AppendLine("<details>");
+                    sb.AppendLine("<summary>System Prompt</summary>");
+                    sb.AppendLine();
+                    sb.AppendLine("```");
+                    sb.AppendLine(r.SystemPrompt ?? "(not captured)");
+                    sb.AppendLine("```");
+                    sb.AppendLine();
+                    sb.AppendLine("</details>");
+                    sb.AppendLine();
+                    sb.AppendLine("<details>");
+                    sb.AppendLine("<summary>User Prompt</summary>");
+                    sb.AppendLine();
+                    sb.AppendLine("```");
+                    sb.AppendLine(r.UserPrompt ?? "(not captured)");
+                    sb.AppendLine("```");
+                    sb.AppendLine();
+                    sb.AppendLine("</details>");
+                    sb.AppendLine();
+                    sb.AppendLine("<details>");
                     sb.AppendLine("<summary>Raw Output</summary>");
                     sb.AppendLine();
                     sb.AppendLine("```");
@@ -213,6 +231,24 @@ internal sealed partial class VibeOrchestrator
                     sb.AppendLine($"**Accept**: {r.Accept}");
                     sb.AppendLine();
                     sb.AppendLine($"**Reason**: {r.Reason}");
+                    sb.AppendLine();
+                    sb.AppendLine("<details>");
+                    sb.AppendLine("<summary>System Prompt</summary>");
+                    sb.AppendLine();
+                    sb.AppendLine("```");
+                    sb.AppendLine(r.SystemPrompt ?? "(not captured)");
+                    sb.AppendLine("```");
+                    sb.AppendLine();
+                    sb.AppendLine("</details>");
+                    sb.AppendLine();
+                    sb.AppendLine("<details>");
+                    sb.AppendLine("<summary>User Prompt</summary>");
+                    sb.AppendLine();
+                    sb.AppendLine("```");
+                    sb.AppendLine(r.UserPrompt ?? "(not captured)");
+                    sb.AppendLine("```");
+                    sb.AppendLine();
+                    sb.AppendLine("</details>");
                     sb.AppendLine();
                     sb.AppendLine("<details>");
                     sb.AppendLine("<summary>Raw Output</summary>");
@@ -267,6 +303,8 @@ internal sealed partial class VibeOrchestrator
                         workerId = r.WorkerId,
                         accept = r.Accept,
                         reason = r.Reason,
+                        systemPrompt = r.SystemPrompt,
+                        userPrompt = r.UserPrompt,
                         rawOutput = r.RawOutput
                     }).ToList()
                 } : null,
@@ -280,6 +318,8 @@ internal sealed partial class VibeOrchestrator
                         workerId = r.WorkerId,
                         accept = r.Accept,
                         reason = r.Reason,
+                        systemPrompt = r.SystemPrompt,
+                        userPrompt = r.UserPrompt,
                         rawOutput = r.RawOutput
                     }).ToList()
                 } : null
@@ -392,7 +432,9 @@ internal sealed partial class VibeOrchestrator
                 WorkerId: worker.Id,
                 Accept: accept,
                 Reason: reason,
-                RawOutput: Bound(rawOutput, 5000)
+                RawOutput: Bound(rawOutput, 5000),
+                SystemPrompt: workerSystemPrompt,
+                UserPrompt: userMessage
             );
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -404,11 +446,17 @@ internal sealed partial class VibeOrchestrator
             var msg = $"[{worker.Id} error] {ex.Message}";
             EmitAgentDelta(session, messageId, "assistant", msg + "\n\n");
 
+            // Build prompts for error case too
+            var errorSystemPrompt = VibeVerifierAgent.BuildWorkerSystemPrompt(worker.Id, worker.Role, worker.Angle);
+            var errorUserPrompt = BuildVerificationWorkerMessage(worker, ctx.Question, dag, reasonerOutput, ctx.Input.AttachmentPaths);
+
             return new VerificationWorkerResult(
                 WorkerId: worker.Id,
                 Accept: false,
                 Reason: $"Error: {ex.Message}",
-                RawOutput: msg
+                RawOutput: msg,
+                SystemPrompt: errorSystemPrompt,
+                UserPrompt: errorUserPrompt
             );
         }
         finally

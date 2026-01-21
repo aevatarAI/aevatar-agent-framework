@@ -5,6 +5,17 @@ using Microsoft.Extensions.Logging;
 namespace Aevatar.Agents.AI.Tool.Tools;
 
 /// <summary>
+/// Result returned when a field is not found
+/// </summary>
+public sealed record FieldNotFoundResult(string FieldName, string TypeName)
+{
+    public override string ToString() => 
+        $"Field '{FieldName}' not found in type '{TypeName}'. " +
+        $"This field does not exist on the agent state. " +
+        $"If you need DAG facts, they are provided in the Materials context section of the system prompt.";
+}
+
+/// <summary>
 /// Field navigator
 /// Provides reflection and JSON Path navigation functionality
 /// </summary>
@@ -60,6 +71,8 @@ public static class FieldNavigator
             {
                 logger?.LogWarning("Field {FieldName} not found in type {TypeName}",
                     fieldName, type.Name);
+                // Return a helpful error message instead of null
+                return new FieldNotFoundResult(fieldName, type.Name);
             }
 
             return fieldValue;

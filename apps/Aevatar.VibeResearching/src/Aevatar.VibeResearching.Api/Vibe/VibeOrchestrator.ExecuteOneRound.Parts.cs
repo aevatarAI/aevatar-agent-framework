@@ -511,10 +511,21 @@ internal sealed partial class VibeOrchestrator
                           new() { Agent = "dag_builder", Task = "Propose a DAG mutation candidate in strict JSON" }
                       };
 
+        // Ensure verifier is always included (even if LLM didn't include it in the plan)
+        var hasVerifier = workers.Any(w => 
+            (w.Agent ?? string.Empty).Trim().Equals("verifier", StringComparison.OrdinalIgnoreCase));
+        if (!hasVerifier)
+        {
+            workers.Add(new PlanWorker { Agent = "verifier", Task = "Verify reasoning correctness and identify gaps" });
+        }
+
         // Deterministic ordering (helps librarian->dag_builder handoff).
         workers = workers
             .OrderBy(w => WorkerOrder((w.Agent ?? string.Empty).Trim().ToLowerInvariant()))
             .ToList();
+
+        // Collect prompt records for logging
+        var promptRecords = new Dictionary<string, AgentPromptRecord>();
 
         // Run workers (best-effort; keep outputs bounded).
         foreach (var w in workers)
@@ -538,11 +549,13 @@ internal sealed partial class VibeOrchestrator
                         resolveProvider: () => resolveProvider("planner"),
                         emitAssistantDelta: ctx.EmitAssistantDelta,
                         ct: ct);
-                    outputs[agent] = await RunPlannerAsync(
+                    var (plannerOutput, plannerPrompt) = await RunPlannerAsync(
                         ctx,
                         getDagSnapshot(),
                         provider,
                         ct);
+                    outputs[agent] = plannerOutput;
+                    if (plannerPrompt != null) promptRecords[agent] = plannerPrompt;
                     break;
                 }
                 case "reasoner":
@@ -555,12 +568,14 @@ internal sealed partial class VibeOrchestrator
                         resolveProvider: () => resolveProvider("reasoner"),
                         emitAssistantDelta: ctx.EmitAssistantDelta,
                         ct: ct);
-                    outputs[agent] = await RunReasonerAsync(
+                    var (reasonerOutput, reasonerPrompt) = await RunReasonerAsync(
                         ctx,
                         getDagSnapshot(),
                         outputs.TryGetValue("planner", out var p) ? p : null,
                         provider,
                         ct);
+                    outputs[agent] = reasonerOutput;
+                    if (reasonerPrompt != null) promptRecords[agent] = reasonerPrompt;
                     break;
                 }
                 case "librarian":
@@ -573,11 +588,13 @@ internal sealed partial class VibeOrchestrator
                         resolveProvider: () => resolveProvider("librarian"),
                         emitAssistantDelta: ctx.EmitAssistantDelta,
                         ct: ct);
-                    outputs[agent] = await RunLibrarianAsync(
+                    var (librarianOutput, librarianPrompt) = await RunLibrarianAsync(
                         ctx,
                         getDagSnapshot(),
                         provider,
                         ct);
+                    outputs[agent] = librarianOutput;
+                    if (librarianPrompt != null) promptRecords[agent] = librarianPrompt;
 
                     await ApplyLibrarianSideEffectsAsync(
                         ctx,
@@ -654,6 +671,27 @@ internal sealed partial class VibeOrchestrator
                     // Unknown agent name in plan: ignore (MVP).
                     break;
             }
+        }
+
+        // Save all collected prompts to file
+        if (promptRecords.Count > 0)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await SaveAgentPromptsToFileAsync(
+                        ctx.Session.Id,
+                        ctx.RunId,
+                        ctx.Question,
+                        promptRecords,
+                        CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[PromptLogger] Error saving prompts: {ex.Message}");
+                }
+            });
         }
     }
 

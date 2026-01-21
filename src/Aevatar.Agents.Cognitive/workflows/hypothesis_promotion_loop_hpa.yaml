@@ -533,8 +533,7 @@ steps:
                 6. Reasonable mathematical claims that are CONSISTENT with the axioms/facts, even if they require additional 
                    mathematical knowledge (e.g., theta series, mass formulas, combinatorial theorems) to prove rigorously.
                    The key is CONSISTENCY, not complete derivability from the given axioms alone.
-                7. Combinatorial counting formulas that are mathematically plausible given the structure defined in axioms
-                   (e.g., |OO_p| = 240(1+p^3) for E8 lattice elements, even if proving it requires theta series knowledge)
+                7. Combinatorial counting formulas that are mathematically plausible given the structure defined in axioms, even if proving it requires theta series knowledge
               
               * What constitutes gap δ (accept=false):
                 1. Explicit contradiction with axioms/facts
@@ -553,8 +552,6 @@ steps:
                 - If a hypothesis is CONSISTENT with the axioms/facts and represents a reasonable mathematical claim,
                   it should be accept=true, even if proving it rigorously would require additional mathematical knowledge
                   (theta series, mass formulas, combinatorial theorems, etc.).
-                - For example: |OO_p| = 240(1+p^3) is a reasonable claim about E8 lattice elements that is consistent
-                  with O6 and O7, even though proving it requires theta series knowledge. This should be accept=true.
                 - Only reject (accept=false) if the hypothesis CONTRADICTS the axioms/facts or is logically inconsistent.
           * When gap δ exists: put it in gap_or_counterexample and set accept=false.
         - Non-associativity signal: factor_sequence MUST reflect your actual reasoning order (path dependence matters).
@@ -580,13 +577,6 @@ steps:
         - strong_refutation=true ONLY if you can state an explicit fatal counterexample/contradiction
           derived from provided axioms/facts with NO extra assumptions. If it's merely "missing lemma" (and the lemma is CORRECT),
           set strong_refutation=false. Only put INCORRECT missing lemma/assumption in gap_or_counterexample as gap δ.
-        - For combinatorial counting formulas (e.g., |OO_p| = 240(1+p^3)): 
-          * If the formula is CONSISTENT with the given axioms/facts and represents a reasonable mathematical claim, accept=true.
-          * Even if the formula requires additional combinatorial theorems (theta series, mass formulas) to prove rigorously,
-            if it is consistent with the structure defined in axioms (e.g., E8 lattice in O6, norm-p shell in O7), accept=true.
-          * Only set accept=false if the formula CONTRADICTS the axioms/facts or is logically inconsistent.
-          * Example: |OO_p| = 240(1+p^3) is consistent with O6 (E8 lattice) and O7 (norm-p shell), so accept=true,
-            even though proving it requires theta series knowledge not in the axioms.
         - Do NOT invent IDs. depends_on must be a subset of available axiom/theorem/assumption IDs.
 
         Axioms:
@@ -769,7 +759,7 @@ steps:
             - If accept=false: provide minimal gap δ (only for INCORRECT missing lemma/assumption) or counterexample. Do NOT propose alternative hypotheses (leave proposed_b empty).
               Note: CORRECT missing lemma/assumption that can be derived from axioms/facts, is physically plausible or logically correct should NOT cause accept=false.
             - strong_refutation=true ONLY for an explicit fatal counterexample/contradiction with no extra assumptions.
-            - For combinatorial counting formulas (e.g., |OO_p| = 240(1+p^3)): 
+            - For combinatorial counting formulas: 
               * CRITICAL: If the formula is CONSISTENT with the given axioms/facts and represents a reasonable mathematical claim, 
                 you MUST set accept=true, even if proving it requires theta series or mass formulas.
               * Only set accept=false if the formula CONTRADICTS the axioms/facts or is logically inconsistent.
@@ -971,7 +961,7 @@ steps:
                 - If the MAKER solution shows that a formula is consistent with the axioms/facts and identifies the mathematical 
                   knowledge needed to prove it (e.g., theta series for E8 lattice), but the formula itself does not contradict 
                   the axioms, you should accept it as proved=true.
-                - For combinatorial counting formulas (e.g., |OO_p| = 240(1+p^3)):
+                - For combinatorial counting formulas:
                   * If the formula is CONSISTENT with the structure defined in axioms (e.g., E8 lattice in O6, norm-p shell in O7),
                     and the MAKER solution correctly identifies the connection to the lattice structure, accept as proved=true.
                   * Even if proving it rigorously requires theta series or mass formulas not in the axioms, if the formula is 

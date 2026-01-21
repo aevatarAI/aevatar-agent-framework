@@ -243,7 +243,17 @@ export function LandingDagViewer() {
       }
     })
 
+    // Auto fitView after simulation completes (initial load only)
+    // Delay allows React state to update and interaction manager to be ready
+    const fitTimer = setTimeout(() => {
+      if (interactionRef.current && !hasInitialFitRef.current) {
+        interactionRef.current.fitView(manager.nodes, canvasSize.width, canvasSize.height)
+        hasInitialFitRef.current = true
+      }
+    }, 100)
+
     return () => {
+      clearTimeout(fitTimer)
       manager.destroy()
     }
   }, [filteredNodes, filteredEdges, centerNodeId, canvasSize])
@@ -257,6 +267,10 @@ export function LandingDagViewer() {
       selectedNodeId: selectedNode?.id,
     })
     renderer.resize(canvasSize.width, canvasSize.height)
+    // Override renderer's fixed pixel CSS with responsive sizing
+    // This ensures canvas fills its container regardless of canvasSize values
+    canvas.style.width = '100%'
+    canvas.style.height = '100%'
     rendererRef.current = renderer
 
     const interaction = new InteractionManager(
@@ -297,18 +311,13 @@ export function LandingDagViewer() {
     rendererRef.current?.setConfig({ selectedNodeId: selectedNode?.id })
   }, [selectedNode])
 
-  // ─── Render loop ───
+  // ─── Render on change (not continuous loop) ───
   useEffect(() => {
-    const render = () => {
-      const renderer = rendererRef.current
-      if (renderer && layoutNodes.length > 0) {
-        renderer.setTransform(transform)
-        renderer.render(layoutNodes, layoutEdges)
-      }
-      animationRef.current = requestAnimationFrame(render)
+    const renderer = rendererRef.current
+    if (renderer && layoutNodes.length > 0) {
+      renderer.setTransform(transform)
+      renderer.render(layoutNodes, layoutEdges)
     }
-    render()
-    return () => cancelAnimationFrame(animationRef.current)
   }, [layoutNodes, layoutEdges, transform])
 
   // ─── Update interaction nodes ───
@@ -320,16 +329,22 @@ export function LandingDagViewer() {
   // ─── Resize handling ───
   useEffect(() => {
     const container = containerRef.current
-    if (!container) return
+    const canvas = canvasRef.current
+    if (!container || !canvas) return
 
-    // Initial size check
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null
+
+    // Update canvas size to match container
     const updateSize = () => {
       const rect = container.getBoundingClientRect()
-      const width = rect.width
-      const height = Math.max(400, rect.height)
+      const width = Math.floor(rect.width)
+      const height = Math.floor(Math.max(400, rect.height))
       if (width > 0 && height > 0) {
         setCanvasSize({ width, height })
         rendererRef.current?.resize(width, height)
+        // Force canvas to fill container by overriding renderer's inline styles
+        canvas.style.width = '100%'
+        canvas.style.height = '100%'
         if (!isCanvasReady) {
           setTransform({ x: width / 2, y: height / 2, scale: 1 })
           setIsCanvasReady(true)
@@ -337,27 +352,49 @@ export function LandingDagViewer() {
       }
     }
 
-    // Run initial size check
-    updateSize()
+    // Debounced resize handler
+    const handleResize = () => {
+      if (resizeTimer) clearTimeout(resizeTimer)
+      resizeTimer = setTimeout(updateSize, 100)
+    }
 
-    const resizeObserver = new ResizeObserver(() => {
+    // Initial size check
+    const initialTimer = requestAnimationFrame(() => {
       updateSize()
     })
 
+    const resizeObserver = new ResizeObserver(handleResize)
+
     resizeObserver.observe(container)
-    return () => resizeObserver.disconnect()
+    return () => {
+      cancelAnimationFrame(initialTimer)
+      if (resizeTimer) clearTimeout(resizeTimer)
+      resizeObserver.disconnect()
+    }
   }, [isCanvasReady])
 
   // ─── Auto-fit on load ───
+  // Track if initial fitView has been done
+  const hasInitialFitRef = useRef(false)
+  
   useEffect(() => {
-    if (layoutNodes.length > 0 && interactionRef.current && isCanvasReady && canvasSize.width > 0) {
-      // Delay to ensure canvas and layout are both ready
+    // Reset fit flag when nodes change significantly
+    if (layoutNodes.length === 0) {
+      hasInitialFitRef.current = false
+    }
+  }, [layoutNodes.length])
+  
+  useEffect(() => {
+    if (layoutNodes.length > 0 && interactionRef.current && isCanvasReady && canvasSize.width > 0 && !hasInitialFitRef.current) {
+      // Wait for force layout to stabilize (simulation runs ~300 iterations)
+      // Then fit view to show all nodes
       const timeoutId = setTimeout(() => {
         interactionRef.current?.fitView(layoutNodes, canvasSize.width, canvasSize.height)
-      }, 150)
+        hasInitialFitRef.current = true
+      }, 800)
       return () => clearTimeout(timeoutId)
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- fitView only on initial load, not on every layoutNodes change
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- fitView only on initial load
   }, [layoutNodes.length, isCanvasReady, canvasSize.width, canvasSize.height])
 
   // ─── Reset View ───
@@ -438,7 +475,16 @@ export function LandingDagViewer() {
 
     return (
       <div ref={containerRef} className="w-full h-full relative bg-[#0c0f14]">
-        <canvas ref={canvasRef} className="w-full h-full block" style={{ cursor: 'grab' }} />
+        {/* Use inline style with !important to override renderer's style.width/height */}
+        <canvas 
+          ref={canvasRef} 
+          className="block" 
+          style={{ 
+            cursor: 'grab',
+            width: '100%',
+            height: '100%',
+          }} 
+        />
         {/* Zoom controls */}
         <div className="absolute bottom-4 right-4 z-40 flex flex-col gap-1 p-1 rounded-lg bg-bg-surface/90 backdrop-blur-md border border-neon-cyan/30">
           <button
@@ -475,7 +521,7 @@ export function LandingDagViewer() {
   }
 
   return (
-    <div className="flex h-[600px]">
+    <div className="flex h-[550px]">
       {/* Left: DAG Visualization */}
       <div className="flex-[1.5] h-full relative">
         {renderContent()}

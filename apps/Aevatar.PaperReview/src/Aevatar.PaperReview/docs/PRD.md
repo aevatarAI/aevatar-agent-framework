@@ -1,7 +1,7 @@
-# Paper Review Frontend PRD (maker-v2)
+# Paper Review Frontend PRD (maker)
 
 ## 目标
-为论文评审提供完整可视化前端，使用 Cognitive Mesh 的 maker-v2 工作流，支持上传、会话管理、实时执行可视化、流式 LLM 展示，以及评审结果查看/下载。
+为论文评审提供完整可视化前端，使用 Cognitive Mesh 的 maker 工作流，支持上传、会话管理、实时执行可视化、流式 LLM 展示，以及评审结果查看/下载。
 
 ## 用户流程
 1. 左侧 Session 列表点击“新建评审”。

@@ -58,10 +58,11 @@ dotnet run --project platform/src/Aevatar.Platform.Cli -- attach --url http://12
 
 ```
 ~/.aevatar/
-├── config.yaml
-├── secrets.yaml
+├── config.json
+├── secrets.json
 ├── agents/        # role YAML
 ├── skills/        # 可选
+├── tools/         # dotnet-file 工具插件
 ├── workflows/     # DSL JSON/YAML
 ├── mcp/
 └── sessions/      # 会话事件 (JSONL + meta.json)
@@ -71,14 +72,15 @@ dotnet run --project platform/src/Aevatar.Platform.Cli -- attach --url http://12
 
 - `AEVATAR_CONFIG_DIR`
 - `AEVATAR_CONFIG`
-- `AEVATAR_SECRETS`
+- `AEVATAR_SECRETS_PATH`
+- `AEVATAR_SECRETS_DIR`
 
 ## TUI 使用（MVP）
 
 - `/help`：命令帮助
 - `/sessions` 或 `/sessions show <id>`
 - `/workflow <name>` / `/profile <name>`
-- `/editor`：使用 `EDITOR` 或 `config.yaml` 里的 `ui.editor`
+- `/editor`：使用 `EDITOR` 或 `config.json` 里的 `ui.editor`
 - `!<cmd>`：执行 shell（受 allowlist + timeout 约束）
 - `@<file>`：附件（支持模糊匹配）
 
@@ -106,7 +108,7 @@ dotnet run --project platform/src/Aevatar.Platform.Cli -- attach --url http://12
 ## 常用 CLI
 
 ```bash
-aevatar --workflow standard
+aevatar --workflow hermes
 aevatar --profile coding
 aevatar sessions list
 aevatar sessions show <id>

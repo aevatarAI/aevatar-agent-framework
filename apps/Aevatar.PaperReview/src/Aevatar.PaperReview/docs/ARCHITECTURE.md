@@ -205,7 +205,7 @@ PhaseMapper.Map()      // 阶段映射
      │
      ▼
 ┌─────────────────────┐
-│  CognitiveStrategy  │ ──执行──▶ maker-v2.yaml 工作流
+│  CognitiveStrategy  │ ──执行──▶ maker.yaml 工作流
 └─────────────────────┘
      │
      ▼ (ReasoningProgress)

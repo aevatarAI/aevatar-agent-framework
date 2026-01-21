@@ -11,7 +11,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>aevatar-config</ToolCommandName>
     <PackageId>aevatar-config</PackageId>
-    <Version>1.0.0</Version>
+    <Version>1.0.1</Version>
     <Authors>Aevatar</Authors>
     <Description>A local CLI tool to configure Aevatar user secrets (LLM providers, API keys, etc.) via a web UI.</Description>
     <PackageProjectUrl>https://github.com/aevatar/aevatar-agent-framework</PackageProjectUrl>

@@ -171,7 +171,7 @@ builder.Services.AddSingleton<VibeResearching.Api.Vibe.Mesh.MeshCompilerService>
 builder.Services.AddSingleton<VibeResearching.Api.Vibe.Mesh.MeshExecutionPlanner>();
 builder.Services.AddSingleton<VibeResearching.Api.Vibe.Mesh.MeshExecutionRunner>();
 
-// Vibe: DAG consensus gate (default: verifier-quorum; optional: maker-v2 via CognitiveStrategy)
+// Vibe: DAG consensus gate (default: verifier-quorum; optional: maker via CognitiveStrategy)
 builder.Services.AddSingleton<Aevatar.Agents.Cognitive.Core.Strategies.CognitiveStrategy>();
 builder.Services.AddSingleton<VibeResearching.Api.Vibe.Dag.DagConsensusRunner>();
 

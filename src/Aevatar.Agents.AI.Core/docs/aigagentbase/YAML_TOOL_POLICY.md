@@ -20,6 +20,19 @@
 - `yaml.skills` 存在 → 自动加入完整 skills 工具面
 - dangerous tool 名单默认：`python_exec` + `skills_run_python`
 - 仅当 allowlist 含危险工具时，才启用 `AllowDangerousTools`
+ - YAML 工具名在配置加载时做归一化；逻辑集中在
+   `Aevatar.Agents.AI.Abstractions.Configuration.ToolNameNormalizer`。
+
+### 兼容别名（内置）
+
+- `read_file` → `file_read`
+- `write_file` → `file_write`
+- `delete_file` → `file_delete`
+- `list_dir` → `dir_list`
+- `glob_file_search` → `glob`
+- `search_files` → `glob`
+- `ast-grep` → `ast_grep`
+- 其它包含 `-` 的名称会自动按 `-`→`_` 归一化
 
 ## 扩展点（override）
 

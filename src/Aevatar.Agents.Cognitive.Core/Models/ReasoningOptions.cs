@@ -172,7 +172,7 @@ public sealed record ReasoningOptions
     // ─────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Cognitive: 工作流名称（如 "direct", "maker-v2", "uot-combinational-v2"）。
+    /// Cognitive: 工作流名称（如 "direct", "maker", "uot-combinational"）。
     /// </summary>
     public string? CognitiveWorkflow { get; init; }
 

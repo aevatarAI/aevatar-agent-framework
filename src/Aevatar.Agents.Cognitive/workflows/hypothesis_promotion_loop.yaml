@@ -12,7 +12,6 @@
 # ============================================================
 
 name: hypothesis_promotion_loop
-version: "1.0"
 description: "Explore hypotheses, verify with MAKER, then promote to theorems (two-stage fan_out + vote)"
 
 defaults:
@@ -622,7 +621,7 @@ steps:
         if_true:
           - id: maker_argumentation
             type: workflow_call
-            workflow: maker-v2
+            workflow: maker
             params:
               task: |
                 Provide a structured argumentation for the following hypothesis.

@@ -124,6 +124,41 @@ public sealed record ReasoningProgress
     public int? VoteCurrentVotes { get; init; }
 
     /// <summary>
+    /// DSL Vote: 显式 winner（proposal step id）。
+    /// </summary>
+    public string? WinnerProposalId { get; init; }
+
+    /// <summary>
+    /// DSL Vote: winner 内容 hash。
+    /// </summary>
+    public string? WinnerHash { get; init; }
+
+    /// <summary>
+    /// DSL Vote: winner 票数。
+    /// </summary>
+    public int? WinnerVotes { get; init; }
+
+    /// <summary>
+    /// DSL Vote: runner-up 票数。
+    /// </summary>
+    public int? WinnerRunnerUpVotes { get; init; }
+
+    /// <summary>
+    /// DSL Vote: 聚类数量。
+    /// </summary>
+    public int? WinnerClusterCount { get; init; }
+
+    /// <summary>
+    /// DSL Vote: 是否使用语义聚类。
+    /// </summary>
+    public bool? WinnerSemantic { get; init; }
+
+    /// <summary>
+    /// DSL Vote: 是否达成共识。
+    /// </summary>
+    public bool? WinnerIsConsensus { get; init; }
+
+    /// <summary>
     /// DSL Fan-out: 总任务数。
     /// </summary>
     public int? ParallelTotal { get; init; }

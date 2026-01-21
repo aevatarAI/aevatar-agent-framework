@@ -60,7 +60,7 @@ public static class ServiceCollectionExtensions
         registry.Register(new WorkflowDefinition
         {
             Name = "direct",
-            Version = "1.0",
+            Version = "",
             Description = "Single LLM call",
             Inputs =
             [

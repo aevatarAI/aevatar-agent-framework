@@ -130,7 +130,9 @@ public sealed class PivotQueue : IPivotQueue
             try
             {
                 _isProcessing = true;
-                _currentPivotId = $"pivot_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
+                _currentPivotId = !string.IsNullOrWhiteSpace(intent.PivotId)
+                    ? intent.PivotId!.Trim()
+                    : $"pivot_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
 
                 // Execute the pivot
                 var operation = await pivotExecutor(cancellationToken);

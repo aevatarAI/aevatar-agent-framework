@@ -294,7 +294,7 @@ message SraDagMutation {
   repeated SraDagNode upsert_nodes = 4;
   repeated SraDagEdge upsert_edges = 5;
   google.protobuf.Timestamp created_at = 6;
-  map<string, string> labels = 100;   // e.g., "workflow"="verifier-quorum" | "maker-v2"
+  map<string, string> labels = 100;   // e.g., "workflow"="verifier-quorum" | "maker"
 }
 
 message SraDagSnapshot {

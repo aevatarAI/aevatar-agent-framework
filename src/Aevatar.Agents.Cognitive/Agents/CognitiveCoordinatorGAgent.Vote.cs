@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Aevatar.Agents.Cognitive.Messages;
 using Aevatar.Agents.Cognitive.Primitives;
 using Aevatar.Agents.Maker;
@@ -37,7 +39,7 @@ public partial class CognitiveCoordinatorGAgent
         var redFlagStrategy = ResolveRedFlagStrategy(step.Parameters);
         var redFlagCount = 0;
         var maxRedFlags = ResolveIntParameter(step.Parameters, "max_red_flags", maxRounds * 2);
-        // Compatibility: allow max_red_flags to be nested under red_flag config (maker-v2.yaml style).
+        // Compatibility: allow max_red_flags to be nested under red_flag config (maker.yaml style).
         if (!step.Parameters.ContainsKey("max_red_flags") &&
             step.Parameters.TryGetValue("red_flag", out var rfObj) &&
             rfObj is Dictionary<string, object?> rfConfig &&
@@ -74,6 +76,8 @@ public partial class CognitiveCoordinatorGAgent
         Logger.LogDebug(
             "[VOTE] batchSize={BatchSize}, k={K}, workers={WorkerCount}",
             batchSize, k, _workerIds.Count);
+
+        var proposalIdByHash = new Dictionary<string, string>(StringComparer.Ordinal);
 
         while (consensusResult == null && round < maxRounds)
         {
@@ -204,6 +208,13 @@ public partial class CognitiveCoordinatorGAgent
                     }
                 }
 
+                var canonicalProposal = proposal.Trim();
+                if (!string.IsNullOrEmpty(canonicalProposal))
+                {
+                    var proposalHash = ComputeVoteHash(canonicalProposal);
+                    proposalIdByHash.TryAdd(proposalHash, genStep.Id);
+                }
+
                 // Submit vote
                 consensusResult = await engine.SubmitVoteAsync(proposal);
                 if (consensusResult != null && consensusReachedAtRound == null)
@@ -235,7 +246,8 @@ public partial class CognitiveCoordinatorGAgent
 
         // Get raw content
         string rawContent;
-        if (consensusResult != null && consensusResult.Success)
+        VoteCandidate? bestCandidate = null;
+        if (consensusResult != null)
         {
             // WinningContent is nullable in some implementations
             rawContent = consensusResult.WinningContent ?? "";
@@ -243,12 +255,46 @@ public partial class CognitiveCoordinatorGAgent
         else
         {
             // No consensus reached, return most voted
-            var bestCandidate = engine.GetBestCandidate();
+            bestCandidate = engine.GetBestCandidate();
             rawContent = bestCandidate?.Content ?? "";
 
             Logger.LogWarning(
                 "Vote step {StepId}: No consensus after {Rounds} rounds (🚩{RedFlags}), using best candidate ({Votes} votes)",
                 step.Id, maxRounds, redFlagCount, bestCandidate?.Votes ?? 0);
+        }
+
+        string? winnerHash = null;
+        string? winnerProposalId = null;
+        int? winnerVotes = null;
+        int? winnerRunnerUpVotes = null;
+        int? winnerClusterCount = null;
+        bool? winnerSemantic = null;
+        bool? winnerIsConsensus = null;
+
+        if (consensusResult != null)
+        {
+            winnerHash = consensusResult.WinningHash;
+            winnerVotes = consensusResult.LeaderVotes;
+            winnerRunnerUpVotes = consensusResult.RunnerUpVotes;
+            winnerClusterCount = consensusResult.ClusterCount;
+            winnerSemantic = consensusResult.UsedSemanticClustering;
+            winnerIsConsensus = consensusResult.Success;
+        }
+        else if (bestCandidate != null)
+        {
+            var candidates = engine.GetAllCandidates();
+            winnerHash = bestCandidate.Hash;
+            winnerVotes = bestCandidate.Votes;
+            winnerRunnerUpVotes = candidates.Count > 1 ? candidates[1].Votes : 0;
+            winnerClusterCount = candidates.Count;
+            winnerSemantic = engine.UseSemanticClustering;
+            winnerIsConsensus = false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(winnerHash) &&
+            proposalIdByHash.TryGetValue(winnerHash, out var mappedProposalId))
+        {
+            winnerProposalId = mappedProposalId;
         }
 
         // ─────────────────────────────────────────────
@@ -290,8 +336,22 @@ public partial class CognitiveCoordinatorGAgent
             Value = parsedResult,
             TokensUsed = totalTokens,
             LlmCalls = totalCalls + embeddingCalls,
-            AssistantResponse = rawContent
+            AssistantResponse = rawContent,
+            WinnerProposalId = winnerProposalId,
+            WinnerHash = winnerHash,
+            WinnerVotes = winnerVotes,
+            WinnerRunnerUpVotes = winnerRunnerUpVotes,
+            WinnerClusterCount = winnerClusterCount,
+            WinnerSemantic = winnerSemantic,
+            WinnerIsConsensus = winnerIsConsensus
         };
+    }
+
+    private static string ComputeVoteHash(string content)
+    {
+        var bytes = Encoding.UTF8.GetBytes(content);
+        var hashBytes = SHA256.HashData(bytes);
+        return Convert.ToHexString(hashBytes)[..16];
     }
 }
 

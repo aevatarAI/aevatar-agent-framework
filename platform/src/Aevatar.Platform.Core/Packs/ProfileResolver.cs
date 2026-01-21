@@ -42,7 +42,7 @@ public static class ProfileResolver
         return new ProfileResolutionResult(
             Profile: fallback,
             PackName: "core",
-            WorkflowName: "standard",
+            WorkflowName: "hermes",
             Roles: Array.Empty<string>(),
             ToolPolicyPreset: "",
             Warnings: new[] { $"Unknown profile '{chosen}' and fallback '{fallback}' unavailable." });
@@ -61,7 +61,7 @@ public static class ProfileResolver
             if (!pack.Profiles.TryGetValue(p, out var def))
                 continue;
 
-            var workflow = string.IsNullOrWhiteSpace(def.DefaultWorkflow) ? "standard" : def.DefaultWorkflow;
+            var workflow = string.IsNullOrWhiteSpace(def.DefaultWorkflow) ? "hermes" : def.DefaultWorkflow;
 
             result = new ProfileResolutionResult(
                 Profile: p,

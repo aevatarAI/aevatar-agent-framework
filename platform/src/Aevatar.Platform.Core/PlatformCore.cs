@@ -9,7 +9,7 @@ namespace Aevatar.Platform.Core;
 // ============================================================
 public sealed class PlatformCore
 {
-    public static string Version => "0.0.0-dev";
+    public static string Version => "0.1.0";
 }
 
 

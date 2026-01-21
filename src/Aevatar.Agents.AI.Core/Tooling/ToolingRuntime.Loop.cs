@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text;
 using System.Text.Json;
 using Aevatar.Agents.AI.Abstractions;
@@ -161,6 +162,9 @@ internal sealed partial class ToolingRuntime
         AevatarLLMRequest llmRequest,
         CancellationToken cancellationToken)
     {
+        ToolExecutionResult? result = null;
+        string decision = "executed";
+
         // Enforce policy again at execution time (defense in depth).
         var toolDef =
             _registeredToolsCache.FirstOrDefault(t =>
@@ -175,7 +179,8 @@ internal sealed partial class ToolingRuntime
                 deniedReason = _loopHost.BuildToolPolicyDenyReason(toolDef)
             });
 
-            return new ToolExecutionResult
+            decision = "denied_policy";
+            result = new ToolExecutionResult
             {
                 ToolName = toolName,
                 IsSuccess = false,
@@ -185,7 +190,8 @@ internal sealed partial class ToolingRuntime
             };
         }
 
-        if (AIGAgentKeys.TryGetToolAllowlist(llmRequest, out var allowlist) &&
+        if (result == null &&
+            AIGAgentKeys.TryGetToolAllowlist(llmRequest, out var allowlist) &&
             allowlist.Count > 0 &&
             !allowlist.Contains(toolName))
         {
@@ -198,7 +204,8 @@ internal sealed partial class ToolingRuntime
                 allowedTools = allowlist.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray()
             });
 
-            return new ToolExecutionResult
+            decision = "denied_allowlist";
+            result = new ToolExecutionResult
             {
                 ToolName = toolName,
                 IsSuccess = false,
@@ -208,7 +215,27 @@ internal sealed partial class ToolingRuntime
             };
         }
 
-        return await _loopHost.ExecuteToolAsync(toolName, args, executionContext, cancellationToken);
+        result ??= await _loopHost.ExecuteToolAsync(toolName, args, executionContext, cancellationToken);
+
+        #region agent log
+        if (string.Equals(toolName, "file_write", StringComparison.OrdinalIgnoreCase))
+        {
+            DebugLog(
+                "ToolingRuntime.Loop.cs:ExecuteAllowedToolAsync",
+                "file_write_execution",
+                new
+                {
+                    decision,
+                    success = result.IsSuccess,
+                    error = result.ErrorMessage ?? string.Empty
+                },
+                executionContext.GetSessionId?.Invoke() ?? "unknown",
+                $"tool_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}",
+                "H3");
+        }
+        #endregion
+
+        return result;
     }
 
     internal Dictionary<string, object> ParseToolArguments(string argumentsJson)
@@ -312,5 +339,36 @@ internal sealed partial class ToolingRuntime
                 Duration = result.Duration
             }
         };
+    }
+
+    private const string DebugLogPath = "/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log";
+
+    private static void DebugLog(
+        string location,
+        string message,
+        object data,
+        string sessionId,
+        string runId,
+        string hypothesisId)
+    {
+        try
+        {
+            var payload = new
+            {
+                location,
+                message,
+                data,
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                sessionId,
+                runId,
+                hypothesisId
+            };
+            var json = JsonSerializer.Serialize(payload);
+            File.AppendAllText(DebugLogPath, json + Environment.NewLine);
+        }
+        catch
+        {
+            // best-effort only
+        }
     }
 }

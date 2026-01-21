@@ -4,7 +4,7 @@ namespace Aevatar.Platform.Core.Config;
 //  Aevatar Platform Config Models (local-only POCOs)
 //
 //  注意：
-//  - 这些类型是 Platform 内部使用（读取 ~/.aevatar/*.yaml）。
+//  - 这些类型是 Platform 内部使用（读取 ~/.aevatar/config.json + secrets.json）。
 //  - 不跨 runtime/stream 边界，因此不需要 Protobuf。
 //  - 任何会被持久化为“会话事件/跨进程传输”的类型必须用 Protobuf（另见 Contracts）。
 // ============================================================
@@ -33,9 +33,11 @@ public sealed class AevatarConfig
 
 public sealed class ModelsConfig
 {
-    public string? Default { get; set; }
+    public string? DefaultProvider { get; set; }
 
-    // providerName -> provider config (endpoint, etc). api keys come from secrets.
+    public string? DefaultModel { get; set; }
+
+    // providerName -> provider config (endpoint, etc). api keys come from secrets.json.
     public Dictionary<string, ProviderConfig> Providers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
@@ -48,7 +50,7 @@ public sealed class ProviderConfig
 
 public sealed class AgentsConfig
 {
-    public string DefaultWorkflow { get; set; } = "standard";
+    public string DefaultWorkflow { get; set; } = "hermes";
 
     public string DefaultProfile { get; set; } = "coding";
 
@@ -60,6 +62,8 @@ public sealed class ToolsConfig
     public ShellToolConfig Shell { get; set; } = new();
 
     public FileSystemToolConfig FileSystem { get; set; } = new();
+
+    public ToolPluginsConfig Plugins { get; set; } = new();
 }
 
 public sealed class ShellToolConfig
@@ -72,6 +76,21 @@ public sealed class ShellToolConfig
 public sealed class FileSystemToolConfig
 {
     public List<string> AllowedPaths { get; set; } = new();
+}
+
+public sealed class ToolPluginsConfig
+{
+    public bool Enabled { get; set; } = true;
+
+    public bool IncludeDotNetFileTools { get; set; } = true;
+
+    public bool IncludePythonFileTools { get; set; }
+
+    public bool RequireManifestMarker { get; set; } = true;
+
+    public int MaxFilesPerType { get; set; } = 64;
+
+    public List<string> Directories { get; set; } = new();
 }
 
 public sealed class UiConfig

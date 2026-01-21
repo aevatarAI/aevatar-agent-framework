@@ -110,7 +110,7 @@ public class LLMProvidersConfig
     /// <summary>
     /// Default provider name
     /// </summary>
-    public string Default { get; set; }
+    public string Default { get; set; } = string.Empty;
 
     /// <summary>
     /// Global/default embedding channel configuration.

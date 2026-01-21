@@ -5,15 +5,46 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
+
+    <!-- Dotnet Tool Configuration -->
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>aevatar</ToolCommandName>
+    <PackageId>aevatar</PackageId>
+    <Version>0.1.4</Version>
+    <Authors>Aevatar</Authors>
+    <Description>Aevatar Platform CLI (OpenCode parity): TUI + session workflows.</Description>
+    <PackageProjectUrl>https://github.com/aevatar/aevatar-agent-framework</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/aevatar/aevatar-agent-framework</RepositoryUrl>
+    <PackageTags>aevatar;cli;agents;tui;workflow</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IsPackable>true</IsPackable>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Aevatar.Platform.Core\Aevatar.Platform.Core.csproj" />
+    <ProjectReference Include="..\Aevatar.Platform.Server\Aevatar.Platform.Server.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="System.CommandLine" />
     <PackageReference Include="Spectre.Console" />
+    <PackageReference Include="YamlDotNet" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <!-- OpenTUI frontend (TypeScript + Zig)
+       - Shipped as content with the dotnet tool
+       - Executed by `bun` at runtime (fallback to console REPL if missing) -->
+  <ItemGroup>
+    <None Include="tui-opentui/**" Pack="true" PackagePath="tui-opentui/" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
 

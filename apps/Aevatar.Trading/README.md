@@ -135,21 +135,25 @@ apps/Aevatar.Trading/
 - **推荐（一次配置，全仓复用）**：用户级 secrets（加密）
   - 默认：`~/.aevatar/secrets.json`（用 `src/Aevatar.Agents.SecretsCli` 写入）
   - 覆盖：`AEVATAR_SECRETS_PATH/AEVATAR_SECRETS_DIR`
-- **可选（项目级覆盖）**：在 `apps/Aevatar.Trading/Aevatar.Trade.Api/` 下创建 `appsettings.secrets.json`（该文件 gitignored），参考示例：
+- **可选（项目级覆盖）**：在 `apps/Aevatar.Trading/src/Aevatar.Trade.Api/` 下创建 `appsettings.secrets.json`（该文件 gitignored），参考示例：
 
-- `apps/Aevatar.Trading/Aevatar.Trade.Api/appsettings.secrets.json.example`
+- `apps/Aevatar.Trading/src/Aevatar.Trade.Api/appsettings.secrets.json.example`（精简）
+- `apps/Aevatar.Trading/src/Aevatar.Trade.Api/appsettings.secrets.json.example.full`（包含 Weex 高级配置）
 
-> 说明：API Host 会把 `Weex:*` 自动导出为 `WEEX_*` 环境变量，供 dotnet-file skills 子进程使用（无需你再手工 export）。
+> 说明：API Host 会把 `ExchangeCredentials` 中对应 WEEX 的凭证自动导出为 `WEEX_*` 环境变量，供 dotnet-file skills 子进程使用（无需你再手工 export）。
+
+> 配置细节请参考：`apps/Aevatar.Trading/docs/CONFIGURATION.md`
 
 ### 方式一：直接运行 API
 
 ```bash
 # 1. 进入 API 目录
-cd apps/Aevatar.Trading/Aevatar.Trade.Api
+cd apps/Aevatar.Trading/src/Aevatar.Trade.Api
 
 # 2. （推荐）准备 secrets
 # cp appsettings.secrets.json.example appsettings.secrets.json
-# 然后填入 Weex / LLMProviders
+# 或使用完整版：cp appsettings.secrets.json.example.full appsettings.secrets.json
+# 然后填入 ExchangeCredentials / LLMProviders
 
 # 3. 运行（推荐 http profile：避免本机证书未信任导致浏览器/代理异常）
 dotnet run --launch-profile http
@@ -164,7 +168,7 @@ dotnet run --launch-profile http
 cd aevatar-agent-framework
 
 # 2. 运行（推荐 http profile：避免本机证书未信任导致 Dashboard gRPC 报 UntrustedRoot）
-dotnet run --project apps/Aevatar.Trading/Aevatar.Trade.AppHost/Aevatar.Trade.AppHost.csproj --launch-profile http
+dotnet run --project apps/Aevatar.Trading/src/Aevatar.Trade.AppHost/Aevatar.Trade.AppHost.csproj --launch-profile http
 
 # 4. 访问 Aspire Dashboard: http://localhost:15888
 # 5. 访问 Trading API: http://localhost:7100/swagger
@@ -177,7 +181,7 @@ dotnet run --project apps/Aevatar.Trading/Aevatar.Trade.AppHost/Aevatar.Trade.Ap
 
 ```bash
 # 1) 启动后端 API（仓库根目录）
-dotnet run --project apps/Aevatar.Trading/Aevatar.Trade.Api/Aevatar.Trade.Api.csproj --launch-profile http
+dotnet run --project apps/Aevatar.Trading/src/Aevatar.Trade.Api/Aevatar.Trade.Api.csproj --launch-profile http
 
 # 2) 启动前端（新终端）
 cd apps/Aevatar.Trading/frontend
@@ -222,9 +226,9 @@ AI Wars 合约环境 **常见没有可用 WebSocket**，系统会自动降级为
 
 要让 AI 真实下单：
 
-- 在 `apps/Aevatar.Trading/Aevatar.Trade.Api/appsettings.json`（或你的环境变量/配置源）把：
-  - `Trading:ExecutionMode` 改成 `"Live"`
-- 确保 `apps/Aevatar.Trading/Aevatar.Trade.Api/appsettings.secrets.json` 里 `Weex:ApiKey/ApiSecret/Passphrase` 有 **交易权限**（并完成比赛要求的 IP 白名单）
+- 在 `apps/Aevatar.Trading/src/Aevatar.Trade.Api/appsettings.json`（或你的环境变量/配置源）把：
+  - `Policy:Trading:ExecutionMode` 改成 `"Live"`
+- 确保 `apps/Aevatar.Trading/src/Aevatar.Trade.Api/appsettings.secrets.json` 里 `ExchangeCredentials:weex:ApiKey/ApiSecret/Passphrase` 有 **交易权限**（并完成 IP 白名单）
 
 ### API 操作
 
@@ -264,12 +268,12 @@ curl -X POST http://localhost:7100/api/trading/stop
 
 此外还会落盘两类“旁路可观测”信息（避免黑箱）：
 
-- **Startup Guard**：当 `Trading:MinBaseAssetUsdOnStart > 0` 且 Live 模式时，系统可能自动下单补足底仓（`BOOTSTRAP_...`），会写入 `.md` 与 `.jsonl`。
+- **Startup Guard**：当 `Policy:Trading:MinBaseAssetUsdOnStart > 0` 且 Live 模式时，系统可能自动下单补足底仓（`BOOTSTRAP_...`），会写入 `.md` 与 `.jsonl`。
 - **AI Wars Upload 回执**：当 `TradeAudit:RequestAiwarsUpload=true` 时：
   - 生成的上传 payload：`trade-audit/ai-wars/aiwars_upload_*.json`
   - 上传回执（成功/失败都写）：`trade-audit/ai-wars/receipts/aiwars_receipt_<requestId>.json`
 
-> 日志输出目录是相对路径：通常你在 `apps/Aevatar.Trading/Aevatar.Trade.Api/` 目录运行 API，那么日志会出现在 `apps/Aevatar.Trading/Aevatar.Trade.Api/trade-audit/`。
+> 日志输出目录是相对路径：通常你在 `apps/Aevatar.Trading/src/Aevatar.Trade.Api/` 目录运行 API，那么日志会出现在 `apps/Aevatar.Trading/src/Aevatar.Trade.Api/trade-audit/`。
 
 ## 前端页面指南（Demo UI）
 
@@ -287,22 +291,22 @@ curl -X POST http://localhost:7100/api/trading/stop
 
 ## 配置参考（appsettings）
 
-> 推荐只改 `apps/Aevatar.Trading/Aevatar.Trade.Api/appsettings.json` + `appsettings.secrets.json`（运行时以 API Host 配置为准）。
+> 推荐只改 `apps/Aevatar.Trading/src/Aevatar.Trade.Api/appsettings.json` + `appsettings.secrets.json`（运行时以 API Host 配置为准）。
 
 ### 运行时：Local / Orleans
 
 - `AgentRuntime:RuntimeType`：`Local`（开发/单机）或 `Orleans`（分布式）
 - `AgentRuntime:Orleans:*`：Orleans 端口/ClusterId/ServiceId
 
-### 交易参数（Trading）
+### 交易参数（Policy.Trading）
 
-- `Trading:Symbol`：AI Wars 合约赛道推荐 `cmt_btcusdt`
-- `Trading:Interval`：`1m/5m/15m/1h...`（影响 kline 采样）
-- `Trading:ExecutionMode`：`DryRun` 或 `Live`
-- `Trading:MinBaseAssetUsdOnStart`
+- `Policy:Trading:Symbol`：AI Wars 合约赛道推荐 `cmt_btcusdt`
+- `Policy:Trading:Interval`：`1m/5m/15m/1h...`（影响 kline 采样）
+- `Policy:Trading:ExecutionMode`：`DryRun` 或 `Live`
+- `Policy:Trading:MinBaseAssetUsdOnStart`
   - `0`：关闭启动自检补仓
   - `>0`：Live 模式下可能自动下单补足底仓（会记录为 Startup Guard）
-- `Trading:MinConfidenceToTrade`：低于该置信度的决策会降为 HOLD（仍会写入决策 cycle）
+- `Policy:Trading:MinConfidenceToTrade`：低于该置信度的决策会降为 HOLD（仍会写入决策 cycle）
 
 ### 审计与 AI Wars 上传（TradeAudit）
 
@@ -311,22 +315,20 @@ curl -X POST http://localhost:7100/api/trading/stop
 - `TradeAudit:IncludeMarketData`：是否把 tick/kline 也写入 JSONL（会很大）
 - `TradeAudit:RequestAiwarsUpload`：是否自动触发 AI Wars `UploadAiLog`（并写回执）
 
-### WEEX（Weex）
+### WEEX（Weex + ExchangeCredentials）
 
 - `Weex:Mode`：`Contract`（默认）或 `Spot`
 - `Weex:BaseUrl`：AI Wars 合约推荐 `https://api-contract.weex.com`
-- `Weex:ApiKey/ApiSecret/Passphrase`：建议放在 `appsettings.secrets.json`（不要提交到 Git）
+- `ExchangeCredentials:weex:ApiKey/ApiSecret/Passphrase`：建议放在 `appsettings.secrets.json`（不要提交到 Git）
 
-### LLM（LLMProviders / LLM）
+### LLM（仅 LLMProviders）
 
-`apps/Aevatar.Trading/Aevatar.Trade.Api` 支持两种配置：
-
-- **推荐：`LLMProviders`**（适合多服务/多 provider 统一配置）
-- **兼容：`LLM`**（trade API 里保留的简化配置）
+LLM 只从用户级 secrets 读取（默认 `~/.aevatar/secrets.json`），支持多个 provider 依次尝试。
 
 示例请参考：
 
-- `apps/Aevatar.Trading/Aevatar.Trade.Api/appsettings.secrets.json.example`
+- `apps/Aevatar.Trading/src/Aevatar.Trade.Api/appsettings.secrets.json.example`
+- `apps/Aevatar.Trading/src/Aevatar.Trade.Api/appsettings.secrets.json.example.full`
 
 ## AI Wars：dotnet-file skills + Swagger/前端一键执行
 
@@ -381,7 +383,7 @@ AI Wars 文档覆盖面大、接口多，把每个 API 做成单文件工具有�
 
 优先检查两件事：
 
-- **Startup Guard 是否开启**：`Trading:MinBaseAssetUsdOnStart > 0` 且 Live 模式时，系统会自动下一个 `BOOTSTRAP_...` 的补仓单  
+- **Startup Guard 是否开启**：`Policy:Trading:MinBaseAssetUsdOnStart > 0` 且 Live 模式时，系统会自动下一个 `BOOTSTRAP_...` 的补仓单
   - 现在会记录到 `trade-audit/*.md` 的 `Startup Guard` 区块
 - **是否有外部仓位/外部成交**：比如你在交易所 App/其它脚本开过仓位，UI 也会通过 AI Wars API 拉到并展示
 
@@ -396,7 +398,7 @@ AI Wars 文档覆盖面大、接口多，把每个 API 做成单文件工具有�
 - `trade-audit/`：
   - 是否生成了 `trade_audit_<runId>.md`
   - 是否持续追加 `Cycle` 段落（即便 HOLD 也会记录）
-- LLM 配置是否可用（`LLMProviders` / `LLM` 的 key 是否正确）
+- LLM 配置是否可用（`LLMProviders` 的 key 是否正确）
 
 ### 3) AI Wars log 到底有没有上传？如何确认回执？
 

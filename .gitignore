@@ -509,6 +509,7 @@ scripts/.pids/
 /outputs/
 /trace/
 /memory/
+/apps/Aevatar.Trading/src/Aevatar.Trade.Api/trade-audit
 
 # Scientific Research Assistant runtime workspace (safe: anchored)
 /apps/Aevatar.VibeResearching/workspace/

@@ -13,6 +13,14 @@ dotnet tool install --global --add-source ./tools/Aevatar.Tools.Config/bin/Relea
 dotnet tool install --global aevatar-config
 ```
 
+## Update
+
+```bash
+# Rebuild and upgrade, remember to increase the version number
+dotnet pack tools/Aevatar.Tools.Config/Aevatar.Tools.Config.csproj
+dotnet tool update --global --add-source ./tools/Aevatar.Tools.Config/bin/Release aevatar-config
+```
+
 ## Usage
 
 ```bash

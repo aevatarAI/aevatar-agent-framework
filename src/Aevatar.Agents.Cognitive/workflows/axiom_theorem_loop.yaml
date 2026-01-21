@@ -9,7 +9,6 @@
 # ============================================================
 
 name: axiom_theorem_loop
-version: "1.0"
 description: "Coordinator proposes theorems, workers prove, consensus judge, then iterate new theorems."
 
 inputs:

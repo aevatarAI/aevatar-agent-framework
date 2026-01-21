@@ -149,9 +149,9 @@ Vibe 的 DAG 写入是 **共识门控** 的：`dag_builder` 只产出 candidate�
 
 配置位置：`src/VibeResearching.Api/appsettings.json` → `Vibe:DagConsensus`
 
-- **Mode**：`verifier-quorum` | `maker-v2`
+- **Mode**：`verifier-quorum` | `maker`
   - `verifier-quorum`（默认，轻量）：多个 `verifier` 投票，满足门限就写入 DAG snapshot
-  - `maker-v2`（可选，偏重）：调用 CognitiveMesh 的 `maker-v2` workflow（多轮/多 worker）
+  - `maker`（可选，偏重）：调用 CognitiveMesh 的 `maker` workflow（多轮/多 worker）
 - **VerifierCount / Quorum**：投票人数与通过门限（例如 3 个 verifier，2 票同意通过）
 - **AnyRedFlagBlocks**：任一 verifier 给出 hard red-flag 时是否一票否决
 - **PerVerifierTimeoutMs**：单个 verifier 投票超时（避免卡死）
@@ -163,15 +163,15 @@ Vibe 的 DAG 写入是 **共识门控** 的：`dag_builder` 只产出 candidate�
 把 `Vibe:DagConsensus:Mode` 改成你要的模式：
 
 - `Mode = "verifier-quorum"`（轻）
-- `Mode = "maker-v2"`（重）
+- `Mode = "maker"`（重）
 
 2) **用环境变量（临时切换，优先级更高）**
 
 ASP.NET Core 配置支持 `__` 表示层级，例如：
 
 ```bash
-# 临时切换为 maker-v2（一次启动生效）
-Vibe__DagConsensus__Mode=maker-v2 dotnet run --project src/VibeResearching.Api/VibeResearching.Api.csproj
+# 临时切换为 maker（一次启动生效）
+Vibe__DagConsensus__Mode=maker dotnet run --project src/VibeResearching.Api/VibeResearching.Api.csproj
 ```
 
 ### 5) 端口与环境变量

@@ -233,18 +233,21 @@ const App: React.FC = () => {
     try {
       const result = await createSession();
       if (result.ok && result.sessionId) {
-        // Refresh sessions list
-        const data = await listSessions();
-        const mapped = data.map((s: AxiomSession) => ({
-          id: s.sessionId,  // Use sessionId from backend
-          status: (s.status as "pending" | "running" | "completed" | "failed") || "pending",
-          phase: s.phase || "",
-          progressPercent: s.progressPercent || 0,
-          totalTokens: s.totalTokens || 0,
-          totalLlmCalls: s.totalLlmCalls || 0,
-          createdAt: s.createdAt || "",
-        }));
-        setSessions(mapped);
+        // Optimistic update: prepend new session to list immediately
+        // This avoids cache hit issues from listSessions() returning stale data
+        const newSession = {
+          id: result.sessionId,
+          status: "pending" as const,
+          phase: "",
+          progressPercent: 0,
+          totalTokens: 0,
+          totalLlmCalls: 0,
+          createdAt: new Date().toISOString(),
+        };
+        
+        // Get current sessions and prepend the new one
+        const currentSessions = useSisyphusStore.getState().sessions;
+        setSessions([newSession, ...currentSessions]);
 
         // Reset state and connect to new session
         resetForNewSession();

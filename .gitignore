@@ -539,4 +539,10 @@ scripts/.pids/
 /apps/Aevatar.CognitiveMesh/src/Aevatar.CognitiveMesh/output
 /apps/Aevatar.PaperReview/src/Aevatar.PaperReview/uploads/
 
+.env.production
+
+deploy-frontend-s3.sh
+
+.playwright-mcp
+
 *.db

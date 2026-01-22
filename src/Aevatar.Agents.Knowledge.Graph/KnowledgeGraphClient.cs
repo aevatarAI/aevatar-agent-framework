@@ -984,9 +984,12 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
         var validTransition = (currentStatus, newStatus) switch
         {
             (PlanNodeStatus.Pending, PlanNodeStatus.Active) => true,
+            (PlanNodeStatus.Pending, PlanNodeStatus.Cancelled) => true, // Direction change: mark orphans as Cancelled
             (PlanNodeStatus.Active, PlanNodeStatus.Completed) => true,
             (PlanNodeStatus.Active, PlanNodeStatus.Pending) => true, // Re-planning
+            (PlanNodeStatus.Active, PlanNodeStatus.Cancelled) => true, // Direction change: mark active orphans as Cancelled
             (PlanNodeStatus.Completed, _) => false, // Cannot transition from Completed
+            (PlanNodeStatus.Cancelled, _) => false, // Cannot transition from Cancelled
             (var from, var to) when from == to => true, // Same status is OK
             _ => false
         };
@@ -1009,6 +1012,49 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
             Status = newStatus,
             ProgressText = progressText ?? node.ProgressText,
             Methodology = node.Methodology,
+            SequentialOrder = node.SequentialOrder,
+            PivotStatus = node.PivotStatus,
+            CancelledAt = node.CancelledAt,
+            CancelledByPivotId = node.CancelledByPivotId,
+            DirectionContext = node.DirectionContext
+        };
+
+        await _store.UpdatePlanNodeAsync(updated, cancellationToken);
+        return updated;
+    }
+
+    public async Task<PlanNode> UpdatePlanNodeContentAsync(
+        string nodeId,
+        string coreDescription,
+        string? detailedDescription = null,
+        string? methodology = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(coreDescription);
+
+        using var _ = await _operationLock.AcquireAsync(SessionId, cancellationToken);
+
+        var node = await _store.GetPlanNodeAsync(SessionId, nodeId, cancellationToken);
+        if (node == null)
+        {
+            throw new NodeNotFoundException(nodeId);
+        }
+
+        // Create updated node preserving existing fields, only updating content fields
+        var updated = new PlanNode
+        {
+            Id = node.Id,
+            SessionId = node.SessionId,
+            Owner = node.Owner,
+            CoreDescription = coreDescription,
+            DetailedDescription = detailedDescription ?? node.DetailedDescription,
+            CreatedAt = node.CreatedAt,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DependsOn = node.DependsOn,
+            Status = node.Status,
+            ProgressText = node.ProgressText,
+            Methodology = methodology ?? node.Methodology,
             SequentialOrder = node.SequentialOrder,
             PivotStatus = node.PivotStatus,
             CancelledAt = node.CancelledAt,

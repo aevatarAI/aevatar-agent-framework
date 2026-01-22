@@ -1184,12 +1184,13 @@ internal sealed class VibeMilestoneLoopRunner
             var allMilestones = completedMilestones.Concat(modifiedMilestones).ToList();
             await _brief.UpdateMilestonesAsync(session.Id, allMilestones, ct);
 
-            // Update Plan Nodes in graph
+            // Update Plan Nodes in graph (pass original pending count for orphan handling)
             await UpdatePlanNodesForModifiedMilestonesAsync(
                 graphClient,
                 session.Id,
                 completedMilestones.Count,
                 modifiedMilestones,
+                pendingMilestones.Count,  // Original pending count for orphan detection
                 ct);
 
             // Emit UI update
@@ -1614,12 +1615,20 @@ internal sealed class VibeMilestoneLoopRunner
 
     /// <summary>
     /// Updates Plan Nodes in the graph to reflect modified milestones.
+    /// Handles content updates for existing nodes and marks orphaned nodes as Cancelled.
     /// </summary>
+    /// <param name="graphClient">The knowledge graph client.</param>
+    /// <param name="sessionId">The session ID.</param>
+    /// <param name="completedCount">Number of completed milestones (these are not modified).</param>
+    /// <param name="modifiedMilestones">The new/modified pending milestones.</param>
+    /// <param name="originalPendingCount">Original number of pending milestones before modification.</param>
+    /// <param name="ct">Cancellation token.</param>
     private async Task UpdatePlanNodesForModifiedMilestonesAsync(
         IKnowledgeGraphClient graphClient,
         string sessionId,
         int completedCount,
         List<SraResearchMilestone> modifiedMilestones,
+        int originalPendingCount,
         CancellationToken ct)
     {
         try
@@ -1628,7 +1637,7 @@ internal sealed class VibeMilestoneLoopRunner
             var existingNodes = await graphClient.GetPlanNodesAsync(ct);
             var existingNodeIds = existingNodes.Select(n => n.Id).ToHashSet(StringComparer.Ordinal);
 
-            // Create or update plan nodes for modified milestones
+            // 1. Update or create plan nodes for modified milestones
             for (var i = 0; i < modifiedMilestones.Count; i++)
             {
                 var ms = modifiedMilestones[i];
@@ -1636,14 +1645,25 @@ internal sealed class VibeMilestoneLoopRunner
 
                 if (existingNodeIds.Contains(nodeId))
                 {
-                    // Update existing node (reset to Pending status)
+                    // Update existing node: update content + reset status to Pending
                     try
                     {
                         var existingNode = existingNodes.FirstOrDefault(n => n.Id == nodeId);
                         if (existingNode != null && existingNode.Status != PlanNodeStatus.Completed)
                         {
-                            await graphClient.UpdatePlanNodeStatusAsync(nodeId, PlanNodeStatus.Pending,
-                                $"Modified: {ms.ExpectedOutput}", ct);
+                            // Update content (CoreDescription and DetailedDescription)
+                            await graphClient.UpdatePlanNodeContentAsync(
+                                nodeId,
+                                coreDescription: ms.ExpectedOutput ?? $"Milestone {completedCount + i + 1}",
+                                detailedDescription: $"Modified milestone: {ms.ExpectedOutput}",
+                                cancellationToken: ct);
+
+                            // Reset status to Pending
+                            await graphClient.UpdatePlanNodeStatusAsync(
+                                nodeId,
+                                PlanNodeStatus.Pending,
+                                "Re-opened after direction change",
+                                ct);
                         }
                     }
                     catch (Exception ex)
@@ -1667,6 +1687,53 @@ internal sealed class VibeMilestoneLoopRunner
                     catch (Exception ex)
                     {
                         _logger.LogDebug(ex, "[MilestoneLoop] Failed to create plan node {NodeId}", nodeId);
+                    }
+                }
+            }
+
+            // 2. Mark orphaned plan nodes as Cancelled (if new milestone count < original pending count)
+            if (modifiedMilestones.Count < originalPendingCount)
+            {
+                _logger.LogInformation(
+                    "[MilestoneLoop] New milestones ({NewCount}) < original pending ({OrigCount}), marking {OrphanCount} orphans as Cancelled",
+                    modifiedMilestones.Count, originalPendingCount, originalPendingCount - modifiedMilestones.Count);
+
+                for (var i = modifiedMilestones.Count; i < originalPendingCount; i++)
+                {
+                    // Calculate the original milestone index (1-based, after completed)
+                    var orphanIndex = completedCount + i + 1;
+                    // We need to find the original roundIndex for this orphan
+                    // Since milestones are ordered by roundIndex, we use the index to estimate
+                    var orphanNodeId = GetMilestoneNodeId(sessionId, orphanIndex, orphanIndex);
+
+                    // Also try with the sequential node ID pattern used in the existing code
+                    var alternateOrphanNodeId = GetMilestoneNodeId(sessionId, completedCount + i + 1, completedCount + i + 1);
+
+                    try
+                    {
+                        // Try to update with the first pattern
+                        if (existingNodeIds.Contains(orphanNodeId))
+                        {
+                            await graphClient.UpdatePlanNodeStatusAsync(
+                                orphanNodeId,
+                                PlanNodeStatus.Cancelled,
+                                "Removed due to direction change",
+                                ct);
+                            _logger.LogDebug("[MilestoneLoop] Marked orphan plan node {NodeId} as Cancelled", orphanNodeId);
+                        }
+                        else if (existingNodeIds.Contains(alternateOrphanNodeId) && alternateOrphanNodeId != orphanNodeId)
+                        {
+                            await graphClient.UpdatePlanNodeStatusAsync(
+                                alternateOrphanNodeId,
+                                PlanNodeStatus.Cancelled,
+                                "Removed due to direction change",
+                                ct);
+                            _logger.LogDebug("[MilestoneLoop] Marked orphan plan node {NodeId} as Cancelled", alternateOrphanNodeId);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "[MilestoneLoop] Failed to mark orphan plan node as Cancelled");
                     }
                 }
             }

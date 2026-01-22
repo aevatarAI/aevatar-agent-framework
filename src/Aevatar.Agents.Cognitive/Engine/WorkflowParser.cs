@@ -145,6 +145,11 @@ public class WorkflowParser
         
         if (!string.IsNullOrEmpty(yaml.System))
             parameters["system"] = yaml.System;
+
+        if (!string.IsNullOrEmpty(yaml.Agent))
+            parameters["agent"] = yaml.Agent;
+        else if (!string.IsNullOrEmpty(yaml.Role))
+            parameters["agent"] = yaml.Role;
         
         if (!string.IsNullOrEmpty(yaml.Output))
             parameters["output"] = yaml.Output;
@@ -371,6 +376,8 @@ internal class YamlStepDefinition
     public string? Prompt { get; set; }
     public string? System { get; set; }
     public string? Output { get; set; }
+    public string? Agent { get; set; }
+    public string? Role { get; set; }
 
     // common guardrails (may appear on llm_call / vote / etc.)
     public object? MaxLength { get; set; }              // max_length

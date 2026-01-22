@@ -544,3 +544,5 @@ scripts/.pids/
 deploy-frontend-s3.sh
 
 .playwright-mcp
+
+*.db

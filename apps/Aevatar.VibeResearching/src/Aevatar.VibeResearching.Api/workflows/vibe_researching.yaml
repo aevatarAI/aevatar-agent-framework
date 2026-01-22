@@ -1,0 +1,343 @@
+# ============================================================
+#  Vibe Researching Workflow (Multi-Agent)
+#
+#  Mirrors Vibe worker phase:
+#    planner → reasoner → librarian → verifier → dag_builder
+#  with optional DAG consensus + paper_editor.
+# ============================================================
+
+name: vibe_researching
+description: "Vibe worker pipeline (planner → reasoner → librarian → verifier → dag_builder → consensus → paper_editor)"
+
+inputs:
+  - name: question
+    type: string
+    required: true
+    description: "User question / research task"
+  - name: attachments
+    type: object
+    required: false
+    description: "Attachment path list (optional)"
+  - name: plan_context
+    type: string
+    default: "(no plan nodes yet)"
+  - name: dag_nodes
+    type: int
+    default: 0
+  - name: dag_edges
+    type: int
+    default: 0
+  - name: materials_context
+    type: string
+    default: ""
+  - name: librarian_axioms
+    type: object
+    required: false
+    description: "Parsed librarian axioms (optional)"
+  - name: planner_excerpt_chars
+    type: int
+    default: 3000
+  - name: reasoner_excerpt_chars
+    type: int
+    default: 3000
+  - name: worker_excerpt_chars
+    type: int
+    default: 2200
+  - name: dag_consensus_mode
+    type: string
+    default: "verifier-quorum"
+  - name: consensus_k
+    type: int
+    default: 3
+  - name: consensus_max_rounds
+    type: int
+    default: 5
+  - name: enable_paper_editor
+    type: bool
+    default: true
+  - name: outline_excerpt
+    type: string
+    default: ""
+  - name: draft_excerpt
+    type: string
+    default: ""
+
+defaults:
+  llm_call:
+    max_length: 40000
+    strict_parse: false
+    timeout_seconds: 600
+
+steps:
+  - id: planner
+    type: llm_call
+    agent: planner
+    prompt: |
+      Role: planner
+      Question: {{ question }}
+      {% if attachments and attachments.size > 0 %}
+
+      AttachmentPaths:
+      {% for p in attachments %}
+      - {{ p }}
+      {% endfor %}
+      {% endif %}
+
+      Plan:
+      {{ plan_context }}
+
+      DAG stats:
+      - nodes={{ dag_nodes }}, edges={{ dag_edges }}
+    output: text
+    store: planner
+
+  - id: reasoner
+    type: llm_call
+    agent: reasoner
+    prompt: |
+      Role: reasoner
+      Question: {{ question }}
+      {% if attachments and attachments.size > 0 %}
+
+      AttachmentPaths:
+      {% for p in attachments %}
+      - {{ p }}
+      {% endfor %}
+      {% endif %}
+
+      Plan:
+      {{ plan_context }}
+
+      DAG stats:
+      - nodes={{ dag_nodes }}, edges={{ dag_edges }}
+
+      Planner output (excerpt):
+      {{ planner | truncate: planner_excerpt_chars }}
+    output: text
+    store: reasoner
+
+  - id: librarian
+    type: llm_call
+    agent: librarian
+    prompt: |
+      Role: librarian
+      Question: {{ question }}
+      {% if attachments and attachments.size > 0 %}
+
+      AttachmentPaths:
+      {% for p in attachments %}
+      - {{ p }}
+      {% endfor %}
+      {% endif %}
+
+      Plan:
+      {{ plan_context }}
+
+      DAG stats:
+      - nodes={{ dag_nodes }}, edges={{ dag_edges }}
+    output: text
+    store: librarian
+
+  - id: verifier
+    type: llm_call
+    agent: verifier
+    prompt: |
+      Role: verifier
+      Question: {{ question }}
+      {% if attachments and attachments.size > 0 %}
+
+      AttachmentPaths:
+      {% for p in attachments %}
+      - {{ p }}
+      {% endfor %}
+      {% endif %}
+
+      Plan:
+      {{ plan_context }}
+
+      DAG stats:
+      - nodes={{ dag_nodes }}, edges={{ dag_edges }}
+
+      Reasoner output (excerpt):
+      {{ reasoner | truncate: reasoner_excerpt_chars }}
+    output: text
+    store: verifier
+
+  - id: dag_builder
+    type: llm_call
+    agent: dag_builder
+    prompt: |
+      You must output STRICT JSON ONLY.
+
+      Question: {{ question }}
+      {% if attachments and attachments.size > 0 %}
+
+      AttachmentPaths:
+      {% for p in attachments %}
+      - {{ p }}
+      {% endfor %}
+      {% endif %}
+
+      Plan:
+      {{ plan_context }}
+
+      Current DAG: nodes={{ dag_nodes }}, edges={{ dag_edges }}
+      {% if librarian_axioms and librarian_axioms.size > 0 %}
+
+      Librarian trusted axioms (include as AXIOM nodes when appropriate):
+      {{ librarian_axioms | json }}
+      {% endif %}
+
+      Worker outputs (excerpts):
+      [planner]
+      {{ planner | truncate: worker_excerpt_chars }}
+
+      [reasoner]
+      {{ reasoner | truncate: worker_excerpt_chars }}
+
+      [librarian]
+      {{ librarian | truncate: worker_excerpt_chars }}
+
+      [verifier]
+      {{ verifier | truncate: worker_excerpt_chars }}
+    output: text
+    store: dag_builder
+
+  - id: dag_consensus
+    type: conditional
+    condition: "{{ dag_consensus_mode == 'maker' }}"
+
+    if_true:
+      - id: maker_consensus
+        type: workflow_call
+        workflow: maker
+        params:
+          task: |
+            Decide whether to ACCEPT the DAG mutation candidate.
+            Output JSON ONLY with fields:
+            {
+              "accept": true/false,
+              "red_flags": ["..."],
+              "notes": "..."
+            }
+
+            CandidateMutation (JSON):
+            {{ dag_builder }}
+          context:
+            question: "{{ question }}"
+            plan_context: "{{ plan_context }}"
+            materials_context: "{{ materials_context }}"
+        store: maker_consensus_raw
+
+      - id: maker_consensus_parse
+        type: llm_call
+        output: json
+        strict_parse: true
+        prompt: |
+          Normalize the following content into JSON with:
+          {
+            "accept": true/false,
+            "red_flags": ["..."],
+            "notes": "..."
+          }
+
+          Content:
+          {{ maker_consensus_raw }}
+        store: dag_consensus
+
+    if_false:
+      - id: verifier_quorum
+        type: vote
+        k: "{{ consensus_k }}"
+        max_rounds: "{{ consensus_max_rounds }}"
+        generator:
+          type: llm_call
+          agent: verifier
+          output: json
+          strict_parse: true
+          prompt: |
+            You are voting on whether to ACCEPT a DAG mutation candidate.
+
+            Rules:
+            - Output STRICT JSON ONLY (no markdown, no code fences).
+            - If you see a HARD blocker, set accept=false and add it to red_flags.
+            - If only minor concerns, keep red_flags empty and explain in notes.
+
+            CandidateMutation (JSON):
+            {{ dag_builder }}
+
+            Current DAG stats:
+            - nodes={{ dag_nodes }}, edges={{ dag_edges }}
+            {% if materials_context %}
+
+            MaterialsContext:
+            {{ materials_context }}
+            {% endif %}
+
+            Response JSON:
+            {
+              "accept": true or false,
+              "red_flags": ["..."],
+              "notes": "..."
+            }
+        store: dag_consensus
+
+  - id: paper_editor_gate
+    type: conditional
+    condition: "{{ enable_paper_editor && dag_consensus.accept == true }}"
+
+    if_true:
+      - id: paper_editor
+        type: llm_call
+        agent: paper_editor
+        prompt: |
+          Question: {{ question }}
+          {% if attachments and attachments.size > 0 %}
+
+          AttachmentPaths:
+          {% for p in attachments %}
+          - {{ p }}
+          {% endfor %}
+          {% endif %}
+
+          Plan: (see DAG plan nodes)
+
+          DAG outcome:
+          {% if dag_consensus.accept == true %}
+          - accepted
+          {% else %}
+          - blocked
+          {% if dag_consensus.red_flags %}
+          redFlags: {{ dag_consensus.red_flags | json }}
+          {% endif %}
+          {% endif %}
+
+          Current paper outline (excerpt):
+          {{ outline_excerpt | truncate: 8000 }}
+
+          Current paper draft (excerpt):
+          {{ draft_excerpt | truncate: 12000 }}
+
+          Worker outputs (excerpts):
+          [planner]
+          {{ planner | truncate: worker_excerpt_chars }}
+
+          [reasoner]
+          {{ reasoner | truncate: worker_excerpt_chars }}
+
+          [librarian]
+          {{ librarian | truncate: worker_excerpt_chars }}
+
+          [verifier]
+          {{ verifier | truncate: worker_excerpt_chars }}
+        output: text
+        store: paper_editor
+
+output:
+  planner: "{{ planner }}"
+  reasoner: "{{ reasoner }}"
+  librarian: "{{ librarian }}"
+  verifier: "{{ verifier }}"
+  dag_builder: "{{ dag_builder }}"
+  dag_consensus: "{{ dag_consensus }}"
+  paper_editor: "{{ paper_editor | default: '' }}"

@@ -285,6 +285,7 @@ internal static partial class ResearchSessionsApi
             if (dagId.Length == 0)
             {
                 session.DagId = null;
+                await sessions.PersistSessionAsync(session, ct);
                 return Results.Json(new { ok = true, sessionId = session.Id, dagId = session.Id, mode = "per_session" });
             }
 
@@ -293,6 +294,7 @@ internal static partial class ResearchSessionsApi
             await Task.CompletedTask; // keep signature async
 
             session.DagId = dagId;
+            await sessions.PersistSessionAsync(session, ct);
             return Results.Json(new { ok = true, sessionId = session.Id, dagId, mode = "shared" });
         });
 

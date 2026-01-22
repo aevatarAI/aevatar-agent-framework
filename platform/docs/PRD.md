@@ -84,7 +84,7 @@
       }
     },
     "Agents": {
-      "DefaultWorkflow": "hermes",
+      "DefaultWorkflow": "agent_router",
       "ParallelLimit": 3
     },
     "Tools": {

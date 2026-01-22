@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Progress Hook Chat Demo</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="title">Progress Hook Chat Demo</div>
+        <div class="status" id="status">connecting…</div>
+      </header>
+
+      <main class="content">
+        <section class="chat">
+          <div class="session-panel">
+            <div class="panel-title">Sessions</div>
+            <div class="session-actions">
+              <button id="new-session">New Session</button>
+              <div class="current-session" id="current-session">session: -</div>
+            </div>
+            <div class="session-list" id="session-list"></div>
+            <div class="session-info">
+              <div class="session-info-title">Session Info</div>
+              <div class="session-info-body" id="session-info-body">-</div>
+            </div>
+            <div class="session-history">
+              <div class="session-info-title">State History</div>
+              <div class="session-history-body" id="session-history">-</div>
+            </div>
+          </div>
+          <div class="messages" id="messages"></div>
+          <form class="composer" id="composer">
+            <textarea id="input" rows="2" placeholder="Type a message…"></textarea>
+            <button type="submit">Send</button>
+          </form>
+        </section>
+
+        <aside class="progress">
+          <div class="panel-title">Progress (AG‑UI)</div>
+          <div class="events" id="events"></div>
+        </aside>
+      </main>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

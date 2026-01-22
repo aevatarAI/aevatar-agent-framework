@@ -181,6 +181,7 @@ public class CognitiveWorkerGAgent : CognitiveAIGAgentBase<CognitiveWorkerState>
 
         // Prepare per-step chat request (system prompt is passed via Context override).
         var chat = ChatRequest.Create(prompt);
+        ApplySessionContext(chat);
         if (!string.IsNullOrWhiteSpace(request.RequestId))
         {
             chat.RequestId = request.RequestId;

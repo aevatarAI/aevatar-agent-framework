@@ -102,6 +102,24 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
 
     protected override string AgentKind => "cognitive_coordinator";
 
+    // ============================================================
+    //  Tool policy (skills only)
+    //
+    //  中文 + ASCII:
+    //  - 保持 Cognitive 默认“不启用工具”的设计
+    //  - 仅为 Coordinator 开放 AgentSkills（用于 workflow/agent 编写等技能）
+    // ============================================================
+
+    public bool EnableSkillTools { get; set; } = true;
+
+    protected override async Task RegisterToolsAsync(CancellationToken cancellationToken = default)
+    {
+        if (!EnableSkillTools)
+            return;
+
+        await RegisterAgentSkillsToolsAsync(cancellationToken);
+    }
+
     protected override void AppendAgentHistoryMetadata(Dictionary<string, string> metadata)
     {
         metadata["execution_id"] = CustomState.ExecutionId ?? string.Empty;
@@ -482,7 +500,12 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
 
     private async Task<PrimitiveResult> ExecuteWorkflowCallAsync(StepDefinition step)
     {
-        var workflowName = step.Workflow ?? "";
+        var rawWorkflowName = step.Workflow ?? "";
+        var workflowName = _templateEngine.Render(rawWorkflowName, _workflowVariables).Trim();
+        if (string.IsNullOrWhiteSpace(workflowName))
+        {
+            return PrimitiveResult.Fail("Workflow name is empty");
+        }
         var workflow = _workflowRegistry.Get(workflowName);
 
         if (workflow == null)

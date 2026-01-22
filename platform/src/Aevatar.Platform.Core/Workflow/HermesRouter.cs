@@ -13,6 +13,14 @@ public sealed class HermesRouter
     private readonly RoleAgentRunner _runner;
     private static readonly IReadOnlyList<string> WorkflowExtensions = new[] { ".json", ".yaml", ".yml" };
     private static readonly IReadOnlyList<string> AgentExtensions = new[] { ".yaml", ".yml" };
+    private const string AgentCreatorWorkflowName = "agent_creator";
+    private const string AgentRouterWorkflowName = "agent_router";
+
+    private enum HermesRouteMode
+    {
+        Router,
+        Creator
+    }
 
     public HermesRouter(RoleAgentRunner runner)
     {
@@ -24,10 +32,13 @@ public sealed class HermesRouter
         var runId = $"run_{Guid.NewGuid():N}";
         try
         {
-        var available = ListWorkflowNames(input.ConfigDirectory);
-            var prompt = BuildHermesPrompt(input, available);
+            var mode = ResolveMode(input);
+            var available = ListWorkflowNames(input.ConfigDirectory);
+            var prompt = mode == HermesRouteMode.Creator
+                ? BuildHermesCreatorPrompt(input, available)
+                : BuildHermesRouterPrompt(input, available);
             var response = await _runner.RunAsync("hermes", prompt, input, _runner.BuildHermesOptions(), ct);
-            return await ProcessHermesResponseAsync(response, runId, input, ct);
+            return await ProcessHermesResponseAsync(response, runId, input, mode, ct);
         }
         catch (Exception ex)
         {
@@ -44,8 +55,11 @@ public sealed class HermesRouter
         var runId = $"run_{Guid.NewGuid():N}";
         try
         {
+            var mode = ResolveMode(input);
             var available = ListWorkflowNames(input.ConfigDirectory);
-            var prompt = BuildHermesPrompt(input, available);
+            var prompt = mode == HermesRouteMode.Creator
+                ? BuildHermesCreatorPrompt(input, available)
+                : BuildHermesRouterPrompt(input, available);
             var sb = new StringBuilder();
             await foreach (var chunk in _runner.RunStreamAsync("hermes", prompt, input, _runner.BuildHermesOptions(), ct))
             {
@@ -68,7 +82,7 @@ public sealed class HermesRouter
                 runId,
                 "H1");
             #endregion
-            return await ProcessHermesResponseAsync(response, runId, input, ct);
+            return await ProcessHermesResponseAsync(response, runId, input, mode, ct);
         }
         catch (Exception ex)
         {
@@ -80,6 +94,7 @@ public sealed class HermesRouter
         string response,
         string runId,
         WorkflowRunInput input,
+        HermesRouteMode mode,
         CancellationToken ct)
     {
             if (!TryParseDecision(response, out var decision, out var error))
@@ -106,17 +121,59 @@ public sealed class HermesRouter
             "H1");
         #endregion
 
-        var selectedRole = string.Empty;
-        if (IsAgentSelection((decision?.SelectedWorkflow ?? string.Empty).Trim(), out var role))
-            selectedRole = role;
-        var agentEnsure = EnsureAgentsFromDecision(decision!, input, runId, selectedRole);
-        if (!agentEnsure.Ok)
+        if (mode == HermesRouteMode.Router &&
+            TryBuildRouterRedirect(decision!, input, runId, out var redirect))
         {
-            var note = string.IsNullOrWhiteSpace(decision!.Message)
-                ? agentEnsure.Note
-                : $"{decision!.Message!.Trim()}\n\n{agentEnsure.Note}";
-            return new WorkflowRunResult(runId, false, note);
+            return redirect!;
+        }
+
+        if (mode == HermesRouteMode.Creator)
+        {
+            var selectedToken = (decision?.SelectedWorkflow ?? string.Empty).Trim();
+            if (selectedToken.Equals(AgentCreatorWorkflowName, StringComparison.OrdinalIgnoreCase))
+            {
+                return new WorkflowRunResult(
+                    runId,
+                    false,
+                    "agent_creator cannot select itself; please create or select a different workflow/agent.");
             }
+        }
+
+        AgentEnsureResult? agentEnsure = null;
+        if (mode == HermesRouteMode.Creator)
+        {
+            var action = (decision?.Action ?? string.Empty).Trim().ToLowerInvariant();
+            var selectedToken = (decision?.SelectedWorkflow ?? string.Empty).Trim();
+            var selectedRole = string.Empty;
+            if (action == "select")
+            {
+                if (IsAgentSelection(selectedToken, out var role))
+                {
+                    selectedRole = role;
+                }
+                else if (IsDirectSelection(selectedToken))
+                {
+                    var directRole = ResolveDirectRole(decision!, out var directError);
+                    if (directRole.Length == 0)
+                    {
+                        var note = string.IsNullOrWhiteSpace(decision!.Message)
+                            ? directError
+                            : $"{decision!.Message!.Trim()}\n\n{directError}";
+                        return new WorkflowRunResult(runId, false, note);
+                    }
+
+                    selectedRole = directRole;
+                }
+            }
+            agentEnsure = EnsureAgentsFromDecision(decision!, input, runId, selectedRole);
+            if (!agentEnsure.Ok)
+            {
+                var note = string.IsNullOrWhiteSpace(decision!.Message)
+                    ? agentEnsure.Note
+                    : $"{decision!.Message!.Trim()}\n\n{agentEnsure.Note}";
+                return new WorkflowRunResult(runId, false, note);
+            }
+        }
 
             var result = ApplyDecision(decision!, input);
             var header = string.IsNullOrWhiteSpace(decision!.Message)
@@ -128,7 +185,7 @@ public sealed class HermesRouter
         {
             header = BuildFallbackMessage(input.UserMessage);
         }
-        if (agentEnsure.Created.Count > 0)
+        if (agentEnsure is { Created.Count: > 0 })
         {
             var created = string.Join(", ", agentEnsure.Created);
             header = string.IsNullOrWhiteSpace(header)
@@ -169,9 +226,28 @@ public sealed class HermesRouter
         WorkflowRunInput input,
         IReadOnlyList<string> availableWorkflows)
     {
-        var workflows = availableWorkflows.Count == 0
+        return BuildHermesRouterPrompt(input, availableWorkflows);
+    }
+
+    private static HermesRouteMode ResolveMode(WorkflowRunInput input)
+    {
+        var name = (input.WorkflowName ?? string.Empty).Trim();
+        if (name.Equals(AgentCreatorWorkflowName, StringComparison.OrdinalIgnoreCase))
+            return HermesRouteMode.Creator;
+        return HermesRouteMode.Router;
+    }
+
+    private static string BuildHermesRouterPrompt(
+        WorkflowRunInput input,
+        IReadOnlyList<string> availableWorkflows)
+    {
+        var workflowNames = availableWorkflows?.ToList() ?? new List<string>();
+        EnsureToken(workflowNames, "direct");
+        EnsureToken(workflowNames, AgentCreatorWorkflowName);
+
+        var workflows = workflowNames.Count == 0
             ? "(none)"
-            : string.Join(", ", availableWorkflows);
+            : string.Join(", ", workflowNames);
 
         var attached = input.AttachedFiles.Count == 0
             ? "(none)"
@@ -182,7 +258,74 @@ public sealed class HermesRouter
 
         return $$"""
 You are Hermes, a workflow router.
-Your task: select an existing workflow from ~/.aevatar/workflows or create a new workflow + roles to satisfy the user's intent.
+Your task: select an existing workflow from ~/.aevatar/workflows or choose "direct" for a single-agent task.
+If no existing workflow/agent fits, set selected_workflow="{{AgentCreatorWorkflowName}}" to enter the creation pipeline.
+
+Context:
+- available_workflows: {{workflows}}
+- available_roles: {{roleText}}
+- working_directory: {{input.WorkingDirectory}}
+- global_agents_dir: {{Path.Combine(input.ConfigDirectory, "agents")}}
+- local_agents_dir: {{Path.Combine(input.WorkingDirectory, "aevatar", "agents")}}
+- attached_files: {{attached}}
+
+Tools:
+- file_read: read UTF-8 text within allowed roots.
+- file_write: write UTF-8 text within allowed roots. (DO NOT use in router mode)
+- mesh_normalize: validate + normalize workflow DSL content. (DO NOT use in router mode)
+
+Requirements:
+- Router mode MUST NOT create or overwrite any files.
+- Use file_read to inspect existing workflows/agents when needed.
+- If selecting, use action=select and set selected_workflow.
+- If the task is single-agent, use selected_workflow="direct" and include exactly ONE agent in agents[] (name=role).
+- Prefer "direct" for simple Q&A (e.g., time queries, translations, short explanations).
+- If no suitable workflow/agent exists, set selected_workflow="{{AgentCreatorWorkflowName}}".
+- If you must ask a clarifying question, set action="select", leave selected_workflow empty, and put the question in "message".
+- Role names must be ASCII (letters/digits/underscore). Do NOT use Chinese in role names.
+- Do NOT set selected_workflow to "agent:hermes" or "direct" with role=hermes.
+- Respond in Chinese in the "message" field.
+- Output JSON ONLY. No markdown, no extra text.
+
+JSON schema:
+{
+  "action": "select",
+  "selected_workflow": "workflow name | direct | {{AgentCreatorWorkflowName}} | agent:<role>",
+  "workflow": null,
+  "agents": [
+    { "name": "role_name", "content": "" }
+  ],
+  "message": "short response to user",
+  "reason": "short rationale"
+}
+
+User request:
+{{input.UserMessage}}
+""";
+    }
+
+    private static string BuildHermesCreatorPrompt(
+        WorkflowRunInput input,
+        IReadOnlyList<string> availableWorkflows)
+    {
+        var workflowNames = availableWorkflows?.ToList() ?? new List<string>();
+        EnsureToken(workflowNames, "direct");
+        EnsureToken(workflowNames, AgentRouterWorkflowName);
+
+        var workflows = workflowNames.Count == 0
+            ? "(none)"
+            : string.Join(", ", workflowNames);
+
+        var attached = input.AttachedFiles.Count == 0
+            ? "(none)"
+            : string.Join(", ", input.AttachedFiles);
+
+        var roles = ListRoleNames(input);
+        var roleText = roles.Count == 0 ? "(none)" : string.Join(", ", roles);
+
+        return $$"""
+You are Hermes, running in agent creation mode.
+Your task: design and create missing agent YAML and a workflow DSL to satisfy the user's intent.
 
 Context:
 - available_workflows: {{workflows}}
@@ -197,14 +340,19 @@ Tools:
 - file_write: write UTF-8 text within allowed roots.
 - mesh_normalize: validate + normalize workflow DSL content; returns canonical JSON/YAML or errors.
 
+Creation pipeline (strict order):
+1) Re-organize the user's request into a clear goal + constraints.
+2) Decide whether a single agent can handle it; if yes, set selected_workflow="direct" and create/ensure ONE agent YAML.
+3) If multi-step is required, draft agent YAMLs (missing roles only).
+4) Draft workflow DSL v0.1 (minimal 1-3 nodes).
+5) Call mesh_normalize with the workflow content and fix any errors until ok=true.
+6) Use file_write to write agent YAML(s) to ~/.aevatar/agents and workflow to ~/.aevatar/workflows.
+
 Requirements:
 - Use file_read to inspect existing workflows/agents when needed.
-- Use file_write to create new agent/workflow files under ~/.aevatar/agents and ~/.aevatar/workflows when action=create.
 - If selecting, use action=select and set selected_workflow.
 - If creating, use action=create and provide workflow + optional agents.
-- If the task is single-agent and no workflow is required, create/ensure the agent YAML and set selected_workflow to "agent:<role>" (do NOT create a workflow file).
-- Prefer "agent:<role>" for simple Q&A (e.g., time queries, translations, short explanations).
-- Use multi-agent workflow only when the user explicitly requests complex systems or multi-role collaboration.
+- If the task is single-agent, use selected_workflow="direct" and include exactly ONE agent in agents[] (name=role, content only if missing). Do NOT create a workflow file for "direct".
 - Workflow DSL v0.1 fields required: dsl_version, goal, strategy, budget, nodes, edges, constraints.
 - goal must be an object: { name: string, success_metric: string? } (NO string shorthand).
 - budget must be an object: { max_steps: int, token_limit: int } (NO string shorthand).
@@ -214,7 +362,7 @@ Requirements:
 - node.type must be one of: DivergentAgent, ConvergentAgent, WorkerAgent, CriticAgent, MetaAgent, or a role name (from YAML).
 - Allowed constraint types: confidence_threshold, max_iterations (otherwise keep constraints empty).
 - Role names must be ASCII (letters/digits/underscore). Do NOT use Chinese in role names.
-- Do NOT set selected_workflow to "agent:hermes".
+- Do NOT set selected_workflow to "agent:hermes" or "direct" with role=hermes.
 - Do NOT rely on params.instructions for behavior. Instead, create an agent YAML and set node.type to the role name.
 - Keep workflow minimal (1-3 nodes) unless clearly needed.
 - When action=create and workflow.content is present, ALWAYS call mesh_normalize and use its normalized output.
@@ -223,23 +371,10 @@ Requirements:
 - Respond in Chinese in the "message" field.
 - Output JSON ONLY. No markdown, no extra text.
 
-Example minimal JSON (role-based):
-{
-  "dsl_version": "0.1",
-  "goal": { "name": "greeting", "success_metric": "user greeted" },
-  "strategy": "cot",
-  "budget": { "max_steps": 3, "token_limit": 500 },
-  "nodes": [
-    { "id": "greeter", "type": "greeter" }
-  ],
-  "edges": [],
-  "constraints": []
-}
-
 JSON schema:
 {
   "action": "select" | "create",
-  "selected_workflow": "workflow name | agent:<role> | null",
+  "selected_workflow": "workflow name | direct | agent:<role> | null",
   "workflow": {
     "name": "workflow name",
     "format": "yaml" | "json",
@@ -255,6 +390,12 @@ JSON schema:
 User request:
 {{input.UserMessage}}
 """;
+    }
+
+    private static void EnsureToken(List<string> values, string token)
+    {
+        if (!values.Any(v => v.Equals(token, StringComparison.OrdinalIgnoreCase)))
+            values.Add(token);
     }
 
     private static bool TryParseDecision(
@@ -320,6 +461,30 @@ User request:
                     Ok: true,
                     Note: $"已选择角色：{role}",
                     SelectedWorkflow: $"agent:{role}");
+            }
+            if (IsDirectSelection(rawSelected))
+            {
+                var directRole = ResolveDirectRole(decision, out var directError);
+                if (directRole.Length == 0)
+                    return new WorkflowRunResult(runId, false, directError);
+
+                if (IsHermesRole(directRole))
+                {
+                    var note = string.IsNullOrWhiteSpace(decision.Message)
+                        ? BuildFallbackMessage(input.UserMessage)
+                        : decision.Message!.Trim();
+                    return new WorkflowRunResult(
+                        RunId: runId,
+                        Ok: true,
+                        Note: note,
+                        SelectedWorkflow: "hermes");
+                }
+
+                return new WorkflowRunResult(
+                    RunId: runId,
+                    Ok: true,
+                    Note: $"已选择 direct：{directRole}",
+                    SelectedWorkflow: $"agent:{directRole}");
             }
             var selected = NormalizeToken(rawSelected);
             if (selected.Length == 0)
@@ -875,8 +1040,202 @@ system_prompt: |
         return role.Length > 0;
     }
 
+    private static bool TryBuildRouterRedirect(
+        HermesDecision decision,
+        WorkflowRunInput input,
+        string runId,
+        out WorkflowRunResult? result)
+    {
+        result = null;
+
+        var action = (decision.Action ?? string.Empty).Trim().ToLowerInvariant();
+        if (action != "select")
+        {
+            result = BuildRouterRedirect(runId, input, decision, "router_mode_requires_select");
+            return true;
+        }
+
+        var selected = (decision.SelectedWorkflow ?? string.Empty).Trim();
+        if (IsDirectSelection(selected))
+        {
+            var role = ResolveDirectRole(decision, out var error);
+            if (role.Length == 0)
+            {
+                result = BuildRouterRedirect(runId, input, decision, error);
+                return true;
+            }
+
+            if (IsHermesRole(role))
+            {
+                result = BuildRouterRedirect(runId, input, decision, "direct_role_hermes_forbidden");
+                return true;
+            }
+
+            if (!RoleExists(role, input))
+            {
+                result = BuildRouterRedirect(runId, input, decision, $"role_missing:{role}");
+                return true;
+            }
+
+            return false;
+        }
+
+        if (IsAgentSelection(selected, out var agentRole))
+        {
+            if (IsHermesRole(agentRole))
+            {
+                result = BuildRouterRedirect(runId, input, decision, "agent_role_hermes_forbidden");
+                return true;
+            }
+
+            if (!RoleExists(agentRole, input))
+            {
+                result = BuildRouterRedirect(runId, input, decision, $"role_missing:{agentRole}");
+                return true;
+            }
+
+            return false;
+        }
+
+        var workflow = NormalizeToken(selected);
+        if (workflow.Length == 0)
+        {
+            if (!string.IsNullOrWhiteSpace(decision.Message))
+                return false;
+
+            result = BuildRouterRedirect(runId, input, decision, "selected_workflow_missing");
+            return true;
+        }
+
+        if (!WorkflowExists(workflow, input))
+        {
+            result = BuildRouterRedirect(runId, input, decision, $"workflow_missing:{workflow}");
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsDirectSelection(string token)
+        => token.Equals("direct", StringComparison.OrdinalIgnoreCase);
+
+    private static string ResolveDirectRole(HermesDecision decision, out string error)
+    {
+        error = string.Empty;
+
+        if (decision.Agents is not { Count: > 0 })
+        {
+            error = "direct requires exactly one agent role in agents[].";
+            return string.Empty;
+        }
+
+        var roles = decision.Agents
+            .Select(a => GlobalAgentYamlRegistry.NormalizeRoleKey(a?.Name))
+            .Where(r => r.Length > 0)
+            .ToList();
+
+        if (roles.Count == 0)
+        {
+            error = "direct requires a non-empty agent name in agents[].";
+            return string.Empty;
+        }
+
+        if (roles.Count == 1 && IsHermesRole(roles[0]))
+        {
+            error = "direct cannot use role 'hermes'.";
+            return string.Empty;
+        }
+
+        var normalized = roles
+            .Where(r => !IsHermesRole(r))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (normalized.Count == 0)
+        {
+            error = "direct requires a non-hermes agent role.";
+            return string.Empty;
+        }
+
+        if (normalized.Count > 1)
+        {
+            error = $"direct supports only one agent role (got: {string.Join(", ", normalized)}).";
+            return string.Empty;
+        }
+
+        return normalized[0];
+    }
+
     private static bool IsHermesRole(string role)
         => role.Equals("hermes", StringComparison.OrdinalIgnoreCase);
+
+    private static WorkflowRunResult BuildRouterRedirect(
+        string runId,
+        WorkflowRunInput input,
+        HermesDecision decision,
+        string reason)
+    {
+        if (!WorkflowExists(AgentCreatorWorkflowName, input))
+        {
+            return new WorkflowRunResult(
+                runId,
+                false,
+                $"workflow '{AgentCreatorWorkflowName}' not found; cannot switch. ({reason})");
+        }
+
+        var header = string.IsNullOrWhiteSpace(decision.Message)
+            ? "当前没有合适的 workflow/agent，已切换到创建流程。"
+            : decision.Message!.Trim();
+
+        var note = string.IsNullOrWhiteSpace(reason)
+            ? header
+            : $"{header}\n\n(原因: {reason})";
+
+        return new WorkflowRunResult(
+            RunId: runId,
+            Ok: true,
+            Note: note,
+            SelectedWorkflow: AgentCreatorWorkflowName);
+    }
+
+    private static bool RoleExists(string role, WorkflowRunInput input)
+    {
+        if (string.IsNullOrWhiteSpace(role))
+            return false;
+
+        var key = GlobalAgentYamlRegistry.NormalizeRoleKey(role);
+        if (key.Length == 0)
+            return false;
+
+        var localDir = Path.Combine(input.WorkingDirectory, "aevatar", "agents");
+        if (File.Exists(Path.Combine(localDir, $"{key}.yaml")) ||
+            File.Exists(Path.Combine(localDir, $"{key}.yml")))
+            return true;
+
+        var globalPath = AevatarConfigFileHelper.ResolveFilePath(
+            input.ConfigDirectory,
+            AevatarConfigDirectory.Agents,
+            key,
+            AgentExtensions);
+        return globalPath != null;
+    }
+
+    private static bool WorkflowExists(string workflow, WorkflowRunInput input)
+    {
+        if (string.IsNullOrWhiteSpace(workflow))
+            return false;
+
+        var key = NormalizeToken(workflow);
+        if (key.Length == 0)
+            return false;
+
+        var path = AevatarConfigFileHelper.ResolveFilePath(
+            input.ConfigDirectory,
+            AevatarConfigDirectory.Workflows,
+            key,
+            WorkflowExtensions);
+        return path != null;
+    }
 
     private static string BuildFallbackMessage(string? userMessage)
     {

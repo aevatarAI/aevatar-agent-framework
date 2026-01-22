@@ -10,11 +10,18 @@
         <ProjectReference Include="../../../../src/Aevatar.Agents.AGUI/Aevatar.Agents.AGUI.csproj" />
         <ProjectReference Include="../../../../src/Aevatar.Agents.AI/Aevatar.Agents.AI.csproj" />
         <ProjectReference Include="../../../../src/Aevatar.Agents.AI.Core/Aevatar.Agents.AI.Core.csproj" />
+        <ProjectReference Include="../../../../src/Aevatar.Agents.Sessions/Aevatar.Agents.Sessions.csproj" />
         <ProjectReference Include="../../../../src/Aevatar.Agents.Knowledge.Graph/Aevatar.Agents.Knowledge.Graph.csproj" />
         <ProjectReference Include="../../../../src/Aevatar.Agents.Persistence.InMemory.Graph/Aevatar.Agents.Persistence.InMemory.Graph.csproj" />
+        <ProjectReference Include="../../../../src/Aevatar.Agents.Persistence.MongoDB/Aevatar.Agents.Persistence.MongoDB.csproj" />
+        <ProjectReference Include="../../../../src/Aevatar.Agents.Persistence.MongoDB.GAgent/Aevatar.Agents.Persistence.MongoDB.GAgent.csproj" />
+        <ProjectReference Include="../../../../src/Aevatar.Agents.Persistence.SQLite/Aevatar.Agents.Persistence.SQLite.csproj" />
+        <ProjectReference Include="../../../../src/Aevatar.Agents.Persistence.SQLite.GAgent/Aevatar.Agents.Persistence.SQLite.GAgent.csproj" />
         <ProjectReference Include="../../../../src/Aevatar.Agents.Persistence.Neo4j.Graph/Aevatar.Agents.Persistence.Neo4j.Graph.csproj" />
         <ProjectReference Include="../../../../src/Aevatar.Agents.Runtime.Local/Aevatar.Agents.Runtime.Local.csproj" />
+        <ProjectReference Include="../../../../src/Aevatar.Agents.Cognitive/Aevatar.Agents.Cognitive.csproj" />
         <ProjectReference Include="../../../../src/Aevatar.Agents.Cognitive.Streaming/Aevatar.Agents.Cognitive.Streaming.csproj" />
+        <ProjectReference Include="../../../../src/Aevatar.Agents.Maker/Aevatar.Agents.Maker.csproj" />
         <ProjectReference Include="../../../../apps/Aevatar.CognitiveMesh/src/Aevatar.CognitiveMesh/Aevatar.CognitiveMesh.csproj" />
         <!-- Reference the existing CLI project to reuse ResearchAgent (or we can move Agent to shared lib, but linking file is easier for demo) -->
         <ProjectReference Include="../Aevatar.VibeResearching/Aevatar.VibeResearching.csproj" />
@@ -31,7 +38,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <None Include="../../../../src/Aevatar.Agents.Cognitive/workflows/maker.yaml" Link="workflows/maker.yaml">
+        <None Include="workflows/*.yaml">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </None>
     </ItemGroup>

@@ -25,6 +25,7 @@
     <Project Path="..\..\src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
     <Project Path="..\..\src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
     <Project Path="..\..\src\Aevatar.Agents.AGUI\Aevatar.Agents.AGUI.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Maker\Aevatar.Agents.Maker.csproj" />
     <Project Path="..\..\src\Aevatar.Agents.AI\Aevatar.Agents.AI.csproj" />
     <Project Path="..\..\src\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
     <Project Path="..\..\src\Aevatar.Agents.AI.MEAI\Aevatar.Agents.AI.MEAI.csproj" />
@@ -33,6 +34,13 @@
     <Project Path="..\..\src\Aevatar.Agents.Persistence.Neo4j.Graph\Aevatar.Agents.Persistence.Neo4j.Graph.csproj" />
     <Project Path="..\..\src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
     <Project Path="..\..\src\Aevatar.Agents.Cognitive.Streaming\Aevatar.Agents.Cognitive.Streaming.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Sessions\Aevatar.Agents.Sessions.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Persistence.InMemory.Graph\Aevatar.Agents.Persistence.InMemory.Graph.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Persistence.MongoDB\Aevatar.Agents.Persistence.MongoDB.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Persistence.MongoDB.GAgent\Aevatar.Agents.Persistence.MongoDB.GAgent.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Persistence.SQLite\Aevatar.Agents.Persistence.SQLite.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Persistence.SQLite.GAgent\Aevatar.Agents.Persistence.SQLite.GAgent.csproj" />
+    <Project Path="..\..\src\Aevatar.Agents.Persistence.Neo4j.Graph\Aevatar.Agents.Persistence.Neo4j.Graph.csproj" />
   </Folder>
 
   <Folder Name="/root/">

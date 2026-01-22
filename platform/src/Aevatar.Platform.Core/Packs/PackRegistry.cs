@@ -79,7 +79,7 @@ public sealed class PackRegistry
             {
                 ["coding"] = new ProfileDefinition(
                     Profile: "coding",
-                    DefaultWorkflow: "hermes",
+                    DefaultWorkflow: "agent_router",
                     DefaultRoles: new[] { "hermes", "coder", "reviewer", "tester", "debugger", "search", "docs", "judge" },
                     ToolPolicyPreset: "coding_default"),
                 ["vibe"] = new ProfileDefinition(

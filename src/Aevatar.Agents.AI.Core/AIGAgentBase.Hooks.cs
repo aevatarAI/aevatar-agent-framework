@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core.Hooks;
 using Aevatar.Agents.AI.Core.Hooks.BuiltIn;
@@ -36,6 +37,7 @@ public abstract partial class AIGAgentBase
     protected virtual IEnumerable<IAevatarAgentHook> CreateBuiltInHooks()
         => new IAevatarAgentHook[]
         {
+            new ExecutionTraceProgressHook((evt, ct) => PublishAsync(evt, EventDirection.Down, ct), Logger),
             new ToolOutputTruncationHook(),
             new ContextBudgetMonitorHook(Logger)
         };
@@ -77,11 +79,18 @@ public abstract partial class AIGAgentBase
 
     private AevatarAgentHookContext CreateHookContext(
         string requestId,
+        ChatRequest? chatRequest = null,
+        bool isStreaming = false,
+        AevatarAgentHookStopStatus? stopStatus = null,
+        TimeSpan? duration = null,
+        Exception? stopException = null,
+        string? stopReason = null,
         AevatarLLMRequest? llmRequest = null,
         AevatarLLMResponse? llmResponse = null,
         string? toolName = null,
         Dictionary<string, object>? toolArguments = null,
-        ToolExecutionResult? toolResult = null)
+        ToolExecutionResult? toolResult = null,
+        string? toolCallId = null)
     {
         var pipeline = GetHookPipeline();
         var policy = pipeline.CreatePolicySnapshot(AllowInternalTools, AllowDangerousTools);
@@ -92,12 +101,87 @@ public abstract partial class AIGAgentBase
             requestId: requestId,
             policy: policy)
         {
+            ChatRequest = chatRequest,
+            IsStreaming = isStreaming,
+            StopStatus = stopStatus,
+            StopReason = stopReason,
+            Duration = duration,
+            StopException = stopException,
             LlmRequest = llmRequest,
             LlmResponse = llmResponse,
             ToolName = toolName,
             ToolArguments = toolArguments,
-            ToolResult = toolResult
+            ToolResult = toolResult,
+            ToolCallId = toolCallId
         };
+    }
+
+    private static string BuildStopReason(AevatarAgentHookStopStatus status)
+    {
+        return status switch
+        {
+            AevatarAgentHookStopStatus.Completed => "completed",
+            AevatarAgentHookStopStatus.Aborted => "aborted",
+            AevatarAgentHookStopStatus.Error => "error",
+            _ => "unknown"
+        };
+    }
+
+    private async Task RunSessionStartHooksAsync(ChatRequest request, bool isStreaming, CancellationToken cancellationToken)
+    {
+        var pipeline = GetHookPipeline();
+        if (!pipeline.HasHooks)
+            return;
+
+        var ctx = CreateHookContext(
+            request.RequestId,
+            chatRequest: request,
+            isStreaming: isStreaming);
+        await pipeline.RunOnSessionStartAsync(ctx, cancellationToken);
+    }
+
+    private async Task RunStopHooksAsync(
+        ChatRequest request,
+        bool isStreaming,
+        AevatarAgentHookStopStatus status,
+        TimeSpan duration,
+        Exception? exception)
+    {
+        var pipeline = GetHookPipeline();
+        if (!pipeline.HasHooks)
+            return;
+
+        var ctx = CreateHookContext(
+            request.RequestId,
+            chatRequest: request,
+            isStreaming: isStreaming,
+            stopStatus: status,
+            duration: duration,
+            stopException: exception,
+            stopReason: BuildStopReason(status));
+        await pipeline.RunOnStopAsync(ctx, CancellationToken.None);
+    }
+
+    private async Task RunSessionEndHooksAsync(
+        ChatRequest request,
+        bool isStreaming,
+        AevatarAgentHookStopStatus status,
+        TimeSpan duration,
+        Exception? exception)
+    {
+        var pipeline = GetHookPipeline();
+        if (!pipeline.HasHooks)
+            return;
+
+        var ctx = CreateHookContext(
+            request.RequestId,
+            chatRequest: request,
+            isStreaming: isStreaming,
+            stopStatus: status,
+            duration: duration,
+            stopException: exception,
+            stopReason: BuildStopReason(status));
+        await pipeline.RunOnSessionEndAsync(ctx, CancellationToken.None);
     }
 
     protected async Task<AevatarLLMResponse> GenerateLLMWithHooksAsync(
@@ -250,11 +334,17 @@ public abstract partial class AIGAgentBase
         }
 
         var requestId = executionContext.GetSessionId?.Invoke() ?? Guid.NewGuid().ToString("N");
+        if (string.IsNullOrWhiteSpace(executionContext.ToolCallId))
+            executionContext.ToolCallId = Guid.NewGuid().ToString("N");
+        if (string.IsNullOrWhiteSpace(executionContext.ToolName))
+            executionContext.ToolName = toolName;
+
         var ctx = CreateHookContext(
             requestId,
             llmRequest: llmRequest,
             toolName: toolName,
-            toolArguments: args);
+            toolArguments: args,
+            toolCallId: executionContext.ToolCallId);
 
         await pipeline.RunBeforeToolExecuteAsync(ctx, cancellationToken);
 

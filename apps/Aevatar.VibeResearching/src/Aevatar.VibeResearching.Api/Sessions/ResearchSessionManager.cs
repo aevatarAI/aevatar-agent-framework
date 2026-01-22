@@ -1,29 +1,44 @@
 using System.Collections.Concurrent;
+using Aevatar.Agents.Abstractions.Persistence;
 using Aevatar.Agents.AGUI;
 using Aevatar.Agents.Cognitive.Streaming;
 using Aevatar.Agents.Core.Runtime;
+using Google.Protobuf.WellKnownTypes;
+using Microsoft.Extensions.Logging;
+using VibeResearching.Contracts.Sessions;
 
 namespace VibeResearching.Api.Sessions;
 
 // ============================================================
 //  ResearchSessionManager (MVP)
 //
-//  - In-memory session registry.
+//  - In-memory session registry + optional DB-backed index.
 //  - Each session owns an AG-UI event hub (SSE fan-out).
 //
 //  NOTE:
-//  - Sessions are ephemeral in this MVP.
-//  - Persistence can be added later, keep the protocol stable.
+//  - When a DB-backed IStateStore is configured, session list can be restored.
 // ============================================================
 
 public sealed class ResearchSessionManager
 {
     private readonly ConcurrentDictionary<string, ResearchSession> _sessions = new(StringComparer.Ordinal);
     private readonly SessionUiTraceRecorder _uiTrace;
+    private readonly IVibeSessionStore? _sessionStore;
+    private readonly IStateStore<VibeSessionIndex>? _indexStore;
+    private readonly ILogger<ResearchSessionManager>? _logger;
+    private readonly SemaphoreSlim _indexLock = new(1, 1);
+    private const string IndexKey = "vibe_researching_sessions_index";
 
-    public ResearchSessionManager(SessionUiTraceRecorder uiTrace)
+    public ResearchSessionManager(
+        SessionUiTraceRecorder uiTrace,
+        IVibeSessionStore? sessionStore = null,
+        IStateStore<VibeSessionIndex>? indexStore = null,
+        ILogger<ResearchSessionManager>? logger = null)
     {
         _uiTrace = uiTrace ?? throw new ArgumentNullException(nameof(uiTrace));
+        _sessionStore = sessionStore;
+        _indexStore = indexStore;
+        _logger = logger;
     }
 
     public IReadOnlyList<object> ListSessions()
@@ -41,9 +56,18 @@ public sealed class ResearchSessionManager
 
     public ResearchSession Create(string? providerName)
     {
+        return CreateAsync(providerName).GetAwaiter().GetResult();
+    }
+
+    public async Task<ResearchSession> CreateAsync(
+        string? providerName,
+        CancellationToken ct = default)
+    {
         // Use full GUID (N) to avoid collisions and match other File-SSoT ids.
         var id = Guid.NewGuid().ToString("N");
-        return GetOrCreate(id, providerName);
+        var session = GetOrCreate(id, providerName);
+        await PersistSessionAsync(session, ct);
+        return session;
     }
 
     public bool TryGet(string sessionId, out ResearchSession session)
@@ -58,6 +82,54 @@ public sealed class ResearchSessionManager
         return _sessions.TryGetValue(sessionId, out session!);
     }
 
+    public async Task LoadPersistedSessionsAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var records = await LoadPersistedRecordsAsync(ct);
+            if (records.Count == 0)
+                return;
+
+            foreach (var record in records)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (string.IsNullOrWhiteSpace(record.SessionId))
+                    continue;
+
+                var providerName = NormalizeOptional(record.ProviderName);
+                var dagId = NormalizeOptional(record.DagId);
+                var createdAt = TryReadTimestamp(record.CreatedAt);
+
+                GetOrCreate(record.SessionId, providerName, createdAt, dagId);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Failed to load persisted sessions index.");
+        }
+    }
+
+    public async Task PersistSessionAsync(ResearchSession session, CancellationToken ct = default)
+    {
+        try
+        {
+            if (_sessionStore != null)
+            {
+                await _sessionStore.SaveAsync(BuildRecord(session), ct);
+                return;
+            }
+
+            if (_indexStore != null)
+            {
+                await UpsertIndexEntryAsync(session, ct);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Failed to persist session index for {SessionId}", session.Id);
+        }
+    }
+
     /// <summary>
     /// Get an existing session or create a new in-memory session with the specified id.
     ///
@@ -66,7 +138,11 @@ public sealed class ResearchSessionManager
     /// - Tool calls may arrive after restart, or from UI that only persisted File-SSoT workspace.
     /// - We still want to allow edits (DAG/plan/mesh) for an existing sessionId.
     /// </summary>
-    public ResearchSession GetOrCreate(string sessionId, string? providerName = null)
+    public ResearchSession GetOrCreate(
+        string sessionId,
+        string? providerName = null,
+        DateTimeOffset? createdAt = null,
+        string? dagId = null)
     {
         sessionId = (sessionId ?? string.Empty).Trim();
         if (sessionId.Length == 0)
@@ -85,17 +161,114 @@ public sealed class ResearchSessionManager
         }
 
         var p = string.IsNullOrWhiteSpace(providerName) ? null : providerName.Trim();
+        var d = string.IsNullOrWhiteSpace(dagId) ? null : dagId.Trim();
 
-        return _sessions.GetOrAdd(normalized, id =>
+        var session = _sessions.GetOrAdd(normalized, id =>
         {
-            var s = new ResearchSession(id) { ProviderName = p };
+            var s = new ResearchSession(id, createdAt) { ProviderName = p, DagId = d };
             _uiTrace.Attach(s);
             return s;
         });
+
+        if (session.DagId == null && !string.IsNullOrWhiteSpace(d))
+            session.DagId = d;
+
+        return session;
+    }
+
+    private async Task<VibeSessionIndex> LoadIndexAsync(CancellationToken ct)
+    {
+        if (_indexStore == null)
+            return new VibeSessionIndex();
+
+        var loaded = await _indexStore.LoadAsync(IndexKey, ct);
+        return loaded ?? new VibeSessionIndex();
+    }
+
+    private async Task SaveIndexAsync(VibeSessionIndex index, CancellationToken ct)
+    {
+        if (_indexStore == null)
+            return;
+
+        await _indexStore.SaveAsync(IndexKey, index, ct);
+    }
+
+    private async Task UpsertIndexEntryAsync(ResearchSession session, CancellationToken ct)
+    {
+        await _indexLock.WaitAsync(ct);
+        try
+        {
+            var index = await LoadIndexAsync(ct);
+            var existing = index.Sessions
+                .FirstOrDefault(s => string.Equals(s.SessionId, session.Id, StringComparison.Ordinal));
+
+            if (existing == null)
+            {
+                index.Sessions.Add(BuildRecord(session));
+            }
+            else
+            {
+                var updated = BuildRecord(session);
+                existing.ProviderName = updated.ProviderName;
+                existing.DagId = updated.DagId;
+                existing.CreatedAt = updated.CreatedAt;
+                existing.UpdatedAt = updated.UpdatedAt;
+            }
+
+            await SaveIndexAsync(index, ct);
+        }
+        finally
+        {
+            _indexLock.Release();
+        }
+    }
+
+    private async Task<IReadOnlyList<VibeSessionRecord>> LoadPersistedRecordsAsync(CancellationToken ct)
+    {
+        if (_sessionStore != null)
+            return await _sessionStore.ListAsync(ct);
+
+        if (_indexStore == null)
+            return Array.Empty<VibeSessionRecord>();
+
+        var index = await LoadIndexAsync(ct);
+        return index.Sessions;
+    }
+
+    private static VibeSessionRecord BuildRecord(ResearchSession session)
+    {
+        return new VibeSessionRecord
+        {
+            SessionId = session.Id,
+            ProviderName = session.ProviderName ?? string.Empty,
+            DagId = session.DagId ?? string.Empty,
+            CreatedAt = Timestamp.FromDateTime(session.CreatedAt.UtcDateTime),
+            UpdatedAt = Timestamp.FromDateTime(DateTime.UtcNow)
+        };
+    }
+
+    private static DateTimeOffset? TryReadTimestamp(Timestamp ts)
+    {
+        if (ts == null || (ts.Seconds == 0 && ts.Nanos == 0))
+            return null;
+
+        try
+        {
+            return ts.ToDateTimeOffset();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? NormalizeOptional(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 }
 
-public sealed class ResearchSession(string id)
+public sealed class ResearchSession(string id, DateTimeOffset? createdAt = null)
 {
     private const string EventsHubName = "ResearchSession.Events";
     // ============================================================
@@ -110,7 +283,7 @@ public sealed class ResearchSession(string id)
     public const string GlobalDagId = "global";
 
     public string Id { get; } = id;
-    public DateTimeOffset CreatedAt { get; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset CreatedAt { get; } = createdAt ?? DateTimeOffset.UtcNow;
     public string? ProviderName { get; init; }
 
     // ------------------------------------------------------------

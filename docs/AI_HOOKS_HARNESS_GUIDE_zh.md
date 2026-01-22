@@ -40,6 +40,7 @@ Hook Harness = **一个确定性、best-effort 的 Hook Pipeline** + **一组默
 - **已接入 `AIGAgentBase` 的真实执行链路**
   - 文件：`src/Aevatar.Agents.AI.Core/AIGAgentBase.Hooks.cs`
   - 覆盖点：
+    - Session：OnSessionStart / OnStop / OnSessionEnd
     - LLM 调用：BeforeLLMRequest / AfterLLMResponse / OnError
     - Tool 执行：BeforeToolExecute / AfterToolExecute
     - Hook 可选“拒绝执行某个工具”（通过 `ctx.DenyTool(reason)`，纯收敛）
@@ -147,6 +148,15 @@ public sealed class DenyCertainToolsHook : IAevatarAgentHook
 
 // 宿主注册
 services.AddSingleton<IAevatarAgentHook, DenyCertainToolsHook>();
+```
+
+#### 2.5）外部脚本 hook（可选）
+
+用于复用 Cursor 风格的 stdio JSON hooks（仅 best-effort，默认不启用）：
+
+```csharp
+services.Configure<AevatarExternalHookOptions>(configuration.GetSection("Aevatar:AI:ExternalHooks"));
+services.AddSingleton<IAevatarAgentHook, ExternalProcessHook>();
 ```
 
 #### 3）在单元测试里验证 hook 行为（已经有现成用例）

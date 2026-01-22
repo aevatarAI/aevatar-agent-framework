@@ -37,7 +37,7 @@ public static class CognitiveAgUiEventStream
             IReadOnlyList<AgUiEvent> mapped;
             try
             {
-                mapped = AgUiExecutionTraceMapper.Map(evt);
+                mapped = AgUiTraceProjector.Map(evt);
             }
             catch
             {

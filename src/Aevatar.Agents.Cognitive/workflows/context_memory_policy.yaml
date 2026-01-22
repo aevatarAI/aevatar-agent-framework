@@ -1,0 +1,29 @@
+name: context_memory_policy
+description: Design short/working/long-term memory policies.
+
+inputs:
+  - name: task
+    type: string
+    required: true
+  - name: domain
+    type: string
+    default: ""
+  - name: constraints
+    type: string
+    default: ""
+
+steps:
+  - id: plan_memory
+    type: llm_call
+    agent: context_memory_planner
+    prompt: |
+      Task: {{task}}
+      Domain: {{domain}}
+      Constraints: {{constraints}}
+      Return JSON only.
+    output: json
+    strict_parse: true
+    store: policy
+
+output:
+  result: "{{ policy }}"

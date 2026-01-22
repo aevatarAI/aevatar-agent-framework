@@ -1,3 +1,4 @@
+using System.IO;
 using Aevatar.Agents.Cognitive.Engine;
 using Aevatar.Agents.Cognitive.Primitives;
 using Aevatar.Agents.Cognitive.Template;
@@ -19,6 +20,9 @@ public static class ServiceCollectionExtensions
     {
         var options = new CognitiveAgentOptions();
         configure?.Invoke(options);
+
+        if (string.IsNullOrWhiteSpace(options.WorkflowsDirectory))
+            options.WorkflowsDirectory = ResolveDefaultWorkflowsDirectory();
         
         // Register template engine
         services.AddSingleton<TemplateEngine>();
@@ -39,7 +43,8 @@ public static class ServiceCollectionExtensions
             }
             
             // Load workflows from directory
-            if (!string.IsNullOrEmpty(options.WorkflowsDirectory))
+            if (!string.IsNullOrWhiteSpace(options.WorkflowsDirectory) &&
+                Directory.Exists(options.WorkflowsDirectory))
             {
                 var parser = sp.GetRequiredService<WorkflowParser>();
                 foreach (var workflow in parser.ParseDirectory(options.WorkflowsDirectory))
@@ -87,6 +92,52 @@ public static class ServiceCollectionExtensions
                 ["result"] = "{{response}}"
             }
         });
+    }
+
+    private static string ResolveDefaultWorkflowsDirectory()
+    {
+        var configDir = ResolveAevatarConfigDirectory();
+        return Path.Combine(configDir, "workflows");
+    }
+
+    private static string ResolveAevatarConfigDirectory()
+    {
+        var fromEnv = (Environment.GetEnvironmentVariable("AEVATAR_CONFIG_DIR") ?? string.Empty).Trim();
+        if (fromEnv.Length > 0)
+            return ExpandHome(fromEnv);
+
+        var secretsDir = (Environment.GetEnvironmentVariable("AEVATAR_SECRETS_DIR") ?? string.Empty).Trim();
+        if (secretsDir.Length > 0)
+            return ExpandHome(secretsDir);
+
+        var secretsPath = (Environment.GetEnvironmentVariable("AEVATAR_SECRETS_PATH") ?? string.Empty).Trim();
+        if (secretsPath.Length > 0)
+            return Path.GetDirectoryName(ExpandHome(secretsPath)) ?? ExpandHome(secretsPath);
+
+        var legacySecrets = (Environment.GetEnvironmentVariable("AEVATAR_SECRETS") ?? string.Empty).Trim();
+        if (legacySecrets.Length > 0)
+            return Path.GetDirectoryName(ExpandHome(legacySecrets)) ?? ExpandHome(legacySecrets);
+
+        var configPath = (Environment.GetEnvironmentVariable("AEVATAR_CONFIG") ?? string.Empty).Trim();
+        if (configPath.Length > 0)
+            return Path.GetDirectoryName(ExpandHome(configPath)) ?? ExpandHome(configPath);
+
+        var configPath2 = (Environment.GetEnvironmentVariable("AEVATAR_CONFIG_PATH") ?? string.Empty).Trim();
+        if (configPath2.Length > 0)
+            return Path.GetDirectoryName(ExpandHome(configPath2)) ?? ExpandHome(configPath2);
+
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return Path.Combine(home, ".aevatar");
+    }
+
+    private static string ExpandHome(string path)
+    {
+        var p = (path ?? string.Empty).Trim().Replace('\\', '/');
+        if (!p.StartsWith("~/", StringComparison.Ordinal))
+            return path;
+
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return Path.Combine(home, p[2..]);
     }
 }
 

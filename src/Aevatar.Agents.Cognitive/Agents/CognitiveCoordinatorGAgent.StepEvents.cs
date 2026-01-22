@@ -138,14 +138,18 @@ public partial class CognitiveCoordinatorGAgent
         _onStepEvent?.Invoke(evt);
 
         // Publish unified ExecutionTraceEvent for external streaming (best-effort, no await).
-        var traceEvent = BuildExecutionTraceEvent(evt, resolvedMessage);
+        var traceEvent = BuildExecutionTraceEvent(evt, resolvedMessage, SessionId, Id);
         _ = PublishAsync(traceEvent);
 
         Logger.LogDebug("[Workflow] Step {StepId} ({Type}): {Status} - {Message}",
             step.Id, step.Type, status, resolvedMessage);
     }
 
-    private static ExecutionTraceEvent BuildExecutionTraceEvent(WorkflowStepEvent evt, string resolvedMessage)
+    private static ExecutionTraceEvent BuildExecutionTraceEvent(
+        WorkflowStepEvent evt,
+        string resolvedMessage,
+        string? sessionId,
+        string agentId)
     {
         var traceEvent = new ExecutionTraceEvent
         {
@@ -154,6 +158,18 @@ public partial class CognitiveCoordinatorGAgent
             Message = resolvedMessage,
             NodeId = evt.StepId ?? string.Empty
         };
+
+        if (!string.IsNullOrWhiteSpace(sessionId))
+        {
+            traceEvent.Fields[ExecutionTraceEventFields.SessionId] =
+                ExecutionTraceEventFieldValue.FromString(sessionId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(agentId))
+        {
+            traceEvent.Fields[ExecutionTraceEventFields.AgentId] =
+                ExecutionTraceEventFieldValue.FromString(agentId);
+        }
 
         traceEvent.Fields[ExecutionTraceEventFields.Status] =
             ExecutionTraceEventFieldValue.FromString(MapTraceStatus(evt.Status));
@@ -176,13 +192,13 @@ public partial class CognitiveCoordinatorGAgent
 
         if (evt.VoteMaxRounds > 0)
         {
-            traceEvent.Fields[ExecutionTraceEventFields.VoteRound] =
+            traceEvent.Fields[ExecutionTraceEventMakerFields.VoteRound] =
                 ExecutionTraceEventFieldValue.FromInt(evt.VoteRound);
-            traceEvent.Fields[ExecutionTraceEventFields.VoteMaxRounds] =
+            traceEvent.Fields[ExecutionTraceEventMakerFields.VoteMaxRounds] =
                 ExecutionTraceEventFieldValue.FromInt(evt.VoteMaxRounds);
-            traceEvent.Fields[ExecutionTraceEventFields.VoteK] =
+            traceEvent.Fields[ExecutionTraceEventMakerFields.VoteK] =
                 ExecutionTraceEventFieldValue.FromInt(evt.VoteK);
-            traceEvent.Fields[ExecutionTraceEventFields.VoteCurrentVotes] =
+            traceEvent.Fields[ExecutionTraceEventMakerFields.VoteCurrentVotes] =
                 ExecutionTraceEventFieldValue.FromInt(evt.VoteCurrentVotes);
         }
 
@@ -239,37 +255,37 @@ public partial class CognitiveCoordinatorGAgent
         {
             if (!string.IsNullOrWhiteSpace(evt.WinnerProposalId))
             {
-                traceEvent.Fields[ExecutionTraceEventFields.WinnerProposalId] =
+                traceEvent.Fields[ExecutionTraceEventMakerFields.WinnerProposalId] =
                     ExecutionTraceEventFieldValue.FromString(evt.WinnerProposalId);
             }
 
             if (!string.IsNullOrWhiteSpace(evt.WinnerHash))
             {
-                traceEvent.Fields[ExecutionTraceEventFields.WinnerHash] =
+                traceEvent.Fields[ExecutionTraceEventMakerFields.WinnerHash] =
                     ExecutionTraceEventFieldValue.FromString(evt.WinnerHash);
             }
 
             if (evt.WinnerVotes > 0)
             {
-                traceEvent.Fields[ExecutionTraceEventFields.WinnerVotes] =
+                traceEvent.Fields[ExecutionTraceEventMakerFields.WinnerVotes] =
                     ExecutionTraceEventFieldValue.FromInt(evt.WinnerVotes);
             }
 
             if (evt.WinnerRunnerUpVotes > 0)
             {
-                traceEvent.Fields[ExecutionTraceEventFields.WinnerRunnerUpVotes] =
+                traceEvent.Fields[ExecutionTraceEventMakerFields.WinnerRunnerUpVotes] =
                     ExecutionTraceEventFieldValue.FromInt(evt.WinnerRunnerUpVotes);
             }
 
             if (evt.WinnerClusterCount > 0)
             {
-                traceEvent.Fields[ExecutionTraceEventFields.WinnerClusterCount] =
+                traceEvent.Fields[ExecutionTraceEventMakerFields.WinnerClusterCount] =
                     ExecutionTraceEventFieldValue.FromInt(evt.WinnerClusterCount);
             }
 
-            traceEvent.Fields[ExecutionTraceEventFields.WinnerSemantic] =
+            traceEvent.Fields[ExecutionTraceEventMakerFields.WinnerSemantic] =
                 ExecutionTraceEventFieldValue.FromBool(evt.WinnerSemantic);
-            traceEvent.Fields[ExecutionTraceEventFields.WinnerIsConsensus] =
+            traceEvent.Fields[ExecutionTraceEventMakerFields.WinnerIsConsensus] =
                 ExecutionTraceEventFieldValue.FromBool(evt.WinnerIsConsensus);
         }
 

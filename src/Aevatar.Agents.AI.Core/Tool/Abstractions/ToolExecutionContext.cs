@@ -39,6 +39,16 @@ public class ToolExecutionContext
     /// Logger
     /// </summary>
     public ILogger? Logger { get; set; }
+
+    /// <summary>
+    /// Tool name (optional, populated by caller when available).
+    /// </summary>
+    public string? ToolName { get; set; }
+
+    /// <summary>
+    /// Tool call id (optional, used for progress correlation).
+    /// </summary>
+    public string? ToolCallId { get; set; }
     
     /// <summary>
     /// Additional context data

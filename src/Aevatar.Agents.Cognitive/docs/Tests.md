@@ -13,8 +13,8 @@
 | 运行时/生命周期 | 不适用 | N/A | — |
 | 事件/订阅/流 | 不适用 | N/A | — |
 | 序列化/Protobuf | 不适用 | N/A | — |
-| 持久化/存储 | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.Cognitive.Tests/HpaTests.cs` |
-| AI/LLM | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.Cognitive.Tests/HpaTests.cs` |
+| 持久化/存储 | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.Cognitive.Tests/WorkspaceReadFileExecutorTests.cs` |
+| AI/LLM | 适用 | ✅ 已覆盖（至少有相关测试） | `test/Aevatar.Agents.Cognitive.Tests/WorkflowCallAndAgentOverrideTests.cs` |
 | 工具调用 | 适用 | ⚠️ 未发现（可能存在间接覆盖或待补充） | — |
 | Hooks/观测 | 不适用 | N/A | — |
 | CQRS/EventSourcing | 不适用 | N/A | — |

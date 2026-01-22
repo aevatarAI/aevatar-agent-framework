@@ -63,7 +63,7 @@ Aevatar.AxiomReasoning/
     - 同时发送 `CUSTOM(name="aevatar.axiom.message_meta")`，把 system/user prompts 绑定到每条 messageId（Workers 卡片刷新后能补齐提示词）
   - `CUSTOM(name="aevatar.axiom.status_snapshot")`：当前 status/phase/progress/tokens/llm 统计
   - `STATE_SNAPSHOT`（可选）：从 `IGraphStore.GetSnapshotAsync` best-effort 构造 GraphEvent 并下发（让新订阅者立刻拿到图）
-  - `CUSTOM(name="aevatar.axiom.session")`：会话配置（workflow/budgets/hpa…）
+  - `CUSTOM(name="aevatar.axiom.session")`：会话配置（workflow/budgets/…）
   - `RUN_STARTED`：若 session 已在 Running
   - 之后进入 live stream（`SubscribeAsync(replay:false)`）
 - **标准事件**：
@@ -99,21 +99,15 @@ Aevatar.AxiomReasoning/
 - `language`: 生成内容语言（例：`English` / `Chinese`；不影响 JSON keys）
 - `maxDurationMinutes / maxLlmCalls / maxTokens`: 长跑预算
 - `continueOnFailure`: `proved=false` 时是否继续探索
-- `hpaEnabled`: 是否启用 HPA 透传（仅对支持 `hpa` 的 workflow 生效，例如 `hypothesis_promotion_loop_hpa`）
-- `hpaAlpha / hpaSeedPhase`: Θ 扫描参数（默认黄金 α=φ^{-1}）
-- `hpaBetaModel / hpaBeta0 / hpaBeta1 / hpaSeed`: embedding 参数（phase model + deterministic seed）
-- `hpaRadialWBase / hpaRadialWScale`: ρ（radial）参数
-- `minCoherence / maxGapNorm / maxAssociatorMean`: HPA gate 阈值（用于“是否进入验证/升级”）
 
 ### Workflow 透传方式
 
 - `AxiomReasoningService.BuildReasoningOptions` 将 `language / continue_on_failure` 放入 `ReasoningOptions.Context`
-- 当 `hpaEnabled=true` 时，会额外把 `hpa_*` 与 gate 阈值写入 `ReasoningOptions.Context`
 - `CognitiveStrategy` 会把 Context 变量注入 workflow 初始变量（`initialVariables`）
 - `hypothesis_promotion_loop.yaml` 声明了 `language` 输入，并在 prompt 中引用
 
 > NOTE: DAG 增量更新依赖 workflow 产生 `update_state`（LLM 回写 state）的 Completed 事件；  
-> HPL/HPA 类 workflow 通常用 `transform/hpa` 直接修改 state，默认不会触发 DAG 增量更新（可通过后续增强在结束时补一次 snapshot）。
+> 部分 workflow 会用 token-free 原语直接修改 state，默认不会触发 DAG 增量更新（可通过后续增强在结束时补一次 snapshot）。
 
 ## Graph DB（DAG）推理
 

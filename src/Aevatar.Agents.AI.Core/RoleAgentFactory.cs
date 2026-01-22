@@ -1,6 +1,8 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI.Abstractions;
+using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Core.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.AI.Core;
 
@@ -16,11 +18,22 @@ public sealed class RoleAgentFactory
 {
     private readonly IGAgentFactory _agentFactory;
     private readonly GlobalAgentYamlRegistry _registry;
+    private readonly IEventModuleFactory[] _moduleFactories;
+    private readonly IEventRouteEvaluator _routeEvaluator;
+    private readonly ILogger<RoleAgentFactory>? _logger;
 
-    public RoleAgentFactory(IGAgentFactory agentFactory, GlobalAgentYamlRegistry registry)
+    public RoleAgentFactory(
+        IGAgentFactory agentFactory,
+        GlobalAgentYamlRegistry registry,
+        IEnumerable<IEventModuleFactory>? moduleFactories = null,
+        IEventRouteEvaluator? routeEvaluator = null,
+        ILogger<RoleAgentFactory>? logger = null)
     {
         _agentFactory = agentFactory ?? throw new ArgumentNullException(nameof(agentFactory));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+        _moduleFactories = moduleFactories?.ToArray() ?? Array.Empty<IEventModuleFactory>();
+        _routeEvaluator = routeEvaluator ?? new DefaultEventRouteEvaluator();
+        _logger = logger;
     }
 
     public async Task<RoleAIGAgent> CreateAsync(string? role, CancellationToken ct = default)
@@ -35,6 +48,7 @@ public sealed class RoleAgentFactory
             // - 初始化前仅注入 prompt + tools/skills，模型参数留给 InitializeAsync 配置期或 ApplyYamlAsync。
             AgentYamlConfigApplier.ApplySystemPrompt(agent, yaml, role);
             await AgentYamlConfigApplier.ApplyToolsAndSkillsAsync(agent, yaml, ct);
+            ApplyEventModulesFromYaml(agent, yaml);
         }
 
         return agent;
@@ -55,6 +69,81 @@ public sealed class RoleAgentFactory
         ArgumentNullException.ThrowIfNull(agent);
         var yaml = _registry.TryLoad(role);
         await AgentYamlConfigApplier.ApplyAsync(agent, yaml, role, ct);
+        ApplyEventModulesFromYaml(agent, yaml);
+    }
+
+    private void ApplyEventModulesFromYaml(RoleAIGAgent agent, AgentYamlConfig? yaml)
+    {
+        if (agent == null || yaml == null || yaml.Extensions == null)
+            return;
+
+        if (!TryGetExtension(yaml.Extensions, "event_modules", out var moduleRaw))
+            return;
+
+        var moduleNames = SplitCsv(moduleRaw);
+        if (moduleNames.Length == 0)
+            return;
+
+        TryGetExtension(yaml.Extensions, "event_routes", out var routesRaw);
+        var routes = EventRoute.Parse(routesRaw, _logger);
+
+        var modules = new List<IEventModule>();
+        foreach (var name in moduleNames)
+        {
+            if (!TryCreateModule(name, out var module))
+            {
+                _logger?.LogWarning("[RoleAgentFactory] Unknown module '{Module}'", name);
+                continue;
+            }
+
+            if (routes.Length > 0 && module is not IRouteBypassModule)
+            {
+                modules.Add(new RoutedEventModule(module, routes, _routeEvaluator));
+            }
+            else
+            {
+                modules.Add(module);
+            }
+        }
+
+        if (modules.Count > 0)
+        {
+            agent.SetEventModules(modules);
+        }
+    }
+
+    private bool TryCreateModule(string name, out IEventModule module)
+    {
+        foreach (var factory in _moduleFactories)
+        {
+            if (factory.TryCreate(name, out module))
+                return true;
+        }
+
+        module = null!;
+        return false;
+    }
+
+    private static string[] SplitCsv(string raw)
+    {
+        return raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
+
+    private static bool TryGetExtension(
+        IReadOnlyDictionary<string, object> extensions,
+        string key,
+        out string value)
+    {
+        foreach (var (k, v) in extensions)
+        {
+            if (!string.Equals(k, key, StringComparison.OrdinalIgnoreCase))
+                continue;
+            value = v?.ToString() ?? string.Empty;
+            return true;
+        }
+
+        value = string.Empty;
+        return false;
     }
 }
 

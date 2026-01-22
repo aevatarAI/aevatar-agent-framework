@@ -75,7 +75,6 @@
 
 - `TransformExecutor`：0-token 聚合/归一化/统计/状态更新  
 - `RetrieveFactsExecutor`：Top-K 事实检索（lexical）  
-- `HpaExecutor`：HPA 计算（scan/embed/gap/associator/holonomy）  
 - `Workspace*Executor`：读文件/搜索/patch  
 - `SandboxCommandExecutor`：受限命令验证器
 
@@ -96,7 +95,7 @@
 
 ### 2.7 内置工作流
 
-位于 `workflows/`（例如 `direct.yaml` / `maker.yaml` / `ralph-loop.yaml` / `hypothesis_promotion_loop*.yaml` 等）。
+位于 `workflows/`（例如 `direct.yaml` / `maker.yaml` / `ralph-loop.yaml` / `hypothesis_promotion_loop.yaml` 等）。
 
 ---
 
@@ -113,7 +112,7 @@ Coordinator 执行步骤
    ├─ llm_call → Coordinator / Worker
    ├─ fan_out / parallel → Worker 并发
    ├─ vote → 多轮 LLM + 共识
-   └─ transform / retrieve_facts / hpa / workspace_* → Coordinator-only
+   └─ transform / retrieve_facts / workspace_* → Coordinator-only
 ```
 
 - 每步都会发 `WorkflowStepEvent`（用于 UI/trace）。
@@ -183,7 +182,7 @@ output:
   - 若值是字符串，会先走 `TemplateEngine.Evaluate(...)`
   - 支持 `int/long/double/string` 的宽松转换
 - `TemplateEngine.Render` 用于 `prompt/system/path` 等字符串模板
-- `PurePathTemplate`（`{{ a.b.c }}`）在部分原语中会直接解析为对象（如 HPA）
+- `PurePathTemplate`（`{{ a.b.c }}`）在部分原语中会直接解析为对象
 
 ### 4.4 YAML → Step 参数映射（节选）
 
@@ -216,7 +215,6 @@ output:
 | `assign` | Coordinator | 变量投影 | 支持 dotted path |
 | `transform` | Coordinator | 0-token 聚合 | 见 `docs/PRIMITIVES.md` |
 | `retrieve_facts` | Coordinator | 0-token 检索 | 默认 lexical |
-| `hpa` | Coordinator | 0-token 数学推理 | 依赖结构化字段 |
 | `workspace_read_file` | Coordinator | 安全读文件 | 受 `WorkspacePathGuard` 限制 |
 | `workspace_code_search` | Coordinator | 搜索 | 限制 max_results / context_lines |
 | `workspace_apply_patch` | Coordinator | 受限 patch | 只允许 create/replace/span |
@@ -351,14 +349,7 @@ output:
   - `mode`（仅支持 `lexical`）
 - 输出：`[{ id, statement, score }]`
 
-### 5.12 `hpa`
-
-- 参数：`ops`（list）
-- 支持 `scan_target/embed_node/embed_list/evidence_synthesize/associator_stats/gap_holonomy`
-- 默认黄金比例 `alpha=0.618...`
-- `{{ path }}` 形式可直接传递对象（非字符串渲染）
-
-### 5.13 `workspace_read_file`
+### 5.12 `workspace_read_file`
 
 - 参数：`path`、`max_chars`
 - `max_chars` 默认 16000，clamp `[1, 200000]`
@@ -366,7 +357,7 @@ output:
 - 输出：
   - `ok/path/content/truncated/total_chars/kept_chars/error`
 
-### 5.14 `workspace_code_search`
+### 5.13 `workspace_code_search`
 
 - 参数：`pattern`、`glob`、`file_type`、`max_results`、`context_lines`、`max_total_chars`
 - 默认值与上限：
@@ -376,7 +367,7 @@ output:
 - 优先使用 `rg`，失败则回退到 managed scan
 - 默认跳过目录：`.git/bin/obj/node_modules/.spec-workflow`
 
-### 5.15 `workspace_apply_patch`
+### 5.14 `workspace_apply_patch`
 
 - 参数：`patch` 或 `patches`
 - 支持 op：
@@ -387,7 +378,7 @@ output:
   - `MaxTextCharsPerPatch=120000`
 - 输出：`ok/files_changed/patches_applied/errors/error`
 
-### 5.16 `sandbox_command`
+### 5.15 `sandbox_command`
 
 - 参数：`command`、`args`、`working_dir`、`timeout_ms`、`max_output_chars`
 - 默认值与上限：

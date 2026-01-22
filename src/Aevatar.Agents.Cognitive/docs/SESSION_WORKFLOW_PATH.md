@@ -100,8 +100,9 @@ Workflow 的 step 参数里包含 `agent: <role>`，且该 step 在 **Coordinato
 1. `SessionApiEndpoints.cs` → `MapAevatarSessionApi` → `POST /api/sessions`
 2. `CognitiveSessionService.cs` → `StartSessionAsync`
 3. `CognitiveCoordinatorGAgent.Workflow.cs` → `HandleStartWorkflowRequest`
-4. `CognitiveCoordinatorGAgent.Workflow.cs` → `ExecuteWorkflowAsync`
+4. `Execution/WorkflowOrchestrator.cs` → `ExecuteAsync`
 5. `CognitiveCoordinatorGAgent.cs` → `ExecuteStepAsync`
+6. `Execution/CognitiveStepExecutor.cs` → `ExecuteAsync`
 6. `CognitiveCoordinatorGAgent.Llm.cs` → `ExecuteLlmCallDirectAsync`
 7. `CognitiveCoordinatorGAgent.Llm.cs` → `ResolveAgentOverride`
 8. `Utilities/AgentYamlResolver.cs` → `TryLoad`

@@ -1,5 +1,5 @@
-using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.Abstractions.Tracing;
+using Aevatar.Agents.Cognitive.Execution;
 using Aevatar.Agents.Cognitive.Messages;
 using Aevatar.Agents.Cognitive.Utilities;
 using Google.Protobuf.WellKnownTypes;
@@ -39,7 +39,6 @@ public partial class CognitiveCoordinatorGAgent
     /// <summary>
     /// Start workflow execution (Protobuf event)
     /// </summary>
-    [EventHandler]
     public async Task HandleStartWorkflowRequest(StartWorkflowRequestEvent request)
     {
         Logger.LogInformation("Coordinator {Id} starting workflow: {WorkflowName}",
@@ -138,48 +137,18 @@ public partial class CognitiveCoordinatorGAgent
 
     private async Task ExecuteWorkflowAsync(WorkflowDefinition workflow)
     {
-        Logger.LogInformation("[DEBUG][Workflow] Executing workflow '{Name}' with {Count} steps: [{Steps}]",
-            workflow.Name, workflow.Steps.Count, string.Join(", ", workflow.Steps.Select(s => s.Id)));
-
-        for (int stepIndex = 0; stepIndex < workflow.Steps.Count; stepIndex++)
-        {
-            var step = workflow.Steps[stepIndex];
-            Logger.LogInformation("[DEBUG][Workflow] >>> Executing step {Index}/{Total}: '{StepId}' (type={Type})",
-                stepIndex + 1, workflow.Steps.Count, step.Id, step.Type);
-
-            CustomState.CurrentPhase = $"Step: {step.Id}";
-            CustomState.CurrentStepId = step.Id;
-
-            var result = await ExecuteStepAsync(step);
-
-            if (!result.Success)
+        var orchestrator = new WorkflowOrchestrator(
+            logger: Logger,
+            variables: _workflowVariables,
+            executeStep: ExecuteStepAsync,
+            beforeStep: step =>
             {
-                throw new Exception($"Step '{step.Id}' failed: {result.Error}");
-            }
+                CustomState.CurrentPhase = $"Step: {step.Id}";
+                CustomState.CurrentStepId = step.Id;
+            },
+            buildOutput: BuildOutput);
 
-            // Store result
-            if (!string.IsNullOrEmpty(step.Store))
-            {
-                Logger.LogInformation(
-                    "[DEBUG][Workflow] Step '{StepId}' store='{Store}', result.Value is null: {IsNull}",
-                    step.Id, step.Store, result.Value == null);
-
-                if (result.Value != null)
-                {
-                    _workflowVariables[step.Store] = result.Value;
-                    Logger.LogInformation("[DEBUG][Workflow] Stored '{Store}' type: {Type}",
-                        step.Store, result.Value.GetType().FullName);
-                }
-                else
-                {
-                    Logger.LogWarning("[DEBUG][Workflow] ⚠️ Step '{StepId}' returned null, NOT storing to '{Store}'",
-                        step.Id, step.Store);
-                }
-            }
-        }
-
-        // Build output
-        _workflowVariables["_output"] = BuildOutput(workflow.Output);
+        await orchestrator.ExecuteAsync(workflow);
     }
 
     private async Task FailExecutionAsync(string error)
@@ -224,6 +193,7 @@ public partial class CognitiveCoordinatorGAgent
                 executionId = Id;
             }
 
+            SyncStatsSnapshot();
             ExecutionTrace trace;
             var stepEvents = GetStepEvents();
             if (stepEvents.Count > 0)

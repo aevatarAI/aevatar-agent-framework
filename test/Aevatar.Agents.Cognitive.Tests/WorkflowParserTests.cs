@@ -52,26 +52,6 @@ public class WorkflowParserTests
     }
 
     [Fact]
-    public void Parse_ShouldLoadHypothesisPromotionLoopHpaWorkflow()
-    {
-        var parser = new WorkflowParser();
-        var wf = parser.ParseFile(Path.Combine(
-            RepoRoot(),
-            "src",
-            "Aevatar.Agents.Cognitive",
-            "workflows",
-            "hypothesis_promotion_loop_hpa.yaml"));
-
-        wf.Name.ShouldBe("hypothesis_promotion_loop_hpa");
-        wf.Steps.Count.ShouldBeGreaterThan(0);
-
-        var hpa = wf.Steps.Single(s => s.Id == "hpa_prepare");
-        hpa.Type.ShouldBe("hpa");
-
-        hpa.Parameters.ContainsKey("ops").ShouldBeTrue();
-    }
-
-    [Fact]
     public void Parse_ShouldSupportDefaultsInMaker()
     {
         var parser = new WorkflowParser();

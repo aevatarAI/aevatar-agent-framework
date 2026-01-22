@@ -21,7 +21,7 @@ public partial class CognitiveCoordinatorGAgent
     private WorkspaceApplyPatchExecutor? _workspaceApplyPatchExecutor;
     private SandboxCommandExecutor? _sandboxCommandExecutor;
 
-    private Task<PrimitiveResult> ExecuteWorkspaceReadFileAsync(StepDefinition step)
+    internal Task<PrimitiveResult> ExecuteWorkspaceReadFileAsync(StepDefinition step)
     {
         if (!WorkspacePathGuard.TryGetWorkspaceRoot(out var root, out var rootError))
             return Task.FromResult(PrimitiveResult.Fail(rootError!));
@@ -31,7 +31,7 @@ public partial class CognitiveCoordinatorGAgent
         return Task.FromResult(result);
     }
 
-    private Task<PrimitiveResult> ExecuteWorkspaceCodeSearchAsync(StepDefinition step)
+    internal Task<PrimitiveResult> ExecuteWorkspaceCodeSearchAsync(StepDefinition step)
     {
         if (!WorkspacePathGuard.TryGetWorkspaceRoot(out var root, out var rootError))
             return Task.FromResult(PrimitiveResult.Fail(rootError!));
@@ -41,7 +41,7 @@ public partial class CognitiveCoordinatorGAgent
         return Task.FromResult(result);
     }
 
-    private Task<PrimitiveResult> ExecuteWorkspaceApplyPatchAsync(StepDefinition step)
+    internal Task<PrimitiveResult> ExecuteWorkspaceApplyPatchAsync(StepDefinition step)
     {
         if (!WorkspacePathGuard.TryGetWorkspaceRoot(out var root, out var rootError))
             return Task.FromResult(PrimitiveResult.Fail(rootError!));
@@ -51,7 +51,7 @@ public partial class CognitiveCoordinatorGAgent
         return Task.FromResult(result);
     }
 
-    private Task<PrimitiveResult> ExecuteSandboxCommandAsync(StepDefinition step)
+    internal Task<PrimitiveResult> ExecuteSandboxCommandAsync(StepDefinition step)
     {
         if (!WorkspacePathGuard.TryGetWorkspaceRoot(out var root, out var rootError))
             return Task.FromResult(PrimitiveResult.Fail(rootError!));

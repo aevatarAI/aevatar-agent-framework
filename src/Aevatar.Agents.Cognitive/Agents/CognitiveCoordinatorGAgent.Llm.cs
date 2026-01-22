@@ -26,7 +26,7 @@ public partial class CognitiveCoordinatorGAgent
     //  Simple Steps - Coordinator executes directly
     // ============================================================
 
-    private async Task<PrimitiveResult> ExecuteLlmCallDirectAsync(
+    internal async Task<PrimitiveResult> ExecuteLlmCallDirectAsync(
         StepDefinition step,
         string? preRenderedPrompt = null,
         string? preRenderedSystem = null)
@@ -267,11 +267,7 @@ public partial class CognitiveCoordinatorGAgent
                 }
             }
 
-            lock (_statsLock)
-            {
-                CustomState.TotalTokensUsed += promptTokens + completionTokens;
-                CustomState.TotalLlmCalls++;
-            }
+            AddStats(promptTokens + completionTokens, 1);
 
             if (output.Length > maxLength)
             {

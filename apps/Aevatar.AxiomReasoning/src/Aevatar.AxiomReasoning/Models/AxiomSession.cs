@@ -35,27 +35,6 @@ public sealed class AxiomSession
     public string Workflow { get; set; } = "hypothesis_promotion_loop";
     public string Language { get; set; } = "English";
 
-    // HPA (Holographic Polar Arithmetic) 配置
-    // NOTE:
-    // - 仅用于本服务与 DSL 变量透传，不跨 Actor/Runtime 边界
-    // - 默认关闭，避免影响非 HPA workflow
-    public bool HpaEnabled { get; set; } = false;
-    public double HpaAlpha { get; set; } = 0.6180339887498949; // φ^{-1}
-    public double HpaSeedPhase { get; set; } = 0.0;
-    public string HpaBetaModel { get; set; } = "random_prime_phase"; // log_phase | omega_phase | random_prime_phase
-    public double HpaBeta0 { get; set; } = 4.0;   // for log_phase
-    public double HpaBeta1 { get; set; } = 2.0;   // for omega_phase
-    public int HpaSeed { get; set; } = 0;         // deterministic hash seed
-    public double HpaRadialWBase { get; set; } = 0.12;
-    public double HpaRadialWScale { get; set; } = 0.38;
-
-    // HPA gate thresholds (workflow 侧可覆盖)
-    // NOTE:
-    // - 默认阈值偏“探索友好”：先让系统更容易进入验证/晋升，形成可增长的 theorem 基座
-    public double MinCoherence { get; set; } = 0.55;
-    public double MaxGapNorm { get; set; } = 0.65;
-    public double MaxAssociatorMean { get; set; } = 1.5;
-
     // 共识参数
     public int K { get; set; } = 3;
     public int MaxRounds { get; set; } = 10;

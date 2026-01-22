@@ -237,7 +237,7 @@ public sealed class AxiomReasoningEventBridge
 
         // Graph snapshot policy:
         // - Historically we only extracted graph from "update_state" (axiom_theorem_loop).
-        // - HPL/HPA workflows evolve `state` via deterministic transform/hpa, so the earliest full snapshot
+        // - Some workflows evolve `state` via deterministic steps, so the earliest full snapshot
         //   is usually `init_state` (or any llm_call that returns {axioms:[..], theorems:[..]} / {state:{..}}).
         // - Therefore: try best-effort extraction from ANY llm_call output that contains axioms/theorems.
 

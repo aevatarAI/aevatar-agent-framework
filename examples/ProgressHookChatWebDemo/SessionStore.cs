@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Linq;
 using System.Text.Json;
 using Aevatar.Agents;
 using Aevatar.Agents.AGUI;
@@ -26,17 +27,20 @@ public sealed class SessionStore
     private readonly LLMProvidersConfig _llmProviders;
     private readonly IMemoryStore? _memoryStore;
     private readonly IStateStore<AevatarAIAgentState>? _stateStore;
+    private readonly RoleAgentFactory? _roleAgentFactory;
 
     public SessionStore(
         IOptions<DemoOptions> options,
         IGAgentFactory agentFactory,
         IOptions<LLMProvidersConfig> llmProviders,
+        RoleAgentFactory? roleAgentFactory = null,
         IMemoryStore? memoryStore = null,
         IStateStore<AevatarAIAgentState>? stateStore = null)
     {
         _options = options.Value ?? new DemoOptions();
         _agentFactory = agentFactory;
         _llmProviders = llmProviders.Value ?? new LLMProvidersConfig();
+        _roleAgentFactory = roleAgentFactory;
         _memoryStore = memoryStore;
         _stateStore = stateStore;
     }
@@ -48,7 +52,7 @@ public sealed class SessionStore
 
         return _sessions.GetOrAdd(
             sessionId,
-            id => new SessionEntry(id, _options, _agentFactory, _llmProviders, _memoryStore));
+            id => new SessionEntry(id, _options, _agentFactory, _llmProviders, _roleAgentFactory, _memoryStore));
     }
 
     public async Task<IReadOnlyList<AevatarChatMessage>> GetStateHistoryAsync(
@@ -115,11 +119,12 @@ public sealed class SessionStore
         }
 
         private readonly LocalMessageStreamRegistry _registry = new();
-        private readonly ProgressChatAgent _agent;
+        private readonly RoleAIGAgent _agent;
         private readonly LocalGAgentActor _actor;
         private readonly IMemoryStore? _memoryStore;
         private readonly IMessageStream _traceStream;
         private readonly AgUiTraceProjectorOptions _projectorOptions;
+        private readonly RoleAgentFactory? _roleAgentFactory;
         private bool _initialized;
 
         private readonly BroadcastEventHub<AgUiEvent> _events = new(
@@ -135,12 +140,14 @@ public sealed class SessionStore
             DemoOptions options,
             IGAgentFactory agentFactory,
             LLMProvidersConfig llmProviders,
+            RoleAgentFactory? roleAgentFactory,
             IMemoryStore? memoryStore)
         {
             SessionId = sessionId;
             CreatedAt = DateTimeOffset.UtcNow;
             _updatedAt = CreatedAt;
-            _agent = agentFactory.CreateGAgent<ProgressChatAgent>(sessionId);
+            _agent = agentFactory.CreateGAgent<RoleAIGAgent>(sessionId);
+            _roleAgentFactory = roleAgentFactory;
             _agent.EnableChatHistoryInState = true;
             _agent.EnableChatHistoryCompaction = false;
             _agent.ChatHistoryMaxMessages = Math.Max(1, options.MaxSnapshotMessages);
@@ -429,18 +436,43 @@ public sealed class SessionStore
 
             try
             {
-                _agent.SystemPrompt = options.SystemPrompt;
+                var role = (options.AgentRole ?? string.Empty).Trim();
+                if (options.EnableAgentYaml && role.Length > 0)
+                {
+                    _agent.InitializeRole(role);
+                    _roleAgentFactory?.ApplyYamlAsync(_agent, role).GetAwaiter().GetResult();
+                }
+
+                if (string.IsNullOrWhiteSpace(_agent.SystemPrompt))
+                {
+                    _agent.SystemPrompt = options.SystemPrompt;
+                }
+
+                var yamlConfig = options.EnableAgentYaml
+                    ? _roleAgentFactory?.BuildYamlConfigAction(role)
+                    : null;
                 _agent.InitializeAsync(
                         providerName,
                         config =>
                         {
                             config.Temperature = options.Temperature;
                             config.MaxOutputTokens = options.MaxOutputTokens;
+                            yamlConfig?.Invoke(config);
                         })
                     .GetAwaiter()
                     .GetResult();
 
-                PublishSystemMessage($"LLM 已启用：provider='{providerName}'（progress hook 已接入）");
+                var moduleNames = _agent.GetEventModules()
+                    .Select(m => m.Name)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(m => m, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                var moduleInfo = moduleNames.Count == 0
+                    ? "no agent.yaml modules"
+                    : $"agent.yaml modules: [{string.Join(", ", moduleNames)}]";
+
+                PublishSystemMessage($"LLM 已启用：provider='{providerName}'（progress hook 已接入；{moduleInfo}）");
             }
             catch (Exception ex)
             {

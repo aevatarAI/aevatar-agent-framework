@@ -1,28 +1,30 @@
 import { cva } from "class-variance-authority"
 
 // ============================================================
-//  Button Variants - Cyberpunk + Quantum Style
-//  Based on ui-ux-pro-max Cyberpunk UI guidelines
+//  Button Variants - Nebula Warm Theme
+//  High contrast, warm accents for better readability
 // ============================================================
 
 export const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-semibold transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-quantum-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-quantum-dark disabled:pointer-events-none disabled:opacity-50 cursor-pointer font-hud uppercase tracking-wider",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-semibold transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 cursor-pointer",
   {
     variants: {
       variant: {
         default:
-          "bg-quantum-cyan text-quantum-dark hover:bg-quantum-cyan/90 shadow-glow-sm-cyan",
+          "bg-neon-cyan text-background hover:bg-neon-sky shadow-glow-cyan",
         destructive:
-          "bg-ai-error text-white hover:bg-ai-error/90 shadow-[0_0_10px_rgba(239,68,68,0.3)]",
+          "bg-neon-red text-white hover:bg-neon-red/90 shadow-glow-red",
         outline:
-          "border border-quantum-cyan/50 bg-transparent text-quantum-cyan hover:bg-quantum-cyan/10 hover:border-quantum-cyan",
+          "border border-neon-cyan bg-transparent text-neon-cyan hover:bg-neon-cyan/10",
         secondary:
-          "bg-quantum-panel text-[var(--text-secondary)] hover:bg-quantum-elevated border border-[var(--border-default)] hover:border-quantum-cyan/30",
+          "bg-surface text-text-secondary hover:bg-surface-elevated border border-border hover:border-border-strong hover:text-text-primary",
         ghost:
-          "text-[var(--text-muted)] hover:text-quantum-cyan hover:bg-quantum-cyan/10",
-        link: "text-quantum-cyan underline-offset-4 hover:underline",
-        neon:
-          "bg-transparent border border-quantum-magenta text-quantum-magenta hover:bg-quantum-magenta/10 shadow-glow-magenta",
+          "text-text-secondary hover:text-text-primary hover:bg-surface-elevated",
+        link: "text-neon-cyan underline-offset-4 hover:underline",
+        warning:
+          "bg-neon-gold text-background hover:bg-neon-amber shadow-glow-gold",
+        success:
+          "bg-neon-green text-background hover:bg-neon-green/90 shadow-glow-green",
       },
       size: {
         default: "h-10 px-4 py-2",

@@ -31,7 +31,7 @@ const transformDagData = (rawData: unknown): DAGGraph | null => {
 };
 
 const App: React.FC = () => {
-  const { currentSessionId, isConnected, setSessions, setCurrentSession, resetForNewSession, setDag, updateWorker, restoreMilestoneForSession } = useSisyphusStore();
+  const { currentSessionId, isConnected, setSessions, setCurrentSession, resetForNewSession, setDag, updateWorker, restoreMilestoneForSession, setActiveMilestoneNodeId } = useSisyphusStore();
   
   // Resizable panel state
   const [leftPanelWidth, setLeftPanelWidth] = useState(DEFAULT_LEFT_WIDTH);
@@ -187,6 +187,16 @@ const App: React.FC = () => {
         const dagData = transformDagData(rawDag);
         if (dagData) {
           setDag(dagData);
+          
+          // Detect active milestone from DAG nodes (planStatus === 'Active')
+          // This ensures milestone is set even after page refresh
+          const activeNode = dagData.nodes.find(
+            (n: { planStatus?: string }) => n.planStatus === 'Active'
+          );
+          if (activeNode) {
+            console.log('[App] Detected active milestone from DAG:', activeNode.id);
+            setActiveMilestoneNodeId(activeNode.id, sessionId);
+          }
         }
       }
 
@@ -216,25 +226,28 @@ const App: React.FC = () => {
       }
       console.warn('[App] Failed to load session data:', err);
     }
-  }, [currentSessionId, resetForNewSession, setCurrentSession, setDag, updateWorker, restoreMilestoneForSession]);
+  }, [currentSessionId, resetForNewSession, setCurrentSession, setDag, updateWorker, restoreMilestoneForSession, setActiveMilestoneNodeId]);
 
   // Create session handler - creates new session and switches to it
   const handleCreateSession = useCallback(async () => {
     try {
       const result = await createSession();
       if (result.ok && result.sessionId) {
-        // Refresh sessions list
-        const data = await listSessions();
-        const mapped = data.map((s: AxiomSession) => ({
-          id: s.sessionId,  // Use sessionId from backend
-          status: (s.status as "pending" | "running" | "completed" | "failed") || "pending",
-          phase: s.phase || "",
-          progressPercent: s.progressPercent || 0,
-          totalTokens: s.totalTokens || 0,
-          totalLlmCalls: s.totalLlmCalls || 0,
-          createdAt: s.createdAt || "",
-        }));
-        setSessions(mapped);
+        // Optimistic update: prepend new session to list immediately
+        // This avoids cache hit issues from listSessions() returning stale data
+        const newSession = {
+          id: result.sessionId,
+          status: "pending" as const,
+          phase: "",
+          progressPercent: 0,
+          totalTokens: 0,
+          totalLlmCalls: 0,
+          createdAt: new Date().toISOString(),
+        };
+        
+        // Get current sessions and prepend the new one
+        const currentSessions = useSisyphusStore.getState().sessions;
+        setSessions([newSession, ...currentSessions]);
 
         // Reset state and connect to new session
         resetForNewSession();
@@ -376,7 +389,8 @@ const App: React.FC = () => {
                   className="h-full overflow-hidden py-4 pl-1 pr-4 transition-all duration-300"
                   style={{ width: `${100 - leftPanelWidth}%` }}
                 >
-                  <WorkflowTopology sessionId={currentSessionId} fullHeight />
+                  {/* key forces complete remount on session change, avoiding stale state issues */}
+                  <WorkflowTopology key={currentSessionId} sessionId={currentSessionId} fullHeight />
                 </div>
               )}
             </>

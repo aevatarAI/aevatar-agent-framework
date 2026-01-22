@@ -45,10 +45,10 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
 
   return (
     <DialogContext.Provider value={{ onClose }}>
-      <div className="fixed inset-0 z-50">
+      <div className="fixed inset-0 z-[10000]">
         {/* Backdrop */}
         <div 
-          className="fixed inset-0 bg-bg-void/80 backdrop-blur-sm animate-fade-in"
+          className="fixed inset-0 bg-background/90 backdrop-blur-sm animate-fade-in"
           onClick={onClose}
         />
         {/* Content wrapper */}
@@ -71,8 +71,8 @@ export function DialogContent({ children, className }: DialogContentProps) {
   return (
     <div className={cn(
       "relative flex flex-col max-h-[85vh] rounded-xl",
-      "bg-bg-surface border border-border-default",
-      "shadow-2xl shadow-neon-cyan/10",
+      "bg-surface border border-border-strong",
+      "shadow-2xl shadow-black/50",
       className
     )}>
       {children}
@@ -88,7 +88,7 @@ interface DialogHeaderProps {
 export function DialogHeader({ children, className }: DialogHeaderProps) {
   return (
     <div className={cn(
-      "flex items-start justify-between p-4 border-b border-border-subtle",
+      "flex items-start justify-between p-4 border-b border-border",
       className
     )}>
       {children}
@@ -151,7 +151,7 @@ export function DialogCloseButton({ onClick, className }: DialogCloseButtonProps
       className={cn(
         "absolute top-3 right-3 p-1.5 rounded-lg",
         "text-text-muted hover:text-text-primary",
-        "hover:bg-bg-elevated transition-colors",
+        "hover:bg-surface-elevated transition-colors",
         className
       )}
     >

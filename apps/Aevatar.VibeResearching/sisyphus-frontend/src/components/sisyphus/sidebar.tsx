@@ -44,7 +44,9 @@ const Sidebar: React.FC<SidebarProps> = ({
   onOpenSettings,
   activeView,
 }) => {
-  const { sessions, currentSessionId } = useSisyphusStore();
+  // FINE-GRAINED SUBSCRIPTIONS: Only subscribe to what we need
+  const sessions = useSisyphusStore((s) => s.sessions);
+  const currentSessionId = useSisyphusStore((s) => s.currentSessionId);
   const [collapsed, setCollapsed] = useState(false);
 
   const handleCreateSession = () => {
@@ -156,9 +158,9 @@ const Sidebar: React.FC<SidebarProps> = ({
           <div className="space-y-2">
             {sessions.length === 0 ? (
               <div className="text-center py-8">
-                <div className="size-12 mx-auto rounded-lg bg-surface-elevated flex items-center justify-center mb-3 cyber-corners">
+                <div className="size-12 mx-auto rounded-lg bg-surface-elevated flex items-center justify-center mb-3 border border-border-default cyber-corners">
                   <svg
-                    className="size-6 text-text-dimmed"
+                    className="size-6 text-text-muted"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -171,7 +173,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                     />
                   </svg>
                 </div>
-                <p className="text-sm text-text-dimmed font-mono text-pretty">No sessions yet</p>
+                <p className="text-sm text-text-muted font-mono text-pretty">No sessions yet</p>
               </div>
             ) : (
               sessions.map((session, index) => (
@@ -198,17 +200,12 @@ const Sidebar: React.FC<SidebarProps> = ({
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-mono text-text-dimmed tabular-nums">
+                    <span className="text-[10px] font-mono text-text-muted tabular-nums">
                       {formatSessionTime(session.createdAt)}
                     </span>
                     {session.status === 'running' && (
                       <span className="text-[10px] font-mono text-neon-green bg-neon-green/10 px-1.5 py-0.5 rounded">
                         LIVE
-                      </span>
-                    )}
-                    {session.progressPercent > 0 && session.status !== 'running' && (
-                      <span className="text-[10px] font-mono text-neon-gold tabular-nums">
-                        {session.progressPercent}%
                       </span>
                     )}
                   </div>

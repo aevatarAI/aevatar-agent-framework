@@ -2,38 +2,35 @@
 set -euo pipefail
 
 # ============================================================
-#  Notebook Dev Runner (API + legacy UI)
-#
-#  GOAL:
-#  - Start .NET API for local development.
-#  - The API serves the NotebookLM-like UI from wwwroot by default.
-#  - Before starting, optionally kill any process listening on the target ports.
+#  Scientific Research Assistant - Dev Runner (Backend + Frontend)
 #
 #  DEFAULT PORTS (repo policy):
-#  - Backend (API + legacy UI): 5678
+#  - Backend:  5678   (禁止 5000)
+#  - Frontend: 5173   (Vite dev server)
 #
 #  USAGE:
-#    ./boot.sh           # api (serves legacy NotebookLM-like UI)
-#    ./boot.sh --no-kill # do not kill ports before start
-#
-#  NOTES:
-#  - macOS/Linux friendly (uses lsof).
-#  - Ctrl+C will stop both processes.
+#    ./start.sh
+#    BACKEND_PORT=5679 ./start.sh
+#    FRONTEND_PORT=5174 ./start.sh
+#    ./start.sh --no-kill
 # ============================================================
 
-API_PORT="${API_PORT:-5678}"
+BACKEND_PORT="${BACKEND_PORT:-5678}"
+FRONTEND_PORT="${FRONTEND_PORT:-5173}"
+
 KILL_BEFORE=1
 
 usage() {
   cat <<'EOF'
-Usage: ./boot.sh [--no-kill]
+Usage: ./start.sh [--no-kill]
+
+Environment:
+  BACKEND_PORT    Backend port (default: 5678)
+  FRONTEND_PORT   Frontend (Vite) port (default: 5173)
 
 Options:
   --no-kill  Do not kill listeners on ports before starting
   -h, --help Show this help
-
-Environment:
-  API_PORT         Backend port (default: 5678)
 EOF
 }
 
@@ -46,12 +43,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-API_PROJECT="${SCRIPT_DIR}/src/Aevatar.Notebook.Api/Aevatar.Notebook.Api.csproj"
-
-if [[ ! -f "${API_PROJECT}" ]]; then
-  echo "API project not found: ${API_PROJECT}" >&2
-  exit 1
-fi
+BACKEND_DIR="$SCRIPT_DIR/src/ScientificResearchAssistant.Api"
+FRONTEND_DIR="$SCRIPT_DIR/sisyphus-frontend"
 
 kill_port() {
   local port="$1"
@@ -82,7 +75,7 @@ kill_port() {
 
 wait_for_http_ok() {
   local url="$1"
-  local timeout_s="${2:-20}"
+  local timeout_s="${2:-25}"
 
   if ! command -v curl >/dev/null 2>&1; then
     echo "WARN: curl not found; skip waiting for ${url}"
@@ -103,53 +96,77 @@ wait_for_http_ok() {
 }
 
 cleanup_ran=0
-API_PID=""
+BACKEND_PID=""
 FRONTEND_PID=""
 
 cleanup() {
-  if [[ "${cleanup_ran}" -eq 1 ]]; then
+  if [[ "$cleanup_ran" -eq 1 ]]; then
     return 0
   fi
   cleanup_ran=1
 
   echo ""
-  echo "Stopping processes..."
-  if [[ -n "${API_PID}" ]]; then
-    kill -TERM "${API_PID}" 2>/dev/null || true
+  echo "Stopping dev processes..."
+
+  if [[ -n "${FRONTEND_PID}" ]]; then
+    kill -TERM "${FRONTEND_PID}" 2>/dev/null || true
+  fi
+  if [[ -n "${BACKEND_PID}" ]]; then
+    kill -TERM "${BACKEND_PID}" 2>/dev/null || true
   fi
 
   sleep 0.3
-  kill_port "${API_PORT}" || true
+  kill_port "${FRONTEND_PORT}" || true
+  kill_port "${BACKEND_PORT}" || true
 }
 
 trap cleanup INT TERM EXIT
 
 if [[ "${KILL_BEFORE}" -eq 1 ]]; then
-  kill_port "${API_PORT}"
+  kill_port "${BACKEND_PORT}"
+  kill_port "${FRONTEND_PORT}"
 fi
 
-echo "Starting API (ASPNETCORE_URLS=http://localhost:${API_PORT})"
+echo "Starting backend (ASPNETCORE_URLS=http://localhost:${BACKEND_PORT})"
 (
-  cd "${REPO_ROOT}"
-  ASPNETCORE_URLS="http://localhost:${API_PORT}" \
-    dotnet run --project "${API_PROJECT}" --no-launch-profile
+  cd "$BACKEND_DIR"
+  ASPNETCORE_URLS="http://localhost:${BACKEND_PORT}" \
+    dotnet run --no-launch-profile
 ) &
-API_PID="$!"
+BACKEND_PID="$!"
 
-echo "Waiting for API to become ready..."
-wait_for_http_ok "http://localhost:${API_PORT}/health" 25
+echo "Waiting for backend to become ready..."
+wait_for_http_ok "http://localhost:${BACKEND_PORT}/health" 25
+
+echo "Starting frontend (Vite :${FRONTEND_PORT})"
+(
+  cd "$FRONTEND_DIR"
+  export SRA_API_PROXY_TARGET="http://localhost:${BACKEND_PORT}"
+  export PORT="${FRONTEND_PORT}"
+
+  if [[ ! -d "node_modules" ]]; then
+    echo "WARN: node_modules not found; please run npm install in frontend/ first."
+  fi
+
+  npm run dev -- --port "${FRONTEND_PORT}"
+) &
+FRONTEND_PID="$!"
 
 echo ""
-echo "Notebook UI: http://localhost:${API_PORT}"
+echo "Backend : http://localhost:${BACKEND_PORT}"
+echo "Frontend: http://localhost:${FRONTEND_PORT}"
 echo "Press Ctrl+C to stop."
 echo ""
 
+# bash 3.2 friendly monitor loop: stop both if either exits.
 while true; do
-  if ! kill -0 "${API_PID}" 2>/dev/null; then
-    echo "API exited."
+  if ! kill -0 "${BACKEND_PID}" 2>/dev/null; then
+    echo "Backend exited."
+    exit 1
+  fi
+  if ! kill -0 "${FRONTEND_PID}" 2>/dev/null; then
+    echo "Frontend exited."
     exit 1
   fi
   sleep 0.5
 done
-
-

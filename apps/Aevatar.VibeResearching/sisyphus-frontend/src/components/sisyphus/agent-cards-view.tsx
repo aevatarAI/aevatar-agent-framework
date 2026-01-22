@@ -1,11 +1,13 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, memo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn } from '@/lib/utils'
-import { useSisyphusStore, type AgentMessage, type AgentRosterItem, type AgentStatusReport } from '@/store/sisyphus-store'
+import { useSisyphusStore, type AgentRosterItem, type AgentStatusReport } from '@/store/sisyphus-store'
+import { useStreamContentStore, selectAgentStream } from '@/store/stream-content-store'
 
 // ============================================================
 //  Agent Cards View - Displays all agent outputs during a vibe run
+//  PERFORMANCE: Uses isolated stream store for fine-grained updates
 // ============================================================
 
 // Default agents if roster is empty
@@ -23,34 +25,42 @@ function formatTokens(n: number): string {
 }
 
 // ============================================================
-//  Single Agent Card
+//  Single Agent Card - Uses isolated stream store
+//  PERFORMANCE: Each card only re-renders when its own stream changes
 // ============================================================
 
 interface AgentCardProps {
   agent: string
-  message?: AgentMessage
   providerName?: string
   statusReport?: AgentStatusReport
   onOpenHistory?: () => void
 }
 
-const AgentCard: React.FC<AgentCardProps> = ({
+const AgentCard: React.FC<AgentCardProps> = memo(({
   agent,
-  message,
   providerName,
   statusReport,
   onOpenHistory
 }) => {
   const [collapsed, setCollapsed] = useState(false)
-  const hasContent = Boolean(message?.content)
-  const isStreaming = message?.isStreaming ?? false
-  const isFinal = message?.isFinal ?? false
+  
+  // FINE-GRAINED: Only subscribe to THIS agent's stream data
+  const streamData = useStreamContentStore(selectAgentStream(agent))
+  
+  // Derive values from stream data
+  const content = streamData?.content || ''
+  const isStreaming = streamData?.isStreaming || false
+  const isFinal = streamData?.isFinal || false
+  const tokenCount = streamData?.tokenCount || 0
+  const stepName = streamData?.stepName
+  
+  const hasContent = Boolean(content)
 
   const preview = useMemo(() => {
-    const text = (message?.content || '').replace(/\s+/g, ' ').trim()
+    const text = content.replace(/\s+/g, ' ').trim()
     if (text.length <= 260) return text
     return text.slice(0, 260) + '…'
-  }, [message?.content])
+  }, [content])
 
   const isRA = agent === 'research_assistant'
 
@@ -126,11 +136,11 @@ const AgentCard: React.FC<AgentCardProps> = ({
                 <span className="text-border-subtle">·</span>
               </>
             )}
-            <span className="tabular-nums">{formatTokens(message?.tokenCount || 0)} tok</span>
-            {message?.stepName && (
+            <span className="tabular-nums">{formatTokens(tokenCount)} tok</span>
+            {stepName && (
               <>
                 <span className="text-border-subtle">·</span>
-                <span>{message.stepName}</span>
+                <span>{stepName}</span>
               </>
             )}
           </div>
@@ -196,17 +206,12 @@ const AgentCard: React.FC<AgentCardProps> = ({
             <pre className="text-xs text-text-secondary whitespace-pre-wrap break-words max-h-56 overflow-auto bg-bg-elevated/50 border border-border-subtle rounded-lg p-3">
               {preview || '…'}
             </pre>
-            {message?.toolOutputs && (message.toolOutputs as unknown[]).length > 0 && (
-              <div className="text-[10px] text-text-muted font-mono px-1">
-                🔧 {(message.toolOutputs as unknown[]).length} tool calls
-              </div>
-            )}
           </div>
         ) : (
           <>
             {isStreaming ? (
               <pre className="text-sm text-text-primary whitespace-pre-wrap break-words max-h-[55vh] overflow-auto leading-relaxed">
-                {message?.content || '…'}
+                {content || '…'}
                 <span className="animate-pulse text-neon-cyan">▌</span>
               </pre>
             ) : (
@@ -215,8 +220,8 @@ const AgentCard: React.FC<AgentCardProps> = ({
                 prose-a:text-neon-cyan prose-code:text-neon-gold prose-code:bg-bg-elevated prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded
                 prose-pre:bg-bg-void prose-pre:border prose-pre:border-border-subtle
               ">
-                {message?.content ? (
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+                {content ? (
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
                 ) : (
                   <span className="text-text-dimmed italic">…</span>
                 )}
@@ -227,10 +232,11 @@ const AgentCard: React.FC<AgentCardProps> = ({
       </div>
     </div>
   )
-}
+})
 
 // ============================================================
 //  Agent Cards View Main Component
+//  PERFORMANCE: Fine-grained subscriptions for non-streaming state
 // ============================================================
 
 interface AgentCardsViewProps {
@@ -242,15 +248,13 @@ const AgentCardsView: React.FC<AgentCardsViewProps> = ({
   sessionId: _sessionId,  // Reserved for future use
   onOpenAgentHistory
 }) => {
-  const {
-    currentRunId,
-    userPrompt,
-    agentMessages,
-    agentRoster,
-    agentProviders,
-    agentStatusReports,
-    apiInfo
-  } = useSisyphusStore()
+  // FINE-GRAINED SUBSCRIPTIONS: Only subscribe to what we need
+  const currentRunId = useSisyphusStore((s) => s.currentRunId)
+  const userPrompt = useSisyphusStore((s) => s.userPrompt)
+  const agentRoster = useSisyphusStore((s) => s.agentRoster)
+  const agentProviders = useSisyphusStore((s) => s.agentProviders)
+  const agentStatusReports = useSisyphusStore((s) => s.agentStatusReports)
+  const apiInfo = useSisyphusStore((s) => s.apiInfo)
 
   // Build agent list from roster or defaults
   const agents = useMemo(() => {
@@ -314,17 +318,15 @@ const AgentCardsView: React.FC<AgentCardsViewProps> = ({
         </div>
       </div>
 
-      {/* Agent Cards Grid */}
+      {/* Agent Cards Grid - Each card subscribes to its own stream */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {agents.map((agent) => {
-          const msg = agentMessages[agent]
           const provider = agentProviders[agent] || defaultProvider
           const statusReport = agentStatusReports[agent]
           return (
             <AgentCard
               key={agent}
               agent={agent}
-              message={msg}
               providerName={provider}
               statusReport={statusReport}
               onOpenHistory={onOpenAgentHistory ? () => onOpenAgentHistory(agent) : undefined}

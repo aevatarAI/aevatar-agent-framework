@@ -686,9 +686,38 @@ interface MessageBubbleProps {
   formatTime: (timestamp: number) => string;
 }
 
+// System message bubble for interruption responses
+const SystemMessageBubble: React.FC<{ message: ChatMessage; formatTime: (timestamp: number) => string }> = memo(({ message, formatTime }) => {
+  return (
+    <div className="mx-auto max-w-xl animate-fade-in">
+      <div className="rounded-lg border border-neon-violet/30 bg-neon-violet/10 px-4 py-3">
+        <div className="flex items-center gap-2 mb-2">
+          <div className="size-5 rounded flex items-center justify-center bg-neon-violet/20">
+            <svg className="w-3 h-3 text-neon-violet" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <span className="text-[10px] font-mono text-neon-violet tracking-wider">SYSTEM</span>
+          <span className="text-[9px] text-text-dimmed font-mono tabular-nums ml-auto">
+            {formatTime(message.timestamp)}
+          </span>
+        </div>
+        <p className="text-sm text-text-primary leading-relaxed">{message.content}</p>
+      </div>
+    </div>
+  );
+});
+
 const MessageBubble: React.FC<MessageBubbleProps> = ({ message, index, formatTime }) => {
   const [collapsed, setCollapsed] = useState(false);
   const isAgent = message.role === 'agent';
+  const isSystem = message.role === 'system';
+
+  // Render system messages with special bubble
+  if (isSystem) {
+    return <SystemMessageBubble message={message} formatTime={formatTime} />;
+  }
+
   const extMessage = message as ChatMessage & { toolOutputs?: ToolOutput[] };
   const hasToolOutputs = Array.isArray(extMessage.toolOutputs) && extMessage.toolOutputs.length > 0;
 

@@ -863,6 +863,42 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
       setActiveMilestoneNodeId(null, data.sessionId || sessionId)
     })
 
+    // System Reply - Dynamic user input response from interruption analysis
+    stream.onCustom("aevatar.scientific.system_reply", (event) => {
+      addRawEvent(event)
+      const data = event.value as {
+        sessionId?: string
+        messageType?: "acknowledgment" | "direction_change" | "progress_inquiry" | "other"
+        content?: string
+      }
+      console.log("[AxiomStream] System reply:", data)
+      if (data?.content) {
+        addMessage({
+          role: "system",
+          content: data.content,
+          agentName: "SYSTEM",
+        })
+      }
+    })
+
+    // Run Interrupted - Notifies UI that a run was interrupted by new input
+    stream.onCustom("aevatar.scientific.run_interrupted", (event) => {
+      addRawEvent(event)
+      const data = event.value as {
+        threadId?: string
+        oldRunId?: string
+        newRunId?: string
+        reason?: string
+      }
+      console.log("[AxiomStream] Run interrupted:", data)
+      // Update current run to the new run
+      if (data.newRunId) {
+        setCurrentRun(data.newRunId)
+      }
+      // Clear isolated streams for the new run
+      clearAllStreams()
+    })
+
     // Catch-all handler - extract worker data from ProgressEvent
     stream.onAny((event) => {
       // Handle ProgressEvent to extract worker data (like reference project)

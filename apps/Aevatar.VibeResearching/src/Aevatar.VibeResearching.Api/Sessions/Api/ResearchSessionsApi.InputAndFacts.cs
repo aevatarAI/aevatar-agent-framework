@@ -38,6 +38,15 @@ internal static partial class ResearchSessionsApi
 
                 if (!string.IsNullOrWhiteSpace(interruptedRunId))
                 {
+                    // Record interruption context for the new run to process
+                    session.RecordInterruption(new InterruptionContext
+                    {
+                        InterruptedRunId = interruptedRunId,
+                        NewUserMessage = input.Message ?? string.Empty,
+                        InterruptedAt = DateTimeOffset.UtcNow,
+                        Reason = "new_input"
+                    });
+
                     // Tell UI immediately (even if the old run was still queued on RunLock).
                     session.Events.Publish(new CustomEvent
                     {
@@ -49,6 +58,19 @@ internal static partial class ResearchSessionsApi
                             oldRunId = interruptedRunId,
                             newRunId = runId,
                             reason = "new_input"
+                        }
+                    });
+
+                    // Immediate feedback: acknowledge the user's input
+                    session.Events.Publish(new CustomEvent
+                    {
+                        Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                        Name = "aevatar.scientific.system_reply",
+                        Value = new
+                        {
+                            sessionId = session.Id,
+                            messageType = "acknowledgment",
+                            content = "Got it! Analyzing your request..."
                         }
                     });
                 }

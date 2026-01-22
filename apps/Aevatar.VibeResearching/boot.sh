@@ -152,21 +152,32 @@ fi
 
 # Start frontend
 if [[ "${RUN_FRONTEND}" -eq 1 ]]; then
-  echo "Starting frontend (Vite :${FRONTEND_PORT})"
-  (
-    cd "$FRONTEND_DIR"
-    export VITE_API_BASE_URL="http://localhost:${BACKEND_PORT}"
-    export BACKEND_PORT="${BACKEND_PORT}"
-    export PORT="${FRONTEND_PORT}"
+  # Check if npm is available
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "ERROR: npm command not found." >&2
+    echo "Please install Node.js and npm first:" >&2
+    echo "  - macOS: brew install node" >&2
+    echo "  - Or visit: https://nodejs.org/" >&2
+    echo "" >&2
+    echo "Skipping frontend startup. Use --backend-only to suppress this message." >&2
+    RUN_FRONTEND=0
+  else
+    echo "Starting frontend (Vite :${FRONTEND_PORT})"
+    (
+      cd "$FRONTEND_DIR"
+      export VITE_API_BASE_URL="http://localhost:${BACKEND_PORT}"
+      export BACKEND_PORT="${BACKEND_PORT}"
+      export PORT="${FRONTEND_PORT}"
 
-    if [[ ! -d "node_modules" ]]; then
-      echo "node_modules not found; running npm install..."
-      npm install
-    fi
+      if [[ ! -d "node_modules" ]]; then
+        echo "node_modules not found; running npm install..."
+        npm install
+      fi
 
-    npm run dev -- --port "${FRONTEND_PORT}"
-  ) &
-  FRONTEND_PID="$!"
+      npm run dev -- --port "${FRONTEND_PORT}"
+    ) &
+    FRONTEND_PID="$!"
+  fi
 fi
 
 echo ""

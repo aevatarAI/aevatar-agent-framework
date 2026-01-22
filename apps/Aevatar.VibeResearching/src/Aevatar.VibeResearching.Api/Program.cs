@@ -223,6 +223,8 @@ builder.Services.AddSingleton<FactLifecycleService>();
 
 // Vibe: safe uploads for attachment references
 builder.Services.AddSingleton<VibeResearching.Api.Vibe.Uploads.UploadsStore>();
+builder.Services.AddSingleton<VibeResearching.Api.Vibe.Uploads.FileTextParser>();
+builder.Services.AddSingleton<VibeResearching.Api.Vibe.Uploads.UploadExtractionService>();
 
 // Vibe: per-round derivation trace (file-backed)
 builder.Services.AddSingleton<VibeResearching.Api.Vibe.Trace.TraceStore>();

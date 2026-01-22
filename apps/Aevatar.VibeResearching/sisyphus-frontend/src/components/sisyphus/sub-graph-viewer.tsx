@@ -1,33 +1,32 @@
-import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
-import {
-  ReactFlow,
-  Background,
-  BackgroundVariant,
-  Handle,
-  Position,
-  type Node,
-  type Edge,
-  type ReactFlowInstance,
-} from '@xyflow/react'
-import dagre from 'dagre'
-import { Minus, Plus, RotateCcw, ZoomIn, ZoomOut } from 'lucide-react'
+// ============================================================
+//  SubGraphViewer - Parent Chain List View
+//  Shows derivation/plan chain as a hierarchical list
+// ============================================================
+
+import { useState, useMemo } from 'react'
+import { ChevronRight, Minus, Plus, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { DAGGraph, NodeKind } from '@/types'
 import type { NodeExplanationData } from '@/store/sisyphus-store'
 import { useDagInteractions } from '@/hooks/use-dag-interactions'
 
-// ============================================================
-//  SubGraphViewer - Mini DAG for Parent Chain Visualization
-//  Used in node detail popup to show derivation/plan chain
-// ============================================================
+// ─────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────
 
 interface SubGraphViewerProps {
   dag: DAGGraph | null
   selectedNodeId: string
   selectedNodeKind: 'Plan' | 'Knowledge'
-  /** Node explanation data (reserved for future use) */
   nodeExplanation?: NodeExplanationData | null
   onNodeSelect: (nodeId: string) => void
+}
+
+interface ParentNode {
+  id: string
+  label: string
+  kind: NodeKind
+  level: number
 }
 
 // Node colors matching main DAG
@@ -45,100 +44,74 @@ const NODE_COLORS = {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Mini Node Component for Sub-graph
+// Node Item Component
 // ─────────────────────────────────────────────────────────────
 
-interface MiniNodeData extends Record<string, unknown> {
-  id: string
-  label: string
-  kind: NodeKind
-  isSelectedNode: boolean
-  level: number
+interface NodeItemProps {
+  node: ParentNode
+  isSelected: boolean
+  onClick: () => void
 }
 
-function MiniNode({ data }: { data: MiniNodeData }) {
-  const colors = NODE_COLORS[data.kind] || NODE_COLORS.Knowledge
-  const isSelected = data.isSelectedNode
+function NodeItem({ node, isSelected, onClick }: NodeItemProps) {
+  const colors = NODE_COLORS[node.kind] || NODE_COLORS.Knowledge
 
   return (
-    <>
-      <Handle
-        type="target"
-        position={Position.Top}
-        className="!w-1 !h-1 !bg-transparent !border-0"
-      />
+    <button
+      onClick={onClick}
+      className={cn(
+        "w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all text-left",
+        "hover:bg-bg-elevated/50",
+        isSelected && "bg-bg-elevated border border-neon-gold/40"
+      )}
+    >
+      {/* Level indicator */}
+      <div className="flex items-center gap-1 text-text-dimmed">
+        {Array.from({ length: node.level }).map((_, i) => (
+          <ChevronRight key={i} className="size-3 opacity-40" />
+        ))}
+      </div>
+
+      {/* Node circle */}
       <div
         className={cn(
-          "flex items-center justify-center rounded-full cursor-pointer transition-all duration-200 hover:scale-110",
-          isSelected && "animate-selected-glow"
+          "flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center",
+          isSelected && "ring-2 ring-neon-gold ring-offset-1 ring-offset-bg-base"
         )}
         style={{
-          width: 36,
-          height: 36,
           background: `radial-gradient(circle, ${colors.bg} 0%, ${colors.border} 100%)`,
-          border: `2px solid ${isSelected ? '#ffd700' : colors.border}`,
           boxShadow: isSelected
-            ? `0 0 20px ${colors.glow}, 0 0 40px ${colors.glow}, 0 0 60px ${colors.glow}`
-            : `0 0 12px ${colors.glow}`,
-          // @ts-expect-error CSS custom property for animation
-          '--glow-color': colors.glow,
+            ? `0 0 16px ${colors.glow}`
+            : `0 0 8px ${colors.glow}`,
         }}
-        title={`${data.label}\n(${data.kind})`}
       >
-        <span className="text-[9px]" style={{ color: '#0a0f19' }}>
-          {data.kind === 'Plan' ? '📋' : '💡'}
+        <span className="text-xs" style={{ color: '#0a0f19' }}>
+          {node.kind === 'Plan' ? '📋' : '💡'}
         </span>
       </div>
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        className="!w-1 !h-1 !bg-transparent !border-0"
-      />
-    </>
+
+      {/* Node info */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className={cn(
+            "text-[9px] px-1.5 py-0.5 rounded shrink-0",
+            node.kind === 'Plan' ? "bg-blue-500/20 text-blue-400" : "bg-green-500/20 text-green-400"
+          )}>
+            {node.kind}
+          </span>
+          <span className="text-[10px] text-text-dimmed">L{node.level}</span>
+        </div>
+        <div className="text-xs font-mono text-text-secondary truncate mt-0.5" title={node.id}>
+          {node.id.length > 20 ? `${node.id.slice(0, 10)}...${node.id.slice(-8)}` : node.id}
+        </div>
+        {node.label && node.label !== node.id && (
+          <div className="text-[10px] text-text-muted truncate" title={node.label}>
+            {node.label.length > 30 ? `${node.label.slice(0, 28)}...` : node.label}
+          </div>
+        )}
+      </div>
+    </button>
   )
-}
-
-const nodeTypes = { mini: MiniNode }
-
-// ─────────────────────────────────────────────────────────────
-// Dagre Layout Helper
-// ─────────────────────────────────────────────────────────────
-
-function applyDagreLayout(
-  nodes: Node[],
-  edges: Edge[],
-  direction: 'TB' | 'BT' = 'BT' // Bottom-to-top for parent chain
-): { nodes: Node[]; edges: Edge[] } {
-  if (nodes.length === 0) return { nodes, edges }
-
-  const dagreGraph = new dagre.graphlib.Graph()
-  dagreGraph.setDefaultEdgeLabel(() => ({}))
-  dagreGraph.setGraph({ rankdir: direction, nodesep: 40, ranksep: 50 })
-
-  const nodeWidth = 36
-  const nodeHeight = 36
-
-  nodes.forEach((node) => {
-    dagreGraph.setNode(node.id, { width: nodeWidth, height: nodeHeight })
-  })
-
-  edges.forEach((edge) => {
-    dagreGraph.setEdge(edge.source, edge.target)
-  })
-
-  dagre.layout(dagreGraph)
-
-  const layoutedNodes = nodes.map((node) => {
-    const pos = dagreGraph.node(node.id)
-    return {
-      ...node,
-      position: { x: pos.x - nodeWidth / 2, y: pos.y - nodeHeight / 2 },
-      targetPosition: direction === 'TB' ? Position.Top : Position.Bottom,
-      sourcePosition: direction === 'TB' ? Position.Bottom : Position.Top,
-    }
-  })
-
-  return { nodes: layoutedNodes, edges }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -152,101 +125,57 @@ export function SubGraphViewer({
   nodeExplanation: _nodeExplanation,
   onNodeSelect,
 }: SubGraphViewerProps) {
-  const [viewLevel, setViewLevel] = useState(1) // 0=current only, 1=+direct parents, 2=+grandparents...
+  const [viewLevel, setViewLevel] = useState(2)
   const { getUpstreamNodesByLevel } = useDagInteractions()
-  const reactFlowInstance = useRef<ReactFlowInstance | null>(null)
 
-  // Compute sub-graph nodes based on view level
-  const { nodes, edges } = useMemo(() => {
-    if (!dag || !selectedNodeId) return { nodes: [], edges: [] }
+  // Calculate parent nodes with levels
+  const { parentNodes, maxLevel } = useMemo(() => {
+    if (!dag || !selectedNodeId) return { parentNodes: [], maxLevel: 0 }
 
-    // Get parent nodes by level (viewLevel - 1 because viewLevel 1 = direct parents = level 0)
-    const parentsByLevel = getUpstreamNodesByLevel(selectedNodeId, dag, viewLevel > 0 ? viewLevel - 1 : -1)
+    // Get all parent nodes with their levels
+    const parentsByLevel = getUpstreamNodesByLevel(selectedNodeId, dag)
+    
+    // Compute max level
+    const computedMaxLevel = parentsByLevel.size === 0 
+      ? 0 
+      : Math.max(0, ...Array.from(parentsByLevel.values())) + 1
 
-    // Build visible node set - always include selected node
-    const visibleNodeIds = new Set<string>([selectedNodeId])
+    // Build list of nodes within view level
+    const nodes: ParentNode[] = []
 
-    // Add parent nodes up to viewLevel - 1
+    // Add selected node at level 0
+    const selectedDagNode = dag.nodes.find(n => n.id === selectedNodeId)
+    if (selectedDagNode) {
+      nodes.push({
+        id: selectedDagNode.id,
+        label: selectedDagNode.label || selectedDagNode.id,
+        kind: selectedNodeKind,
+        level: 0,
+      })
+    }
+
+    // Add parent nodes within view level
     if (viewLevel > 0) {
       parentsByLevel.forEach((level, nodeId) => {
         if (level < viewLevel) {
-          visibleNodeIds.add(nodeId)
+          const dagNode = dag.nodes.find(n => n.id === nodeId)
+          if (dagNode) {
+            nodes.push({
+              id: dagNode.id,
+              label: dagNode.label || dagNode.id,
+              kind: (dagNode.kind as NodeKind) || 'Knowledge',
+              level: level + 1,
+            })
+          }
         }
       })
     }
 
-    // Find DAG nodes for visible IDs
-    const visibleDagNodes = dag.nodes.filter((n) => visibleNodeIds.has(n.id))
+    // Sort by level
+    nodes.sort((a, b) => a.level - b.level)
 
-    // Get kind for selected node from explanation or dag
-    const getNodeKind = (nodeId: string): NodeKind => {
-      if (nodeId === selectedNodeId) {
-        return selectedNodeKind
-      }
-      const dagNode = dag.nodes.find((n) => n.id === nodeId)
-      return (dagNode?.kind as NodeKind) || 'Knowledge'
-    }
-
-    // Convert to ReactFlow nodes
-    const flowNodes: Node[] = visibleDagNodes.map((node) => ({
-      id: node.id,
-      type: 'mini',
-      data: {
-        id: node.id,
-        label: node.label || node.id,
-        kind: getNodeKind(node.id),
-        isSelectedNode: node.id === selectedNodeId,
-        level: parentsByLevel.get(node.id) ?? -1,
-      } as MiniNodeData,
-      position: { x: 0, y: 0 },
-    }))
-
-    // Filter edges to only include visible connections
-    const flowEdges: Edge[] = dag.edges
-      .filter((e) => visibleNodeIds.has(e.source) && visibleNodeIds.has(e.target))
-      .map((e, i) => ({
-        id: `sub-e-${i}`,
-        source: e.source,
-        target: e.target,
-        animated: true,
-        style: { stroke: '#00f0ff', strokeWidth: 1.5 },
-      }))
-
-    // Apply dagre layout
-    return applyDagreLayout(flowNodes, flowEdges)
+    return { parentNodes: nodes, maxLevel: computedMaxLevel }
   }, [dag, selectedNodeId, selectedNodeKind, viewLevel, getUpstreamNodesByLevel])
-  // Note: nodeExplanation is passed as prop but not needed for sub-graph computation
-
-  // Compute max possible level for level control bounds
-  const maxLevel = useMemo(() => {
-    if (!dag || !selectedNodeId) return 0
-    const allParents = getUpstreamNodesByLevel(selectedNodeId, dag)
-    if (allParents.size === 0) return 0
-    return Math.max(0, ...Array.from(allParents.values())) + 1
-  }, [dag, selectedNodeId, getUpstreamNodesByLevel])
-
-  // Handle node click in sub-graph
-  const handleNodeClick = useCallback(
-    (_: unknown, node: Node) => {
-      if (node.id !== selectedNodeId) {
-        onNodeSelect(node.id)
-      }
-    },
-    [selectedNodeId, onNodeSelect]
-  )
-
-  // Fit view when nodes change
-  useEffect(() => {
-    if (reactFlowInstance.current && nodes.length > 0) {
-      setTimeout(() => {
-        reactFlowInstance.current?.fitView({ padding: 0.3, duration: 200 })
-      }, 50)
-    }
-  }, [nodes])
-
-  // Zoom controls
-  const handleZoomIn = () => reactFlowInstance.current?.zoomIn({ duration: 200 })
-  const handleZoomOut = () => reactFlowInstance.current?.zoomOut({ duration: 200 })
 
   return (
     <div className="flex flex-col h-full">
@@ -272,9 +201,9 @@ export function SubGraphViewer({
             <Plus className="size-3 text-text-muted" />
           </button>
           <button
-            onClick={() => setViewLevel(1)}
+            onClick={() => setViewLevel(2)}
             className="p-1 rounded hover:bg-bg-elevated ml-1 transition-colors"
-            title="Reset to level 1"
+            title="Reset to level 2"
           >
             <RotateCcw className="size-3 text-text-muted" />
           </button>
@@ -289,61 +218,29 @@ export function SubGraphViewer({
           {viewLevel >= 2 && `Current + ${viewLevel} levels of parents`}
         </span>
         <span className="text-[9px] text-text-muted font-mono">
-          {nodes.length} node{nodes.length !== 1 ? 's' : ''}
+          {parentNodes.length} node{parentNodes.length !== 1 ? 's' : ''}
         </span>
       </div>
 
-      {/* Zoom Controls */}
-      <div className="flex items-center justify-end gap-1 px-2 py-1 border-b border-border-subtle">
-        <button
-          onClick={handleZoomOut}
-          className="p-1 rounded hover:bg-bg-elevated transition-colors"
-          title="Zoom out"
-        >
-          <ZoomOut className="size-3 text-text-muted" />
-        </button>
-        <button
-          onClick={handleZoomIn}
-          className="p-1 rounded hover:bg-bg-elevated transition-colors"
-          title="Zoom in"
-        >
-          <ZoomIn className="size-3 text-text-muted" />
-        </button>
-      </div>
-
-      {/* Mini ReactFlow */}
-      <div className="flex-1 min-h-[200px]">
-        {nodes.length === 0 ? (
+      {/* Node List */}
+      <div className="flex-1 overflow-y-auto p-2 space-y-1">
+        {parentNodes.length === 0 ? (
           <div className="flex items-center justify-center h-full text-text-dimmed text-xs font-mono">
             No nodes to display
           </div>
         ) : (
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            onNodeClick={handleNodeClick}
-            onInit={(instance) => {
-              reactFlowInstance.current = instance
-              instance.fitView({ padding: 0.3 })
-            }}
-            fitView
-            fitViewOptions={{ padding: 0.3, maxZoom: 1.5 }}
-            panOnDrag
-            zoomOnScroll
-            zoomOnPinch
-            minZoom={0.3}
-            maxZoom={2}
-            proOptions={{ hideAttribution: true }}
-            style={{ background: 'transparent' }}
-          >
-            <Background
-              variant={BackgroundVariant.Dots}
-              gap={16}
-              size={1}
-              color="rgba(0, 255, 136, 0.08)"
+          parentNodes.map(node => (
+            <NodeItem
+              key={node.id}
+              node={node}
+              isSelected={node.id === selectedNodeId}
+              onClick={() => {
+                if (node.id !== selectedNodeId) {
+                  onNodeSelect(node.id)
+                }
+              }}
             />
-          </ReactFlow>
+          ))
         )}
       </div>
 
@@ -363,7 +260,7 @@ export function SubGraphViewer({
           />
           <span>Knowledge</span>
         </div>
-        <span className="text-text-muted ml-auto">Click node to view details</span>
+        <span className="text-text-muted ml-auto">Click to view details</span>
       </div>
     </div>
   )

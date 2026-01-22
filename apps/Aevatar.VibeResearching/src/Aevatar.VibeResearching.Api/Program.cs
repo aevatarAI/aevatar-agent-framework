@@ -33,6 +33,11 @@ using VibeResearching.Api.Vibe.Delivery;
 using VibeResearching.Api.Vibe.Dag;
 using VibeResearching.Vibe.Pivot;
 using VibeResearching.Api.Vibe.Pivot;
+using VibeResearching.Vibe.ReviewAgent;
+using Aevatar.VibeResearching.Api.ReviewAgent.Api;
+using Aevatar.VibeResearching.Api.ReviewAgent.Events;
+using Aevatar.VibeResearching.Api.ReviewAgent.Storage;
+using VibeResearching.Api.ReviewAgent.Verification;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -239,8 +244,8 @@ builder.Services.AddSingleton<BriefStore>();
 // - 这里默认用 InMemory 图后端（开发/测试最快，无外部依赖）
 // - DagStore 会把图快照同步落盘到 artifacts/dag/snapshot.json，保证可审阅/可恢复
 // ==========================================
-// builder.Services.AddAevatarGraphNeo4j();
-builder.Services.AddAevatarGraphInMemory();
+builder.Services.AddAevatarGraphNeo4j();
+// builder.Services.AddAevatarGraphInMemory();
 builder.Services.AddKnowledgeGraph();
 
 // Vibe: DAG/Graph store (SSoT: KnowledgeGraph + file snapshot mirror)
@@ -283,6 +288,21 @@ builder.Services.AddSingleton<VibeResearching.Api.Vibe.VibeGoalLoopRunner>();
 
 // Vibe: milestone-driven loop runner (execute research by iterating through milestones)
 builder.Services.AddSingleton<VibeResearching.Api.Vibe.VibeMilestoneLoopRunner>();
+
+// Review Agent: background knowledge node verification
+builder.Services.Configure<ReviewAgentOptions>(builder.Configuration.GetSection(ReviewAgentOptions.SectionName));
+builder.Services.AddSingleton<IKnowledgeNodeVerifier, KnowledgeNodeVerifier>();
+builder.Services.AddSingleton<IReviewAgentService, ReviewAgentService>();
+builder.Services.AddSingleton<IReviewAgentStorage>(sp =>
+{
+    var env = sp.GetRequiredService<IHostEnvironment>();
+    var logger = sp.GetRequiredService<ILogger<FileReviewAgentStorage>>();
+    var systemRoot = Path.GetFullPath(Path.Combine(env.ContentRootPath, "..", ".."));
+    var basePath = Path.Combine(systemRoot, "workspace", "review-agent");
+    return new FileReviewAgentStorage(basePath, logger);
+});
+builder.Services.AddSingleton<IReviewAgentEventPublisher, ReviewAgentEventPublisher>();
+builder.Services.AddHostedService<ReviewAgentHostedService>();
 
 var app = builder.Build();
 
@@ -474,6 +494,9 @@ app.MapResearchSessionsApi();
 
 // Pivot API (rollback support for US-5)
 app.MapPivotApi();
+
+// Review Agent API (background verification status + settings)
+app.MapReviewAgentApi();
 
 app.Run();
 

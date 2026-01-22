@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using VibeResearching.Api;
 using VibeResearching.Api.Facts;
 using VibeResearching.Api.Materials;
+using VibeResearching.Api.Vibe;
 using VibeResearching.Api.Workspace;
 using VibeResearching.Contracts.Collab;
 

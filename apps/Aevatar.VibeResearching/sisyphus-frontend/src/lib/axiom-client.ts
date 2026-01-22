@@ -39,6 +39,52 @@ export interface RunResult {
   error?: string
 }
 
+// === Agent State Types (from Session API) ===
+
+export interface ToolCallInfo {
+  id: string
+  toolName: string
+  arguments?: string
+  type?: string
+}
+
+export interface ToolResultInfo {
+  toolCallId: string
+  toolName: string
+  content?: string
+  isSuccess: boolean
+}
+
+export interface AgentChatMessage {
+  id: string
+  role: "user" | "assistant" | "system" | "tool"
+  content: string
+  toolCalls?: ToolCallInfo[]
+  toolResult?: ToolResultInfo
+  timestamp?: string
+  tokenUsed: number
+  metadata?: Record<string, string>
+}
+
+export interface AgentState {
+  history: AgentChatMessage[]
+  totalTokenUsed: number
+  lastActivity: string | null
+  context: Record<string, string>
+}
+
+export interface AgentStateBundle {
+  agentId: string
+  state: AgentState
+}
+
+export interface SessionAgentsInfo {
+  sessionId: string
+  coordinatorId: string
+  workerIds: string[]
+  agentIds: string[]
+}
+
 // === API Base URL ===
 // Development: uses Vite proxy (see vite.config.ts → localhost:5678)
 // Production: set VITE_AXIOM_API_BASE to full backend URL
@@ -85,7 +131,6 @@ export function abortCurrentSessionRequests(): void {
   currentSessionAbortController = new AbortController()
   // Clear pending requests map since they're all aborted
   pendingRequests.clear()
-  console.log('[axiom-client] Aborted all pending session requests')
 }
 
 /**
@@ -109,14 +154,12 @@ async function fetchJson<T>(
   if (useCaching) {
     const cached = requestCache.get(cacheKey) as CacheEntry<T> | undefined
     if (cached && Date.now() - cached.timestamp < ttl) {
-      console.log(`[axiom-client] Cache hit: ${path}`)
       return cached.data
     }
   }
 
   // Check for pending identical request (deduplication)
   if (useCaching && pendingRequests.has(cacheKey)) {
-    console.log(`[axiom-client] Dedup hit: ${path}`)
     return pendingRequests.get(cacheKey)!.promise as Promise<T>
   }
 
@@ -285,6 +328,121 @@ export async function getSessionResult(sessionId: string | null | undefined): Pr
     return null;
   }
   return fetchJson<unknown>(`/api/sessions/${sessionId}/result`)
+}
+
+/**
+ * Get session agents list (coordinator + workers)
+ */
+export async function getSessionAgents(sessionId: string | null | undefined): Promise<SessionAgentsInfo | null> {
+  if (!sessionId) {
+    console.warn('[axiom-client] getSessionAgents called with invalid sessionId:', sessionId);
+    return null;
+  }
+  return fetchJson<SessionAgentsInfo>(`/api/sessions/${sessionId}/agents`)
+}
+
+/**
+ * Get all agent states for a session (includes history and token usage)
+ * @param sessionId - Session ID
+ * @param includeHistory - Whether to include chat history (default: true)
+ * @param historyLimit - Max history entries per agent (default: 50)
+ */
+export async function getAgentStates(
+  sessionId: string | null | undefined,
+  includeHistory = true,
+  historyLimit = 50
+): Promise<AgentStateBundle[]> {
+  if (!sessionId) {
+    console.warn('[axiom-client] getAgentStates called with invalid sessionId:', sessionId);
+    return [];
+  }
+  const params = new URLSearchParams({
+    include_history: String(includeHistory),
+    history_limit: String(historyLimit),
+  });
+  const result = await fetchJson<{ agents?: AgentStateBundle[] }>(
+    `/api/sessions/${sessionId}/agents/states?${params}`,
+    undefined,
+    { cache: false }  // Disable cache for real-time data
+  );
+  return result?.agents || [];
+}
+
+/**
+ * Get single agent history
+ */
+export async function getAgentHistory(
+  sessionId: string | null | undefined,
+  agentId: string,
+  limit = 50
+): Promise<AgentChatMessage[]> {
+  if (!sessionId || !agentId) {
+    console.warn('[axiom-client] getAgentHistory called with invalid params:', { sessionId, agentId });
+    return [];
+  }
+  const result = await fetchJson<{ history?: AgentChatMessage[] }>(
+    `/api/sessions/${sessionId}/agents/${encodeURIComponent(agentId)}/history?limit=${limit}`,
+    undefined,
+    { cache: false }
+  );
+  return result?.history || [];
+}
+
+// === Session Status Types ===
+
+export interface SessionStatusAgent {
+  agent: string
+  stepName: string
+  providerName: string
+  status: "running" | "idle"
+}
+
+export interface SessionStatusStep {
+  status?: string
+  startedAt?: string
+  finishedAt?: string
+}
+
+export interface SessionStatus {
+  ok: boolean
+  sessionId: string
+  runId: string
+  updatedAt: string
+  steps: {
+    order: string[]
+    map: Record<string, SessionStatusStep>
+    running: string[]
+    done: string[]
+  }
+  agents: SessionStatusAgent[]
+  runningTools: Array<{
+    messageId: string
+    toolCallId: string
+    toolName: string
+    status: string
+    startedAt: string
+    providerName: string
+    targetAgent: string
+  }>
+}
+
+/**
+ * Get session status including running agents, steps, and tools.
+ * Used to detect if a session has an active run on page load.
+ */
+export async function getSessionStatus(
+  sessionId: string | null | undefined
+): Promise<SessionStatus | null> {
+  if (!sessionId) {
+    console.warn('[axiom-client] getSessionStatus called with invalid sessionId:', sessionId);
+    return null;
+  }
+  const result = await fetchJson<SessionStatus>(
+    `/api/sessions/${sessionId}/status`,
+    undefined,
+    { cache: false }
+  );
+  return result ?? null;
 }
 
 /**
@@ -580,8 +738,8 @@ export function createAxiomEventStream(sessionId: string): EventStream<AxiomCust
     onError: (error, context) => {
       console.error(`[AxiomEventStream] Error:`, error, context)
     },
-    onReconnecting: (attempt, max, delay) => {
-      console.log(`[AxiomEventStream] Reconnecting ${attempt}/${max} in ${delay}ms`)
+    onReconnecting: () => {
+      // Silent reconnection
     },
     onReconnectFailed: () => {
       console.error(`[AxiomEventStream] All reconnection attempts failed`)

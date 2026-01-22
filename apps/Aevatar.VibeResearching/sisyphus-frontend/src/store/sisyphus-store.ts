@@ -84,6 +84,67 @@ export interface AgentMessageMeta {
   providerName?: string
 }
 
+// Agent State from Session API (precise data)
+export interface AgentStateData {
+  agentId: string
+  history: Array<{
+    id: string
+    role: string
+    content: string
+    toolCalls?: Array<{ id: string; toolName: string; arguments?: string }>
+    tokenUsed: number
+    timestamp?: string
+    metadata?: Record<string, string>
+  }>
+  totalTokenUsed: number
+  lastActivity: string | null
+  context: Record<string, string>
+}
+
+// Agent LLM Status (real-time from SSE)
+export interface AgentLlmStatus {
+  phase: "llm.request" | "llm.response" | "idle"
+  model?: string
+  timestamp: number
+}
+
+// Session Status (from /api/sessions/{id}/status)
+export interface SessionStatusStep {
+  status?: "running" | "done" | "pending"
+  startedAt?: string
+  finishedAt?: string
+}
+
+export interface SessionStatusAgent {
+  agent: string
+  stepName: string
+  providerName: string
+  status: "running" | "idle"
+}
+
+export interface SessionRunningTool {
+  messageId: string
+  toolCallId: string
+  toolName: string
+  status: string
+  startedAt: string
+  providerName: string
+  targetAgent: string
+}
+
+export interface SessionStatus {
+  runId: string
+  updatedAt: string
+  steps: {
+    order: string[]
+    map: Record<string, SessionStatusStep>
+    running: string[]
+    done: string[]
+  }
+  agents: SessionStatusAgent[]
+  runningTools: SessionRunningTool[]
+}
+
 interface SisyphusState {
   // Connection
   isConnected: boolean
@@ -105,6 +166,25 @@ interface SisyphusState {
   agentStatusReports: Record<string, AgentStatusReport>  // keyed by agentName
   updateAgentStatusReport: (report: AgentStatusReport) => void
   clearAgentStatusReports: () => void
+
+  // Agent States (precise data from Session API)
+  agentStates: Record<string, AgentStateData>  // keyed by agentId
+  agentStatesLoading: boolean
+  agentStatesLastFetch: number
+  setAgentStates: (states: AgentStateData[]) => void
+  setAgentStatesLoading: (loading: boolean) => void
+  clearAgentStates: () => void
+
+  // Agent LLM Status (real-time from SSE aevatar.llm.trace)
+  agentLlmStatus: Record<string, AgentLlmStatus>  // keyed by agentId
+  updateAgentLlmStatus: (agentId: string, status: Omit<AgentLlmStatus, "timestamp">) => void
+  clearAgentLlmStatus: () => void
+
+  // Session Status (from status API - steps, tools, agents)
+  sessionStatus: SessionStatus | null
+  sessionStatusLoading: boolean
+  setSessionStatus: (status: SessionStatus | null) => void
+  setSessionStatusLoading: (loading: boolean) => void
 
   // Input Mode
   inputMode: InputMode
@@ -189,6 +269,12 @@ interface SisyphusState {
 
   // Reset state for new session
   resetForNewSession: () => void
+  
+  // Restore running session state (from API status check)
+  restoreRunningSession: (status: {
+    runId: string
+    agents: Array<{ agent: string; providerName?: string }>
+  }) => void
 }
 
 export const useSisyphusStore = create<SisyphusState>((set) => ({
@@ -217,6 +303,36 @@ export const useSisyphusStore = create<SisyphusState>((set) => ({
     },
   })),
   clearAgentStatusReports: () => set({ agentStatusReports: {} }),
+
+  // === Agent States (from Session API) ===
+  agentStates: {},
+  agentStatesLoading: false,
+  agentStatesLastFetch: 0,
+  setAgentStates: (states) => set({
+    agentStates: states.reduce((acc, s) => {
+      acc[s.agentId] = s
+      return acc
+    }, {} as Record<string, AgentStateData>),
+    agentStatesLastFetch: Date.now(),
+  }),
+  setAgentStatesLoading: (loading) => set({ agentStatesLoading: loading }),
+  clearAgentStates: () => set({ agentStates: {}, agentStatesLastFetch: 0 }),
+
+  // === Agent LLM Status (from SSE) ===
+  agentLlmStatus: {},
+  updateAgentLlmStatus: (agentId, status) => set((state) => ({
+    agentLlmStatus: {
+      ...state.agentLlmStatus,
+      [agentId]: { ...status, timestamp: Date.now() },
+    },
+  })),
+  clearAgentLlmStatus: () => set({ agentLlmStatus: {} }),
+
+  // === Session Status (from API) ===
+  sessionStatus: null,
+  sessionStatusLoading: false,
+  setSessionStatus: (status) => set({ sessionStatus: status }),
+  setSessionStatusLoading: (loading) => set({ sessionStatusLoading: loading }),
 
   // === Input Mode ===
   inputMode: "vibe",
@@ -477,11 +593,51 @@ export const useSisyphusStore = create<SisyphusState>((set) => ({
       userPrompt: "",
       isSending: false,
       tools: [],
+      // Clear Agent States (API data)
+      agentStates: {},
+      agentStatesLoading: false,
+      agentStatesLastFetch: 0,
+      // Clear Agent LLM Status (SSE data)
+      agentLlmStatus: {},
+      // Clear Session Status (API data)
+      sessionStatus: null,
+      sessionStatusLoading: false,
       stats: {
         computeLoad: 0,
         networkIO: 0,
         latency: 0,
         memoryUsage: 0,
       },
+    }),
+
+  // === Restore Running Session (from API status) ===
+  restoreRunningSession: ({ runId, agents }) =>
+    set((state) => {
+      // Only restore if there's a valid runId and we don't already have one
+      if (!runId || state.currentRunId) {
+        return state
+      }
+      
+      // Build agent roster from status agents
+      const agentRoster: AgentRosterItem[] = agents.map((a) => ({
+        agent: a.agent,
+      }))
+      
+      // Build agent providers map
+      const agentProviders: Record<string, string> = {}
+      for (const a of agents) {
+        if (a.providerName) {
+          agentProviders[a.agent] = a.providerName
+        }
+      }
+      
+      return {
+        currentRunId: runId,
+        inputMode: "vibe" as InputMode,
+        agentRoster,
+        agentProviders: Object.keys(agentProviders).length > 0 
+          ? agentProviders 
+          : state.agentProviders,
+      }
     }),
 }))

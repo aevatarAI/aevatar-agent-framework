@@ -30,10 +30,12 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     addRawEvent,
     setTools,
     setCurrentRun,
+    setInputMode,
     // updateAgentMessage removed - now using isolated stream store
     setAgentRoster,
     setAgentProviders,
     updateAgentStatusReport,
+    updateAgentLlmStatus,
   } = useSisyphusStore()
 
   // Tool outputs state (per-message)
@@ -88,16 +90,12 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
 
   useEffect(() => {
     if (!sessionId || !enabled) {
-      console.log(`[useAxiomStream] Disabled or no sessionId: sessionId=${sessionId}, enabled=${enabled}`)
       setConnected(false)
       return
     }
 
-    console.log(`[useAxiomStream] Setting up stream for session: ${sessionId}`)
-
     // Clean up previous stream
     if (streamRef.current) {
-      console.log(`[useAxiomStream] Cleaning up previous stream`)
       streamRef.current.disconnect()
       streamRef.current = null
     }
@@ -120,10 +118,7 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     }, 10000)
 
     // === Status Change ===
-    // Note: stream.onStatusChange may not work as expected with @aevatar/kit-protocol
-    // We'll set connected = true when we receive the first event
     stream.onStatusChange((status) => {
-      console.log(`[useAxiomStream] Status changed: ${status}`)
       setConnected(status === "connected")
       if (status === "connected") {
         hasReceivedEvent = true
@@ -134,7 +129,6 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     const markConnected = () => {
       if (!hasReceivedEvent) {
         hasReceivedEvent = true
-        console.log(`[useAxiomStream] First event received, marking connected`)
         clearTimeout(connectionTimeout)
         setConnected(true)
       }
@@ -153,7 +147,6 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
       // When user switches back to a session that's still streaming, we need to
       // restore the accumulated content immediately
       const messages = (event as { messages?: Array<{ id: string; role: string; content: string }> }).messages || []
-      console.log(`[AxiomStream] MESSAGES_SNAPSHOT received with ${messages.length} messages`)
 
       // Get isolated store for direct state updates
       const streamStore = useStreamContentStore.getState()
@@ -213,8 +206,6 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
               },
             }))
           }
-
-          console.log(`[AxiomStream] Restored message for agent=${agentName}, content.length=${msg.content.length}`)
         }
       }
     })
@@ -421,7 +412,6 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
       addRawEvent(event)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const snapshot = (event as any).snapshot as Record<string, unknown> | undefined
-      console.log("[AxiomStream] STATE_SNAPSHOT snapshot:", snapshot) // Debug
       if (snapshot) {
         // Extract workers from snapshot
         if (snapshot.workers && Array.isArray(snapshot.workers)) {
@@ -502,6 +492,32 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     stream.onAevatar("aevatar.graph", (event) => {
       addRawEvent(event)
       // Could update DAG visualization here
+    })
+
+    // LLM Trace Event (from ExecutionTraceProgressHook)
+    // Provides real-time LLM request/response status
+    stream.onCustom("aevatar.llm.trace", (event) => {
+      if (import.meta.env.DEV) {
+        addRawEvent(event)
+      }
+      const value = event.value as {
+        phase?: string
+        status?: string
+        sessionId?: string
+        executionId?: string
+      }
+      
+      // Try to extract agent_id and model from rawEvent fields
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rawEvent = (event as any).rawEvent
+      const fields = rawEvent?.fields as Record<string, { stringValue?: string }> | undefined
+      const agentId = fields?.agent_id?.stringValue
+      const model = fields?.llm_model?.stringValue
+      
+      if (agentId && value.phase) {
+        const phase = value.phase as "llm.request" | "llm.response" | "idle"
+        updateAgentLlmStatus(agentId, { phase, model })
+      }
     })
 
     // Worker Started
@@ -651,6 +667,23 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
 
     // === Aevatar Vibe Custom Events (Agent Cards View) ===
 
+    // Run Steps Snapshot (bootstrap event containing runId)
+    // This restores currentRunId on page refresh
+    stream.onCustom("aevatar.ui.run_steps_snapshot", (event) => {
+      addRawEvent(event)
+      const data = event.value as {
+        sessionId?: string
+        runId?: string
+        order?: string[]
+        map?: Record<string, unknown>
+      }
+      // Only set if runId is non-empty (empty string means no active run)
+      if (data?.runId && data.runId.length > 0) {
+        setCurrentRun(data.runId)
+        setInputMode('vibe')
+      }
+    })
+
     // Agents Roster Snapshot
     stream.onCustom("aevatar.vibe.agents_snapshot", (event) => {
       addRawEvent(event)
@@ -737,8 +770,6 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
       const rawNodes = (dagData?.nodes || []) as unknown[]
       const rawEdges = (dagData?.edges || []) as unknown[]
       
-      console.log("[AxiomStream] Parsed nodes/edges:", { nodes: rawNodes.length, edges: rawEdges.length })
-      
       // Always update dag state even if empty (to clear stale data)
       const { setDag } = useSisyphusStore.getState()
       // Transform nodes
@@ -765,14 +796,12 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
           type: edge.type as string | undefined,
         }
       })
-      console.log("[AxiomStream] Setting DAG:", { nodes: nodes.length, edges: edges.length })
       setDag({ nodes, edges })
     })
 
     // DAG Updated - Trigger refresh by fetching latest DAG
     stream.onCustom("aevatar.vibe.dag_updated", async (event) => {
       addRawEvent(event)
-      console.log("[AxiomStream] DAG updated notification received, fetching latest DAG...")
 
       // Fetch updated DAG from API
       if (sessionId) {
@@ -797,7 +826,6 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
               source: e.fromId,
               target: e.toId,
             }))
-            console.log("[AxiomStream] DAG refreshed:", { nodes: nodes.length, edges: edges.length })
             setDag({ nodes, edges })
           }
         } catch (err) {
@@ -815,7 +843,6 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
         milestoneIndex?: number
         totalMilestones?: number
       }
-      console.log("[AxiomStream] Milestone started:", data)
       if (data.milestoneNodeId) {
         const { setActiveMilestoneNodeId } = useSisyphusStore.getState()
         // Pass sessionId to store milestone per-session
@@ -831,7 +858,6 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
         milestoneNodeId?: string
         milestoneIndex?: number
       }
-      console.log("[AxiomStream] Milestone finished:", data)
       // Clear the active milestone highlight for this session
       const { setActiveMilestoneNodeId } = useSisyphusStore.getState()
       setActiveMilestoneNodeId(null, data.sessionId || sessionId)

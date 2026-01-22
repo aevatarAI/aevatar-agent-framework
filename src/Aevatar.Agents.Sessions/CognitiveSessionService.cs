@@ -7,6 +7,7 @@ using Aevatar.Agents.Abstractions.Tracing;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Cognitive.Agents;
+using Aevatar.Agents.Cognitive.Execution;
 using Aevatar.Agents.Cognitive.Messages;
 using Aevatar.Agents.Cognitive.Primitives;
 using Aevatar.Agents.Cognitive.Utilities;
@@ -356,7 +357,7 @@ public sealed class CognitiveSessionService
         foreach (var id in workerIds)
         {
             var raw = id.ToString("D");
-            var actorId = AgentId.Normalize<CognitiveWorkerGAgent>(raw);
+            var actorId = AgentId.Normalize<RoleAIGAgent>(raw);
             result.Add(actorId);
 
             var actor = await _actorManager.GetActorAsync(actorId);
@@ -365,9 +366,10 @@ public sealed class CognitiveSessionService
 
             try
             {
-                if (actor.GetAgent() is CognitiveWorkerGAgent worker)
+                if (actor.GetAgent() is RoleAIGAgent worker)
                 {
                     worker.ConfigureSessionContext(sessionId, enableSessionMemory, enableAgentMemory);
+                    worker.SetStepExecutionHandler(new CognitiveStepExecutionHandler());
                 }
             }
             catch (NotSupportedException)

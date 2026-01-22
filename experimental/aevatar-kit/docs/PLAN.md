@@ -52,7 +52,7 @@
 
 - **Runtime（Aevatar Data Plane）**
   - `CognitiveCoordinatorGAgent`：执行 YAML/IR 编译后的 workflow
-  - `CognitiveWorkerGAgent`：并行执行 `llm_call`（Actor 真实并行）
+  - `RoleAIGAgent` + `CognitiveStepExecutionHandler`：并行执行 `llm_call`（Actor 真实并行）
 
 ### 3.2 数据存储（建议）
 

@@ -74,6 +74,43 @@ var response = await agent.ChatAsync(new ChatRequest { Message = "hi" });
 - **流式工具策略**：`StreamingToolCalls`（`StreamingToolCallMode`）可 override。
 - **错误日志策略**：`LogChatStreamTokenReadException(...)` 可 override。
 
+### Event-driven streaming（ChatRequestEvent）
+
+- 事件入口：`ChatRequestEvent`
+- 流式输出：`ChatStreamChunkEvent`（默认 **每 8 个 chunk 合并一次**，可用 `stream_chunk_every_n` 覆盖）
+- 结束信号：`ChatResponseEvent`（完整内容）
+
+**Sample：发布请求 + 订阅 chunk**
+
+```csharp
+var request = new ChatRequestEvent
+{
+    RequestId = Guid.NewGuid().ToString("N"),
+    Message = "Hello",
+    StreamChunkEveryN = 8, // 可选，<=0 使用默认值
+    Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+};
+request.Context[ChatRequest.SessionIdKey] = sessionId;
+
+await actor.PublishEventAsync(request, EventDirection.Down, ct);
+
+// 订阅流式 chunk（用于 UI streaming）
+_ = stream.SubscribeAsync<ChatStreamChunkEvent>(evt =>
+{
+    if (evt == null) return Task.CompletedTask;
+    AppendToUi(evt.RequestId, evt.Content);
+    return Task.CompletedTask;
+});
+
+// 订阅最终结果（用于收尾/落库）
+_ = stream.SubscribeAsync<ChatResponseEvent>(evt =>
+{
+    if (evt == null) return Task.CompletedTask;
+    FinalizeUi(evt.RequestId, evt.Content);
+    return Task.CompletedTask;
+});
+```
+
 ### 内部 runtime（行为不变）
 
 - **LlmRequestRuntime**：负责 `BuildLLMRequest(...)` 的组装（system prompt + history + allowlist + tools）。

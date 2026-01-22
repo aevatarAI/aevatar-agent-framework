@@ -22,13 +22,13 @@
 - `CognitiveCoordinatorGAgent`  
   负责工作流生命周期、步骤调度、变量表、失败处理、递归控制、步骤事件。
 
-- `CognitiveWorkerGAgent`  
-  执行 `llm_call`（并行 worker，避免阻塞 Coordinator）。
+- `RoleAIGAgent` + `CognitiveStepExecutionHandler`  
+  执行 `llm_call`（并行 role worker，避免阻塞 Coordinator）。
 
 - `Shared/CognitiveAIGAgentBase`  
   统一 LLM 请求形态与 history 策略（禁用自动压缩，总是只发当前 prompt）。
 
-**边界**：Worker **只负责 `llm_call`**，不会执行 workspace/sandbox 原语；Coordinator 执行所有确定性步骤。
+**边界**：Role Worker **只负责 `llm_call`**，不会执行 workspace/sandbox 原语；Coordinator 执行所有确定性步骤。
 
 #### 2.1.1 Coordinator 拆分文件与职责
 

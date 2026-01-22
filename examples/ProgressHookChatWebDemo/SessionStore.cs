@@ -179,10 +179,10 @@ public sealed class SessionStore
                 null,
                 CancellationToken.None);
 
-            _ = _traceStream.SubscribeAsync<StringValue>(
+            _ = _traceStream.SubscribeAsync<ChatStreamChunkEvent>(
                 evt =>
                 {
-                    HandleAssistantDelta(evt?.Value ?? string.Empty);
+                    HandleAssistantChunk(evt);
                     return Task.CompletedTask;
                 },
                 null,
@@ -268,7 +268,8 @@ public sealed class SessionStore
             {
                 RequestId = runId,
                 Message = message,
-                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
+                StreamChunkEveryN = 8
             };
             request.Context[ChatRequest.SessionIdKey] = SessionId;
 
@@ -351,29 +352,17 @@ public sealed class SessionStore
             }
         }
 
-        private void HandleAssistantDelta(string payload)
+        private void HandleAssistantChunk(ChatStreamChunkEvent? evt)
         {
-            if (string.IsNullOrWhiteSpace(payload))
+            if (evt == null || string.IsNullOrWhiteSpace(evt.RequestId))
                 return;
 
-            // Format: "{runId}|assistant|delta"
-            var parts = payload.Split('|', 3);
-            if (parts.Length < 3)
-                return;
-
-            var runId = parts[0];
-            var role = parts[1];
-            var delta = parts[2];
-
-            if (!string.Equals(role, "assistant", StringComparison.OrdinalIgnoreCase))
-                return;
-
-            var messageId = $"msg:{SessionId}:assistant:{runId}";
+            var messageId = $"msg:{SessionId}:assistant:{evt.RequestId}";
             _events.Publish(new TextMessageContentEvent
             {
                 Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 MessageId = messageId,
-                Delta = delta
+                Delta = evt.Content ?? string.Empty
             });
         }
 

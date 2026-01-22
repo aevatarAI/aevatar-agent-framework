@@ -1,5 +1,7 @@
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
+using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.Abstractions.Helpers;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core.Hooks;
@@ -29,6 +31,127 @@ public abstract partial class AIGAgentBase
     private HashSet<string>? _fixedToolAllowlist;
     private LlmRequestRuntime? _llmRequestRuntime;
     private LlmRequestRuntime LlmRequest => _llmRequestRuntime ??= new LlmRequestRuntime(LlmRequestContext);
+
+    private static readonly MethodInfo ChatRequestHandlerMethod =
+        typeof(AIGAgentBase).GetMethod(nameof(HandleChatRequestEvent),
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+    private bool HasCustomChatRequestHandler()
+    {
+        var handlers = GetEventHandlers();
+        foreach (var handler in handlers)
+        {
+            if (handler.IsAllEventHandler)
+                continue;
+            if (handler.ParameterType != typeof(ChatRequestEvent))
+                continue;
+            if (!Equals(handler.Method, ChatRequestHandlerMethod))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Event-driven chat entry (for YAML/role-based agents).
+    /// </summary>
+    [EventHandler]
+    protected virtual async Task HandleChatRequestEvent(ChatRequestEvent evt)
+    {
+        if (evt == null)
+            return;
+
+        // If a derived class provides its own ChatRequestEvent handler, skip the base handler to avoid duplicates.
+        if (HasCustomChatRequestHandler())
+            return;
+
+        var requestId = string.IsNullOrWhiteSpace(evt.RequestId)
+            ? Guid.NewGuid().ToString("N")
+            : evt.RequestId;
+
+        var request = new ChatRequest
+        {
+            RequestId = requestId,
+            Message = evt.Message ?? string.Empty
+        };
+
+        if (!string.IsNullOrWhiteSpace(evt.UserId))
+        {
+            request.Context["user_id"] = evt.UserId.Trim();
+        }
+
+        if (evt.Context != null)
+        {
+            foreach (var (key, value) in evt.Context)
+            {
+                if (!string.IsNullOrWhiteSpace(key))
+                {
+                    request.Context[key] = value ?? string.Empty;
+                }
+            }
+        }
+
+        if (evt.MaxTokens > 0)
+        {
+            request.MaxTokens = evt.MaxTokens;
+        }
+
+        if (evt.Temperature > 0)
+        {
+            request.Temperature = evt.Temperature;
+        }
+
+        const int DefaultStreamChunkEveryN = 8;
+        var chunkEvery = evt.StreamChunkEveryN > 0 ? evt.StreamChunkEveryN : DefaultStreamChunkEveryN;
+        chunkEvery = Math.Clamp(chunkEvery, 1, 128);
+
+        var buffer = new StringBuilder();
+        var pending = new StringBuilder();
+        var rawChunkCount = 0;
+        var publishedIndex = 0;
+
+        await foreach (var chunk in ChatStreamAsync(request, CancellationToken.None))
+        {
+            if (string.IsNullOrEmpty(chunk))
+                continue;
+
+            buffer.Append(chunk);
+            pending.Append(chunk);
+            rawChunkCount++;
+
+            if (rawChunkCount % chunkEvery != 0)
+                continue;
+
+            publishedIndex++;
+            await PublishAsync(new ChatStreamChunkEvent
+            {
+                RequestId = requestId,
+                Content = pending.ToString(),
+                ChunkIndex = publishedIndex,
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+            });
+            pending.Clear();
+        }
+
+        if (pending.Length > 0)
+        {
+            publishedIndex++;
+            await PublishAsync(new ChatStreamChunkEvent
+            {
+                RequestId = requestId,
+                Content = pending.ToString(),
+                ChunkIndex = publishedIndex,
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+            });
+        }
+
+        await PublishAsync(new ChatResponseEvent
+        {
+            RequestId = requestId,
+            Content = buffer.ToString(),
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+        });
+    }
 
 
     /// <summary>

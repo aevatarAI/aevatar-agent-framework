@@ -18,13 +18,9 @@ namespace Aevatar.Agents.Cognitive.Agents;
 //  NOTE:
 //  - This base class only unifies "LLM request form + history persistence strategy", doesn't touch business orchestration.
 // ============================================================
-public abstract class CognitiveAIGAgentBase<TCustomState> : AIGAgentBase<TCustomState>
+public abstract class CognitiveAIGAgentBase<TCustomState> : RoleAIGAgent<TCustomState>
     where TCustomState : class, IMessage<TCustomState>, new()
 {
-    private string? _sessionId;
-
-    protected string? SessionId => _sessionId;
-
     // ============================================================
     //  History policy (no extra LLM calls)
     //
@@ -43,49 +39,6 @@ public abstract class CognitiveAIGAgentBase<TCustomState> : AIGAgentBase<TCustom
 
         // Keep a small window for UI hydration. Hard cap is enforced in AddMessageToHistory.
         ChatHistoryMaxMessages = 32;
-    }
-
-    protected override async Task OnActivateAsync(CancellationToken ct = default)
-    {
-        await base.OnActivateAsync(ct);
-
-        // Best-effort: restore session id from persisted state context.
-        if (State.Context.TryGetValue(ChatRequest.SessionIdKey, out var raw) &&
-            !string.IsNullOrWhiteSpace(raw))
-        {
-            _sessionId = raw.Trim();
-        }
-        else if (State.Context.TryGetValue(ChatRequest.SessionIdKeyCamel, out var camel) &&
-                 !string.IsNullOrWhiteSpace(camel))
-        {
-            _sessionId = camel.Trim();
-        }
-    }
-
-    /// <summary>
-    /// Configure session context for memory/history aggregation.
-    /// </summary>
-    public void ConfigureSessionContext(
-        string sessionId,
-        bool enableSessionMemory,
-        bool enableAgentMemory)
-    {
-        if (string.IsNullOrWhiteSpace(sessionId))
-            return;
-
-        _sessionId = sessionId.Trim();
-        State.Context[ChatRequest.SessionIdKey] = _sessionId;
-
-        EnableSessionMemoryStoreAppend = enableSessionMemory;
-        EnableMemoryStoreAppend = enableAgentMemory;
-    }
-
-    protected void ApplySessionContext(ChatRequest request)
-    {
-        if (string.IsNullOrWhiteSpace(_sessionId))
-            return;
-
-        request.SetSessionId(_sessionId);
     }
 
     private void TrimHistoryWindowBestEffort()

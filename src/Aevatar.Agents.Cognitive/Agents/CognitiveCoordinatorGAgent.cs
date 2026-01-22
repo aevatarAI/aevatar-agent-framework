@@ -37,7 +37,7 @@ namespace Aevatar.Agents.Cognitive.Agents;
 /// 
 /// This follows MAKER design pattern:
 /// - MakerCoordinatorGAgent → CognitiveCoordinatorGAgent
-/// - MakerWorkerGAgent → CognitiveWorkerGAgent
+/// - MakerWorkerGAgent → RoleAIGAgent (Cognitive Step Handler)
 /// </summary>
 public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<CognitiveCoordinatorState>
 {
@@ -48,6 +48,7 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
     private readonly TemplateEngine _templateEngine = new();
     private readonly OutputParserFactory _parserFactory = new();
     private readonly InMemoryWorkflowRegistry _workflowRegistry = new();
+    private readonly CognitiveStepExecutionHandler _stepExecutionHandler = new();
 
     // ============================================================
     //  Runtime State
@@ -242,24 +243,43 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
 
         for (var i = 0; i < ids.Count; i++)
         {
-            // Create Worker Actor
+            // Create Role-based Worker Actor
             var rawWorkerId = ids[i].ToString("D");
-            var workerActor = await _actorManager.CreateAndRegisterAsync<CognitiveWorkerGAgent>(rawWorkerId);
-            var workerActorId = workerActor.Id; // Normalized full ActorId: "CognitiveWorkerGAgent:RawId"
+            var workerActor = await _actorManager.CreateAndRegisterAsync<RoleAIGAgent>(rawWorkerId);
+            var workerActorId = workerActor.Id; // Normalized full ActorId: "RoleAIGAgent:RawId"
 
-            if (workerActor.GetAgent() is CognitiveWorkerGAgent worker)
+            try
             {
-                // Reuse AIGAgentBase history switch (default off)
-                worker.EnableChatHistoryInState = EnableChatHistoryInState;
-                worker.EnableChatHistoryCompaction = EnableChatHistoryCompaction;
-                worker.ChatHistoryMaxMessages = ChatHistoryMaxMessages;
-                worker.ChatHistorySummaryMaxChars = ChatHistorySummaryMaxChars;
-
-                // Initialize Worker's LLM Provider (otherwise Worker.LLMProvider will throw exception)
-                if (!string.IsNullOrWhiteSpace(providerName))
+                if (workerActor.GetAgent() is RoleAIGAgent worker)
                 {
-                    await worker.InitializeAsync(providerName!, cancellationToken: CancellationToken.None);
+                    // Reuse AIGAgentBase history switch (default off)
+                    worker.EnableChatHistoryInState = EnableChatHistoryInState;
+                    worker.EnableChatHistoryCompaction = EnableChatHistoryCompaction;
+                    worker.ChatHistoryMaxMessages = ChatHistoryMaxMessages;
+                    worker.ChatHistorySummaryMaxChars = ChatHistorySummaryMaxChars;
+
+                    if (!string.IsNullOrWhiteSpace(SessionId))
+                    {
+                        worker.ConfigureSessionContext(
+                            SessionId!,
+                            EnableSessionMemoryStoreAppend,
+                            EnableMemoryStoreAppend);
+                    }
+
+                    worker.SetStepExecutionHandler(_stepExecutionHandler);
+
+                    // Initialize Worker's LLM Provider (otherwise Worker.LLMProvider will throw exception)
+                    if (!string.IsNullOrWhiteSpace(providerName))
+                    {
+                        await worker.InitializeAsync(providerName!, cancellationToken: CancellationToken.None);
+                    }
                 }
+            }
+            catch (NotSupportedException)
+            {
+                Logger.LogWarning(
+                    "Worker configuration requires local runtime to access agent {AgentId}",
+                    workerActorId);
             }
 
             // Set parent-child relationship (Worker subscribes to Coordinator's stream)

@@ -12,7 +12,7 @@ Aevatar.Agents.Cognitive/
 │   ├── CognitiveCoordinatorGAgent.Vote.cs                # vote consensus (semantic clustering + red-flag)
 │   ├── CognitiveCoordinatorGAgent.StepEvents.cs          # step events for UI/observability
 │   ├── CognitiveCoordinatorGAgent.Parameters.cs          # output parsing + parameter helpers + red-flag config
-│   └── CognitiveWorkerGAgent.cs                          # Worker: execute llm_call and report results
+│   └── (removed) CognitiveWorkerGAgent.cs                # Worker removed; RoleAIGAgent handles step requests
 │   └── Shared/
 │       └── CognitiveAIGAgentBase.cs                      # Shared: stateless LLM request + step history metadata
 ├── Engine/                      # 工作流引擎
@@ -21,6 +21,7 @@ Aevatar.Agents.Cognitive/
 │   ├── TransformExecutor.cs            # transform 原语执行器（token-free）
 │   ├── RetrieveFactsExecutor.cs        # retrieve_facts 原语执行器（token-free）
 │   └── HpaExecutor.cs                  # hpa 原语执行器（token-free, HPA 几何证据层）
+│   └── CognitiveStepExecutionHandler.cs # RoleAIGAgent step handler (ExecuteStepRequestEvent)
 ├── Hpa/                         # HPA 数学核心（deterministic）
 │   ├── Octonion.cs                    # 八元数（乘法/范数/结合子）
 │   └── HpaEmbedding.cs                # 复相位 + 八元数 lift（可复现 embedding）
@@ -65,10 +66,11 @@ Aevatar.Agents.Cognitive/
 - `CognitiveCoordinatorGAgent.StepEvents.cs`：步骤事件（UI/回放）
 - `CognitiveCoordinatorGAgent.Parameters.cs`：输出解析 + 参数/红旗配置解析
 
-### 2. CognitiveWorkerGAgent
+### 2. RoleAIGAgent + CognitiveStepExecutionHandler
 **职责**: 并行任务执行
 
-- 接收 Coordinator 派发的任务
+- RoleAIGAgent 作为执行体（YAML 角色驱动）
+- `CognitiveStepExecutionHandler` 处理 `ExecuteStepRequestEvent`
 - 执行 LLM 调用（复用 `AIGAgentBase.ChatAsync/ChatStreamAsync`，支持流式）
 - 向上报告执行结果
 

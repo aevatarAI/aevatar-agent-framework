@@ -302,7 +302,26 @@ builder.Services.AddSingleton<IReviewAgentStorage>(sp =>
     return new FileReviewAgentStorage(basePath, logger);
 });
 builder.Services.AddSingleton<IReviewAgentEventPublisher, ReviewAgentEventPublisher>();
-builder.Services.AddHostedService<ReviewAgentHostedService>();
+// Register ReviewAgentHostedService as singleton so IReviewAgentTrigger can be injected
+builder.Services.AddSingleton<ReviewAgentHostedService>();
+builder.Services.AddSingleton<IReviewAgentTrigger>(sp => sp.GetRequiredService<ReviewAgentHostedService>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ReviewAgentHostedService>());
+
+// CORS configuration for cross-origin deployment
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        // 从配置读取允许的域名，支持多个域名
+        var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+            ?? ["http://localhost:3000", "http://localhost:5173"];
+
+        policy.WithOrigins(allowedOrigins)
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials();  // 需要支持 SSE 的 credentials
+    });
+});
 
 var app = builder.Build();
 
@@ -326,6 +345,9 @@ catch
 {
     // best-effort only
 }
+
+// Enable CORS (must be before routing/endpoints)
+app.UseCors();
 
 app.MapGet("/health", () => Results.Text("ok"));
 // NOTE: Cognitive Session API registers /api/sessions (conflicts with current Vibe API).

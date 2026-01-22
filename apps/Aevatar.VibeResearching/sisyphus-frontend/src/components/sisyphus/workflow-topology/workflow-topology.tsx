@@ -16,7 +16,6 @@ import { SubGraphViewer } from '../sub-graph-viewer'
 
 import { type NodeFilterMode } from './dag-node-styles'
 import {
-  createRadialForceLayout,
   createPersistentSimulation,
   findCenterNode,
   type LayoutNode,
@@ -154,8 +153,6 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
     if (!dag?.nodes || dag.nodes.length === 0) {
       return { filteredNodes: [], filteredEdges: [], centerNodeId: null }
     }
-
-    const isHighlighting = highlightMode !== 'none'
 
     // Filter nodes (no hard limit - performance optimized in force layout)
     const filteredDagNodes = dag.nodes.filter((node) => {
@@ -307,7 +304,7 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
           // Update position in simulation - this will push other nodes away
           simulationRef.current?.updateNodePosition(node.id, x, y)
         },
-        onNodeDragEnd: (node) => {
+        onNodeDragEnd: () => {
           // Release the fixed position and let simulation settle
           simulationRef.current?.setDraggedNode(null)
           simulationRef.current?.reheat()

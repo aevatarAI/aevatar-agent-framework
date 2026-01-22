@@ -398,7 +398,7 @@ export interface SessionStatusAgent {
 }
 
 export interface SessionStatusStep {
-  status?: string
+  status?: "running" | "done" | "pending"
   startedAt?: string
   finishedAt?: string
 }

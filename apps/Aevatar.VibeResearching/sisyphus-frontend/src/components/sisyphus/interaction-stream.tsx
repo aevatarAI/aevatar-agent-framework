@@ -508,8 +508,8 @@ const AgentsPanel: React.FC<AgentsPanelProps> = memo(({ agentNames, isVibeMode, 
   );
 });
 
-// Agent detail modal using isolated stream store
-const AgentDetailModalWithStream: React.FC<{ agentName: string; onBack: () => void }> = ({ agentName, onBack }) => {
+// Agent detail modal using isolated stream store (reserved for future use)
+export const AgentDetailModalWithStream: React.FC<{ agentName: string; onBack: () => void }> = ({ agentName, onBack }) => {
   const streamData = useStreamContentStore(selectAgentStream(agentName));
   
   if (!streamData) return null;
@@ -593,8 +593,8 @@ const AgentDetailModalWithStream: React.FC<{ agentName: string; onBack: () => vo
   );
 };
 
-// All agents modal using isolated stream store
-const AllAgentsModalWithStream: React.FC<{ 
+// All agents modal using isolated stream store (reserved for future use)
+export const AllAgentsModalWithStream: React.FC<{ 
   agentNames: string[]; 
   onSelectAgent: (name: string) => void;
 }> = ({ agentNames, onSelectAgent }) => {
@@ -1015,7 +1015,6 @@ const InteractionStream: React.FC<InteractionStreamProps> = ({ sessionId }) => {
   const inputMode = useSisyphusStore((s) => s.inputMode);
   const currentRunId = useSisyphusStore((s) => s.currentRunId);
   const agentRoster = useSisyphusStore((s) => s.agentRoster);
-  const agentProviders = useSisyphusStore((s) => s.agentProviders);
 
   // Use isolated stream store for detecting if RA has content
   const raStreamData = useStreamContentStore(selectAgentStream('research_assistant'));

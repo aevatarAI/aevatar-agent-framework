@@ -100,10 +100,15 @@ interface UseReviewAgentReturn {
   // ETA calculation (passed to Progress component for real-time calculation)
   iterationStartTime: number | null
 
+  // Manual trigger state
+  isRunning: boolean
+  hasStarted: boolean
+
   // Actions
   refreshStatus: () => Promise<void>
   refreshSettings: () => Promise<void>
   updateSettings: (update: Partial<ReviewAgentSettings>) => Promise<ReviewAgentSettings>
+  triggerReview: () => Promise<{ triggered: boolean; message: string }>
   disconnect: () => void
   reconnect: () => void
 }
@@ -133,6 +138,10 @@ export function useReviewAgent({
 
   // Iteration timing for ETA calculation
   const [iterationStartTime, setIterationStartTime] = useState<number | null>(null)
+
+  // Manual trigger state
+  const [isRunning, setIsRunning] = useState(false)
+  const [hasStarted, setHasStarted] = useState(false)
 
   // Agent cards for token streaming visualization
   const [agentCards, setAgentCards] = useState<ReviewAgentCard[]>([])
@@ -189,6 +198,9 @@ export function useReviewAgent({
         }
 
         setStatus(normalizedData)
+        // Sync manual trigger state from status
+        setIsRunning(data.isRunning ?? data.IsRunning ?? false)
+        setHasStarted(data.hasStarted ?? data.HasStarted ?? false)
         // Sync counters from status
         setNodesReviewed(normalizedData.nodesReviewed)
         setNodesPending(normalizedData.nodesPending)
@@ -320,6 +332,36 @@ export function useReviewAgent({
         setSettings(data)
       }
       return data
+    },
+    []
+  )
+
+  const triggerReview = useCallback(
+    async (): Promise<{ triggered: boolean; message: string }> => {
+      try {
+        const response = await fetch(`${API_BASE}/trigger`, {
+          method: 'POST',
+        })
+        const data = await response.json()
+        console.log('[useReviewAgent] Trigger response:', data)
+
+        if (mountedRef.current) {
+          // Update local state from response
+          if (data.isRunning !== undefined) setIsRunning(data.isRunning)
+          if (data.hasStarted !== undefined) setHasStarted(data.hasStarted)
+        }
+
+        return {
+          triggered: data.triggered ?? false,
+          message: data.message ?? (response.ok ? 'Triggered' : 'Failed'),
+        }
+      } catch (error) {
+        console.error('[useReviewAgent] Failed to trigger review:', error)
+        return {
+          triggered: false,
+          message: error instanceof Error ? error.message : 'Failed to trigger review',
+        }
+      }
     },
     []
   )
@@ -698,10 +740,15 @@ export function useReviewAgent({
     // ETA (passed to Progress component for real-time calculation)
     iterationStartTime,
 
+    // Manual trigger state
+    isRunning,
+    hasStarted,
+
     // Actions
     refreshStatus,
     refreshSettings,
     updateSettings,
+    triggerReview,
     disconnect,
     reconnect,
   }

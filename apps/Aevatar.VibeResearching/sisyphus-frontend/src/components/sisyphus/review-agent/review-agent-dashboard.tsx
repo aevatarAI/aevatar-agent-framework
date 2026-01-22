@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, Component } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
-import { X, RefreshCw, Settings, Wifi, WifiOff, History, Activity, AlertTriangle, ChevronLeft, ChevronRight, Bot, Table2, Download } from 'lucide-react';
+import { X, RefreshCw, Settings, Wifi, WifiOff, History, Activity, AlertTriangle, ChevronLeft, ChevronRight, Bot, Table2, Download, Play, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useReviewAgent } from '@/hooks/use-review-agent';
 import ReviewAgentStatus from './review-agent-status';
@@ -711,6 +711,7 @@ const ReviewAgentDashboardInner: React.FC<ReviewAgentDashboardProps> = ({ isOpen
   const [isAgentPanelExpanded, setIsAgentPanelExpanded] = useState(false);
   const [selectedLogEntry, setSelectedLogEntry] = useState<ReviewLogEntryDetail | null>(null);
   const [isReviewLogTableOpen, setIsReviewLogTableOpen] = useState(false);
+  const [isTriggering, setIsTriggering] = useState(false);
 
   const {
     isConnected,
@@ -724,12 +725,25 @@ const ReviewAgentDashboardInner: React.FC<ReviewAgentDashboardProps> = ({ isOpen
     nodesDeactivated,
     nodesRemoved,
     iterationStartTime,
+    isRunning,
+    hasStarted,
     refreshStatus,
+    triggerReview,
     reconnect,
   } = useReviewAgent({ enabled: isOpen });
 
   const isWorking = status?.status === 'WorkingReviewRound' || status?.status === 'WorkingCleanupRound';
   const hasAgentActivity = isWorking && agentCards.length > 0;
+
+  const handleTriggerReview = async () => {
+    setIsTriggering(true);
+    try {
+      const result = await triggerReview();
+      console.log('[ReviewAgentDashboard] Trigger result:', result);
+    } finally {
+      setIsTriggering(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-end pt-20 pr-4">
@@ -1076,9 +1090,41 @@ const ReviewAgentDashboardInner: React.FC<ReviewAgentDashboardProps> = ({ isOpen
                       Quick Actions
                     </h3>
                     <div className="flex gap-2">
-                      <button className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-surface-elevated hover:opacity-80 border border-border-subtle transition-colors text-sm">
+                      {/* Start Review Button - shown when not started or idle */}
+                      <button
+                        onClick={handleTriggerReview}
+                        disabled={isRunning || isTriggering}
+                        className={cn(
+                          "flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border transition-colors text-sm font-medium",
+                          isRunning || isTriggering
+                            ? "bg-surface-elevated/50 border-border-subtle text-text-muted cursor-not-allowed"
+                            : hasStarted
+                            ? "bg-neon-cyan/10 border-neon-cyan/30 text-neon-cyan hover:bg-neon-cyan/20"
+                            : "bg-neon-green/10 border-neon-green/30 text-neon-green hover:bg-neon-green/20"
+                        )}
+                      >
+                        {isTriggering ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span>Triggering...</span>
+                          </>
+                        ) : isRunning ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span>Running...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Play className="w-4 h-4" />
+                            <span>{hasStarted ? 'Start Review' : 'Start First Review'}</span>
+                          </>
+                        )}
+                      </button>
+                      <button
+                        onClick={() => setActiveTab('settings')}
+                        className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-surface-elevated hover:opacity-80 border border-border-subtle transition-colors text-sm"
+                      >
                         <Settings className="w-4 h-4" />
-                        <span>Settings</span>
                       </button>
                     </div>
                   </div>

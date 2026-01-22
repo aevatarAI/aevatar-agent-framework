@@ -9,16 +9,23 @@ namespace VibeResearching.Api.Infrastructure;
 
 /// <summary>
 /// Background service that runs the Review Agent on a schedule.
-/// Starts immediately on boot, then runs at configurable intervals.
+/// Requires manual trigger for the first round, then auto-schedules subsequent rounds.
 /// Publishes SSE events for real-time frontend updates.
 /// </summary>
-public sealed class ReviewAgentHostedService : BackgroundService
+public sealed class ReviewAgentHostedService : BackgroundService, IReviewAgentTrigger
 {
     private readonly ReviewAgentService _reviewAgentService;
     private readonly IReviewAgentEventPublisher _eventPublisher;
     private readonly IReviewAgentStorage _storage;
     private readonly IOptionsMonitor<ReviewAgentOptions> _optionsMonitor;
     private readonly ILogger<ReviewAgentHostedService> _logger;
+
+    // Manual trigger state
+    private volatile bool _hasStarted;
+    private volatile bool _isRunning;
+    private readonly SemaphoreSlim _triggerSemaphore = new(1, 1);
+    private TaskCompletionSource? _triggerSignal;
+    private CancellationToken _stoppingToken;
 
     public ReviewAgentHostedService(
         IReviewAgentService reviewAgentService,
@@ -53,9 +60,39 @@ public sealed class ReviewAgentHostedService : BackgroundService
         };
     }
 
+    // IReviewAgentTrigger implementation
+    public bool IsRunning => _isRunning;
+    public bool HasStarted => _hasStarted;
+
+    public async Task<bool> TriggerReviewRoundAsync()
+    {
+        if (!await _triggerSemaphore.WaitAsync(0))
+        {
+            // Already running or being triggered
+            return false;
+        }
+
+        try
+        {
+            if (_isRunning)
+            {
+                return false;
+            }
+
+            // Signal the waiting loop to start a review round
+            _triggerSignal?.TrySetResult();
+            return true;
+        }
+        finally
+        {
+            _triggerSemaphore.Release();
+        }
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("Review Agent hosted service starting...");
+        _stoppingToken = stoppingToken;
+        _logger.LogInformation("Review Agent hosted service starting (manual trigger required for first round)...");
 
         // Load persisted config from storage if available (T065)
         try
@@ -79,16 +116,18 @@ public sealed class ReviewAgentHostedService : BackgroundService
             _logger.LogWarning(ex, "Failed to load saved config, using defaults");
         }
 
-        // Calculate initial next scheduled time (will be updated after first round completes)
-        var initialOptions = _optionsMonitor.CurrentValue;
-        var initialNextScheduled = DateTimeOffset.UtcNow.AddMinutes(initialOptions.IterationIntervalMinutes);
-        _reviewAgentService.SetNextScheduledAt(initialNextScheduled);
+        // Publish initial status (Idle, waiting for manual trigger)
+        await _eventPublisher.PublishStatusChangeAsync(ReviewAgentStatus.Idle, nextScheduledAt: null);
 
-        // Publish initial status with next scheduled time
-        await _eventPublisher.PublishStatusChangeAsync(ReviewAgentStatus.Idle, initialNextScheduled);
+        // Wait for manual trigger before first round
+        _logger.LogInformation("Review Agent waiting for manual trigger to start first round...");
+        await WaitForTriggerAsync(stoppingToken);
 
-        // Run first review round immediately on startup (T034)
+        if (stoppingToken.IsCancellationRequested) return;
+
+        // Run first review round (manually triggered)
         await RunReviewRoundSafeAsync(stoppingToken);
+        _hasStarted = true;
 
         // Then run on schedule
         while (!stoppingToken.IsCancellationRequested)
@@ -126,13 +165,29 @@ public sealed class ReviewAgentHostedService : BackgroundService
         _logger.LogInformation("Review Agent hosted service stopped.");
     }
 
+    private async Task WaitForTriggerAsync(CancellationToken stoppingToken)
+    {
+        _triggerSignal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        try
+        {
+            using var registration = stoppingToken.Register(() => _triggerSignal.TrySetCanceled());
+            await _triggerSignal.Task;
+        }
+        catch (OperationCanceledException)
+        {
+            // Service is stopping
+        }
+    }
+
     private async Task RunReviewRoundSafeAsync(CancellationToken stoppingToken)
     {
         if (stoppingToken.IsCancellationRequested) return;
 
+        _isRunning = true;
         try
         {
-            _logger.LogInformation("Starting scheduled review round...");
+            _logger.LogInformation("Starting review round...");
 
             // Publish status change to working
             await _eventPublisher.PublishStatusChangeAsync(ReviewAgentStatus.WorkingReviewRound);
@@ -179,6 +234,10 @@ public sealed class ReviewAgentHostedService : BackgroundService
             _logger.LogError(ex, "Review round failed with error: {Message}", ex.Message);
             _reviewAgentService.SetError(ex.Message);
             await _eventPublisher.PublishStatusChangeAsync(ReviewAgentStatus.Error);
+        }
+        finally
+        {
+            _isRunning = false;
         }
     }
 

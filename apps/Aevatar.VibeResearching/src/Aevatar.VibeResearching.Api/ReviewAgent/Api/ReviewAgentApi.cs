@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using VibeResearching.Vibe.ReviewAgent;
+using VibeResearching.Api.Infrastructure;
 using Aevatar.VibeResearching.Api.ReviewAgent.Events;
 using Aevatar.VibeResearching.Api.ReviewAgent.Storage;
 
@@ -82,7 +83,37 @@ public static class ReviewAgentApi
             .WithDescription("Returns all knowledge nodes with their review status for graph visualization. Nodes are colored based on: reviewed (passed), pending (waiting), deactivated (failed), removed, or currently reviewing.")
             .Produces<ReviewGraphResponse>(StatusCodes.Status200OK);
 
+        // POST /api/review-agent/trigger - Manually trigger a review round
+        group.MapPost("/trigger", TriggerReview)
+            .WithName("TriggerReviewRound")
+            .WithSummary("Manually trigger a review round")
+            .WithDescription("Triggers a review round manually. Required for the first round; subsequent rounds are auto-scheduled.")
+            .Produces<TriggerReviewResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status409Conflict);
+
         return group;
+    }
+
+    private static async Task<IResult> TriggerReview(IReviewAgentTrigger trigger)
+    {
+        var triggered = await trigger.TriggerReviewRoundAsync();
+
+        if (!triggered)
+        {
+            return Results.Conflict(new TriggerReviewResponse(
+                Triggered: false,
+                Message: "Review round is already running",
+                IsRunning: trigger.IsRunning,
+                HasStarted: trigger.HasStarted
+            ));
+        }
+
+        return Results.Ok(new TriggerReviewResponse(
+            Triggered: true,
+            Message: "Review round triggered successfully",
+            IsRunning: trigger.IsRunning,
+            HasStarted: trigger.HasStarted
+        ));
     }
 
     private static async Task StreamEvents(
@@ -232,7 +263,7 @@ public static class ReviewAgentApi
         return Results.Ok(response);
     }
 
-    private static IResult GetStatus(IReviewAgentService service)
+    private static IResult GetStatus(IReviewAgentService service, IReviewAgentTrigger trigger)
     {
         var state = service.GetState();
         var response = new ReviewAgentStatusResponse(
@@ -244,7 +275,9 @@ public static class ReviewAgentApi
             NodesPending: state.NodesPending,
             NodesDeactivated: state.NodesDeactivated,
             NodesRemoved: state.NodesRemoved,
-            ErrorMessage: state.ErrorMessage
+            ErrorMessage: state.ErrorMessage,
+            IsRunning: trigger.IsRunning,
+            HasStarted: trigger.HasStarted
         );
 
         return Results.Ok(response);
@@ -362,7 +395,9 @@ public sealed record ReviewAgentStatusResponse(
     int NodesPending,
     int NodesDeactivated,
     int NodesRemoved,
-    string? ErrorMessage
+    string? ErrorMessage,
+    bool IsRunning,
+    bool HasStarted
 );
 
 /// <summary>
@@ -443,4 +478,14 @@ public sealed record ReviewGraphEdgeResponse(
     string Source,
     string Target,
     string Type
+);
+
+/// <summary>
+/// Response model for the trigger endpoint.
+/// </summary>
+public sealed record TriggerReviewResponse(
+    bool Triggered,
+    string Message,
+    bool IsRunning,
+    bool HasStarted
 );

@@ -279,7 +279,7 @@ export class ReviewGraphRenderer {
 
   private getStatusEmoji(status: ReviewNodeStatus): string {
     switch (status) {
-      case 'reviewed': return '✓'
+      case 'validated': return '✓'
       case 'pending': return '⏳'
       case 'deactivated': return '✗'
       case 'removed': return '🗑'

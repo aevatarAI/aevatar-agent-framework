@@ -4,7 +4,7 @@
 // ============================================================
 
 export type ReviewNodeStatus =
-  | 'reviewed'        // Node has been reviewed and passed
+  | 'validated'       // Node has been reviewed and passed
   | 'pending'         // Node is waiting to be reviewed
   | 'deactivated'     // Node failed verification
   | 'removed'         // Node was removed from graph
@@ -19,15 +19,15 @@ export interface ReviewNodeStyle {
 
 // ─────────────────────────────────────────────────────────────
 // Review Status Styles (US23 - Progress Counter Graph Popup)
-// Blue = reviewed/passed, Yellow = pending, Red = deactivated,
+// Green = validated/passed, Yellow = pending, Red = deactivated,
 // Purple = removed, Orange + blink = currently reviewing
 // ─────────────────────────────────────────────────────────────
 
 export const REVIEW_NODE_STYLES: Record<ReviewNodeStatus, ReviewNodeStyle> = {
-  reviewed: {
-    bg: '#3b82f6',      // Blue-500
-    border: '#60a5fa',  // Blue-400
-    glow: 'rgba(59, 130, 246, 0.6)',
+  validated: {
+    bg: '#22c55e',      // Green-500
+    border: '#4ade80',  // Green-400
+    glow: 'rgba(34, 197, 94, 0.6)',
     textColor: '#0a0f19',
   },
   pending: {
@@ -58,7 +58,7 @@ export const REVIEW_NODE_STYLES: Record<ReviewNodeStatus, ReviewNodeStyle> = {
 
 // Opacity for different display modes
 export const REVIEW_STATUS_OPACITY: Record<ReviewNodeStatus, number> = {
-  reviewed: 1,
+  validated: 1,
   pending: 0.85,
   deactivated: 0.75,
   removed: 0.5,
@@ -90,4 +90,4 @@ export interface ReviewGraphEdge {
 }
 
 // Filter mode for review graph
-export type ReviewFilterMode = 'all' | 'reviewed' | 'pending' | 'deactivated' | 'removed' | 'reviewing'
+export type ReviewFilterMode = 'all' | 'validated' | 'pending' | 'deactivated' | 'removed' | 'reviewing'

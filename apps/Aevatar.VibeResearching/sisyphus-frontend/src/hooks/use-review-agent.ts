@@ -199,17 +199,15 @@ export function useReviewAgent({
         const storedIterationId = currentIterationIdRef.current
         const currentIterId = normalizedData.currentIterationId
 
-        // If iteration changed or status is Idle with no active iteration, clear stale data
-        if (storedIterationId && storedIterationId !== currentIterId) {
-          console.log('[useReviewAgent] Iteration changed, clearing stale review log')
+        // Detect iteration change: clear whenever IDs differ (including null -> newId transition)
+        if (storedIterationId !== currentIterId) {
+          console.log('[useReviewAgent] Iteration changed from', storedIterationId, 'to', currentIterId, ', clearing stale review log')
           setReviewLog([])
           setCurrentNodeId(null)
           setCurrentNodeLabel(null)
           clearReviewData()
+          currentIterationIdRef.current = currentIterId  // Synchronously update ref
         }
-
-        // Update iteration ID ref
-        currentIterationIdRef.current = currentIterId
       }
     } catch (error) {
       console.error('[useReviewAgent] Failed to refresh status:', error)
@@ -276,7 +274,16 @@ export function useReviewAgent({
           verificationContent: e.verificationContent ?? null,
         }))
 
+        // If iteration ID changed, replace data instead of merging
+        if (data.iterationId && data.iterationId !== currentIterationIdRef.current) {
+          console.log('[useReviewAgent] refreshCurrentEntries: iteration changed, replacing data')
+          currentIterationIdRef.current = data.iterationId
+          setReviewLog(backendEntries)
+          return
+        }
+
         // Merge with existing reviewLog (avoid duplicates by sessionId+nodeId)
+        // Only used within the same iteration
         setReviewLog(prev => {
           const existingKeys = new Set(prev.map(e => `${e.sessionId ?? ''}_${e.nodeId}`))
           const newEntries = backendEntries.filter(

@@ -2,6 +2,17 @@ import React, { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import ReviewProgressPopup from './review-progress-popup';
 
+// Review Log Entry type (from review-agent-dashboard)
+interface ReviewLogEntry {
+  nodeId: string;
+  nodeLabel: string;
+  explainContent?: string | null;
+  result: 'Passed' | 'Failed' | 'Skipped' | null;
+  timestamp: number;
+  deactivatedReason?: string | null;
+  verificationContent?: string | null;
+}
+
 interface ReviewAgentProgressProps {
   nodesReviewed: number;
   nodesPending: number;
@@ -10,6 +21,7 @@ interface ReviewAgentProgressProps {
   estimatedCompletionTime?: Date | null;
   iterationStartTime?: number | null;
   currentNodeId?: string | null;
+  reviewLog?: ReviewLogEntry[];
 }
 
 
@@ -60,6 +72,7 @@ const ReviewAgentProgress: React.FC<ReviewAgentProgressProps> = ({
   nodesRemoved = 0,
   iterationStartTime,
   currentNodeId,
+  reviewLog,
 }) => {
   const isWorking = nodesPending > 0;
   const percentage = nodesReviewed + nodesPending > 0
@@ -187,6 +200,11 @@ const ReviewAgentProgress: React.FC<ReviewAgentProgressProps> = ({
         open={popupOpen}
         onOpenChange={setPopupOpen}
         currentNodeId={currentNodeId}
+        reviewLog={reviewLog}
+        nodesReviewed={nodesReviewed}
+        nodesPending={nodesPending}
+        nodesDeactivated={nodesDeactivated}
+        nodesRemoved={nodesRemoved}
       />
     </div>
   );

@@ -4,6 +4,7 @@
 // ============================================================
 
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import * as d3 from 'd3-force'
 import { cn } from '@/lib/utils'
 import { ReviewGraphRenderer, type ReviewLayoutNode, type ReviewLayoutEdge, type Transform } from './review-graph-renderer'
@@ -50,7 +51,8 @@ interface TooltipProps {
 
 function NodeTooltip({ node, x, y }: TooltipProps) {
   const statusColors: Record<string, { bg: string; border: string }> = {
-    reviewed: { bg: '#3b82f6', border: '#60a5fa' },
+    validated: { bg: '#22c55e', border: '#4ade80' },
+    reviewed: { bg: '#22c55e', border: '#4ade80' },  // backwards compatibility
     pending: { bg: '#eab308', border: '#facc15' },
     deactivated: { bg: '#ef4444', border: '#f87171' },
     removed: { bg: '#a855f7', border: '#c084fc' },
@@ -59,10 +61,11 @@ function NodeTooltip({ node, x, y }: TooltipProps) {
 
   const style = statusColors[node.reviewStatus] || statusColors.pending
 
-  return (
+  // Use portal to render tooltip at document body level to avoid CSS interference
+  return createPortal(
     <div
-      className="fixed z-[100] pointer-events-none"
-      style={{ left: x + 15, top: y - 10 }}
+      className="fixed pointer-events-none"
+      style={{ left: x + 15, top: y - 10, zIndex: 30000 }}
     >
       <div
         className="px-3 py-2.5 rounded-lg text-xs font-mono"
@@ -102,9 +105,31 @@ function NodeTooltip({ node, x, y }: TooltipProps) {
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
+
+// ─────────────────────────────────────────────────────────────
+// Layout Node Type with position
+// ─────────────────────────────────────────────────────────────
+
+type LayoutNode = ReviewLayoutNode & {
+  originalNode: ReviewGraphNode
+  fx?: number | null
+  fy?: number | null
+  vx?: number
+  vy?: number
+}
+
+// ─────────────────────────────────────────────────────────────
+// Helper: Screen to World coordinate conversion
+// ─────────────────────────────────────────────────────────────
+
+const screenToWorld = (screenX: number, screenY: number, t: Transform) => ({
+  x: (screenX - t.x) / t.scale,
+  y: (screenY - t.y) / t.scale,
+})
 
 // ─────────────────────────────────────────────────────────────
 // Main Component
@@ -121,53 +146,109 @@ export function ReviewProgressGraph({
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rendererRef = useRef<ReviewGraphRenderer | null>(null)
-  const simulationRef = useRef<d3.Simulation<ReviewLayoutNode, ReviewLayoutEdge> | null>(null)
+  const simulationRef = useRef<d3.Simulation<LayoutNode, ReviewLayoutEdge> | null>(null)
   const animationRef = useRef<number>(0)
   const pulseRef = useRef<number>(0)
+  const nodePositionsRef = useRef<Map<string, { x: number; y: number }>>(new Map())
+  const hasInitialFitView = useRef(false)
 
   // State
   const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, scale: 1 })
   const [hoveredNode, setHoveredNode] = useState<{
-    node: ReviewLayoutNode & { originalNode: ReviewGraphNode }
+    node: LayoutNode
     x: number
     y: number
   } | null>(null)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [canvasSize, setCanvasSize] = useState({ width: 600, height: 400 })
-  const [layoutNodes, setLayoutNodes] = useState<(ReviewLayoutNode & { originalNode: ReviewGraphNode })[]>([])
+  const [layoutNodes, setLayoutNodes] = useState<LayoutNode[]>([])
   const [layoutEdges, setLayoutEdges] = useState<ReviewLayoutEdge[]>([])
 
-  // Convert graph data to layout format
-  const { convertedNodes, convertedEdges } = useMemo(() => {
-    const cnodes: (ReviewLayoutNode & { originalNode: ReviewGraphNode })[] = nodes.map(n => ({
+  // Drag state
+  const [draggedNode, setDraggedNode] = useState<LayoutNode | null>(null)
+  const isDraggingNode = useRef(false)
+  const hasDraggedSignificantly = useRef(false)  // Track if mouse actually moved during drag
+  const dragStartPos = useRef<{ x: number; y: number } | null>(null)  // Initial mouse position
+  const justFinishedDragging = useRef(false)  // Prevent click after drag
+  const [cursorStyle, setCursorStyle] = useState<'grab' | 'grabbing' | 'pointer' | 'default'>('default')
+
+  // Base structure: only depends on nodes and edges (NOT currentNodeId)
+  const { baseNodes, baseEdges } = useMemo(() => {
+    const bnodes = nodes.map(n => ({
       id: n.nodeId,
       label: n.label,
-      reviewStatus: (n.reviewStatus === 'reviewing' && currentNodeId === n.nodeId
-        ? 'reviewing'
-        : n.reviewStatus) as ReviewNodeStatus,
       originalNode: n,
+      // Map backend 'reviewed' to 'validated' for backwards compatibility
+      // (new backend already returns 'validated')
+      reviewStatus: (n.reviewStatus === 'reviewed' ? 'validated' : n.reviewStatus) as ReviewNodeStatus,
     }))
-
-    // Mark current reviewing node
-    if (currentNodeId) {
-      const currentNode = cnodes.find(n => n.id === currentNodeId)
-      if (currentNode) {
-        currentNode.reviewStatus = 'reviewing'
-      }
-    }
-
-    const cedges: ReviewLayoutEdge[] = edges.map((e, i) => ({
+    const bedges: ReviewLayoutEdge[] = edges.map((e, i) => ({
       id: `e-${e.source}-${e.target}-${i}`,
       source: e.source,
       target: e.target,
     }))
+    return { baseNodes: bnodes, baseEdges: bedges }
+  }, [nodes, edges])  // ← NOT depends on currentNodeId
 
-    return { convertedNodes: cnodes, convertedEdges: cedges }
-  }, [nodes, edges, currentNodeId])
-
-  // Initialize force simulation
+  // Update review status when currentNodeId changes (without restarting layout)
+  // Note: Only the currentNodeId node should be 'reviewing', all others should use their
+  // original status (but 'reviewing' from backend should be treated as 'pending' if not current)
   useEffect(() => {
-    if (convertedNodes.length === 0) {
+    if (layoutNodes.length === 0) return
+
+    let needsUpdate = false
+    layoutNodes.forEach(node => {
+      let newStatus: ReviewNodeStatus
+      if (currentNodeId === node.id) {
+        // Current node being reviewed
+        newStatus = 'reviewing'
+      } else {
+        // For non-current nodes, use original status but:
+        // - 'reviewing' -> 'pending' (only one node shows as 'reviewing')
+        // - 'reviewed' -> 'validated' (rename for frontend)
+        const originalStatus = node.originalNode.reviewStatus
+        if (originalStatus === 'reviewing') {
+          newStatus = 'pending'
+        } else if (originalStatus === 'reviewed') {
+          newStatus = 'validated'
+        } else {
+          newStatus = originalStatus as ReviewNodeStatus
+        }
+      }
+
+      if (node.reviewStatus !== newStatus) {
+        node.reviewStatus = newStatus
+        needsUpdate = true
+      }
+    })
+
+    if (needsUpdate) {
+      setLayoutNodes([...layoutNodes])  // Trigger re-render without restarting simulation
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally omit layoutNodes to prevent restart loop
+  }, [currentNodeId])
+
+  // hitTest: detect which node is under the mouse
+  const hitTest = useCallback((screenX: number, screenY: number): LayoutNode | null => {
+    const worldPos = screenToWorld(screenX, screenY, transform)
+    const nodeRadius = 24
+
+    // Check in reverse order (top nodes first)
+    for (let i = layoutNodes.length - 1; i >= 0; i--) {
+      const node = layoutNodes[i]
+      if (node.x === undefined || node.y === undefined) continue
+      const dx = worldPos.x - node.x
+      const dy = worldPos.y - node.y
+      if (dx * dx + dy * dy <= nodeRadius * nodeRadius) {
+        return node
+      }
+    }
+    return null
+  }, [layoutNodes, transform])
+
+  // Initialize force simulation with optimized config (like Main Graph)
+  useEffect(() => {
+    if (baseNodes.length === 0) {
       setLayoutNodes([])
       setLayoutEdges([])
       return
@@ -176,30 +257,80 @@ export function ReviewProgressGraph({
     // Cleanup previous simulation
     simulationRef.current?.stop()
 
-    // Create new simulation
-    const simulation = d3.forceSimulation<ReviewLayoutNode, ReviewLayoutEdge>(convertedNodes)
-      .force('link', d3.forceLink<ReviewLayoutNode, ReviewLayoutEdge>(convertedEdges)
-        .id(d => d.id)
-        .distance(100)
-        .strength(0.5))
-      .force('charge', d3.forceManyBody().strength(-300))
-      .force('center', d3.forceCenter(canvasSize.width / 2, canvasSize.height / 2))
-      .force('collision', d3.forceCollide().radius(40))
+    // Clean up positions for nodes that no longer exist
+    const currentNodeIds = new Set(baseNodes.map(n => n.id))
+    for (const nodeId of nodePositionsRef.current.keys()) {
+      if (!currentNodeIds.has(nodeId)) {
+        nodePositionsRef.current.delete(nodeId)
+      }
+    }
 
-    simulation.on('tick', () => {
-      setLayoutNodes([...convertedNodes] as (ReviewLayoutNode & { originalNode: ReviewGraphNode })[])
+    // Create layout nodes, restore known positions
+    // Note: Only currentNodeId should be 'reviewing', others with 'reviewing' status from backend
+    // should be treated as 'pending' to ensure only one node shows as reviewing
+    const newLayoutNodes: LayoutNode[] = baseNodes.map(n => {
+      const savedPos = nodePositionsRef.current.get(n.id)
+      let reviewStatus: ReviewNodeStatus
+      if (currentNodeId === n.id) {
+        reviewStatus = 'reviewing'
+      } else {
+        // For non-current nodes:
+        // - 'reviewing' -> 'pending' (only one node shows as reviewing)
+        // - baseNodes already have 'reviewed' mapped to 'validated'
+        reviewStatus = (n.reviewStatus === 'reviewing' ? 'pending' : n.reviewStatus) as ReviewNodeStatus
+      }
+      return {
+        ...n,
+        reviewStatus,
+        x: savedPos?.x,
+        y: savedPos?.y,
+        vx: 0,
+        vy: 0,
+      }
     })
 
-    // Run simulation for a bit then slow down
-    simulation.alpha(1).restart()
+    // Create edge links with proper references
+    const newLayoutEdges = baseEdges.map(e => ({ ...e }))
+
+    // Create new simulation with Main Graph-like config
+    const simulation = d3.forceSimulation<LayoutNode, ReviewLayoutEdge>(newLayoutNodes)
+      .force('link', d3.forceLink<LayoutNode, ReviewLayoutEdge>(newLayoutEdges)
+        .id(d => d.id)
+        .distance(100)
+        .strength(0.3))  // Weaker link force
+      .force('charge', d3.forceManyBody()
+        .strength(-200)     // Moderate repulsion
+        .distanceMax(250))  // Limit range
+      .force('center', d3.forceCenter(canvasSize.width / 2, canvasSize.height / 2)
+        .strength(0.05))    // Weak center force
+      .force('collision', d3.forceCollide()
+        .radius(35)
+        .strength(0.9))     // Strong collision avoidance
+      .alphaDecay(0.05)     // ⭐ Fast cooling (Main Graph config)
+      .velocityDecay(0.6)   // ⭐ Smooth animation (Main Graph config)
+
+    simulation.on('tick', () => {
+      // Save positions for persistence
+      newLayoutNodes.forEach(n => {
+        if (n.x !== undefined && n.y !== undefined) {
+          nodePositionsRef.current.set(n.id, { x: n.x, y: n.y })
+        }
+      })
+      setLayoutNodes([...newLayoutNodes])
+    })
+
+    // First load uses high alpha, subsequent uses low alpha
+    const hasExistingPositions = newLayoutNodes.some(n => n.x !== undefined)
+    simulation.alpha(hasExistingPositions ? 0.1 : 0.8).restart()
 
     simulationRef.current = simulation
-    setLayoutEdges(convertedEdges)
+    setLayoutEdges(newLayoutEdges)
 
     return () => {
       simulation.stop()
     }
-  }, [convertedNodes, convertedEdges, canvasSize])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- currentNodeId changes are handled by separate effect
+  }, [baseNodes, baseEdges, canvasSize])
 
   // Initialize renderer
   useEffect(() => {
@@ -278,68 +409,70 @@ export function ReviewProgressGraph({
     return () => resizeObserver.disconnect()
   }, [])
 
-  // Mouse interaction handlers
-  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current
-    if (!canvas || !rendererRef.current) return
-
-    const rect = canvas.getBoundingClientRect()
-    const x = e.clientX - rect.left
-    const y = e.clientY - rect.top
-
-    const node = rendererRef.current.hitTest(x, y, layoutNodes)
-    if (node) {
-      setHoveredNode({
-        node: node as ReviewLayoutNode & { originalNode: ReviewGraphNode },
-        x: e.clientX,
-        y: e.clientY,
-      })
-      canvas.style.cursor = 'pointer'
-    } else {
-      setHoveredNode(null)
-      canvas.style.cursor = 'grab'
-    }
-  }, [layoutNodes])
-
-  const handleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current
-    if (!canvas || !rendererRef.current) return
-
-    const rect = canvas.getBoundingClientRect()
-    const x = e.clientX - rect.left
-    const y = e.clientY - rect.top
-
-    const node = rendererRef.current.hitTest(x, y, layoutNodes)
-    if (node) {
-      const layoutNode = node as ReviewLayoutNode & { originalNode: ReviewGraphNode }
-      setSelectedNodeId(node.id)
-      onNodeClick?.(layoutNode.originalNode)
-    } else {
-      setSelectedNodeId(null)
-    }
-  }, [layoutNodes, onNodeClick])
-
   // Pan handling
   const isDragging = useRef(false)
   const lastMousePos = useRef({ x: 0, y: 0 })
 
+  // Mouse down: start node drag or canvas pan
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!rendererRef.current?.hitTest(
-      e.clientX - (canvasRef.current?.getBoundingClientRect().left ?? 0),
-      e.clientY - (canvasRef.current?.getBoundingClientRect().top ?? 0),
-      layoutNodes
-    )) {
+    const rect = canvasRef.current?.getBoundingClientRect()
+    if (!rect) return
+
+    const screenX = e.clientX - rect.left
+    const screenY = e.clientY - rect.top
+    const node = hitTest(screenX, screenY)
+
+    if (node) {
+      // Start node drag
+      isDraggingNode.current = true
+      hasDraggedSignificantly.current = false  // Reset drag tracking
+      dragStartPos.current = { x: screenX, y: screenY }  // Record start position
+      setDraggedNode(node)
+      // Fix node position
+      node.fx = node.x
+      node.fy = node.y
+      // Reheat simulation
+      simulationRef.current?.alpha(0.3).restart()
+      setCursorStyle('grabbing')
+    } else {
+      // Start canvas pan
       isDragging.current = true
       lastMousePos.current = { x: e.clientX, y: e.clientY }
     }
-  }, [layoutNodes])
+  }, [hitTest])
 
-  const handleMouseUp = useCallback(() => {
-    isDragging.current = false
-  }, [])
+  // Mouse move: handle node drag, canvas pan, and hover detection
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const rect = canvasRef.current?.getBoundingClientRect()
+    if (!rect) return
 
-  const handleMouseMoveForPan = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (isDragging.current) {
+    const screenX = e.clientX - rect.left
+    const screenY = e.clientY - rect.top
+
+    if (isDraggingNode.current && draggedNode) {
+      // Check if mouse has moved significantly (more than 5 pixels)
+      if (dragStartPos.current) {
+        const dx = screenX - dragStartPos.current.x
+        const dy = screenY - dragStartPos.current.y
+        if (dx * dx + dy * dy > 25) {  // 5px threshold squared
+          hasDraggedSignificantly.current = true
+        }
+      }
+
+      // Node dragging
+      const worldPos = screenToWorld(screenX, screenY, transform)
+
+      // Update node fixed position
+      draggedNode.fx = worldPos.x
+      draggedNode.fy = worldPos.y
+      draggedNode.x = worldPos.x
+      draggedNode.y = worldPos.y
+
+      // Keep simulation active
+      simulationRef.current?.alpha(0.3).restart()
+      setCursorStyle('grabbing')
+    } else if (isDragging.current) {
+      // Canvas panning
       const dx = e.clientX - lastMousePos.current.x
       const dy = e.clientY - lastMousePos.current.y
       lastMousePos.current = { x: e.clientX, y: e.clientY }
@@ -348,9 +481,65 @@ export function ReviewProgressGraph({
         x: prev.x + dx,
         y: prev.y + dy,
       }))
+    } else {
+      // Hover detection
+      const node = hitTest(screenX, screenY)
+      if (node) {
+        setHoveredNode({
+          node,
+          x: e.clientX,
+          y: e.clientY,
+        })
+        setCursorStyle('grab')
+      } else {
+        setHoveredNode(null)
+        setCursorStyle('default')
+      }
     }
-    handleMouseMove(e)
-  }, [handleMouseMove])
+  }, [hitTest, draggedNode, transform])
+
+  // Mouse up: release node drag or canvas pan
+  const handleMouseUp = useCallback(() => {
+    if (isDraggingNode.current && draggedNode) {
+      // Release fixed position
+      draggedNode.fx = null
+      draggedNode.fy = null
+      setDraggedNode(null)
+      isDraggingNode.current = false
+      // Only mark as "just finished dragging" if there was significant movement
+      // This allows simple clicks to work properly
+      if (hasDraggedSignificantly.current) {
+        justFinishedDragging.current = true
+        setTimeout(() => { justFinishedDragging.current = false }, 50)
+      }
+      hasDraggedSignificantly.current = false
+      dragStartPos.current = null
+      // Let simulation cool down slowly
+      simulationRef.current?.alpha(0.1).restart()
+    }
+    isDragging.current = false
+    setCursorStyle('default')
+  }, [draggedNode])
+
+  // Click: select node
+  const handleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    // Ignore click if we just finished dragging
+    if (isDraggingNode.current || justFinishedDragging.current) return
+
+    const rect = canvasRef.current?.getBoundingClientRect()
+    if (!rect) return
+
+    const screenX = e.clientX - rect.left
+    const screenY = e.clientY - rect.top
+    const node = hitTest(screenX, screenY)
+
+    if (node) {
+      setSelectedNodeId(node.id)
+      onNodeClick?.(node.originalNode)
+    } else {
+      setSelectedNodeId(null)
+    }
+  }, [hitTest, onNodeClick])
 
   // Wheel zoom
   const handleWheel = useCallback((e: React.WheelEvent<HTMLCanvasElement>) => {
@@ -406,13 +595,14 @@ export function ReviewProgressGraph({
     })
   }, [layoutNodes, canvasSize])
 
-  // Auto fit on initial load
+  // Auto fit on initial load (only once)
   useEffect(() => {
-    if (layoutNodes.length > 0) {
+    if (layoutNodes.length > 0 && !hasInitialFitView.current) {
+      hasInitialFitView.current = true
       const timer = setTimeout(fitView, 500)
       return () => clearTimeout(timer)
     }
-  }, [layoutNodes.length > 0])
+  }, [layoutNodes.length, fitView])
 
   // Empty state
   if (nodes.length === 0) {
@@ -431,8 +621,8 @@ export function ReviewProgressGraph({
       <canvas
         ref={canvasRef}
         className="w-full h-full"
-        style={{ cursor: 'grab' }}
-        onMouseMove={handleMouseMoveForPan}
+        style={{ cursor: cursorStyle }}
+        onMouseMove={handleMouseMove}
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}

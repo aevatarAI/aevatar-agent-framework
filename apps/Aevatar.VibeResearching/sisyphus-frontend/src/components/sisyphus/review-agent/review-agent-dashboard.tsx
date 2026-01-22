@@ -440,8 +440,8 @@ const ReviewLogTablePopup: React.FC<ReviewLogTablePopupProps> = ({ entries, onCl
             </div>
           </div>
 
-          {/* Table - Modern Design with auto height */}
-          <div className="flex-1 overflow-hidden flex flex-col px-4">
+          {/* Table - Modern Design */}
+          <div className="flex-shrink-0 px-4 pb-3">
             <div className="overflow-auto rounded-lg border border-border-subtle/60" style={{ maxHeight: TABLE_HEIGHT }}>
               <table className="w-full text-sm border-collapse">
                 <thead className="sticky top-0 z-10">
@@ -1010,6 +1010,7 @@ const ReviewAgentDashboardInner: React.FC<ReviewAgentDashboardProps> = ({ isOpen
                       nodesRemoved={nodesRemoved}
                       iterationStartTime={iterationStartTime}
                       currentNodeId={currentNodeId}
+                      reviewLog={reviewLog}
                     />
                   </div>
 

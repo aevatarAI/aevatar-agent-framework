@@ -17,16 +17,33 @@ interface ReviewGraphResponse {
   nodes: ReviewGraphNode[]
   edges: ReviewGraphEdge[]
   totalNodes: number
-  reviewedCount: number
+  validatedCount: number
   pendingCount: number
   deactivatedCount: number
   reviewingCount: number
+}
+
+// Review Log Entry type (from review-agent-dashboard)
+interface ReviewLogEntry {
+  nodeId: string
+  nodeLabel: string
+  explainContent?: string | null
+  result: 'Passed' | 'Failed' | 'Skipped' | null
+  timestamp: number
+  deactivatedReason?: string | null
+  verificationContent?: string | null
 }
 
 interface ReviewProgressPopupProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   currentNodeId?: string | null
+  reviewLog?: ReviewLogEntry[]
+  // Unified counters from SSE (ensures consistency with Progress Counters)
+  nodesReviewed?: number
+  nodesPending?: number
+  nodesDeactivated?: number
+  nodesRemoved?: number
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -35,7 +52,7 @@ interface ReviewProgressPopupProps {
 
 function GraphLegend() {
   const items = [
-    { status: 'reviewed', label: 'Reviewed', color: '#3b82f6' },
+    { status: 'validated', label: 'Validated', color: '#22c55e' },
     { status: 'pending', label: 'Pending', color: '#eab308' },
     { status: 'deactivated', label: 'Deactivated', color: '#ef4444' },
     { status: 'removed', label: 'Removed', color: '#a855f7' },
@@ -70,7 +87,8 @@ function NodeDetailsPanel({ node, onClose }: NodeDetailsPanelProps) {
   if (!node) return null
 
   const statusColors: Record<string, string> = {
-    reviewed: 'text-blue-400',
+    validated: 'text-green-400',
+    reviewed: 'text-green-400',  // backwards compatibility
     pending: 'text-yellow-400',
     deactivated: 'text-red-400',
     removed: 'text-purple-400',
@@ -150,6 +168,147 @@ function NodeDetailsPanel({ node, onClose }: NodeDetailsPanelProps) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Helper Functions
+// ─────────────────────────────────────────────────────────────
+
+// Helper to extract failure reason from LLM JSON output
+function extractFailureReason(verificationContent: string | null | undefined): string | null {
+  if (!verificationContent) return null;
+
+  try {
+    // Try to find and parse JSON objects in the content
+    const jsonMatches = verificationContent.match(/\{[^{}]*"reason"\s*:\s*"[^"]*"[^{}]*\}/g);
+    if (jsonMatches) {
+      for (const match of jsonMatches) {
+        try {
+          const parsed = JSON.parse(match);
+          if (parsed.reason && typeof parsed.reason === 'string') {
+            return parsed.reason;
+          }
+        } catch {
+          // Continue to next match
+        }
+      }
+    }
+
+    // Try to extract reason from a larger JSON structure
+    const reasonMatch = verificationContent.match(/"reason"\s*:\s*"([^"]+)"/);
+    if (reasonMatch && reasonMatch[1]) {
+      return reasonMatch[1];
+    }
+  } catch {
+    // Fall through to return truncated content
+  }
+
+  // If we can't parse, return first meaningful text (skip json markers)
+  const cleanedContent = verificationContent
+    .replace(/^[\s`]*json[\s`]*/i, '')
+    .replace(/```/g, '')
+    .trim();
+
+  if (cleanedContent.length > 150) {
+    return cleanedContent.slice(0, 150) + '...';
+  }
+  return cleanedContent || null;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Review Detail Panel (for nodes with review log entries)
+// ─────────────────────────────────────────────────────────────
+
+interface ReviewDetailPanelProps {
+  entry: ReviewLogEntry
+  onClose: () => void
+}
+
+function ReviewDetailPanel({ entry, onClose }: ReviewDetailPanelProps) {
+  return (
+    <div className="w-full h-full flex flex-col overflow-hidden bg-bg-surface/95">
+      {/* Detail Header */}
+      <div className="flex-shrink-0 flex items-center justify-between p-3 border-b border-border-subtle">
+        <h4 className="font-semibold text-text-primary text-sm">Review Detail</h4>
+        <button
+          onClick={onClose}
+          className="p-1 rounded hover:bg-white/10 transition-colors"
+        >
+          <X className="w-4 h-4 text-text-muted" />
+        </button>
+      </div>
+
+      {/* Detail Content - scrollable */}
+      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+        {/* Result Badge & Timestamp */}
+        <div className="flex items-center gap-3">
+          <span className={cn(
+            "inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold",
+            entry.result === 'Passed'
+              ? "bg-neon-green/20 text-neon-green"
+              : entry.result === 'Failed'
+              ? "bg-neon-red/20 text-neon-red"
+              : "bg-neon-orange/20 text-neon-orange"
+          )}>
+            {entry.result === 'Passed' ? '✓ Passed' : entry.result === 'Failed' ? '✗ Failed' : '○ Skipped'}
+          </span>
+          <span className="text-text-muted text-xs font-mono">
+            {new Date(entry.timestamp).toLocaleString()}
+          </span>
+        </div>
+
+        {/* Node ID */}
+        <div>
+          <label className="text-text-dimmed text-xs uppercase tracking-wider block mb-1">Node ID</label>
+          <div className="h-[36px] p-2 rounded bg-surface-elevated border border-border-subtle overflow-x-auto">
+            <code className="text-text-primary text-xs font-mono whitespace-nowrap">{entry.nodeId}</code>
+          </div>
+        </div>
+
+        {/* Knowledge Node */}
+        <div>
+          <label className="text-text-dimmed text-xs uppercase tracking-wider block mb-1">Knowledge Node</label>
+          <div className="h-[60px] p-2 rounded bg-surface-elevated border border-border-subtle overflow-y-auto">
+            <p className="text-text-primary text-sm whitespace-pre-wrap break-words">{entry.nodeLabel || '-'}</p>
+          </div>
+        </div>
+
+        {/* Explain Content */}
+        <div>
+          <label className="text-text-dimmed text-xs uppercase tracking-wider block mb-1">Explain Content</label>
+          <div className="h-[100px] p-2 rounded bg-surface-elevated border border-border-subtle overflow-y-auto">
+            <p className="text-text-muted text-xs whitespace-pre-wrap break-words font-mono">
+              {entry.explainContent || '-'}
+            </p>
+          </div>
+        </div>
+
+        {/* Failure Reason (if failed) */}
+        {entry.result === 'Failed' && (
+          <div>
+            <label className="text-text-dimmed text-xs uppercase tracking-wider block mb-1">Failure Reason</label>
+            <div className="h-[70px] p-2 rounded bg-neon-red/10 border border-neon-red/30 overflow-y-auto">
+              <p className="text-neon-red text-sm whitespace-pre-wrap break-words">
+                {entry.deactivatedReason || extractFailureReason(entry.verificationContent) || '-'}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Verification Content (LLM Response) */}
+        {entry.verificationContent && (
+          <div>
+            <label className="text-text-dimmed text-xs uppercase tracking-wider block mb-1">LLM Response</label>
+            <div className="h-[120px] p-2 rounded bg-surface-elevated border border-border-subtle overflow-y-auto">
+              <pre className="text-text-primary text-xs font-mono whitespace-pre-wrap break-words">
+                {entry.verificationContent}
+              </pre>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
 // Main Component
 // ─────────────────────────────────────────────────────────────
 
@@ -157,11 +316,17 @@ export function ReviewProgressPopup({
   open,
   onOpenChange,
   currentNodeId,
+  reviewLog,
+  nodesReviewed,
+  nodesPending,
+  nodesDeactivated,
+  nodesRemoved,
 }: ReviewProgressPopupProps) {
   const [graphData, setGraphData] = useState<ReviewGraphResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectedNode, setSelectedNode] = useState<ReviewGraphNode | null>(null)
+  const [selectedReviewEntry, setSelectedReviewEntry] = useState<ReviewLogEntry | null>(null)
 
   // Fetch graph data when popup opens
   const fetchGraphData = useCallback(async () => {
@@ -186,6 +351,7 @@ export function ReviewProgressPopup({
     if (open) {
       fetchGraphData()
       setSelectedNode(null)
+      setSelectedReviewEntry(null)
     }
   }, [open, fetchGraphData])
 
@@ -195,7 +361,10 @@ export function ReviewProgressPopup({
 
   const handleNodeClick = useCallback((node: ReviewGraphNode) => {
     setSelectedNode(node)
-  }, [])
+    // Find matching review log entry by nodeId
+    const matchedEntry = reviewLog?.find(entry => entry.nodeId === node.nodeId)
+    setSelectedReviewEntry(matchedEntry ?? null)
+  }, [reviewLog])
 
   // Handle ESC key
   useEffect(() => {
@@ -239,23 +408,37 @@ export function ReviewProgressPopup({
                   Review Progress Graph
                 </h2>
                 <p className="text-text-muted text-sm mt-1">
-                  {graphData && (
-                    <>
-                      {graphData.totalNodes} nodes total
-                      {' • '}
-                      <span className="text-blue-400">{graphData.reviewedCount} reviewed</span>
-                      {' • '}
-                      <span className="text-yellow-400">{graphData.pendingCount} pending</span>
-                      {' • '}
-                      <span className="text-red-400">{graphData.deactivatedCount} deactivated</span>
-                      {graphData.reviewingCount > 0 && (
-                        <>
-                          {' • '}
-                          <span className="text-orange-400">{graphData.reviewingCount} reviewing</span>
-                        </>
-                      )}
-                    </>
-                  )}
+                  {/* Use SSE counters if provided (unified with Progress Counters), fallback to graphData */}
+                  {(() => {
+                    const hasSSECounters = nodesReviewed !== undefined && nodesPending !== undefined
+                    const totalNodes = hasSSECounters
+                      ? (nodesReviewed ?? 0) + (nodesPending ?? 0)
+                      : graphData?.totalNodes ?? 0
+                    const validatedCount = hasSSECounters
+                      ? (nodesReviewed ?? 0) - (nodesDeactivated ?? 0)
+                      : graphData?.validatedCount ?? 0
+                    const pendingCount = hasSSECounters ? (nodesPending ?? 0) : (graphData?.pendingCount ?? 0)
+                    const deactivatedCount = hasSSECounters ? (nodesDeactivated ?? 0) : (graphData?.deactivatedCount ?? 0)
+                    const reviewingCount = graphData?.reviewingCount ?? 0
+
+                    return (
+                      <>
+                        {totalNodes} nodes total
+                        {' • '}
+                        <span className="text-green-400">{validatedCount} validated</span>
+                        {' • '}
+                        <span className="text-yellow-400">{pendingCount} pending</span>
+                        {' • '}
+                        <span className="text-red-400">{deactivatedCount} deactivated</span>
+                        {reviewingCount > 0 && (
+                          <>
+                            {' • '}
+                            <span className="text-orange-400">{reviewingCount} reviewing</span>
+                          </>
+                        )}
+                      </>
+                    )
+                  })()}
                 </p>
               </div>
               <button
@@ -271,43 +454,67 @@ export function ReviewProgressPopup({
             </div>
           </div>
 
-          {/* Graph container */}
-          <div className="flex-1 relative min-h-0 bg-[#0c0f14] m-3 rounded-lg border border-border-subtle overflow-hidden">
-            {loading ? (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="flex flex-col items-center gap-2">
-                  <Loader2 className="size-8 animate-spin text-neon-cyan" />
-                  <span className="text-sm text-text-muted font-mono">Loading graph...</span>
+          {/* Main content area - flex row when detail panel is shown */}
+          <div className={cn(
+            "flex-1 flex min-h-0 m-3 gap-3",
+            selectedReviewEntry ? "flex-row" : "flex-col"
+          )}>
+            {/* Graph container */}
+            <div className={cn(
+              "relative bg-[#0c0f14] rounded-lg border border-border-subtle overflow-hidden transition-all duration-300",
+              selectedReviewEntry ? "w-[60%]" : "w-full h-full"
+            )}>
+              {loading ? (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="flex flex-col items-center gap-2">
+                    <Loader2 className="size-8 animate-spin text-neon-cyan" />
+                    <span className="text-sm text-text-muted font-mono">Loading graph...</span>
+                  </div>
                 </div>
-              </div>
-            ) : error ? (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="text-center">
-                  <div className="text-4xl mb-2">❌</div>
-                  <div className="text-sm text-red-400 font-mono">{error}</div>
-                  <button
-                    onClick={fetchGraphData}
-                    className="mt-3 px-3 py-1.5 text-xs font-mono rounded border border-neon-cyan/40 text-neon-cyan hover:bg-neon-cyan/10 transition-colors"
-                  >
-                    Retry
-                  </button>
+              ) : error ? (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="text-center">
+                    <div className="text-4xl mb-2">❌</div>
+                    <div className="text-sm text-red-400 font-mono">{error}</div>
+                    <button
+                      onClick={fetchGraphData}
+                      className="mt-3 px-3 py-1.5 text-xs font-mono rounded border border-neon-cyan/40 text-neon-cyan hover:bg-neon-cyan/10 transition-colors"
+                    >
+                      Retry
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <ReviewProgressGraph
-                nodes={allNodes}
-                edges={allEdges}
-                currentNodeId={currentNodeId}
-                onNodeClick={handleNodeClick}
-                className="w-full h-full"
-              />
-            )}
+              ) : (
+                <ReviewProgressGraph
+                  nodes={allNodes}
+                  edges={allEdges}
+                  currentNodeId={currentNodeId}
+                  onNodeClick={handleNodeClick}
+                  className="w-full h-full"
+                />
+              )}
 
-            {/* Node details panel */}
-            <NodeDetailsPanel
-              node={selectedNode}
-              onClose={() => setSelectedNode(null)}
-            />
+              {/* Simple node details panel - only show when no review entry found */}
+              {selectedNode && !selectedReviewEntry && (
+                <NodeDetailsPanel
+                  node={selectedNode}
+                  onClose={() => setSelectedNode(null)}
+                />
+              )}
+            </div>
+
+            {/* Review Detail Panel - shown when a node with review log entry is selected */}
+            {selectedReviewEntry && (
+              <div className="w-[40%] rounded-lg border border-border-subtle overflow-hidden">
+                <ReviewDetailPanel
+                  entry={selectedReviewEntry}
+                  onClose={() => {
+                    setSelectedNode(null)
+                    setSelectedReviewEntry(null)
+                  }}
+                />
+              </div>
+            )}
           </div>
         </div>
       </div>

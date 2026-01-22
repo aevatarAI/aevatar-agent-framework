@@ -190,11 +190,11 @@ public static class ReviewAgentApi
             }
             else if (reviewedInCurrentIteration.Contains(n.NodeId))
             {
-                reviewStatus = "reviewed";
+                reviewStatus = "validated";
             }
             else if (n.LastReviewedAt != null)
             {
-                reviewStatus = "reviewed";
+                reviewStatus = "validated";
             }
             else
             {
@@ -223,7 +223,7 @@ public static class ReviewAgentApi
             Nodes: nodes,
             Edges: edges,
             TotalNodes: nodes.Count,
-            ReviewedCount: nodes.Count(n => n.ReviewStatus == "reviewed"),
+            ValidatedCount: nodes.Count(n => n.ReviewStatus == "validated"),
             PendingCount: nodes.Count(n => n.ReviewStatus == "pending"),
             DeactivatedCount: nodes.Count(n => n.ReviewStatus == "deactivated"),
             ReviewingCount: nodes.Count(n => n.ReviewStatus == "reviewing")
@@ -416,7 +416,7 @@ public sealed record ReviewGraphResponse(
     List<ReviewGraphNodeResponse> Nodes,
     List<ReviewGraphEdgeResponse> Edges,
     int TotalNodes,
-    int ReviewedCount,
+    int ValidatedCount,
     int PendingCount,
     int DeactivatedCount,
     int ReviewingCount

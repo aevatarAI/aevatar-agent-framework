@@ -17,20 +17,20 @@ namespace VibeResearching.Api.Vibe;
 //  - Each milestone is a PlanNode in the DAG
 //  - Update milestone status as research progresses:
 //      Pending -> Active -> Completed
-//  - Stop when all milestones are completed or timeout
+//  - Quality gate driven: iterate until goal achieved or safety limit (50)
 //
 //  Flow:
 //  1. Load milestones from Brief
 //  2. For each milestone (ordered by roundIndex):
 //     a. Set milestone status to Active
-//     b. Execute one research round focused on this milestone
+//     b. Execute research iterations until quality gate passes
 //     c. Set milestone status to Completed
 //  3. Publish completion event
 // ============================================================
 
 internal sealed class VibeMilestoneLoopRunner
 {
-    private const int DefaultMaxTotalDurationMs = 2 * 60 * 60 * 1000; // 2 hours for all milestones
+    private const int AbsoluteMaxIterationsPerMilestone = 50; // Safety limit for quality-gate driven iteration
     private const int MaxMilestones = 20; // Maximum milestones including auto-extensions
     private const int MaxExtensionRounds = 3; // Maximum auto-extension rounds
 
@@ -69,7 +69,6 @@ internal sealed class VibeMilestoneLoopRunner
         ArgumentNullException.ThrowIfNull(materials);
         emitAssistantDelta ??= _ => { };
 
-        var maxTotalMs = Math.Clamp(input.Loop?.MaxTotalDurationMs ?? DefaultMaxTotalDurationMs, 1_000, 2 * 60 * 60 * 1000);
         var startedAt = DateTimeOffset.UtcNow;
         var stopReason = "completed";
         var milestonesExecuted = 0;
@@ -113,8 +112,7 @@ internal sealed class VibeMilestoneLoopRunner
                         Ok = true,
                         StopReason = "progress_inquiry_handled",
                         MilestonesExecuted = interruptionContext.CompletedMilestones,
-                        TotalMilestones = interruptionContext.TotalMilestones,
-                        MaxTotalDurationMs = maxTotalMs
+                        TotalMilestones = interruptionContext.TotalMilestones
                     };
                 }
             }
@@ -175,8 +173,7 @@ internal sealed class VibeMilestoneLoopRunner
                         Ok = true,
                         StopReason = "no_milestones",
                         MilestonesExecuted = 0,
-                        TotalMilestones = 0,
-                        MaxTotalDurationMs = maxTotalMs
+                        TotalMilestones = 0
                     };
                 }
 
@@ -233,15 +230,6 @@ internal sealed class VibeMilestoneLoopRunner
             for (var i = 0; i < milestones.Count; i++)
             {
                 ct.ThrowIfCancellationRequested();
-
-                var elapsedMs = (int)(DateTimeOffset.UtcNow - startedAt).TotalMilliseconds;
-                if (elapsedMs >= maxTotalMs)
-                {
-                    stopReason = "timeout";
-                    _logger.LogInformation("[MilestoneLoop] Timeout after {Elapsed}ms, completed {Done}/{Total} milestones",
-                        elapsedMs, milestonesExecuted, totalMilestones);
-                    break;
-                }
 
                 var milestone = milestones[i];
                 var milestoneNodeId = GetMilestoneNodeId(session.Id, milestone.RoundIndex, i + 1);
@@ -303,26 +291,17 @@ internal sealed class VibeMilestoneLoopRunner
                     // Deep Research Loop for this milestone
                     // - Execute multiple iterations until goal is achieved
                     // - Each iteration: research -> evaluate -> decide continue/done
+                    // - No fixed iteration limit - driven entirely by quality gate
                     // ============================================================
-                    const int maxIterationsPerMilestone = 5;
                     var iterationCount = 0;
                     var milestoneAchieved = false;
 
-                    while (!milestoneAchieved && iterationCount < maxIterationsPerMilestone)
+                    while (!milestoneAchieved && iterationCount < AbsoluteMaxIterationsPerMilestone)
                     {
                         ct.ThrowIfCancellationRequested();
                         iterationCount++;
 
-                        // Check timeout
-                        var iterElapsedMs = (int)(DateTimeOffset.UtcNow - startedAt).TotalMilliseconds;
-                        if (iterElapsedMs >= maxTotalMs)
-                        {
-                            _logger.LogInformation("[MilestoneLoop] Timeout during milestone {Index} iteration {Iter}", i + 1, iterationCount);
-                            stopReason = "timeout";
-                            break;
-                        }
-
-                        emitAssistantDelta($"\n### Iteration {iterationCount}/{maxIterationsPerMilestone}\n\n");
+                        emitAssistantDelta($"\n### Iteration {iterationCount}\n\n");
 
                         // Build iteration-specific prompt with deep research instructions
                         var iterationPrompt = BuildDeepResearchPrompt(
@@ -331,7 +310,6 @@ internal sealed class VibeMilestoneLoopRunner
                             currentMilestoneNum,
                             totalMilestones,
                             iterationCount,
-                            maxIterationsPerMilestone,
                             milestoneNodeId);
 
                         // Execute research round
@@ -360,13 +338,16 @@ internal sealed class VibeMilestoneLoopRunner
                             milestoneAchieved = true;
                             emitAssistantDelta($"\n✓ **Goal achieved after {iterationCount} iteration(s).**\n");
                         }
-                        else if (iterationCount < maxIterationsPerMilestone)
+                        else if (iterationCount >= AbsoluteMaxIterationsPerMilestone)
                         {
-                            emitAssistantDelta($"\n→ **Continuing research...** (Need: {evaluation.NextSteps})\n");
+                            emitAssistantDelta(
+                                $"\n⚠ **Safety iteration limit reached ({AbsoluteMaxIterationsPerMilestone}).** " +
+                                $"Moving to next milestone with current progress.\n");
                         }
                         else
                         {
-                            emitAssistantDelta($"\n⚠ **Max iterations reached.** Moving to next milestone.\n");
+                            emitAssistantDelta(
+                                $"\n→ **Quality gate not yet met.** Continuing research... (Need: {evaluation.NextSteps})\n");
                         }
                     }
 
@@ -458,14 +439,6 @@ internal sealed class VibeMilestoneLoopRunner
 
                 ct.ThrowIfCancellationRequested();
 
-                var elapsedMs = (int)(DateTimeOffset.UtcNow - startedAt).TotalMilliseconds;
-                if (elapsedMs >= maxTotalMs)
-                {
-                    stopReason = "timeout";
-                    _logger.LogInformation("[MilestoneLoop] Timeout during auto-extension after {Elapsed}ms", elapsedMs);
-                    break;
-                }
-
                 _logger.LogInformation(
                     "[MilestoneLoop] All {Count} milestones completed. Attempting auto-extension (round {Round})",
                     totalMilestones, extensionRound + 1);
@@ -520,14 +493,6 @@ internal sealed class VibeMilestoneLoopRunner
                 for (var i = milestonesExecuted; i < milestones.Count; i++)
                 {
                     ct.ThrowIfCancellationRequested();
-
-                    elapsedMs = (int)(DateTimeOffset.UtcNow - startedAt).TotalMilliseconds;
-                    if (elapsedMs >= maxTotalMs)
-                    {
-                        stopReason = "timeout";
-                        _logger.LogInformation("[MilestoneLoop] Timeout after {Elapsed}ms during extended milestones", elapsedMs);
-                        break;
-                    }
 
                     var milestone = milestones[i];
                     var milestoneNodeId = GetMilestoneNodeId(session.Id, milestone.RoundIndex, i + 1);
@@ -658,7 +623,6 @@ internal sealed class VibeMilestoneLoopRunner
             StopReason = stopReason,
             MilestonesExecuted = milestonesExecuted,
             TotalMilestones = totalMilestones,
-            MaxTotalDurationMs = maxTotalMs,
             MilestonesSkipped = milestonesSkipped,
             ExtensionRound = extensionRound
         };
@@ -756,7 +720,6 @@ internal sealed class VibeMilestoneLoopRunner
         int milestoneIndex,
         int totalMilestones,
         int iterationCount,
-        int maxIterations,
         string milestoneNodeId)
     {
         var iterationGuidance = iterationCount switch
@@ -775,12 +738,20 @@ internal sealed class VibeMilestoneLoopRunner
                 3. Cross-referencing multiple evidence items
                 4. Identifying gaps in your understanding
                 """,
-            _ => $"""
-                This is iteration {iterationCount}/{maxIterations}. Focus on:
+            3 or 4 => """
+                This is a REFINEMENT iteration. Focus on:
                 1. Filling remaining knowledge gaps
                 2. Verifying your conclusions with additional evidence
                 3. Synthesizing findings into coherent knowledge
                 4. Ensuring completeness of your research
+                """,
+            _ => """
+                This is an EXTENDED iteration. The quality gate has not yet been met.
+                Focus on:
+                1. Addressing specific gaps identified in previous evaluations
+                2. Finding additional corroborating evidence
+                3. Resolving any contradictions or inconsistencies
+                4. Achieving a comprehensive understanding of the milestone goal
                 """
         };
 
@@ -1498,26 +1469,15 @@ internal sealed class VibeMilestoneLoopRunner
         Action<string> emitAssistantDelta,
         CancellationToken ct)
     {
-        const int maxIterationsPerMilestone = 5;
         var iterationCount = 0;
         var milestoneAchieved = false;
-        var startedAt = DateTimeOffset.UtcNow;
-        var maxTotalMs = Math.Clamp(input.Loop?.MaxTotalDurationMs ?? DefaultMaxTotalDurationMs, 1_000, 2 * 60 * 60 * 1000);
 
-        while (!milestoneAchieved && iterationCount < maxIterationsPerMilestone)
+        while (!milestoneAchieved && iterationCount < AbsoluteMaxIterationsPerMilestone)
         {
             ct.ThrowIfCancellationRequested();
             iterationCount++;
 
-            // Check timeout
-            var iterElapsedMs = (int)(DateTimeOffset.UtcNow - startedAt).TotalMilliseconds;
-            if (iterElapsedMs >= maxTotalMs)
-            {
-                _logger.LogInformation("[MilestoneLoop] Timeout during milestone iteration {Iter}", iterationCount);
-                break;
-            }
-
-            emitAssistantDelta($"\n### Iteration {iterationCount}/{maxIterationsPerMilestone}\n\n");
+            emitAssistantDelta($"\n### Iteration {iterationCount}\n\n");
 
             // Build iteration-specific prompt with deep research instructions
             var iterationPrompt = BuildDeepResearchPrompt(
@@ -1526,7 +1486,6 @@ internal sealed class VibeMilestoneLoopRunner
                 1, // milestoneIndex - not important for auto-extension
                 1, // totalMilestones - not important for auto-extension
                 iterationCount,
-                maxIterationsPerMilestone,
                 milestoneNodeId);
 
             // Execute research round
@@ -1555,13 +1514,16 @@ internal sealed class VibeMilestoneLoopRunner
                 milestoneAchieved = true;
                 emitAssistantDelta($"\n✓ **Goal achieved after {iterationCount} iteration(s).**\n");
             }
-            else if (iterationCount < maxIterationsPerMilestone)
+            else if (iterationCount >= AbsoluteMaxIterationsPerMilestone)
             {
-                emitAssistantDelta($"\n→ **Continuing research...** (Need: {evaluation.NextSteps})\n");
+                emitAssistantDelta(
+                    $"\n⚠ **Safety iteration limit reached ({AbsoluteMaxIterationsPerMilestone}).** " +
+                    $"Moving to next milestone with current progress.\n");
             }
             else
             {
-                emitAssistantDelta($"\n⚠ **Max iterations reached.** Moving to next milestone.\n");
+                emitAssistantDelta(
+                    $"\n→ **Quality gate not yet met.** Continuing research... (Need: {evaluation.NextSteps})\n");
             }
         }
 
@@ -1711,29 +1673,27 @@ internal sealed class VibeMilestoneLoopRunner
 
                     try
                     {
-                        // Try to update with the first pattern
+                        // Try to remove with the first pattern
                         if (existingNodeIds.Contains(orphanNodeId))
                         {
-                            await graphClient.UpdatePlanNodeStatusAsync(
-                                orphanNodeId,
-                                PlanNodeStatus.Cancelled,
-                                "Removed due to direction change",
-                                ct);
-                            _logger.LogDebug("[MilestoneLoop] Marked orphan plan node {NodeId} as Cancelled", orphanNodeId);
+                            var removed = await graphClient.RemoveNodeAsync(orphanNodeId, ct);
+                            if (removed)
+                            {
+                                _logger.LogInformation("[MilestoneLoop] Removed orphan plan node {NodeId} due to direction change", orphanNodeId);
+                            }
                         }
                         else if (existingNodeIds.Contains(alternateOrphanNodeId) && alternateOrphanNodeId != orphanNodeId)
                         {
-                            await graphClient.UpdatePlanNodeStatusAsync(
-                                alternateOrphanNodeId,
-                                PlanNodeStatus.Cancelled,
-                                "Removed due to direction change",
-                                ct);
-                            _logger.LogDebug("[MilestoneLoop] Marked orphan plan node {NodeId} as Cancelled", alternateOrphanNodeId);
+                            var removed = await graphClient.RemoveNodeAsync(alternateOrphanNodeId, ct);
+                            if (removed)
+                            {
+                                _logger.LogInformation("[MilestoneLoop] Removed orphan plan node {NodeId} due to direction change", alternateOrphanNodeId);
+                            }
                         }
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogDebug(ex, "[MilestoneLoop] Failed to mark orphan plan node as Cancelled");
+                        _logger.LogDebug(ex, "[MilestoneLoop] Failed to remove orphan plan node");
                     }
                 }
             }
@@ -1847,14 +1807,14 @@ internal sealed class VibeMilestoneLoopRunner
             _logger.LogDebug(ex, "[MilestoneLoop] Failed to parse evaluation JSON");
         }
 
-        // Fallback: check for keywords
+        // Fallback: check for keywords - fully rely on quality gate, no auto-complete fallback
         var isComplete = content.Contains("\"isComplete\": true", StringComparison.OrdinalIgnoreCase) ||
                          content.Contains("\"isComplete\":true", StringComparison.OrdinalIgnoreCase) ||
                          content.Contains("goal achieved", StringComparison.OrdinalIgnoreCase);
 
         return new MilestoneEvaluation
         {
-            IsComplete = isComplete || iterationCount >= 3,
+            IsComplete = isComplete,  // No auto-complete fallback - fully driven by quality gate
             Summary = "Evaluation parsed from content",
             NextSteps = isComplete ? "Goal achieved" : "Continue research"
         };
@@ -1909,10 +1869,9 @@ internal sealed class UserIntentAnalysis
 internal sealed class MilestoneLoopResult
 {
     public bool Ok { get; init; }
-    public string StopReason { get; init; } = "completed"; // completed | timeout | cancelled | error | no_milestones | interrupted | auto_extended
+    public string StopReason { get; init; } = "completed"; // completed | cancelled | error | no_milestones | interrupted | auto_extended
     public int MilestonesExecuted { get; init; }
     public int TotalMilestones { get; init; }
-    public int MaxTotalDurationMs { get; init; }
     public int MilestonesSkipped { get; init; } // Number of milestones skipped due to already completed
     public int ExtensionRound { get; init; } // Current auto-extension round (0 = original plan)
 }

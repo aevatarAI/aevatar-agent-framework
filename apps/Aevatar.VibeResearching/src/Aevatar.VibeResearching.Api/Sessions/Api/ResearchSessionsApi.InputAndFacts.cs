@@ -44,7 +44,11 @@ internal static partial class ResearchSessionsApi
                         InterruptedRunId = interruptedRunId,
                         NewUserMessage = input.Message ?? string.Empty,
                         InterruptedAt = DateTimeOffset.UtcNow,
-                        Reason = "new_input"
+                        Reason = "new_input",
+                        // 从 Workspace.Vibe 读取进度信息
+                        TotalMilestones = session.Workspace.Vibe.TotalMilestones,
+                        CompletedMilestones = session.Workspace.Vibe.CompletedMilestones,
+                        InterruptedAtMilestoneIndex = session.Workspace.Vibe.CurrentMilestoneIndex
                     });
 
                     // Tell UI immediately (even if the old run was still queued on RunLock).

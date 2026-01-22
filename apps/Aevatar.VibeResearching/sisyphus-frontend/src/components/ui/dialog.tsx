@@ -1,9 +1,10 @@
 import * as React from "react"
+import { createPortal } from "react-dom"
 import { cn } from "@/lib/utils"
 
 // ============================================================
 //  Dialog Component - Cyberpunk Style
-//  Simple modal dialog without external dependencies
+//  Uses Portal to escape parent stacking contexts
 // ============================================================
 
 // Context for close function
@@ -43,9 +44,10 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
 
   if (!open) return null
 
-  return (
+  // Use Portal to render at body level, escaping parent stacking contexts
+  return createPortal(
     <DialogContext.Provider value={{ onClose }}>
-      <div className="fixed inset-0 z-[10000]">
+      <div className="fixed inset-0 z-[100]">
         {/* Backdrop */}
         <div 
           className="fixed inset-0 bg-background/90 backdrop-blur-sm animate-fade-in"
@@ -58,7 +60,8 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
           </div>
         </div>
       </div>
-    </DialogContext.Provider>
+    </DialogContext.Provider>,
+    document.body
   )
 }
 

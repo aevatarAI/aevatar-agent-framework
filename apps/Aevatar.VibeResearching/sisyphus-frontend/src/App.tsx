@@ -2,7 +2,9 @@ import React, { useEffect, useCallback, useState, useRef } from 'react';
 import { Header, Sidebar, InteractionStream, WorkflowTopology, StatusBar, SettingsPanel } from '@/components/sisyphus';
 import { useSisyphusStore } from '@/store/sisyphus-store';
 import { useAxiomStream } from '@/hooks/use-axiom-stream';
-import { listSessions, createSession, getDagSnapshot, getSessionEvents, parseWorkersFromEvents, abortCurrentSessionRequests, type AxiomSession } from '@/lib/axiom-client';
+import { useAgentStates } from '@/hooks/use-agent-states';
+import { useSessionStatus } from '@/hooks/use-session-status';
+import { listSessions, createSession, getDagSnapshot, getSessionEvents, parseWorkersFromEvents, abortCurrentSessionRequests, getSessionStatus, type AxiomSession } from '@/lib/axiom-client';
 import type { DAGGraph } from '@/types';
 import { cn } from '@/lib/utils';
 
@@ -31,7 +33,7 @@ const transformDagData = (rawData: unknown): DAGGraph | null => {
 };
 
 const App: React.FC = () => {
-  const { currentSessionId, isConnected, setSessions, setCurrentSession, resetForNewSession, setDag, updateWorker, restoreMilestoneForSession, setActiveMilestoneNodeId } = useSisyphusStore();
+  const { currentSessionId, isConnected, setSessions, setCurrentSession, resetForNewSession, setDag, updateWorker, restoreMilestoneForSession, setActiveMilestoneNodeId, restoreRunningSession } = useSisyphusStore();
   
   // Resizable panel state
   const [leftPanelWidth, setLeftPanelWidth] = useState(DEFAULT_LEFT_WIDTH);
@@ -44,6 +46,22 @@ const App: React.FC = () => {
   
   // Connect to AG-UI event stream
   useAxiomStream({ sessionId: currentSessionId, enabled: true });
+  
+  // Poll agent states API (5s interval) for precise token usage and history
+  useAgentStates({
+    sessionId: currentSessionId,
+    intervalMs: 5000,
+    includeHistory: true,
+    historyLimit: 50,
+    enabled: isConnected,  // Only poll when connected
+  });
+  
+  // Poll session status API (3s interval) for workflow steps, tools, agent status
+  useSessionStatus({
+    sessionId: currentSessionId,
+    intervalMs: 3000,
+    enabled: isConnected,  // Only poll when connected
+  });
 
   // Fetch sessions on mount (only once)
   useEffect(() => {
@@ -96,6 +114,19 @@ const App: React.FC = () => {
             });
           } catch {
             // Events might not exist
+          }
+          
+          // Check if session has an active run (for page refresh scenarios)
+          try {
+            const status = await getSessionStatus(firstSessionId);
+            if (status && status.runId && status.runId.length > 0) {
+              restoreRunningSession({
+                runId: status.runId,
+                agents: status.agents || [],
+              });
+            }
+          } catch {
+            // Ignore status fetch errors on initial load
           }
         }
       } catch (error) {
@@ -194,7 +225,6 @@ const App: React.FC = () => {
             (n: { planStatus?: string }) => n.planStatus === 'Active'
           );
           if (activeNode) {
-            console.log('[App] Detected active milestone from DAG:', activeNode.id);
             setActiveMilestoneNodeId(activeNode.id, sessionId);
           }
         }
@@ -203,7 +233,6 @@ const App: React.FC = () => {
       // Process historical workers
       if (eventsText) {
         const workersMap = parseWorkersFromEvents(eventsText);
-        console.log('[App] Parsed workers:', workersMap.size);
         workersMap.forEach((worker) => {
           updateWorker({
             id: worker.id,
@@ -218,15 +247,27 @@ const App: React.FC = () => {
           });
         });
       }
+      
+      // Check if session has an active run (for page refresh / session switch scenarios)
+      try {
+        const status = await getSessionStatus(sessionId);
+        if (status && status.runId && status.runId.length > 0) {
+          restoreRunningSession({
+            runId: status.runId,
+            agents: status.agents || [],
+          });
+        }
+      } catch {
+        // Ignore status fetch errors
+      }
     } catch (err) {
       // AbortError is expected when switching sessions quickly
       if (err instanceof Error && err.name === 'AbortError') {
-        console.log('[App] Session switch request aborted (expected)');
         return;
       }
-      console.warn('[App] Failed to load session data:', err);
+      // Ignore other errors silently
     }
-  }, [currentSessionId, resetForNewSession, setCurrentSession, setDag, updateWorker, restoreMilestoneForSession, setActiveMilestoneNodeId]);
+  }, [currentSessionId, resetForNewSession, setCurrentSession, setDag, updateWorker, restoreMilestoneForSession, setActiveMilestoneNodeId, restoreRunningSession]);
 
   // Create session handler - creates new session and switches to it
   const handleCreateSession = useCallback(async () => {

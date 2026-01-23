@@ -290,6 +290,33 @@ internal sealed partial class VibeOrchestrator
         sb.AppendLine("DAG stats:");
         sb.AppendLine($"- nodes={dag.Nodes.Count}, edges={dag.Edges.Count}");
 
+        // Add instructions for planner to extract definitions, axioms, and hypotheses
+        if (string.Equals(role, "planner", StringComparison.OrdinalIgnoreCase))
+        {
+            sb.AppendLine();
+            sb.AppendLine("=== IMPORTANT: Your output MUST include ===");
+            sb.AppendLine();
+            sb.AppendLine("1. **Known Definitions**:");
+            sb.AppendLine("   - Extract from user question if explicitly provided");
+            sb.AppendLine("   - Extract from Materials context (see system prompt)");
+            sb.AppendLine("   - Format: Term name, definition statement, source");
+            sb.AppendLine();
+            sb.AppendLine("2. **Axioms**:");
+            sb.AppendLine("   - Extract from user question if explicitly provided");
+            sb.AppendLine("   - Extract from Materials context (see system prompt)");
+            sb.AppendLine("   - Format: Axiom ID, axiom statement, source");
+            sb.AppendLine();
+            sb.AppendLine("3. **Hypotheses to Verify**:");
+            sb.AppendLine("   - Extract from user question if explicitly provided");
+            sb.AppendLine("   - Infer from the research question if not explicitly stated");
+            sb.AppendLine("   - Format: Hypothesis ID, statement, dependencies, verification method");
+            sb.AppendLine();
+            sb.AppendLine("4. **Execution Plan**:");
+            sb.AppendLine("   - Provide executable steps based on the above");
+            sb.AppendLine();
+            sb.AppendLine("Use clear section headers (## Known Definitions, ## Axioms, ## Hypotheses to Verify, ## Execution Plan)");
+        }
+
         if (!string.IsNullOrWhiteSpace(extra))
         {
             sb.AppendLine();

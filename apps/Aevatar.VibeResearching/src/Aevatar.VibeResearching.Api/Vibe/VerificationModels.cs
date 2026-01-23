@@ -4,6 +4,7 @@ namespace VibeResearching.Api.Vibe;
 //  Multi-Stage Verification Models
 //
 //  Inspired by hypothesis_promotion_loop_hpa.yaml:
+//  - Pre-processing: Extract, select, and decompose hypotheses
 //  - Scout phase: 2 workers for quick refutation detection
 //  - Prover phase: 5 workers for proof verification
 // ============================================================
@@ -15,6 +16,74 @@ public sealed record VerificationWorker(
     string Id,
     string Role,
     string Angle
+);
+
+// ============================================================
+//  Pre-Processing Models (Phase 0)
+// ============================================================
+
+/// <summary>
+/// A hypothesis extracted from reasoner output.
+/// </summary>
+public sealed record ExtractedHypothesis(
+    string Id,
+    string Statement,
+    string? Context,
+    double? Confidence
+);
+
+/// <summary>
+/// Result of hypothesis extraction (Step 1).
+/// </summary>
+public sealed record HypothesisExtractionResult(
+    IReadOnlyList<ExtractedHypothesis> Hypotheses,
+    string RawOutput,
+    string? SystemPrompt,
+    string? UserPrompt
+);
+
+/// <summary>
+/// Result of hypothesis selection (Step 2).
+/// </summary>
+public sealed record HypothesisSelectionResult(
+    ExtractedHypothesis SelectedHypothesis,
+    string SelectionReason,
+    string RawOutput,
+    string? SystemPrompt,
+    string? UserPrompt
+);
+
+/// <summary>
+/// A dependency theorem from DAG.
+/// </summary>
+public sealed record DependencyTheorem(
+    string Id,
+    string Statement,
+    int DerivationOrder
+);
+
+/// <summary>
+/// Result of hypothesis decomposition (Step 3).
+/// </summary>
+public sealed record HypothesisDecompositionResult(
+    ExtractedHypothesis Hypothesis,
+    IReadOnlyList<DependencyTheorem> Dependencies,
+    IReadOnlyList<string> DerivationPath,
+    string DecompositionReason,
+    string RawOutput,
+    string? SystemPrompt,
+    string? UserPrompt
+);
+
+/// <summary>
+/// Aggregated result from pre-processing phase.
+/// </summary>
+public sealed record PreProcessingResult(
+    HypothesisExtractionResult? ExtractionResult,
+    HypothesisSelectionResult? SelectionResult,
+    HypothesisDecompositionResult? DecompositionResult,
+    bool Success,
+    string? ErrorMessage
 );
 
 /// <summary>
@@ -44,10 +113,12 @@ public sealed record VerificationPhaseResult(
 /// Final result from multi-stage verification.
 /// </summary>
 public sealed record MultiStageVerificationResult(
+    PreProcessingResult? PreProcessing,
     VerificationPhaseResult? ScoutPhase,
     VerificationPhaseResult? ProverPhase,
     bool OverallPass,
-    string Summary
+    string Summary,
+    IReadOnlyList<ExtractedHypothesis> VerifiedHypotheses
 );
 
 /// <summary>

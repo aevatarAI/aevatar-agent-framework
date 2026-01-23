@@ -506,10 +506,15 @@ internal sealed partial class VibeOrchestrator
                       {
                           new() { Agent = "planner", Task = "Produce an executable plan and unknowns" },
                           new() { Agent = "reasoner", Task = "Provide grounded reasoning with explicit hypotheses" },
-                          new() { Agent = "librarian", Task = "List key evidence and missing gaps" },
+                          // new() { Agent = "librarian", Task = "List key evidence and missing gaps" }, // DISABLED
                           new() { Agent = "verifier", Task = "Verify reasoning correctness and identify gaps" },
                           new() { Agent = "dag_builder", Task = "Propose a DAG mutation candidate in strict JSON" }
                       };
+
+        // Filter out librarian from workers list (disabled)
+        workers = workers.Where(w => 
+            !(w.Agent ?? string.Empty).Trim().Equals("librarian", StringComparison.OrdinalIgnoreCase)
+        ).ToList();
 
         // Ensure verifier is always included (even if LLM didn't include it in the plan)
         var hasVerifier = workers.Any(w => 

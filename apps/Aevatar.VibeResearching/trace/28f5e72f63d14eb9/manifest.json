@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "executionId": "28f5e72f63d14eb9",
+  "kind": "Workflow",
+  "status": "Succeeded",
+  "name": "maker",
+  "exportedAtUtc": "2026-01-21T08:11:30.715182+00:00",
+  "files": {
+    "traceBinary": "trace.pb",
+    "traceJson": "trace.json",
+    "manifest": "manifest.json",
+    "artifactsDir": "artifacts"
+  }
+}

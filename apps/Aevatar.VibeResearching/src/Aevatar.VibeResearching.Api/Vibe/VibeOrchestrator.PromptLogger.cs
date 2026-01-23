@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using VibeResearching.Api.Sessions;
 using VibeResearching.Api.Vibe.Dag;
@@ -174,7 +175,11 @@ internal sealed partial class VibeOrchestrator
                     rawOutput = kv.Value.RawOutput,
                     timestamp = kv.Value.Timestamp
                 }).ToList()
-            }, new JsonSerializerOptions { WriteIndented = true });
+            }, new JsonSerializerOptions 
+            { 
+                WriteIndented = true,
+                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping  // Allow Chinese characters without escaping
+            });
 
             await File.WriteAllTextAsync(jsonFilepath, jsonContent, ct);
 

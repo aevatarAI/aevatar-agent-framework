@@ -390,9 +390,81 @@ internal sealed partial class VibeOrchestrator
         {
             if (string.Equals(k, "dag_builder", StringComparison.OrdinalIgnoreCase))
                 continue;
-            sb.AppendLine($"[{k}]");
-            sb.AppendLine(Bound(v ?? "", 2200));
-            sb.AppendLine();
+            
+            // Special handling for verifier output: extract verified hypotheses
+            if (string.Equals(k, "verifier", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(v))
+            {
+                sb.AppendLine($"[{k}]");
+                try
+                {
+                    // Try to parse verifier JSON output and extract verified hypotheses
+                    var verifierJson = JsonDocument.Parse(v);
+                    var root = verifierJson.RootElement;
+                    
+                    if (root.TryGetProperty("verifiedHypotheses", out var verifiedHypotheses) && verifiedHypotheses.ValueKind == JsonValueKind.Array)
+                    {
+                        sb.AppendLine("### Verified Hypotheses (MUST be added to DAG as THEOREM nodes):");
+                        sb.AppendLine();
+                        foreach (var h in verifiedHypotheses.EnumerateArray())
+                        {
+                            var id = h.TryGetProperty("id", out var idProp) ? idProp.GetString() : "unknown";
+                            var statement = h.TryGetProperty("statement", out var stmtProp) ? stmtProp.GetString() : "";
+                            var dependencies = h.TryGetProperty("dependencies", out var depsProp) && depsProp.ValueKind == JsonValueKind.Array
+                                ? depsProp.EnumerateArray().Select(d => d.TryGetProperty("id", out var depIdProp) ? depIdProp.GetString() : "").Where(x => !string.IsNullOrEmpty(x)).Select(x => x!).ToList()
+                                : new List<string>();
+                            
+                            sb.AppendLine($"- **{id}**: {Bound(statement ?? "", 200)}");
+                            if (dependencies.Count > 0)
+                            {
+                                sb.AppendLine($"  Dependencies: {string.Join(", ", dependencies)}");
+                            }
+                            sb.AppendLine();
+                        }
+                        sb.AppendLine("CRITICAL: Each verified hypothesis MUST be added as a THEOREM node with:");
+                        sb.AppendLine("  - type: \"theorem\"");
+                        sb.AppendLine("  - label: the hypothesis statement");
+                        sb.AppendLine("  - proof: summary of verification (from scoutPhase and proverPhase results)");
+                        sb.AppendLine("  - edges: depends_on edges from dependency nodes to this theorem");
+                        sb.AppendLine();
+                    }
+                    
+                    if (root.TryGetProperty("failedHypotheses", out var failedHypotheses) && failedHypotheses.ValueKind == JsonValueKind.Array && failedHypotheses.GetArrayLength() > 0)
+                    {
+                        sb.AppendLine("### Failed Hypotheses (do NOT add to DAG):");
+                        sb.AppendLine();
+                        foreach (var h in failedHypotheses.EnumerateArray())
+                        {
+                            var id = h.TryGetProperty("id", out var idProp) ? idProp.GetString() : "unknown";
+                            var statement = h.TryGetProperty("statement", out var stmtProp) ? stmtProp.GetString() : "";
+                            sb.AppendLine($"- **{id}**: {Bound(statement ?? "", 200)} (verification failed)");
+                        }
+                        sb.AppendLine();
+                    }
+                    
+                    // Also include full JSON for reference
+                    sb.AppendLine("<details>");
+                    sb.AppendLine("<summary>Full Verifier JSON Output</summary>");
+                    sb.AppendLine();
+                    sb.AppendLine("```json");
+                    sb.AppendLine(Bound(v, 5000));
+                    sb.AppendLine("```");
+                    sb.AppendLine();
+                    sb.AppendLine("</details>");
+                    sb.AppendLine();
+                }
+                catch
+                {
+                    // If JSON parsing fails, fall back to raw output
+                    sb.AppendLine(Bound(v ?? "", 2200));
+                    sb.AppendLine();
+                }
+            }
+            else
+            {
+                sb.AppendLine($"[{k}]");
+                sb.AppendLine(Bound(v ?? "", 2200));
+                sb.AppendLine();
+            }
         }
 
         return sb.ToString();

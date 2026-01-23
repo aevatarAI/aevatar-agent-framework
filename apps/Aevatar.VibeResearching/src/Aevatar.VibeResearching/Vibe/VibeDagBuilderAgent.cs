@@ -39,6 +39,18 @@ public sealed class VibeDagBuilderAgent : VibeAgentBase
         - If nothing is ready, output an EMPTY mutation with nodes=[] and edges=[].
         - If the librarian provides "trusted axioms" with citations, you SHOULD include them as AXIOM nodes.
           Treat them as axioms (no verifier step required) but keep citations in tags.
+        
+        CRITICAL - Verified Hypotheses from Verifier:
+        - The verifier output contains a "verifiedHypotheses" list with hypotheses that passed multi-stage verification.
+        - You MUST add each verified hypothesis as a THEOREM node to the DAG.
+        - For each verified hypothesis:
+          * Create a node with type="theorem", label=hypothesis statement
+          * Extract dependencies from the hypothesis's "dependencies" field
+          * Create "depends_on" edges from each dependency node ID to the theorem node
+          * Include verification proof summary in the "proof" field (combine scoutPhase and proverPhase results)
+          * Add tags: { "verified": "true", "verification_method": "multi_stage", "hypothesis_id": "<original_id>" }
+        - Do NOT add hypotheses from "failedHypotheses" list to the DAG.
+        - If verifier output is in JSON format, parse it to extract verifiedHypotheses array.
 
         Helpful tools (optional):
         - You MAY call graph_get_snapshot to see existing node ids/types and reuse them.

@@ -367,7 +367,7 @@ internal sealed partial class VibeOrchestrator
                     ScoutPhase: scoutPhase,
                     ProverPhase: null,
                     OverallPass: false,
-                    Summary: BuildVerificationSummary(preProcessingResult, scoutPhase, null, overallPass: false, verifiedHypotheses),
+                    Summary: BuildVerificationSummary(preProcessingResult, scoutPhase, null, overallPass: false, verifiedHypotheses, loopVerificationResults),
                     VerifiedHypotheses: verifiedHypotheses,
                     LoopVerificationResults: loopVerificationResults
                 );
@@ -439,7 +439,7 @@ internal sealed partial class VibeOrchestrator
             ScoutPhase: scoutPhase,
             ProverPhase: proverPhase,
             OverallPass: overallPass,
-            Summary: BuildVerificationSummary(preProcessingResult, scoutPhase, proverPhase, overallPass, verifiedHypotheses),
+            Summary: BuildVerificationSummary(preProcessingResult, scoutPhase, proverPhase, overallPass, verifiedHypotheses, loopVerificationResults),
             VerifiedHypotheses: verifiedHypotheses,
             LoopVerificationResults: loopVerificationResults
         );
@@ -1006,6 +1006,7 @@ internal sealed partial class VibeOrchestrator
                 runId,
                 timestamp = DateTime.UtcNow,
                 overallPass = result.OverallPass,
+                summary = result.Summary, // Verifier final JSON output
                 preProcessing = result.PreProcessing != null ? new
                 {
                     success = result.PreProcessing.Success,
@@ -1180,8 +1181,13 @@ internal sealed partial class VibeOrchestrator
 
             await File.WriteAllTextAsync(jsonFilepath, jsonContent, ct);
 
+            // Also save the verifier summary JSON to a separate file for easy access
+            var summaryFilepath = Path.Combine(VerificationLogDir, $"verifier_summary_{timestamp}_{sessionId[..8]}_{runId[..8]}.json");
+            await File.WriteAllTextAsync(summaryFilepath, result.Summary, ct);
+
             Console.WriteLine($"[Verification] Results saved to: {filepath}");
             Console.WriteLine($"[Verification] JSON saved to: {jsonFilepath}");
+            Console.WriteLine($"[Verification] Verifier summary JSON saved to: {summaryFilepath}");
         }
         catch (Exception ex)
         {
@@ -1280,12 +1286,50 @@ internal sealed partial class VibeOrchestrator
             // Parse the JSON response
             var rawOutput = sb.ToString();
             var (accept, reason) = ParseVerificationWorkerResponse(rawOutput, worker.Id);
+            
+            // ALWAYS try to extract JSON first (even if output looks like pure JSON)
+            // This handles cases where LLM returns JSON wrapped in markdown code blocks or with extra text
+            var extractedJson = LLMResponseParser.ExtractJson(rawOutput);
+            var outputToSave = rawOutput;
+            
+            // Check if output contains Markdown markers
+            var hasMarkdownMarkers = rawOutput.Contains("```") || rawOutput.Contains("##") || rawOutput.Contains("###") || 
+                                     rawOutput.Contains("- ") || rawOutput.Contains("* ") || rawOutput.Contains("1. ") ||
+                                     rawOutput.TrimStart().StartsWith("#") || rawOutput.Contains("**") || rawOutput.Contains("__") ||
+                                     rawOutput.Contains("---") || rawOutput.Contains("===");
+            
+            // Check if output is pure JSON (starts with { and ends with })
+            var trimmedOutput = rawOutput.Trim();
+            var isPureJson = trimmedOutput.StartsWith("{") && trimmedOutput.EndsWith("}") && 
+                            !hasMarkdownMarkers && 
+                            !trimmedOutput.Contains("```");
+            
+            if (isPureJson)
+            {
+                // Output is already pure JSON, use it as-is
+                outputToSave = trimmedOutput;
+            }
+            else if (!string.IsNullOrWhiteSpace(extractedJson) && extractedJson != "{}")
+            {
+                // Successfully extracted JSON from markdown or code block
+                Console.WriteLine($"[Verification] INFO: Worker {worker.Id} returned non-JSON format, but JSON was successfully extracted.");
+                Console.WriteLine($"[Verification] Original output preview: {Bound(rawOutput, 200)}");
+                outputToSave = extractedJson; // Save extracted JSON instead of raw markdown
+            }
+            else
+            {
+                // Failed to extract JSON - this is an error
+                Console.WriteLine($"[Verification] ERROR: Worker {worker.Id} returned non-JSON format and JSON extraction failed.");
+                Console.WriteLine($"[Verification] Raw output preview: {Bound(rawOutput, 500)}");
+                // Keep original output but add warning prefix
+                outputToSave = $"[ERROR: Output is not valid JSON. Expected JSON format but received:\n\n{rawOutput}";
+            }
 
             return new VerificationWorkerResult(
                 WorkerId: worker.Id,
                 Accept: accept,
                 Reason: reason,
-                RawOutput: Bound(rawOutput, 5000),
+                RawOutput: Bound(outputToSave, 5000),
                 SystemPrompt: workerSystemPrompt,
                 UserPrompt: userMessage
             );
@@ -1521,96 +1565,168 @@ internal sealed partial class VibeOrchestrator
         VerificationPhaseResult? scoutPhase,
         VerificationPhaseResult? proverPhase,
         bool overallPass,
-        IReadOnlyList<ExtractedHypothesis> verifiedHypotheses)
+        IReadOnlyList<ExtractedHypothesis> verifiedHypotheses,
+        IReadOnlyList<HypothesisVerificationResult> loopVerificationResults)
     {
-        var sb = new StringBuilder();
+        // Build verified and failed hypotheses lists with verification details
+        var verifiedHypothesesList = new List<object>();
+        var failedHypothesesList = new List<object>();
 
-        sb.AppendLine("## Multi-Stage Verification Summary");
-        sb.AppendLine();
-
-        // Pre-processing phase
-        if (preProcessing != null && preProcessing.Success)
+        // Process loop verification results to extract detailed information
+        foreach (var loopResult in loopVerificationResults)
         {
-            sb.AppendLine("### Pre-Processing Phase");
-            if (preProcessing.ExtractionResult != null)
+            var hypothesisInfo = new
             {
-                sb.AppendLine($"- Extracted {preProcessing.ExtractionResult.Hypotheses.Count} hypotheses");
-            }
-            if (preProcessing.SelectionResult != null)
+                id = loopResult.Hypothesis.Id,
+                statement = loopResult.Hypothesis.Statement,
+                context = loopResult.Hypothesis.Context,
+                confidence = loopResult.Hypothesis.Confidence,
+                dependencies = loopResult.DecompositionResult?.Dependencies.Select(d => new
+                {
+                    id = d.Id,
+                    statement = d.Statement,
+                    derivationOrder = d.DerivationOrder
+                }).ToList<object>() ?? new List<object>(),
+                derivationPath = loopResult.DecompositionResult?.DerivationPath ?? new List<string>(),
+                decompositionReason = loopResult.DecompositionResult?.DecompositionReason,
+                selectionReason = loopResult.SelectionResult?.SelectionReason,
+                scoutPhase = loopResult.ScoutPhase != null ? new
+                {
+                    phaseName = loopResult.ScoutPhase.PhaseName,
+                    acceptCount = loopResult.ScoutPhase.AcceptCount,
+                    rejectCount = loopResult.ScoutPhase.RejectCount,
+                    phasePass = loopResult.ScoutPhase.PhasePass,
+                    workers = loopResult.ScoutPhase.Results.Select(r => new
+                    {
+                        workerId = r.WorkerId,
+                        accept = r.Accept,
+                        reason = r.Reason
+                    }).ToList()
+                } : null,
+                proverPhase = loopResult.ProverPhase != null ? new
+                {
+                    phaseName = loopResult.ProverPhase.PhaseName,
+                    acceptCount = loopResult.ProverPhase.AcceptCount,
+                    rejectCount = loopResult.ProverPhase.RejectCount,
+                    phasePass = loopResult.ProverPhase.PhasePass,
+                    workers = loopResult.ProverPhase.Results.Select(r => new
+                    {
+                        workerId = r.WorkerId,
+                        accept = r.Accept,
+                        reason = r.Reason
+                    }).ToList()
+                } : null,
+                verificationPassed = loopResult.VerificationPassed
+            };
+
+            if (loopResult.VerificationPassed)
             {
-                sb.AppendLine($"- Selected hypothesis: {Bound(preProcessing.SelectionResult.SelectedHypothesis.Statement, 150)}");
+                verifiedHypothesesList.Add(hypothesisInfo);
             }
-            if (preProcessing.DecompositionResult != null)
+            else
             {
-                sb.AppendLine($"- Found {preProcessing.DecompositionResult.Dependencies.Count} dependencies");
+                failedHypothesesList.Add(hypothesisInfo);
             }
-            sb.AppendLine();
         }
-        
-        // Verified hypotheses summary
-        if (verifiedHypotheses.Count > 0)
+
+        // If no loop results but we have verified hypotheses, create entries from verifiedHypotheses list
+        if (loopVerificationResults.Count == 0 && verifiedHypotheses.Count > 0)
         {
-            sb.AppendLine("### Verified Hypotheses");
-            sb.AppendLine($"- **Total Verified**: {verifiedHypotheses.Count} hypotheses passed verification");
-            sb.AppendLine();
             foreach (var h in verifiedHypotheses)
             {
-                sb.AppendLine($"  ✅ **{h.Id}**: {Bound(h.Statement, 150)}");
+                verifiedHypothesesList.Add(new
+                {
+                    id = h.Id,
+                    statement = h.Statement,
+                    context = h.Context,
+                    confidence = h.Confidence,
+                    dependencies = new List<object>(),
+                    derivationPath = new List<string>(),
+                    decompositionReason = (string?)null,
+                    selectionReason = (string?)null,
+                    scoutPhase = scoutPhase != null ? new
+                    {
+                        phaseName = scoutPhase.PhaseName,
+                        acceptCount = scoutPhase.AcceptCount,
+                        rejectCount = scoutPhase.RejectCount,
+                        phasePass = scoutPhase.PhasePass,
+                        workers = scoutPhase.Results.Select(r => new
+                        {
+                            workerId = r.WorkerId,
+                            accept = r.Accept,
+                            reason = r.Reason
+                        }).ToList()
+                    } : null,
+                    proverPhase = proverPhase != null ? new
+                    {
+                        phaseName = proverPhase.PhaseName,
+                        acceptCount = proverPhase.AcceptCount,
+                        rejectCount = proverPhase.RejectCount,
+                        phasePass = proverPhase.PhasePass,
+                        workers = proverPhase.Results.Select(r => new
+                        {
+                            workerId = r.WorkerId,
+                            accept = r.Accept,
+                            reason = r.Reason
+                        }).ToList()
+                    } : null,
+                    verificationPassed = true
+                });
             }
-            sb.AppendLine();
         }
 
-        // Scout phase
-        if (scoutPhase != null)
+        // Build summary JSON
+        var summary = new
         {
-            sb.AppendLine("### Phase 1: Scout (Quick Refutation Detection)");
-            sb.AppendLine($"- Workers: {scoutPhase.Results.Count}");
-            sb.AppendLine($"- Accept: {scoutPhase.AcceptCount}, Reject: {scoutPhase.RejectCount}");
-            sb.AppendLine($"- Requirement: All workers must accept");
-            sb.AppendLine($"- Result: {(scoutPhase.PhasePass ? "✅ PASS" : "❌ FAIL")}");
-            sb.AppendLine();
-
-            foreach (var r in scoutPhase.Results)
+            overallPass = overallPass,
+            totalExtracted = preProcessing?.ExtractionResult?.Hypotheses.Count ?? 0,
+            totalVerified = verifiedHypothesesList.Count,
+            totalFailed = failedHypothesesList.Count,
+            verifiedHypotheses = verifiedHypothesesList,
+            failedHypotheses = failedHypothesesList,
+            preProcessing = preProcessing != null ? new
             {
-                var icon = r.Accept ? "✅" : "❌";
-                sb.AppendLine($"  {icon} {r.WorkerId}: {r.Reason}");
-            }
-            sb.AppendLine();
-        }
-        else
-        {
-            sb.AppendLine("### Phase 1: Scout (Skipped - Hypotheses verified in loop)");
-            sb.AppendLine();
-        }
-
-        // Prover phase (if executed)
-        if (proverPhase != null)
-        {
-            sb.AppendLine("### Phase 2: Prover (Proof Verification)");
-            sb.AppendLine($"- Workers: {proverPhase.Results.Count}");
-            sb.AppendLine($"- Accept: {proverPhase.AcceptCount}, Reject: {proverPhase.RejectCount}");
-            sb.AppendLine($"- Requirement: At least {ProverWorkers.MinAcceptCount} workers must accept");
-            sb.AppendLine($"- Result: {(proverPhase.PhasePass ? "✅ PASS" : "❌ FAIL")}");
-            sb.AppendLine();
-
-            foreach (var r in proverPhase.Results)
+                success = preProcessing.Success,
+                extractedCount = preProcessing.ExtractionResult?.Hypotheses.Count ?? 0,
+                selectedHypothesisId = preProcessing.SelectionResult?.SelectedHypothesis.Id,
+                selectedHypothesisStatement = preProcessing.SelectionResult?.SelectedHypothesis.Statement,
+                dependenciesCount = preProcessing.DecompositionResult?.Dependencies.Count ?? 0,
+                errorMessage = preProcessing.ErrorMessage
+            } : null,
+            finalScoutPhase = scoutPhase != null ? new
             {
-                var icon = r.Accept ? "✅" : "❌";
-                sb.AppendLine($"  {icon} {r.WorkerId}: {r.Reason}");
-            }
-            sb.AppendLine();
-        }
-        else
-        {
-            sb.AppendLine("### Phase 2: Prover (Skipped - Scout phase failed)");
-            sb.AppendLine();
-        }
+                phaseName = scoutPhase.PhaseName,
+                acceptCount = scoutPhase.AcceptCount,
+                rejectCount = scoutPhase.RejectCount,
+                phasePass = scoutPhase.PhasePass,
+                workers = scoutPhase.Results.Select(r => new
+                {
+                    workerId = r.WorkerId,
+                    accept = r.Accept,
+                    reason = r.Reason
+                }).ToList()
+            } : null,
+            finalProverPhase = proverPhase != null ? new
+            {
+                phaseName = proverPhase.PhaseName,
+                acceptCount = proverPhase.AcceptCount,
+                rejectCount = proverPhase.RejectCount,
+                phasePass = proverPhase.PhasePass,
+                minAcceptRequired = ProverWorkers.MinAcceptCount,
+                workers = proverPhase.Results.Select(r => new
+                {
+                    workerId = r.WorkerId,
+                    accept = r.Accept,
+                    reason = r.Reason
+                }).ToList()
+            } : null
+        };
 
-        // Overall result
-        sb.AppendLine("### Overall Result");
-        sb.AppendLine($"**{(overallPass ? "✅ VERIFICATION PASSED" : "❌ VERIFICATION FAILED")}**");
-
-        return sb.ToString();
+        return JsonSerializer.Serialize(summary, new JsonSerializerOptions 
+        { 
+            WriteIndented = true,
+            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+        });
     }
 
     // ============================================================
@@ -2207,7 +2323,7 @@ internal sealed partial class VibeOrchestrator
                 $"{i + 1}. ID: {h.Id}\n   Statement: {h.Statement}\n   Context: {h.Context ?? "N/A"}\n   Confidence: {h.Confidence?.ToString("F2") ?? "N/A"}"));
 
             var userMessage = $$"""
-                Select the easiest hypothesis to verify from the following list:
+                Select the easiest hypothesis that is NOT already proven to verify from the following list:
 
                 {{hypothesesList}}
 

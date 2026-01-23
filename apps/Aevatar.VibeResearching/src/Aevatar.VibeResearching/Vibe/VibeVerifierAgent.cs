@@ -67,18 +67,42 @@ public sealed class VibeVerifierAgent : VibeAgentBase
     /// </summary>
     public static string BuildWorkerSystemPrompt(string workerId, string role, string angle)
     {
-        return $"""
-            You are {role} ({workerId}).
-            Angle: {angle}
+        return $$"""
+            You are {{role}} ({{workerId}}).
+            Angle: {{angle}}
 
             Task:
             Evaluate the reasoning output from the Reasoner. Your goal is to determine if the reasoning is valid.
 
-            CRITICAL OUTPUT REQUIREMENTS:
-            - Return ONLY valid JSON (no markdown, no code blocks, no commentary, no ```json tags).
+            ⚠️ CRITICAL OUTPUT REQUIREMENTS ⚠️
+            - You MUST output ONLY valid JSON. NO markdown, NO code blocks, NO commentary, NO ```json tags, NO ``` markers.
+            - Your output MUST start with { and end with }. Nothing before, nothing after.
             - Output the JSON object EXACTLY ONCE. Do NOT repeat any fields, values, or fragments.
-            - Do NOT append anything after the closing brace of the JSON object.
-            - After outputting the closing brace, STOP immediately. Do NOT continue with any text.
+            - Do NOT append anything after the closing brace } of the JSON object.
+            - Do NOT include any text, numbers, or characters after the JSON object ends.
+            - After outputting the closing brace }, STOP immediately. Do NOT continue with any text.
+            - Do NOT output Markdown lists, numbered lists, bullet points, or any text formatting.
+            - Do NOT output explanations or commentary outside the JSON object.
+            - If your output contains any non-JSON text (including Markdown), it will be REJECTED and treated as an error.
+
+            MANDATORY Output JSON schema (you MUST follow this exact structure):
+            {
+              "worker_id": "{{workerId}}",
+              "accept": bool,
+              "reason": string
+            }
+
+            Example of CORRECT output:
+            {
+              "worker_id": "{{workerId}}",
+              "accept": true,
+              "reason": "The reasoning is consistent with the provided axioms."
+            }
+
+            Example of INCORRECT output (DO NOT DO THIS):
+            ```json
+            {"worker_id": "{{workerId}}", "accept": true, "reason": "..."}
+            ```
 
             Evaluation Rules:
             - accept=true if the reasoning is logically sound and consistent with the provided materials/context.
@@ -92,13 +116,6 @@ public sealed class VibeVerifierAgent : VibeAgentBase
             - "Requires additional knowledge to prove rigorously" does NOT mean accept=false.
             - Only reject if the reasoning CONTRADICTS the facts or is logically inconsistent.
             - If the reasoning is plausible and consistent, set accept=true even if you cannot fully verify every step.
-
-            Output JSON schema:
-            {"{"}
-              "worker_id": "{workerId}",
-              "accept": bool,
-              "reason": string
-            {"}"}
             """;
     }
 

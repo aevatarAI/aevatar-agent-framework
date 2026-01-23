@@ -831,10 +831,28 @@ export async function setDefaultProvider(providerName: string): Promise<{ ok: bo
 }
 
 /**
- * List all LLM providers
+ * List all LLM providers (provider types catalog)
  */
 export async function listLlmProviders(): Promise<{ providers: ProviderItem[] }> {
   return fetchJson<{ providers: ProviderItem[] }>("/api/llm/providers")
+}
+
+/**
+ * Provider instance (configured with API key)
+ */
+export interface ProviderInstance {
+  name: string
+  providerType: string
+  providerDisplayName: string
+  model: string
+  endpoint: string
+}
+
+/**
+ * List all configured LLM provider instances
+ */
+export async function listLlmInstances(): Promise<{ instances: ProviderInstance[] }> {
+  return fetchJson<{ instances: ProviderInstance[] }>("/api/llm/instances")
 }
 
 /**

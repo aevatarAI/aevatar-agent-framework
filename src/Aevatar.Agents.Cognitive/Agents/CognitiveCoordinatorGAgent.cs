@@ -217,8 +217,10 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
 
         // Worker needs the same LLM provider as coordinator.
         // Coordinator is expected to be initialized by CognitiveStrategy before creating the pool.
-        var providerName = ActiveProviderConfig?.Name;
-        if (string.IsNullOrWhiteSpace(providerName))
+        // Use ActiveProviderConfig directly (config-based init) to avoid ILLMProviderFactory lookup issues
+        // when providers are configured at runtime via secrets/UI.
+        var providerConfig = ActiveProviderConfig;
+        if (providerConfig == null)
         {
             Logger.LogWarning("Coordinator is not initialized with an LLM provider yet. Workers will NOT be initialized and fan_out will fail.");
         }
@@ -256,9 +258,10 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
                 worker.ChatHistorySummaryMaxChars = ChatHistorySummaryMaxChars;
 
                 // Initialize Worker's LLM Provider (otherwise Worker.LLMProvider will throw exception)
-                if (!string.IsNullOrWhiteSpace(providerName))
+                // Use config-based init to avoid ILLMProviderFactory lookup issues with runtime-configured providers.
+                if (providerConfig != null)
                 {
-                    await worker.InitializeAsync(providerName!, cancellationToken: CancellationToken.None);
+                    await worker.InitializeAsync(providerConfig, cancellationToken: CancellationToken.None);
                 }
             }
 

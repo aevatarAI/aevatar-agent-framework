@@ -376,7 +376,7 @@ app.MapGet("/api/skills/sync/status", (SkillPacksSyncProgress progress) =>
     return Results.Json(progress.GetSnapshot());
 });
 
-app.MapGet("/api/info", (IOptionsMonitor<LLMProvidersConfig> llm, IConfiguration cfg) =>
+app.MapGet("/api/info", (IOptionsMonitor<LLMProvidersConfig> llm, IConfiguration cfg, IAevatarUserSecretsStore secrets) =>
 {
     var cur = llm.CurrentValue;
     var defaultProvider = LlmConfigDefaults.ResolveEffectiveDefaultProviderName(cur);
@@ -385,10 +385,26 @@ app.MapGet("/api/info", (IOptionsMonitor<LLMProvidersConfig> llm, IConfiguration
     var mcpResolved = MCPServersConfigReader.Resolve(cfg);
 
     // Only show providers that are actually runnable (have apiKey).
-    // We still expose full provider keys as `providersAll` for debugging.
-    var providersWithKey = cur.Providers
+    // Check both LLMProvidersConfig and secrets store for providers with API keys.
+    var providersFromConfig = cur.Providers
         .Where(kv => kv.Value != null && !string.IsNullOrWhiteSpace(kv.Value.ApiKey))
-        .Select(kv => kv.Key)
+        .Select(kv => kv.Key);
+
+    // Also include providers from secrets store (for freshly saved keys before config reload)
+    var providersFromSecrets = secrets.GetAll()
+        .Where(kv => kv.Key.StartsWith("LLMProviders:Providers:", StringComparison.OrdinalIgnoreCase) &&
+                     kv.Key.EndsWith(":ApiKey", StringComparison.OrdinalIgnoreCase) &&
+                     !string.IsNullOrWhiteSpace(kv.Value))
+        .Select(kv =>
+        {
+            var parts = kv.Key.Split(':');
+            return parts.Length >= 3 ? parts[2] : null;
+        })
+        .Where(name => !string.IsNullOrWhiteSpace(name))
+        .Cast<string>();
+
+    var providersWithKey = providersFromConfig
+        .Union(providersFromSecrets, StringComparer.OrdinalIgnoreCase)
         .OrderBy(x => x, StringComparer.Ordinal)
         .ToList();
 
@@ -454,7 +470,7 @@ app.MapGet("/api/llm/test", async (
     CancellationToken ct) =>
 {
     if (!IsLocal(http))
-        return Results.Forbid();
+        return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
     var resolved = LlmProbe.Resolve(llm.CurrentValue, providerName);
     if (!resolved.Ok)
@@ -472,7 +488,7 @@ app.MapGet("/api/llm/models", async (
     CancellationToken ct) =>
 {
     if (!IsLocal(http))
-        return Results.Forbid();
+        return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
     var resolved = LlmProbe.Resolve(llm.CurrentValue, providerName);
     if (!resolved.Ok)
@@ -488,7 +504,7 @@ app.MapGet("/api/llm/status", (
     string? providerName) =>
 {
     if (!IsLocal(http))
-        return Results.Forbid();
+        return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
     var resolved = LlmProbe.Resolve(llm.CurrentValue, providerName);
     if (!resolved.Ok)
@@ -524,6 +540,11 @@ app.Run();
 
 static bool IsLocal(HttpContext ctx)
 {
+    // Allow disabling local check for trusted Docker environments
+    var allowRemote = Environment.GetEnvironmentVariable("ALLOW_REMOTE_LLM_API");
+    if (string.Equals(allowRemote, "true", StringComparison.OrdinalIgnoreCase))
+        return true;
+
     var ip = ctx.Connection.RemoteIpAddress;
     return ip == null || System.Net.IPAddress.IsLoopback(ip);
 }

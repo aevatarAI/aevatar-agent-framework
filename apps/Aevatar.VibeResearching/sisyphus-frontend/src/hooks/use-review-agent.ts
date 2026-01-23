@@ -1,4 +1,12 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
+import {
+  API_BASE as GLOBAL_API_BASE,
+  getReviewAgentStatus as apiGetStatus,
+  getReviewAgentSettings as apiGetSettings,
+  updateReviewAgentSettings as apiUpdateSettings,
+  getReviewAgentCurrentEntries as apiGetCurrentEntries,
+  triggerReviewAgent as apiTriggerReview,
+} from '@/lib/axiom-client'
 import type {
   ReviewAgentStatus,
   ReviewAgentSettings,
@@ -13,7 +21,7 @@ import type {
 //  Connects to /api/review-agent/events for real-time updates
 // ============================================================================
 
-const API_BASE = '/api/review-agent'
+const API_BASE = `${GLOBAL_API_BASE}/api/review-agent`
 const SSE_RECONNECT_DELAY_MS = 3000
 const SSE_MAX_RECONNECT_ATTEMPTS = 10
 
@@ -176,40 +184,24 @@ export function useReviewAgent({
 
   const refreshStatus = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE}/status`)
-      if (!response.ok) {
-        throw new Error(`Failed to fetch status: ${response.status}`)
-      }
-      const data = await response.json()
+      const data = await apiGetStatus()
       console.log('[useReviewAgent] Status response:', data)
 
       if (mountedRef.current) {
-        // Handle both camelCase and PascalCase responses for robustness
-        const normalizedData: ReviewAgentStatus = {
-          status: data.status ?? data.Status ?? 'Idle',
-          currentIterationId: data.currentIterationId ?? data.CurrentIterationId ?? null,
-          lastCompletedAt: data.lastCompletedAt ?? data.LastCompletedAt ?? null,
-          nextScheduledAt: data.nextScheduledAt ?? data.NextScheduledAt ?? null,
-          nodesReviewed: data.nodesReviewed ?? data.NodesReviewed ?? 0,
-          nodesPending: data.nodesPending ?? data.NodesPending ?? 0,
-          nodesDeactivated: data.nodesDeactivated ?? data.NodesDeactivated ?? 0,
-          nodesRemoved: data.nodesRemoved ?? data.NodesRemoved ?? 0,
-          errorMessage: data.errorMessage ?? data.ErrorMessage ?? null,
-        }
-
-        setStatus(normalizedData)
+        // API function already normalizes PascalCase to camelCase
+        setStatus(data)
         // Sync manual trigger state from status
-        setIsRunning(data.isRunning ?? data.IsRunning ?? false)
-        setHasStarted(data.hasStarted ?? data.HasStarted ?? false)
+        setIsRunning(data.isRunning ?? false)
+        setHasStarted(data.hasStarted ?? false)
         // Sync counters from status
-        setNodesReviewed(normalizedData.nodesReviewed)
-        setNodesPending(normalizedData.nodesPending)
-        setNodesDeactivated(normalizedData.nodesDeactivated)
-        setNodesRemoved(normalizedData.nodesRemoved ?? 0)
+        setNodesReviewed(data.nodesReviewed)
+        setNodesPending(data.nodesPending)
+        setNodesDeactivated(data.nodesDeactivated)
+        setNodesRemoved(data.nodesRemoved ?? 0)
 
         // Validate stored data against current iteration
         const storedIterationId = currentIterationIdRef.current
-        const currentIterId = normalizedData.currentIterationId
+        const currentIterId = data.currentIterationId
 
         // Detect iteration change: clear whenever IDs differ (including null -> newId transition)
         if (storedIterationId !== currentIterId) {
@@ -229,23 +221,12 @@ export function useReviewAgent({
 
   const refreshSettings = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE}/settings`)
-      if (!response.ok) {
-        throw new Error(`Failed to fetch settings: ${response.status}`)
-      }
-      const data = await response.json()
+      const data = await apiGetSettings()
       console.log('[useReviewAgent] Settings response:', data)
 
       if (mountedRef.current) {
-        // Handle both camelCase and PascalCase responses for robustness
-        const normalizedData: ReviewAgentSettings = {
-          iterationIntervalMinutes: data.iterationIntervalMinutes ?? data.IterationIntervalMinutes ?? 30,
-          outOfDateThresholdMinutes: data.outOfDateThresholdMinutes ?? data.OutOfDateThresholdMinutes ?? 60,
-          toDeleteThresholdMinutes: data.toDeleteThresholdMinutes ?? data.ToDeleteThresholdMinutes ?? 1440,
-          llmProviderName: data.llmProviderName ?? data.LLMProviderName ?? 'default',
-          perNodeTimeoutSeconds: data.perNodeTimeoutSeconds ?? data.PerNodeTimeoutSeconds ?? 120,
-        }
-        setSettings(normalizedData)
+        // API function already normalizes PascalCase to camelCase
+        setSettings(data)
       }
     } catch (error) {
       console.error('[useReviewAgent] Failed to refresh settings:', error)
@@ -256,11 +237,7 @@ export function useReviewAgent({
   // Fetch current iteration entries from backend (for recovering state after tab reopen)
   const refreshCurrentEntries = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE}/current-entries`)
-      if (!response.ok) {
-        throw new Error(`Failed to fetch current entries: ${response.status}`)
-      }
-      const data = await response.json()
+      const data = await apiGetCurrentEntries()
       console.log('[useReviewAgent] Current entries response:', data)
 
       if (mountedRef.current && data.entries && Array.isArray(data.entries)) {
@@ -319,15 +296,7 @@ export function useReviewAgent({
 
   const updateSettings = useCallback(
     async (update: Partial<ReviewAgentSettings>): Promise<ReviewAgentSettings> => {
-      const response = await fetch(`${API_BASE}/settings`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(update),
-      })
-      if (!response.ok) {
-        throw new Error(`Failed to update settings: ${response.status}`)
-      }
-      const data: ReviewAgentSettings = await response.json()
+      const data = await apiUpdateSettings(update)
       if (mountedRef.current) {
         setSettings(data)
       }
@@ -339,10 +308,7 @@ export function useReviewAgent({
   const triggerReview = useCallback(
     async (): Promise<{ triggered: boolean; message: string }> => {
       try {
-        const response = await fetch(`${API_BASE}/trigger`, {
-          method: 'POST',
-        })
-        const data = await response.json()
+        const data = await apiTriggerReview()
         console.log('[useReviewAgent] Trigger response:', data)
 
         if (mountedRef.current) {
@@ -353,7 +319,7 @@ export function useReviewAgent({
 
         return {
           triggered: data.triggered ?? false,
-          message: data.message ?? (response.ok ? 'Triggered' : 'Failed'),
+          message: data.message ?? 'Triggered',
         }
       } catch (error) {
         console.error('[useReviewAgent] Failed to trigger review:', error)

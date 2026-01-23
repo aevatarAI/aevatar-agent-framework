@@ -157,3 +157,31 @@ export interface ReviewAgentCard {
   tokens: string;
   isComplete: boolean;
 }
+
+// ========== Graph Types ==========
+
+export interface ReviewGraphNode {
+  nodeId: string;
+  label: string;
+  reviewStatus: 'validated' | 'pending' | 'deactivated' | 'removed' | 'reviewing' | 'reviewed';
+  dependsOn: string[];
+  lastReviewedAt?: string;
+  deactivatedAt?: string;
+  deactivatedReason?: string;
+}
+
+export interface ReviewGraphEdge {
+  source: string;
+  target: string;
+  type?: string;
+}
+
+export interface ReviewGraphResponse {
+  nodes: ReviewGraphNode[];
+  edges: ReviewGraphEdge[];
+  totalNodes: number;
+  validatedCount: number;
+  pendingCount: number;
+  deactivatedCount: number;
+  reviewingCount: number;
+}

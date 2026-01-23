@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Shield } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { getReviewAgentStatus } from '@/lib/axiom-client';
 import { ReviewAgentDashboard } from './review-agent';
 
 // Lightweight status polling for header indicator
@@ -11,13 +12,10 @@ function useReviewAgentStatusIndicator() {
   useEffect(() => {
     const checkStatus = async () => {
       try {
-        const response = await fetch('/api/review-agent/status');
-        if (response.ok) {
-          const data = await response.json();
-          const status = data.status ?? data.Status ?? 'Idle';
-          // Non-idle statuses: WorkingReviewRound, WorkingCleanupRound, Error
-          setIsWorking(status !== 'Idle');
-        }
+        const data = await getReviewAgentStatus();
+        const status = data.status ?? 'Idle';
+        // Non-idle statuses: WorkingReviewRound, WorkingCleanupRound, Error
+        setIsWorking(status !== 'Idle');
       } catch {
         // Silently ignore errors
       }

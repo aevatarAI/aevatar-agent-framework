@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Clock, CheckCircle, XCircle, ChevronRight, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { getReviewAgentIterations } from '@/lib/axiom-client';
 import type { IterationListResponse, ReviewIterationSummary } from '@/types/review-agent';
 
 interface ReviewAgentHistoryProps {
@@ -22,11 +23,7 @@ const ReviewAgentHistory: React.FC<ReviewAgentHistoryProps> = ({ onSelectIterati
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`/api/review-agent/iterations?limit=${limit}&offset=${page * limit}`);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch iterations: ${response.status}`);
-      }
-      const result: IterationListResponse = await response.json();
+      const result = await getReviewAgentIterations(limit, page * limit);
       setData(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');

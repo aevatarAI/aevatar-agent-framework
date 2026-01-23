@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ArrowLeft, CheckCircle, XCircle, AlertCircle, Loader2, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { getReviewAgentIteration } from '@/lib/axiom-client';
 import type { ReviewIteration, ReviewLogEntry, ReviewResult } from '@/types/review-agent';
 
 interface ReviewAgentIterationDetailProps {
@@ -25,17 +26,16 @@ const ReviewAgentIterationDetail: React.FC<ReviewAgentIterationDetailProps> = ({
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`/api/review-agent/iterations/${iterationId}`);
-      if (!response.ok) {
-        if (response.status === 404) {
-          throw new Error('Iteration not found');
-        }
-        throw new Error(`Failed to fetch iteration: ${response.status}`);
-      }
-      const result: ReviewIteration = await response.json();
+      const result = await getReviewAgentIteration(iterationId);
       setIteration(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
+      // Handle 404 specifically
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      if (message.includes('404')) {
+        setError('Iteration not found');
+      } else {
+        setError(message);
+      }
     } finally {
       setLoading(false);
     }

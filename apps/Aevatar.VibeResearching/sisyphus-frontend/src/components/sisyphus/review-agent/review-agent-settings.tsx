@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Save, RefreshCw, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { getReviewAgentSettings, updateReviewAgentSettings } from '@/lib/axiom-client';
 import type { ReviewAgentSettings, ReviewAgentSettingsUpdate } from '@/types/review-agent';
 
 interface ValidationErrors {
@@ -27,11 +28,7 @@ const ReviewAgentSettingsPanel: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/review-agent/settings');
-      if (!response.ok) {
-        throw new Error(`Failed to fetch settings: ${response.status}`);
-      }
-      const data: ReviewAgentSettings = await response.json();
+      const data = await getReviewAgentSettings();
       setSettings(data);
       setFormData({
         iterationIntervalMinutes: data.iterationIntervalMinutes,
@@ -78,17 +75,7 @@ const ReviewAgentSettingsPanel: React.FC = () => {
     setSuccess(false);
 
     try {
-      const response = await fetch('/api/review-agent/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to save settings: ${response.status}`);
-      }
-
-      const updated: ReviewAgentSettings = await response.json();
+      const updated = await updateReviewAgentSettings(formData);
       setSettings(updated);
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);

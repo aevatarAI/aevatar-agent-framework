@@ -28,7 +28,7 @@ export interface ReviewGraphNode {
 export interface ReviewGraphEdge {
   source: string
   target: string
-  type: string
+  type?: string
 }
 
 export interface ReviewProgressGraphProps {

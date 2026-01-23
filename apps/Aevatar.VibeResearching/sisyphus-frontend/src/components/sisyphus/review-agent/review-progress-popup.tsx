@@ -7,21 +7,9 @@ import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import ReviewProgressGraph, { type ReviewGraphNode, type ReviewGraphEdge } from './review-progress-graph'
-
-// ─────────────────────────────────────────────────────────────
-// Types
-// ─────────────────────────────────────────────────────────────
-
-interface ReviewGraphResponse {
-  nodes: ReviewGraphNode[]
-  edges: ReviewGraphEdge[]
-  totalNodes: number
-  validatedCount: number
-  pendingCount: number
-  deactivatedCount: number
-  reviewingCount: number
-}
+import { getReviewAgentGraph } from '@/lib/axiom-client'
+import type { ReviewGraphResponse } from '@/types/review-agent'
+import ReviewProgressGraph, { type ReviewGraphNode } from './review-progress-graph'
 
 // Review Log Entry type (from review-agent-dashboard)
 interface ReviewLogEntry {
@@ -334,11 +322,7 @@ export function ReviewProgressPopup({
     setLoading(true)
     setError(null)
     try {
-      const response = await fetch('/api/review-agent/graph')
-      if (!response.ok) {
-        throw new Error(`Failed to fetch graph: ${response.status}`)
-      }
-      const data: ReviewGraphResponse = await response.json()
+      const data = await getReviewAgentGraph()
       setGraphData(data)
     } catch (err) {
       console.error('[ReviewProgressPopup] Error fetching graph:', err)

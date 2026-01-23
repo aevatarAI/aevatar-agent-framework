@@ -116,18 +116,70 @@ internal sealed partial class VibeOrchestrator
                 EmitAgentStatusReport(session, "verifier", $"✅ Extracted {extractionResult.Hypotheses.Count} hypotheses.");
 
                 // ============================================================
-                //  Loop through each hypothesis and verify it
+                //  Verification Loop: Step 2 → Step 3 → Phase 1 → Phase 2
+                //  For each iteration, select the easiest hypothesis from remaining ones,
+                //  then verify it. Continue until all hypotheses are processed.
                 // ============================================================
                 EmitAgentStatusReport(session, "verifier", $"🔄 Starting verification loop for {extractionResult.Hypotheses.Count} hypotheses...");
                 
-                for (int i = 0; i < extractionResult.Hypotheses.Count; i++)
+                // Keep track of remaining hypotheses (not yet verified or failed)
+                var remainingHypotheses = new List<ExtractedHypothesis>(extractionResult.Hypotheses);
+                var iterationCount = 0;
+                
+                while (remainingHypotheses.Count > 0)
                 {
-                    var hypothesis = extractionResult.Hypotheses[i];
-                    EmitAgentStatusReport(session, "verifier", $"🔄 [{i + 1}/{extractionResult.Hypotheses.Count}] Verifying hypothesis {hypothesis.Id}: {Bound(hypothesis.Statement, 100)}");
+                    iterationCount++;
+                    EmitAgentStatusReport(session, "verifier", $"🔄 [Iteration {iterationCount}] {remainingHypotheses.Count} hypotheses remaining.");
+                    
+                    // Step 2: Select the easiest hypothesis from remaining ones
+                    ExtractedHypothesis? selectedHypothesisInLoop = null;
+                    HypothesisSelectionResult? selectionResultInLoop = null;
+                    
+                    if (remainingHypotheses.Count == 1)
+                    {
+                        // Only one hypothesis left, select it automatically
+                        selectedHypothesisInLoop = remainingHypotheses[0];
+                        selectionResultInLoop = new HypothesisSelectionResult(
+                            SelectedHypothesis: selectedHypothesisInLoop,
+                            SelectionReason: "Only one hypothesis remaining",
+                            RawOutput: "Single hypothesis - selection step skipped",
+                            SystemPrompt: "Hypothesis selector - single remaining hypothesis",
+                            UserPrompt: $"Only one hypothesis remaining: {selectedHypothesisInLoop.Id}"
+                        );
+                    }
+                    else
+                    {
+                        // Step 2: Select the easiest hypothesis from remaining ones
+                        EmitAgentStatusReport(session, "verifier", $"🔍 Step 2: Selecting easiest hypothesis from {remainingHypotheses.Count} remaining...");
+                        selectionResultInLoop = await SelectEasiestHypothesisAsync(ctx, remainingHypotheses, providerName, ct);
+                        
+                        if (selectionResultInLoop != null)
+                        {
+                            selectedHypothesisInLoop = selectionResultInLoop.SelectedHypothesis;
+                            EmitAgentStatusReport(session, "verifier", $"✅ Selected hypothesis {selectedHypothesisInLoop.Id}: {Bound(selectedHypothesisInLoop.Statement, 100)}");
+                        }
+                        else
+                        {
+                            // Selection failed, use first remaining hypothesis as fallback
+                            selectedHypothesisInLoop = remainingHypotheses[0];
+                            selectionResultInLoop = new HypothesisSelectionResult(
+                                SelectedHypothesis: selectedHypothesisInLoop,
+                                SelectionReason: "Selection failed, using first remaining as fallback",
+                                RawOutput: "Selection failed - using first remaining",
+                                SystemPrompt: "Hypothesis selector - fallback",
+                                UserPrompt: "Selection failed, using first remaining hypothesis"
+                            );
+                            EmitAgentStatusReport(session, "verifier", $"⚠️ Selection failed, using first remaining: {selectedHypothesisInLoop.Id}");
+                        }
+                    }
+                    
+                    // Remove selected hypothesis from remaining list
+                    remainingHypotheses.Remove(selectedHypothesisInLoop);
                     
                     // Verify this hypothesis (Step 3 → Phase 1 → Phase 2)
+                    EmitAgentStatusReport(session, "verifier", $"🔍 Verifying hypothesis {selectedHypothesisInLoop.Id}: {Bound(selectedHypothesisInLoop.Statement, 100)}");
                     var (verificationPassed, scoutResults, proverResults) = await VerifySingleHypothesisAsync(
-                        ctx, dag, hypothesis, reasonerOutput, providerName, ct);
+                        ctx, dag, selectedHypothesisInLoop, reasonerOutput, providerName, ct);
                     
                     // Collect results from loop verification (for saving to file)
                     // Save results from the first verified hypothesis (or first hypothesis if none verified)
@@ -139,8 +191,8 @@ internal sealed partial class VibeOrchestrator
                     
                     if (verificationPassed)
                     {
-                        verifiedHypotheses.Add(hypothesis);
-                        EmitAgentStatusReport(session, "verifier", $"✅ Hypothesis {hypothesis.Id} verified and added to verified list.");
+                        verifiedHypotheses.Add(selectedHypothesisInLoop);
+                        EmitAgentStatusReport(session, "verifier", $"✅ Hypothesis {selectedHypothesisInLoop.Id} verified and added to verified list.");
                         
                         // If this is the first verified hypothesis, update loop results for saving
                         if (verifiedHypotheses.Count == 1)
@@ -149,29 +201,44 @@ internal sealed partial class VibeOrchestrator
                             loopProverResults.Clear();
                             loopScoutResults.AddRange(scoutResults);
                             loopProverResults.AddRange(proverResults);
+                            
+                            // Save selection result for first verified hypothesis
+                            selectionResult = selectionResultInLoop;
+                            selectedHypothesis = selectedHypothesisInLoop;
                         }
                     }
                     else
                     {
-                        EmitAgentStatusReport(session, "verifier", $"❌ Hypothesis {hypothesis.Id} verification failed.");
+                        EmitAgentStatusReport(session, "verifier", $"❌ Hypothesis {selectedHypothesisInLoop.Id} verification failed.");
+                        
+                        // If no hypotheses verified yet, save selection result for fallback
+                        if (verifiedHypotheses.Count == 0 && selectionResult == null)
+                        {
+                            selectionResult = selectionResultInLoop;
+                            selectedHypothesis = selectedHypothesisInLoop;
+                        }
                     }
                 }
                 
-                EmitAgentStatusReport(session, "verifier", $"📊 Verification loop complete: {verifiedHypotheses.Count}/{extractionResult.Hypotheses.Count} hypotheses verified.");
+                EmitAgentStatusReport(session, "verifier", $"📊 Verification loop complete: {verifiedHypotheses.Count}/{extractionResult.Hypotheses.Count} hypotheses verified after {iterationCount} iterations.");
                 
-                // Use the first verified hypothesis (or first hypothesis if none verified) for legacy compatibility
+                // Use the first verified hypothesis (or first selected hypothesis if none verified) for legacy compatibility
                 if (verifiedHypotheses.Count > 0)
                 {
-                    selectedHypothesis = verifiedHypotheses[0];
-                    selectionResult = new HypothesisSelectionResult(
-                        SelectedHypothesis: selectedHypothesis,
-                        SelectionReason: $"Selected from {verifiedHypotheses.Count} verified hypotheses",
-                        RawOutput: $"Selected first verified hypothesis: {selectedHypothesis.Id}",
-                        SystemPrompt: "Hypothesis selected from verified list",
-                        UserPrompt: $"Selected hypothesis {selectedHypothesis.Id} from {verifiedHypotheses.Count} verified hypotheses"
-                    );
+                    // Already set above when first hypothesis was verified
+                    if (selectedHypothesis == null)
+                    {
+                        selectedHypothesis = verifiedHypotheses[0];
+                        selectionResult = new HypothesisSelectionResult(
+                            SelectedHypothesis: selectedHypothesis,
+                            SelectionReason: $"Selected from {verifiedHypotheses.Count} verified hypotheses",
+                            RawOutput: $"Selected first verified hypothesis: {selectedHypothesis.Id}",
+                            SystemPrompt: "Hypothesis selected from verified list",
+                            UserPrompt: $"Selected hypothesis {selectedHypothesis.Id} from {verifiedHypotheses.Count} verified hypotheses"
+                        );
+                    }
                 }
-                else if (extractionResult.Hypotheses.Count > 0)
+                else if (selectedHypothesis == null && extractionResult.Hypotheses.Count > 0)
                 {
                     // Fallback: use first hypothesis even if not verified
                     selectedHypothesis = extractionResult.Hypotheses[0];

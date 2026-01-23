@@ -290,13 +290,33 @@ internal sealed partial class VibeOrchestrator
                 }
                 
                 // Step 3: Decompose the selected hypothesis (for legacy compatibility and final summary)
-                if (selectedHypothesis != null)
+                // NOTE: Only decompose if not already decomposed in the loop (i.e., if loopVerificationResults is empty or decompositionResult is null)
+                // This avoids duplicate decomposition when only 1 hypothesis exists
+                if (selectedHypothesis != null && decompositionResult == null)
                 {
-                    EmitAgentStatusReport(session, "verifier", "🔧 Decomposing selected hypothesis for final summary...");
-                    decompositionResult = await DecomposeHypothesisAsync(ctx, dag, selectedHypothesis, providerName, ct);
-                    if (decompositionResult != null)
+                    // Check if decomposition was already done in the loop
+                    var alreadyDecomposed = loopVerificationResults.Any(r => 
+                        r.Hypothesis.Id == selectedHypothesis.Id && 
+                        r.DecompositionResult != null);
+                    
+                    if (!alreadyDecomposed)
                     {
-                        EmitAgentStatusReport(session, "verifier", $"✅ Found {decompositionResult.Dependencies.Count} dependencies.");
+                        EmitAgentStatusReport(session, "verifier", "🔧 Decomposing selected hypothesis for final summary...");
+                        decompositionResult = await DecomposeHypothesisAsync(ctx, dag, selectedHypothesis, providerName, ct);
+                        if (decompositionResult != null)
+                        {
+                            EmitAgentStatusReport(session, "verifier", $"✅ Found {decompositionResult.Dependencies.Count} dependencies.");
+                        }
+                    }
+                    else
+                    {
+                        // Use decomposition result from loop
+                        var loopResult = loopVerificationResults.FirstOrDefault(r => r.Hypothesis.Id == selectedHypothesis.Id);
+                        if (loopResult?.DecompositionResult != null)
+                        {
+                            decompositionResult = loopResult.DecompositionResult;
+                            EmitAgentStatusReport(session, "verifier", $"✅ Using decomposition result from loop ({decompositionResult.Dependencies.Count} dependencies).");
+                        }
                     }
                 }
             }
@@ -323,15 +343,21 @@ internal sealed partial class VibeOrchestrator
         }
 
         // ============================================================
-        //  Final Summary Phase (only if no hypotheses were verified in loop)
+        //  Final Summary Phase (only if no hypotheses were verified in loop AND loop didn't already run verification)
         //  If verified hypotheses exist, skip final verification and use summary
+        //  If loop already ran verification (even if failed), skip final verification to avoid duplicate execution
         // ============================================================
         VerificationPhaseResult? scoutPhase = null;
         VerificationPhaseResult? proverPhase = null;
         
-        if (verifiedHypotheses.Count == 0 && selectedHypothesis != null)
+        // Check if verification was already performed in the loop
+        var verificationAlreadyPerformedInLoop = loopVerificationResults.Any(r => 
+            r.ScoutPhase != null || r.ProverPhase != null);
+        
+        if (verifiedHypotheses.Count == 0 && selectedHypothesis != null && !verificationAlreadyPerformedInLoop)
         {
-            // No hypotheses were verified in the loop, perform final verification for summary
+            // No hypotheses were verified in the loop AND loop didn't run verification,
+            // perform final verification for summary
             // Build verification context (use selected hypothesis if available, otherwise use full reasoner output)
             var verificationContext = BuildVerificationContext(reasonerOutput, selectedHypothesis, decompositionResult);
 
@@ -400,12 +426,20 @@ internal sealed partial class VibeOrchestrator
             // Emit prover phase summary
             EmitVerificationPhaseSummary(session, proverPhase);
         }
-        else if (verifiedHypotheses.Count > 0)
+        else if (verifiedHypotheses.Count > 0 || verificationAlreadyPerformedInLoop)
         {
-            // Hypotheses were verified in the loop, use loop results for summary
-            EmitAgentStatusReport(session, "verifier", $"✅ Skipping final verification phase - {verifiedHypotheses.Count} hypotheses already verified in loop.");
+            // Hypotheses were verified in the loop OR verification was already performed (even if failed),
+            // use loop results for summary to avoid duplicate execution
+            if (verifiedHypotheses.Count > 0)
+            {
+                EmitAgentStatusReport(session, "verifier", $"✅ Skipping final verification phase - {verifiedHypotheses.Count} hypotheses already verified in loop.");
+            }
+            else
+            {
+                EmitAgentStatusReport(session, "verifier", $"✅ Skipping final verification phase - verification already performed in loop (even though no hypotheses passed).");
+            }
             
-            // Create phase results from loop verification (use results from first verified hypothesis)
+            // Create phase results from loop verification (use results from first verified hypothesis, or first hypothesis if none verified)
             if (loopScoutResults.Count > 0)
             {
                 scoutPhase = new VerificationPhaseResult(

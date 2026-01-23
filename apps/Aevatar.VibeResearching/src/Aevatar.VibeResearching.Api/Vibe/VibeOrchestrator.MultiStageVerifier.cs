@@ -928,6 +928,32 @@ internal sealed partial class VibeOrchestrator
         sb.AppendLine("Your task: Evaluate the reasoning above and output JSON with your verdict.");
         sb.AppendLine($"Remember: You are {worker.Role}. Focus on: {worker.Angle}");
         sb.AppendLine();
+        
+        // Add detailed evaluation rules for scout-1 (Missing-premise hunter)
+        if (worker.Id == "scout-1")
+        {
+            sb.AppendLine("SIMPLE RULE: accept=true if the hypothesis is CONSISTENT with given axioms/facts and represents a reasonable mathematical claim");
+            sb.AppendLine();
+            sb.AppendLine("What constitutes a valid derivation (accept=true):");
+            sb.AppendLine("1. Direct application of axioms/theorems");
+            sb.AppendLine("2. Logical inferences (modus ponens, transitivity, etc.)");
+            sb.AppendLine("3. Mathematical operations based on definitions");
+            sb.AppendLine("4. Reasonable implicit steps that follow obviously, physically plausible or logically correct");
+            sb.AppendLine("5. Properties that can be DERIVED from known definitions, even if not explicitly stated in axioms");
+            sb.AppendLine("6. Reasonable mathematical claims that are CONSISTENT with the axioms/facts, even if they require additional");
+            sb.AppendLine("   mathematical knowledge (e.g., theta series, mass formulas, combinatorial theorems) to prove rigorously.");
+            sb.AppendLine("   The key is CONSISTENCY, not complete derivability from the given axioms alone.");
+            sb.AppendLine("7. Combinatorial counting formulas that are mathematically plausible given the structure defined in axioms,");
+            sb.AppendLine("   even if proving it requires theta series knowledge");
+            sb.AppendLine();
+            sb.AppendLine("What constitutes gap δ (accept=false):");
+            sb.AppendLine("1. Explicit contradiction with axioms/facts");
+            sb.AppendLine("2. Counterexample exists that can be constructed from the given axioms/facts");
+            sb.AppendLine("3. Crucial logical step is physically implausible or contradictory");
+            sb.AppendLine("4. Missing assumption that is INCORRECT or contradicts known facts");
+            sb.AppendLine();
+        }
+        
         sb.AppendLine("CRITICAL: You MUST output ONLY valid JSON following this exact schema:");
         sb.AppendLine("{");
         sb.AppendLine($"  \"worker_id\": \"{worker.Id}\",");

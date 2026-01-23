@@ -1886,28 +1886,48 @@ internal sealed partial class VibeOrchestrator
                                     
                                     if (stmtProp.ValueKind == JsonValueKind.String)
                                     {
+                                        // First try GetString() (works for most cases)
                                         statement = stmtProp.GetString() ?? "";
-                                        Console.WriteLine($"[Verification]   Statement value length: {statement.Length}");
-                                        if (statement.Length > 0)
+                                        
+                                        // If GetString() returns empty or null, try GetRawText() as fallback
+                                        // This handles LaTeX strings with special characters that GetString() might fail on
+                                        if (string.IsNullOrWhiteSpace(statement))
                                         {
-                                            Console.WriteLine($"[Verification]   Statement preview: {Bound(statement, 100)}");
-                                        }
-                                        else
-                                        {
-                                            Console.WriteLine($"[Verification]   WARNING: Statement is empty string");
-                                            // Try to get raw text as fallback
+                                            Console.WriteLine($"[Verification]   WARNING: GetString() returned empty, trying GetRawText()...");
                                             var rawStatement = stmtProp.GetRawText();
                                             Console.WriteLine($"[Verification]   Raw statement text: {Bound(rawStatement, 200)}");
                                             if (!string.IsNullOrWhiteSpace(rawStatement) && rawStatement.Length > 2)
                                             {
-                                                // Remove quotes if present
-                                                var unquoted = rawStatement.Trim('"');
-                                                if (unquoted != rawStatement)
+                                                // Remove surrounding quotes if present
+                                                var unquoted = rawStatement.Trim().Trim('"').Trim('\'');
+                                                if (!string.IsNullOrWhiteSpace(unquoted))
                                                 {
                                                     statement = unquoted;
                                                     Console.WriteLine($"[Verification]   Extracted statement from raw text: {Bound(statement, 100)}");
                                                 }
                                             }
+                                        }
+                                        
+                                        // If still empty, try GetRawText() even if GetString() returned non-empty
+                                        // This handles cases where GetString() might return corrupted data
+                                        if (string.IsNullOrWhiteSpace(statement) || statement.Length < 3)
+                                        {
+                                            var rawStatement = stmtProp.GetRawText();
+                                            if (!string.IsNullOrWhiteSpace(rawStatement) && rawStatement.Length > statement.Length)
+                                            {
+                                                var unquoted = rawStatement.Trim().Trim('"').Trim('\'');
+                                                if (!string.IsNullOrWhiteSpace(unquoted) && unquoted.Length > statement.Length)
+                                                {
+                                                    statement = unquoted;
+                                                    Console.WriteLine($"[Verification]   Using raw text (longer): {Bound(statement, 100)}");
+                                                }
+                                            }
+                                        }
+                                        
+                                        Console.WriteLine($"[Verification]   Final statement value length: {statement.Length}");
+                                        if (statement.Length > 0)
+                                        {
+                                            Console.WriteLine($"[Verification]   Statement preview: {Bound(statement, 100)}");
                                         }
                                     }
                                     else
@@ -2023,23 +2043,66 @@ internal sealed partial class VibeOrchestrator
                             foreach (var h in hypothesesArray.Value.EnumerateArray())
                             {
                                 string id;
-                                string statement;
+                                string statement = ""; // Initialize to avoid CS0165 error
                                 string? context = null;
                                 double? confidence = null;
 
                                 if (h.ValueKind == JsonValueKind.Object)
                                 {
                                     id = h.TryGetProperty("id", out var idProp) ? idProp.GetString() ?? $"H{hypotheses.Count + 1}" : $"H{hypotheses.Count + 1}";
-                                    statement = h.TryGetProperty("statement", out var stmtProp) ? stmtProp.GetString() ?? "" : "";
+                                    
+                                    // Try to get statement with robust LaTeX handling
+                                    if (h.TryGetProperty("statement", out var stmtProp) && stmtProp.ValueKind == JsonValueKind.String)
+                                    {
+                                        statement = stmtProp.GetString() ?? "";
+                                        if (string.IsNullOrWhiteSpace(statement))
+                                        {
+                                            var rawStatement = stmtProp.GetRawText();
+                                            if (!string.IsNullOrWhiteSpace(rawStatement) && rawStatement.Length > 2)
+                                            {
+                                                statement = rawStatement.Trim().Trim('"').Trim('\'');
+                                            }
+                                        }
+                                    }
                                     
                                     if (string.IsNullOrWhiteSpace(statement))
                                     {
-                                        if (h.TryGetProperty("text", out var textProp))
+                                        if (h.TryGetProperty("text", out var textProp) && textProp.ValueKind == JsonValueKind.String)
+                                        {
                                             statement = textProp.GetString() ?? "";
-                                        else if (h.TryGetProperty("content", out var contentProp))
+                                            if (string.IsNullOrWhiteSpace(statement))
+                                            {
+                                                var rawText = textProp.GetRawText();
+                                                if (!string.IsNullOrWhiteSpace(rawText) && rawText.Length > 2)
+                                                {
+                                                    statement = rawText.Trim().Trim('"').Trim('\'');
+                                                }
+                                            }
+                                        }
+                                        else if (h.TryGetProperty("content", out var contentProp) && contentProp.ValueKind == JsonValueKind.String)
+                                        {
                                             statement = contentProp.GetString() ?? "";
-                                        else if (h.TryGetProperty("claim", out var claimProp))
+                                            if (string.IsNullOrWhiteSpace(statement))
+                                            {
+                                                var rawContent = contentProp.GetRawText();
+                                                if (!string.IsNullOrWhiteSpace(rawContent) && rawContent.Length > 2)
+                                                {
+                                                    statement = rawContent.Trim().Trim('"').Trim('\'');
+                                                }
+                                            }
+                                        }
+                                        else if (h.TryGetProperty("claim", out var claimProp) && claimProp.ValueKind == JsonValueKind.String)
+                                        {
                                             statement = claimProp.GetString() ?? "";
+                                            if (string.IsNullOrWhiteSpace(statement))
+                                            {
+                                                var rawClaim = claimProp.GetRawText();
+                                                if (!string.IsNullOrWhiteSpace(rawClaim) && rawClaim.Length > 2)
+                                                {
+                                                    statement = rawClaim.Trim().Trim('"').Trim('\'');
+                                                }
+                                            }
+                                        }
                                     }
                                     
                                     context = h.TryGetProperty("context", out var ctxProp) ? ctxProp.GetString() : null;

@@ -1399,10 +1399,18 @@ internal sealed partial class VibeOrchestrator
                 // Use LLMResponseParser to extract JSON robustly (handles markdown code blocks, nested brackets, etc.)
                 var jsonStr = LLMResponseParser.ExtractJson(rawOutput);
                 
+                Console.WriteLine($"[Verification] Extracted JSON string length: {jsonStr?.Length ?? 0}");
+                if (!string.IsNullOrWhiteSpace(jsonStr) && jsonStr.Length > 100)
+                {
+                    Console.WriteLine($"[Verification] Extracted JSON preview (first 500 chars): {Bound(jsonStr, 500)}");
+                }
+                
                 if (!string.IsNullOrWhiteSpace(jsonStr) && jsonStr != "{}")
                 {
                     using var doc = JsonDocument.Parse(jsonStr);
                     var root = doc.RootElement;
+                    
+                    Console.WriteLine($"[Verification] JSON root element type: {root.ValueKind}");
 
                     // First, try the required format: "hypotheses" field
                     if (root.TryGetProperty("hypotheses", out var hypothesesProp) && hypothesesProp.ValueKind == JsonValueKind.Array)
@@ -1414,6 +1422,10 @@ internal sealed partial class VibeOrchestrator
                         
                         foreach (var h in hypothesesProp.EnumerateArray())
                         {
+                            // Log raw JSON element for debugging
+                            var rawElement = h.GetRawText();
+                            Console.WriteLine($"[Verification] Processing JSON element: {Bound(rawElement, 200)}");
+                            
                             // Handle both object and string formats
                             string id;
                             string statement;
@@ -1424,17 +1436,70 @@ internal sealed partial class VibeOrchestrator
                             {
                                 // Standard object format
                                 id = h.TryGetProperty("id", out var idProp) ? idProp.GetString() ?? $"H{hypotheses.Count + 1}" : $"H{hypotheses.Count + 1}";
-                                statement = h.TryGetProperty("statement", out var stmtProp) ? stmtProp.GetString() ?? "" : "";
+                                
+                                // Try to get statement property
+                                if (h.TryGetProperty("statement", out var stmtProp))
+                                {
+                                    // Check the value kind first
+                                    Console.WriteLine($"[Verification]   Found 'statement' property, ValueKind: {stmtProp.ValueKind}");
+                                    
+                                    if (stmtProp.ValueKind == JsonValueKind.String)
+                                    {
+                                        statement = stmtProp.GetString() ?? "";
+                                        Console.WriteLine($"[Verification]   Statement value length: {statement.Length}");
+                                        if (statement.Length > 0)
+                                        {
+                                            Console.WriteLine($"[Verification]   Statement preview: {Bound(statement, 100)}");
+                                        }
+                                        else
+                                        {
+                                            Console.WriteLine($"[Verification]   WARNING: Statement is empty string");
+                                            // Try to get raw text as fallback
+                                            var rawStatement = stmtProp.GetRawText();
+                                            Console.WriteLine($"[Verification]   Raw statement text: {Bound(rawStatement, 200)}");
+                                            if (!string.IsNullOrWhiteSpace(rawStatement) && rawStatement.Length > 2)
+                                            {
+                                                // Remove quotes if present
+                                                var unquoted = rawStatement.Trim('"');
+                                                if (unquoted != rawStatement)
+                                                {
+                                                    statement = unquoted;
+                                                    Console.WriteLine($"[Verification]   Extracted statement from raw text: {Bound(statement, 100)}");
+                                                }
+                                            }
+                                        }
+                                    }
+                                    else
+                                    {
+                                        Console.WriteLine($"[Verification]   WARNING: 'statement' property is not a string, ValueKind: {stmtProp.ValueKind}");
+                                        statement = "";
+                                    }
+                                }
+                                else
+                                {
+                                    statement = "";
+                                    Console.WriteLine($"[Verification]   WARNING: 'statement' property not found in JSON element");
+                                }
                                 
                                 // Try alternative field names for statement (fallback)
                                 if (string.IsNullOrWhiteSpace(statement))
                                 {
+                                    Console.WriteLine($"[Verification]   Statement is empty, trying alternative field names...");
                                     if (h.TryGetProperty("text", out var textProp))
+                                    {
                                         statement = textProp.GetString() ?? "";
+                                        Console.WriteLine($"[Verification]   Found 'text' property, value length: {statement.Length}");
+                                    }
                                     else if (h.TryGetProperty("content", out var contentProp))
+                                    {
                                         statement = contentProp.GetString() ?? "";
+                                        Console.WriteLine($"[Verification]   Found 'content' property, value length: {statement.Length}");
+                                    }
                                     else if (h.TryGetProperty("claim", out var claimProp))
+                                    {
                                         statement = claimProp.GetString() ?? "";
+                                        Console.WriteLine($"[Verification]   Found 'claim' property, value length: {statement.Length}");
+                                    }
                                 }
                                 
                                 context = h.TryGetProperty("context", out var ctxProp) ? ctxProp.GetString() : null;
@@ -1446,9 +1511,11 @@ internal sealed partial class VibeOrchestrator
                                 // Simple string format - use as statement
                                 statement = h.GetString() ?? "";
                                 id = $"H{hypotheses.Count + 1}";
+                                Console.WriteLine($"[Verification]   Element is string, value length: {statement.Length}");
                             }
                             else
                             {
+                                Console.WriteLine($"[Verification]   WARNING: Element is not Object or String, ValueKind: {h.ValueKind}");
                                 continue; // Skip invalid entries
                             }
 
@@ -1456,15 +1523,15 @@ internal sealed partial class VibeOrchestrator
                             {
                                 hypotheses.Add(new ExtractedHypothesis(id, statement, context, confidence));
                                 extractedCount++;
-                                Console.WriteLine($"[Verification] Added hypothesis {id}: {Bound(statement, 100)}");
+                                Console.WriteLine($"[Verification] ✅ Added hypothesis {id}: {Bound(statement, 100)}");
                             }
                             else
                             {
-                                Console.WriteLine($"[Verification] WARNING: Skipped hypothesis entry - statement is empty or whitespace");
+                                Console.WriteLine($"[Verification] ❌ WARNING: Skipped hypothesis entry - statement is empty or whitespace");
                                 Console.WriteLine($"[Verification]   ID: '{id}'");
                                 Console.WriteLine($"[Verification]   Statement (raw): '{statement}'");
                                 Console.WriteLine($"[Verification]   Statement length: {statement?.Length ?? 0}");
-                                Console.WriteLine($"[Verification]   Raw JSON element: {h.GetRawText()}");
+                                Console.WriteLine($"[Verification]   Raw JSON element: {rawElement}");
                             }
                         }
                         

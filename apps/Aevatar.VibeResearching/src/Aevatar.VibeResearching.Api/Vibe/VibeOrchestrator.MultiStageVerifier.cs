@@ -1319,6 +1319,23 @@ internal sealed partial class VibeOrchestrator
 
             // Parse the JSON response
             var rawOutput = sb.ToString();
+            
+            // Log raw output for debugging
+            Console.WriteLine($"[Verification] Worker {worker.Id} raw output length: {rawOutput.Length}");
+            Console.WriteLine($"[Verification] Worker {worker.Id} raw output preview: {Bound(rawOutput, 500)}");
+            
+            // Check if verification context was provided
+            if (string.IsNullOrWhiteSpace(verificationContext))
+            {
+                Console.WriteLine($"[Verification] WARNING: Worker {worker.Id} received EMPTY verification context!");
+                Console.WriteLine($"[Verification] This may cause LLM to return invalid output.");
+            }
+            else
+            {
+                Console.WriteLine($"[Verification] Worker {worker.Id} verification context length: {verificationContext.Length}");
+                Console.WriteLine($"[Verification] Worker {worker.Id} verification context preview: {Bound(verificationContext, 500)}");
+            }
+            
             var (accept, reason) = ParseVerificationWorkerResponse(rawOutput, worker.Id);
             
             // ALWAYS try to extract JSON first (even if output looks like pure JSON)
@@ -1338,25 +1355,56 @@ internal sealed partial class VibeOrchestrator
                             !hasMarkdownMarkers && 
                             !trimmedOutput.Contains("```");
             
+            // Validate that "pure JSON" is actually valid JSON
             if (isPureJson)
             {
-                // Output is already pure JSON, use it as-is
-                outputToSave = trimmedOutput;
+                try
+                {
+                    // Try to parse to verify it's valid JSON
+                    using var testDoc = JsonDocument.Parse(trimmedOutput);
+                    // If parsing succeeds, it's valid JSON
+                    outputToSave = trimmedOutput;
+                    Console.WriteLine($"[Verification] Worker {worker.Id} output is valid pure JSON.");
+                }
+                catch (JsonException ex)
+                {
+                    // Not valid JSON despite looking like it
+                    Console.WriteLine($"[Verification] WARNING: Worker {worker.Id} output looks like JSON but is invalid: {ex.Message}");
+                    Console.WriteLine($"[Verification] Invalid JSON content: {Bound(trimmedOutput, 200)}");
+                    isPureJson = false; // Treat as invalid
+                }
             }
-            else if (!string.IsNullOrWhiteSpace(extractedJson) && extractedJson != "{}")
+            
+            if (!isPureJson)
             {
-                // Successfully extracted JSON from markdown or code block
-                Console.WriteLine($"[Verification] INFO: Worker {worker.Id} returned non-JSON format, but JSON was successfully extracted.");
-                Console.WriteLine($"[Verification] Original output preview: {Bound(rawOutput, 200)}");
-                outputToSave = extractedJson; // Save extracted JSON instead of raw markdown
-            }
-            else
-            {
-                // Failed to extract JSON - this is an error
-                Console.WriteLine($"[Verification] ERROR: Worker {worker.Id} returned non-JSON format and JSON extraction failed.");
-                Console.WriteLine($"[Verification] Raw output preview: {Bound(rawOutput, 500)}");
-                // Keep original output but add warning prefix
-                outputToSave = $"[ERROR: Output is not valid JSON. Expected JSON format but received:\n\n{rawOutput}";
+                if (!string.IsNullOrWhiteSpace(extractedJson) && extractedJson != "{}")
+                {
+                    // Validate extracted JSON
+                    try
+                    {
+                        using var testDoc = JsonDocument.Parse(extractedJson);
+                        // Successfully extracted valid JSON from markdown or code block
+                        Console.WriteLine($"[Verification] INFO: Worker {worker.Id} returned non-JSON format, but valid JSON was successfully extracted.");
+                        Console.WriteLine($"[Verification] Original output preview: {Bound(rawOutput, 200)}");
+                        outputToSave = extractedJson; // Save extracted JSON instead of raw markdown
+                    }
+                    catch (JsonException ex)
+                    {
+                        // Extracted JSON is invalid
+                        Console.WriteLine($"[Verification] ERROR: Worker {worker.Id} extracted JSON is invalid: {ex.Message}");
+                        Console.WriteLine($"[Verification] Invalid extracted JSON: {Bound(extractedJson, 200)}");
+                        Console.WriteLine($"[Verification] Original output preview: {Bound(rawOutput, 500)}");
+                        outputToSave = $"[ERROR: Output is not valid JSON. Expected JSON format but received:\n\n{rawOutput}";
+                    }
+                }
+                else
+                {
+                    // Failed to extract JSON - this is an error
+                    Console.WriteLine($"[Verification] ERROR: Worker {worker.Id} returned non-JSON format and JSON extraction failed.");
+                    Console.WriteLine($"[Verification] Raw output preview: {Bound(rawOutput, 500)}");
+                    // Keep original output but add warning prefix
+                    outputToSave = $"[ERROR: Output is not valid JSON. Expected JSON format but received:\n\n{rawOutput}";
+                }
             }
 
             return new VerificationWorkerResult(
@@ -2867,6 +2915,29 @@ internal sealed partial class VibeOrchestrator
             
             // Build verification context for this hypothesis
             var verificationContext = BuildVerificationContext(reasonerOutput, hypothesis, decompositionResult);
+            
+            // Validate verification context is not empty
+            if (string.IsNullOrWhiteSpace(verificationContext))
+            {
+                Console.WriteLine($"[Verification] ERROR: Verification context is EMPTY for hypothesis {hypothesis.Id}!");
+                Console.WriteLine($"[Verification] Hypothesis: {hypothesis.Statement}");
+                Console.WriteLine($"[Verification] DecompositionResult: {(decompositionResult != null ? "not null" : "null")}");
+                if (decompositionResult != null)
+                {
+                    Console.WriteLine($"[Verification] Dependencies count: {decompositionResult.Dependencies.Count}");
+                }
+                // Build a minimal context from hypothesis alone
+                var sb = new StringBuilder();
+                sb.AppendLine("=== SELECTED HYPOTHESIS TO VERIFY ===");
+                sb.AppendLine($"ID: {hypothesis.Id}");
+                sb.AppendLine($"Statement: {hypothesis.Statement}");
+                if (!string.IsNullOrWhiteSpace(hypothesis.Context))
+                {
+                    sb.AppendLine($"Context: {hypothesis.Context}");
+                }
+                verificationContext = sb.ToString();
+                Console.WriteLine($"[Verification] Created fallback verification context: {Bound(verificationContext, 200)}");
+            }
             
             // Phase 1: Scout (2 workers, both must accept)
             var scoutResults = await RunVerificationPhaseAsync(

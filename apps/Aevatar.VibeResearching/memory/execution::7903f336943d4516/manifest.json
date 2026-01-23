@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "memoryId": "execution::7903f336943d4516",
+  "scopeType": "Execution",
+  "scopeId": "7903f336943d4516",
+  "entryCount": 14,
+  "latestAtUtc": "2026-01-23T09:38:09.64885+00:00",
+  "files": {
+    "entriesBinary": "entries.pb",
+    "manifest": "manifest.json"
+  }
+}

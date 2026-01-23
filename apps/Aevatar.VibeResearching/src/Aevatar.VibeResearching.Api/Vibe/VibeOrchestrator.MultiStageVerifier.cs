@@ -59,6 +59,10 @@ internal sealed partial class VibeOrchestrator
         HypothesisExtractionResult? extractionResult = null;
         HypothesisSelectionResult? selectionResult = null;
         var verifiedHypotheses = new List<ExtractedHypothesis>();
+        
+        // Collect verification results from the loop (for saving to file)
+        var loopScoutResults = new List<VerificationWorkerResult>();
+        var loopProverResults = new List<VerificationWorkerResult>();
 
         try
         {
@@ -122,13 +126,30 @@ internal sealed partial class VibeOrchestrator
                     EmitAgentStatusReport(session, "verifier", $"🔄 [{i + 1}/{extractionResult.Hypotheses.Count}] Verifying hypothesis {hypothesis.Id}: {Bound(hypothesis.Statement, 100)}");
                     
                     // Verify this hypothesis (Step 3 → Phase 1 → Phase 2)
-                    var verificationPassed = await VerifySingleHypothesisAsync(
+                    var (verificationPassed, scoutResults, proverResults) = await VerifySingleHypothesisAsync(
                         ctx, dag, hypothesis, reasonerOutput, providerName, ct);
+                    
+                    // Collect results from loop verification (for saving to file)
+                    // Save results from the first verified hypothesis (or first hypothesis if none verified)
+                    if (verifiedHypotheses.Count == 0)
+                    {
+                        loopScoutResults.AddRange(scoutResults);
+                        loopProverResults.AddRange(proverResults);
+                    }
                     
                     if (verificationPassed)
                     {
                         verifiedHypotheses.Add(hypothesis);
                         EmitAgentStatusReport(session, "verifier", $"✅ Hypothesis {hypothesis.Id} verified and added to verified list.");
+                        
+                        // If this is the first verified hypothesis, update loop results for saving
+                        if (verifiedHypotheses.Count == 1)
+                        {
+                            loopScoutResults.Clear();
+                            loopProverResults.Clear();
+                            loopScoutResults.AddRange(scoutResults);
+                            loopProverResults.AddRange(proverResults);
+                        }
                     }
                     else
                     {
@@ -275,8 +296,31 @@ internal sealed partial class VibeOrchestrator
         }
         else if (verifiedHypotheses.Count > 0)
         {
-            // Hypotheses were verified in the loop, skip final verification
+            // Hypotheses were verified in the loop, use loop results for summary
             EmitAgentStatusReport(session, "verifier", $"✅ Skipping final verification phase - {verifiedHypotheses.Count} hypotheses already verified in loop.");
+            
+            // Create phase results from loop verification (use results from first verified hypothesis)
+            if (loopScoutResults.Count > 0)
+            {
+                scoutPhase = new VerificationPhaseResult(
+                    PhaseName: "scout",
+                    Results: loopScoutResults,
+                    AcceptCount: loopScoutResults.Count(r => r.Accept),
+                    RejectCount: loopScoutResults.Count(r => !r.Accept),
+                    PhasePass: loopScoutResults.All(r => r.Accept)
+                );
+            }
+            
+            if (loopProverResults.Count > 0)
+            {
+                proverPhase = new VerificationPhaseResult(
+                    PhaseName: "prover",
+                    Results: loopProverResults,
+                    AcceptCount: loopProverResults.Count(r => r.Accept),
+                    RejectCount: loopProverResults.Count(r => !r.Accept),
+                    PhasePass: loopProverResults.Count(r => r.Accept) >= ProverWorkers.MinAcceptCount
+                );
+            }
         }
 
         session.Events.Publish(new StepFinishedEvent { Timestamp = NowMs(), StepName = "vibe.verifier.multi_stage" });
@@ -954,7 +998,18 @@ internal sealed partial class VibeOrchestrator
             sb.AppendLine();
         }
         
-        sb.AppendLine("CRITICAL: You MUST output ONLY valid JSON following this exact schema:");
+        sb.AppendLine("CRITICAL OUTPUT REQUIREMENTS:");
+        sb.AppendLine("- Return ONLY valid JSON (no markdown, no code blocks, no commentary, no ```json tags, no ``` markers).");
+        sb.AppendLine("- Output the JSON object EXACTLY ONCE. Do NOT repeat any fields, values, or fragments.");
+        sb.AppendLine("- Do NOT append anything after the closing brace } of the JSON object.");
+        sb.AppendLine("- Do NOT include duplicate closing braces like }}.");
+        sb.AppendLine("- Do NOT include any text, numbers, or characters after the JSON object ends.");
+        sb.AppendLine("- Do NOT output multiple JSON objects. Extract and output ONLY the first complete JSON object.");
+        sb.AppendLine("- After outputting the closing brace }, STOP immediately. Do NOT continue with any text.");
+        sb.AppendLine("- Validate your JSON structure before outputting. Count opening and closing braces to ensure balance.");
+        sb.AppendLine("- If your output contains any non-JSON text (including Markdown), it will be REJECTED.");
+        sb.AppendLine();
+        sb.AppendLine("MANDATORY Output JSON schema (you MUST follow this exact structure):");
         sb.AppendLine("{");
         sb.AppendLine($"  \"worker_id\": \"{worker.Id}\",");
         sb.AppendLine("  \"accept\": bool,");
@@ -965,7 +1020,10 @@ internal sealed partial class VibeOrchestrator
         sb.AppendLine("- Output ONLY the JSON object (no markdown, no code blocks, no commentary).");
         sb.AppendLine($"- Use the exact field names: \"worker_id\" (must be \"{worker.Id}\"), \"accept\", \"reason\".");
         sb.AppendLine("- The \"accept\" field MUST be a boolean (true or false).");
+        sb.AppendLine("- The \"reason\" field MUST be a string.");
         sb.AppendLine("- Do NOT output any text before or after the JSON object.");
+        sb.AppendLine("- Do NOT wrap the JSON in markdown code blocks (no ```json or ```).");
+        sb.AppendLine("- Do NOT add explanations or commentary outside the JSON object.");
 
         return sb.ToString();
     }
@@ -978,14 +1036,11 @@ internal sealed partial class VibeOrchestrator
     {
         try
         {
-            // Try to extract JSON from the response
-            var jsonStart = rawOutput.IndexOf('{');
-            var jsonEnd = rawOutput.LastIndexOf('}');
-
-            if (jsonStart >= 0 && jsonEnd > jsonStart)
+            // Use robust JSON extraction (handles markdown code blocks, nested brackets, etc.)
+            var jsonStr = LLMResponseParser.ExtractJson(rawOutput);
+            
+            if (!string.IsNullOrWhiteSpace(jsonStr) && jsonStr != "{}")
             {
-                var jsonStr = rawOutput.Substring(jsonStart, jsonEnd - jsonStart + 1);
-
                 using var doc = JsonDocument.Parse(jsonStr);
                 var root = doc.RootElement;
 
@@ -1005,19 +1060,23 @@ internal sealed partial class VibeOrchestrator
                 return (accept, reason);
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            // Fall through to default parsing
+            Console.WriteLine($"[Verification] Failed to parse worker {workerId} response: {ex.Message}");
+            Console.WriteLine($"[Verification] Raw output preview: {Bound(rawOutput, 500)}");
         }
 
-        // Fallback: look for keywords
+        // Fallback: look for keywords (but log a warning)
+        Console.WriteLine($"[Verification] WARNING: Worker {workerId} did not return valid JSON. Using fallback parsing.");
+        Console.WriteLine($"[Verification] Raw output preview: {Bound(rawOutput, 500)}");
+        
         var lowerOutput = rawOutput.ToLowerInvariant();
         var fallbackAccept = lowerOutput.Contains("\"accept\": true") ||
                              lowerOutput.Contains("\"accept\":true") ||
                              lowerOutput.Contains("accept=true") ||
                              (lowerOutput.Contains("verified") && !lowerOutput.Contains("not verified"));
 
-        return (fallbackAccept, $"Parsed from raw output (worker: {workerId})");
+        return (fallbackAccept, $"Parsed from raw output (worker: {workerId}) - WARNING: Output was not valid JSON");
     }
 
     // ============================================================
@@ -1283,6 +1342,8 @@ internal sealed partial class VibeOrchestrator
                     {
                         jsonParseSuccess = true;
                         var extractedCount = 0;
+                        var arrayLength = hypothesesProp.GetArrayLength();
+                        Console.WriteLine($"[Verification] Found 'hypotheses' array with {arrayLength} elements");
                         
                         foreach (var h in hypothesesProp.EnumerateArray())
                         {
@@ -1328,10 +1389,19 @@ internal sealed partial class VibeOrchestrator
                             {
                                 hypotheses.Add(new ExtractedHypothesis(id, statement, context, confidence));
                                 extractedCount++;
+                                Console.WriteLine($"[Verification] Added hypothesis {id}: {Bound(statement, 100)}");
+                            }
+                            else
+                            {
+                                Console.WriteLine($"[Verification] WARNING: Skipped hypothesis entry - statement is empty or whitespace");
+                                Console.WriteLine($"[Verification]   ID: '{id}'");
+                                Console.WriteLine($"[Verification]   Statement (raw): '{statement}'");
+                                Console.WriteLine($"[Verification]   Statement length: {statement?.Length ?? 0}");
+                                Console.WriteLine($"[Verification]   Raw JSON element: {h.GetRawText()}");
                             }
                         }
                         
-                        Console.WriteLine($"[Verification] Successfully parsed JSON: extracted {extractedCount} hypotheses from 'hypotheses' array");
+                        Console.WriteLine($"[Verification] Successfully parsed JSON: extracted {extractedCount} hypotheses from 'hypotheses' array (total processed: {arrayLength})");
                     }
                     // Fallback: Try alternative field names (but log a warning)
                     else
@@ -1582,11 +1652,22 @@ internal sealed partial class VibeOrchestrator
                 }
             }
 
+            // Log final extraction result for debugging
+            if (hypotheses.Count == 0 && !string.IsNullOrWhiteSpace(rawOutput))
+            {
+                Console.WriteLine($"[Verification] WARNING: No hypotheses extracted despite non-empty raw output!");
+                Console.WriteLine($"[Verification] Raw output length: {rawOutput.Length} characters");
+                Console.WriteLine($"[Verification] Raw output preview: {Bound(rawOutput, 1000)}");
+                Console.WriteLine($"[Verification] JSON parse success: {jsonParseSuccess}");
+                Console.WriteLine($"[Verification] JSON parse error: {jsonParseError}");
+            }
+            
             return new HypothesisExtractionResult(hypotheses, rawOutput, systemPrompt, userMessage);
         }
         catch (Exception ex)
         {
             Console.WriteLine($"[Verification] Hypothesis extraction failed: {ex.Message}");
+            Console.WriteLine($"[Verification] Exception stack trace: {ex.StackTrace}");
             return null;
         }
     }
@@ -1607,7 +1688,7 @@ internal sealed partial class VibeOrchestrator
         {
             // Even with a single hypothesis, save prompts for consistency
             var systemPrompt = """
-                You are a hypothesis selector. Your task is to choose the hypothesis that is easiest to verify 
+                You are a hypothesis selector. Your task is to choose the hypothesis that is easiest that is NOT already proven to verify 
                 (i.e., most likely to be proven correct with available evidence).
 
                 NOTE: Only one hypothesis was found, so selection step was skipped.
@@ -2091,9 +2172,12 @@ internal sealed partial class VibeOrchestrator
 
     /// <summary>
     /// Verify a single hypothesis: Step 3 → Phase 1 → Phase 2
-    /// Returns true if Phase 2 passes (at least 3 prover workers accept).
+    /// Returns (verificationPassed, scoutResults, proverResults) where:
+    /// - verificationPassed: true if Phase 2 passes (at least 3 prover workers accept)
+    /// - scoutResults: Phase 1 results (for saving to file)
+    /// - proverResults: Phase 2 results (for saving to file)
     /// </summary>
-    private async Task<bool> VerifySingleHypothesisAsync(
+    private async Task<(bool VerificationPassed, IReadOnlyList<VerificationWorkerResult> ScoutResults, IReadOnlyList<VerificationWorkerResult> ProverResults)> VerifySingleHypothesisAsync(
         VibeRoundContext ctx,
         SraDagSnapshot dag,
         ExtractedHypothesis hypothesis,
@@ -2120,12 +2204,6 @@ internal sealed partial class VibeOrchestrator
             
             var scoutPhasePass = scoutResults.All(r => r.Accept);
             
-            if (!scoutPhasePass)
-            {
-                // Scout phase failed, hypothesis verification fails
-                return false;
-            }
-            
             // Phase 2: Prover (5 workers, at least 3 must accept)
             var proverResults = await RunVerificationPhaseAsync(
                 ctx, dag, verificationContext, providerName,
@@ -2135,13 +2213,14 @@ internal sealed partial class VibeOrchestrator
             
             var proverPhasePass = proverResults.Count(r => r.Accept) >= ProverWorkers.MinAcceptCount;
             
-            return proverPhasePass;
+            // Return both verification result and phase results for saving
+            return (proverPhasePass && scoutPhasePass, scoutResults, proverResults);
         }
         catch (Exception ex)
         {
-            // If verification fails due to error, return false
+            // If verification fails due to error, return false with empty results
             Console.WriteLine($"[Verification] Error verifying hypothesis {hypothesis.Id}: {ex.Message}");
-            return false;
+            return (false, new List<VerificationWorkerResult>(), new List<VerificationWorkerResult>());
         }
     }
 

@@ -63,6 +63,7 @@ internal sealed partial class VibeOrchestrator
         // Collect verification results from the loop (for saving to file)
         var loopScoutResults = new List<VerificationWorkerResult>();
         var loopProverResults = new List<VerificationWorkerResult>();
+        var loopVerificationResults = new List<HypothesisVerificationResult>(); // Store Step 2, Step 3, Phase 1, Phase 2 for each hypothesis
 
         try
         {
@@ -178,8 +179,45 @@ internal sealed partial class VibeOrchestrator
                     
                     // Verify this hypothesis (Step 3 → Phase 1 → Phase 2)
                     EmitAgentStatusReport(session, "verifier", $"🔍 Verifying hypothesis {selectedHypothesisInLoop.Id}: {Bound(selectedHypothesisInLoop.Statement, 100)}");
-                    var (verificationPassed, scoutResults, proverResults) = await VerifySingleHypothesisAsync(
+                    var (verificationPassed, decompositionResultInLoop, scoutResults, proverResults) = await VerifySingleHypothesisAsync(
                         ctx, dag, selectedHypothesisInLoop, reasonerOutput, providerName, ct);
+                    
+                    // Create Phase results for this hypothesis
+                    VerificationPhaseResult? scoutPhaseForHypothesis = null;
+                    VerificationPhaseResult? proverPhaseForHypothesis = null;
+                    
+                    if (scoutResults.Count > 0)
+                    {
+                        scoutPhaseForHypothesis = new VerificationPhaseResult(
+                            PhaseName: "scout",
+                            Results: scoutResults,
+                            AcceptCount: scoutResults.Count(r => r.Accept),
+                            RejectCount: scoutResults.Count(r => !r.Accept),
+                            PhasePass: scoutResults.All(r => r.Accept)
+                        );
+                    }
+                    
+                    if (proverResults.Count > 0)
+                    {
+                        proverPhaseForHypothesis = new VerificationPhaseResult(
+                            PhaseName: "prover",
+                            Results: proverResults,
+                            AcceptCount: proverResults.Count(r => r.Accept),
+                            RejectCount: proverResults.Count(r => !r.Accept),
+                            PhasePass: proverResults.Count(r => r.Accept) >= ProverWorkers.MinAcceptCount
+                        );
+                    }
+                    
+                    // Save complete verification result for this hypothesis (Step 2, Step 3, Phase 1, Phase 2)
+                    var hypothesisVerificationResult = new HypothesisVerificationResult(
+                        Hypothesis: selectedHypothesisInLoop,
+                        SelectionResult: selectionResultInLoop,
+                        DecompositionResult: decompositionResultInLoop,
+                        ScoutPhase: scoutPhaseForHypothesis,
+                        ProverPhase: proverPhaseForHypothesis,
+                        VerificationPassed: verificationPassed
+                    );
+                    loopVerificationResults.Add(hypothesisVerificationResult);
                     
                     // Collect results from loop verification (for saving to file)
                     // Save results from the first verified hypothesis (or first hypothesis if none verified)
@@ -330,7 +368,8 @@ internal sealed partial class VibeOrchestrator
                     ProverPhase: null,
                     OverallPass: false,
                     Summary: BuildVerificationSummary(preProcessingResult, scoutPhase, null, overallPass: false, verifiedHypotheses),
-                    VerifiedHypotheses: verifiedHypotheses
+                    VerifiedHypotheses: verifiedHypotheses,
+                    LoopVerificationResults: loopVerificationResults
                 );
 
                 // Save results to file
@@ -401,7 +440,8 @@ internal sealed partial class VibeOrchestrator
             ProverPhase: proverPhase,
             OverallPass: overallPass,
             Summary: BuildVerificationSummary(preProcessingResult, scoutPhase, proverPhase, overallPass, verifiedHypotheses),
-            VerifiedHypotheses: verifiedHypotheses
+            VerifiedHypotheses: verifiedHypotheses,
+            LoopVerificationResults: loopVerificationResults
         );
 
         // Save results to file
@@ -620,6 +660,215 @@ internal sealed partial class VibeOrchestrator
                 }
                 sb.AppendLine("---");
                 sb.AppendLine();
+            }
+
+            // Loop Verification Results (Step 2, Step 3, Phase 1, Phase 2 for each hypothesis)
+            if (result.LoopVerificationResults.Count > 0)
+            {
+                sb.AppendLine("## Loop Verification Results");
+                sb.AppendLine();
+                sb.AppendLine($"- **Total Hypotheses Processed**: {result.LoopVerificationResults.Count}");
+                sb.AppendLine();
+                
+                for (int i = 0; i < result.LoopVerificationResults.Count; i++)
+                {
+                    var loopResult = result.LoopVerificationResults[i];
+                    var icon = loopResult.VerificationPassed ? "✅" : "❌";
+                    sb.AppendLine($"### {icon} Hypothesis {loopResult.Hypothesis.Id} (Iteration {i + 1})");
+                    sb.AppendLine();
+                    sb.AppendLine($"- **Statement**: {loopResult.Hypothesis.Statement}");
+                    sb.AppendLine($"- **Verification Result**: {(loopResult.VerificationPassed ? "✅ PASSED" : "❌ FAILED")}");
+                    sb.AppendLine();
+                    
+                    // Step 2: Selection
+                    if (loopResult.SelectionResult != null)
+                    {
+                        sb.AppendLine("#### Step 2: Hypothesis Selection");
+                        sb.AppendLine();
+                        sb.AppendLine($"- **Selected ID**: {loopResult.SelectionResult.SelectedHypothesis.Id}");
+                        sb.AppendLine($"- **Reason**: {loopResult.SelectionResult.SelectionReason}");
+                        sb.AppendLine();
+                        sb.AppendLine("<details>");
+                        sb.AppendLine("<summary>System Prompt</summary>");
+                        sb.AppendLine();
+                        sb.AppendLine("```");
+                        sb.AppendLine(loopResult.SelectionResult.SystemPrompt ?? "(not captured)");
+                        sb.AppendLine("```");
+                        sb.AppendLine();
+                        sb.AppendLine("</details>");
+                        sb.AppendLine();
+                        sb.AppendLine("<details>");
+                        sb.AppendLine("<summary>User Prompt</summary>");
+                        sb.AppendLine();
+                        sb.AppendLine("```");
+                        sb.AppendLine(loopResult.SelectionResult.UserPrompt ?? "(not captured)");
+                        sb.AppendLine("```");
+                        sb.AppendLine();
+                        sb.AppendLine("</details>");
+                        sb.AppendLine();
+                        sb.AppendLine("<details>");
+                        sb.AppendLine("<summary>Raw Selection Output</summary>");
+                        sb.AppendLine();
+                        sb.AppendLine("```");
+                        sb.AppendLine(loopResult.SelectionResult.RawOutput);
+                        sb.AppendLine("```");
+                        sb.AppendLine();
+                        sb.AppendLine("</details>");
+                        sb.AppendLine();
+                    }
+                    
+                    // Step 3: Decomposition
+                    if (loopResult.DecompositionResult != null)
+                    {
+                        sb.AppendLine("#### Step 3: Hypothesis Decomposition");
+                        sb.AppendLine();
+                        sb.AppendLine($"- **Dependencies Found**: {loopResult.DecompositionResult.Dependencies.Count}");
+                        sb.AppendLine($"- **Derivation Path Length**: {loopResult.DecompositionResult.DerivationPath.Count}");
+                        sb.AppendLine($"- **Reason**: {loopResult.DecompositionResult.DecompositionReason}");
+                        sb.AppendLine();
+                        if (loopResult.DecompositionResult.Dependencies.Count > 0)
+                        {
+                            sb.AppendLine("**Dependencies (in derivation order):**");
+                            foreach (var dep in loopResult.DecompositionResult.Dependencies.OrderBy(d => d.DerivationOrder))
+                            {
+                                sb.AppendLine($"{dep.DerivationOrder}. **[{dep.Id}]** {dep.Statement}");
+                            }
+                            sb.AppendLine();
+                        }
+                        sb.AppendLine("<details>");
+                        sb.AppendLine("<summary>System Prompt</summary>");
+                        sb.AppendLine();
+                        sb.AppendLine("```");
+                        sb.AppendLine(loopResult.DecompositionResult.SystemPrompt ?? "(not captured)");
+                        sb.AppendLine("```");
+                        sb.AppendLine();
+                        sb.AppendLine("</details>");
+                        sb.AppendLine();
+                        sb.AppendLine("<details>");
+                        sb.AppendLine("<summary>User Prompt</summary>");
+                        sb.AppendLine();
+                        sb.AppendLine("```");
+                        sb.AppendLine(loopResult.DecompositionResult.UserPrompt ?? "(not captured)");
+                        sb.AppendLine("```");
+                        sb.AppendLine();
+                        sb.AppendLine("</details>");
+                        sb.AppendLine();
+                        sb.AppendLine("<details>");
+                        sb.AppendLine("<summary>Raw Decomposition Output</summary>");
+                        sb.AppendLine();
+                        sb.AppendLine("```");
+                        sb.AppendLine(loopResult.DecompositionResult.RawOutput);
+                        sb.AppendLine("```");
+                        sb.AppendLine();
+                        sb.AppendLine("</details>");
+                        sb.AppendLine();
+                    }
+                    
+                    // Phase 1: Scout
+                    if (loopResult.ScoutPhase != null)
+                    {
+                        sb.AppendLine("#### Phase 1: Scout (Quick Refutation Detection)");
+                        sb.AppendLine();
+                        sb.AppendLine($"- **Workers**: {loopResult.ScoutPhase.Results.Count}");
+                        sb.AppendLine($"- **Accept**: {loopResult.ScoutPhase.AcceptCount}");
+                        sb.AppendLine($"- **Reject**: {loopResult.ScoutPhase.RejectCount}");
+                        sb.AppendLine($"- **Requirement**: All workers must accept");
+                        sb.AppendLine($"- **Result**: {(loopResult.ScoutPhase.PhasePass ? "✅ PASS" : "❌ FAIL")}");
+                        sb.AppendLine();
+                        
+                        foreach (var r in loopResult.ScoutPhase.Results)
+                        {
+                            var workerIcon = r.Accept ? "✅" : "❌";
+                            sb.AppendLine($"##### {workerIcon} {r.WorkerId}");
+                            sb.AppendLine();
+                            sb.AppendLine($"**Accept**: {r.Accept}");
+                            sb.AppendLine();
+                            sb.AppendLine($"**Reason**: {r.Reason}");
+                            sb.AppendLine();
+                            sb.AppendLine("<details>");
+                            sb.AppendLine("<summary>System Prompt</summary>");
+                            sb.AppendLine();
+                            sb.AppendLine("```");
+                            sb.AppendLine(r.SystemPrompt ?? "(not captured)");
+                            sb.AppendLine("```");
+                            sb.AppendLine();
+                            sb.AppendLine("</details>");
+                            sb.AppendLine();
+                            sb.AppendLine("<details>");
+                            sb.AppendLine("<summary>User Prompt</summary>");
+                            sb.AppendLine();
+                            sb.AppendLine("```");
+                            sb.AppendLine(r.UserPrompt ?? "(not captured)");
+                            sb.AppendLine("```");
+                            sb.AppendLine();
+                            sb.AppendLine("</details>");
+                            sb.AppendLine();
+                            sb.AppendLine("<details>");
+                            sb.AppendLine("<summary>Raw Output</summary>");
+                            sb.AppendLine();
+                            sb.AppendLine("```");
+                            sb.AppendLine(r.RawOutput);
+                            sb.AppendLine("```");
+                            sb.AppendLine();
+                            sb.AppendLine("</details>");
+                            sb.AppendLine();
+                        }
+                    }
+                    
+                    // Phase 2: Prover
+                    if (loopResult.ProverPhase != null)
+                    {
+                        sb.AppendLine("#### Phase 2: Prover (Proof Verification)");
+                        sb.AppendLine();
+                        sb.AppendLine($"- **Workers**: {loopResult.ProverPhase.Results.Count}");
+                        sb.AppendLine($"- **Accept**: {loopResult.ProverPhase.AcceptCount}");
+                        sb.AppendLine($"- **Reject**: {loopResult.ProverPhase.RejectCount}");
+                        sb.AppendLine($"- **Requirement**: At least {ProverWorkers.MinAcceptCount} workers must accept");
+                        sb.AppendLine($"- **Result**: {(loopResult.ProverPhase.PhasePass ? "✅ PASS" : "❌ FAIL")}");
+                        sb.AppendLine();
+                        
+                        foreach (var r in loopResult.ProverPhase.Results)
+                        {
+                            var workerIcon = r.Accept ? "✅" : "❌";
+                            sb.AppendLine($"##### {workerIcon} {r.WorkerId}");
+                            sb.AppendLine();
+                            sb.AppendLine($"**Accept**: {r.Accept}");
+                            sb.AppendLine();
+                            sb.AppendLine($"**Reason**: {r.Reason}");
+                            sb.AppendLine();
+                            sb.AppendLine("<details>");
+                            sb.AppendLine("<summary>System Prompt</summary>");
+                            sb.AppendLine();
+                            sb.AppendLine("```");
+                            sb.AppendLine(r.SystemPrompt ?? "(not captured)");
+                            sb.AppendLine("```");
+                            sb.AppendLine();
+                            sb.AppendLine("</details>");
+                            sb.AppendLine();
+                            sb.AppendLine("<details>");
+                            sb.AppendLine("<summary>User Prompt</summary>");
+                            sb.AppendLine();
+                            sb.AppendLine("```");
+                            sb.AppendLine(r.UserPrompt ?? "(not captured)");
+                            sb.AppendLine("```");
+                            sb.AppendLine();
+                            sb.AppendLine("</details>");
+                            sb.AppendLine();
+                            sb.AppendLine("<details>");
+                            sb.AppendLine("<summary>Raw Output</summary>");
+                            sb.AppendLine();
+                            sb.AppendLine("```");
+                            sb.AppendLine(r.RawOutput);
+                            sb.AppendLine("```");
+                            sb.AppendLine();
+                            sb.AppendLine("</details>");
+                            sb.AppendLine();
+                        }
+                    }
+                    
+                    sb.AppendLine("---");
+                    sb.AppendLine();
+                }
             }
 
             // Phase 1: Scout
@@ -846,6 +1095,82 @@ internal sealed partial class VibeOrchestrator
                     statement = h.Statement,
                     context = h.Context,
                     confidence = h.Confidence
+                }).ToList(),
+                loopVerificationResults = result.LoopVerificationResults.Select(lr => new
+                {
+                    hypothesis = new
+                    {
+                        id = lr.Hypothesis.Id,
+                        statement = lr.Hypothesis.Statement,
+                        context = lr.Hypothesis.Context,
+                        confidence = lr.Hypothesis.Confidence
+                    },
+                    selectionResult = lr.SelectionResult != null ? new
+                    {
+                        selectedHypothesis = new
+                        {
+                            id = lr.SelectionResult.SelectedHypothesis.Id,
+                            statement = lr.SelectionResult.SelectedHypothesis.Statement,
+                            context = lr.SelectionResult.SelectedHypothesis.Context,
+                            confidence = lr.SelectionResult.SelectedHypothesis.Confidence
+                        },
+                        selectionReason = lr.SelectionResult.SelectionReason,
+                        rawOutput = lr.SelectionResult.RawOutput,
+                        systemPrompt = lr.SelectionResult.SystemPrompt,
+                        userPrompt = lr.SelectionResult.UserPrompt
+                    } : null,
+                    decompositionResult = lr.DecompositionResult != null ? new
+                    {
+                        hypothesis = new
+                        {
+                            id = lr.DecompositionResult.Hypothesis.Id,
+                            statement = lr.DecompositionResult.Hypothesis.Statement,
+                            context = lr.DecompositionResult.Hypothesis.Context,
+                            confidence = lr.DecompositionResult.Hypothesis.Confidence
+                        },
+                        dependencies = lr.DecompositionResult.Dependencies.Select(d => new
+                        {
+                            id = d.Id,
+                            statement = d.Statement,
+                            derivationOrder = d.DerivationOrder
+                        }).ToList(),
+                        derivationPath = lr.DecompositionResult.DerivationPath,
+                        decompositionReason = lr.DecompositionResult.DecompositionReason,
+                        rawOutput = lr.DecompositionResult.RawOutput,
+                        systemPrompt = lr.DecompositionResult.SystemPrompt,
+                        userPrompt = lr.DecompositionResult.UserPrompt
+                    } : null,
+                    scoutPhase = lr.ScoutPhase != null ? new
+                    {
+                        acceptCount = lr.ScoutPhase.AcceptCount,
+                        rejectCount = lr.ScoutPhase.RejectCount,
+                        phasePass = lr.ScoutPhase.PhasePass,
+                        results = lr.ScoutPhase.Results.Select(r => new
+                        {
+                            workerId = r.WorkerId,
+                            accept = r.Accept,
+                            reason = r.Reason,
+                            systemPrompt = r.SystemPrompt,
+                            userPrompt = r.UserPrompt,
+                            rawOutput = r.RawOutput
+                        }).ToList()
+                    } : null,
+                    proverPhase = lr.ProverPhase != null ? new
+                    {
+                        acceptCount = lr.ProverPhase.AcceptCount,
+                        rejectCount = lr.ProverPhase.RejectCount,
+                        phasePass = lr.ProverPhase.PhasePass,
+                        results = lr.ProverPhase.Results.Select(r => new
+                        {
+                            workerId = r.WorkerId,
+                            accept = r.Accept,
+                            reason = r.Reason,
+                            systemPrompt = r.SystemPrompt,
+                            userPrompt = r.UserPrompt,
+                            rawOutput = r.RawOutput
+                        }).ToList()
+                    } : null,
+                    verificationPassed = lr.VerificationPassed
                 }).ToList()
             }, new JsonSerializerOptions 
             { 
@@ -2306,12 +2631,13 @@ internal sealed partial class VibeOrchestrator
 
     /// <summary>
     /// Verify a single hypothesis: Step 3 → Phase 1 → Phase 2
-    /// Returns (verificationPassed, scoutResults, proverResults) where:
+    /// Returns (verificationPassed, decompositionResult, scoutResults, proverResults) where:
     /// - verificationPassed: true if Phase 2 passes (at least 3 prover workers accept)
+    /// - decompositionResult: Step 3 result (for saving to file)
     /// - scoutResults: Phase 1 results (for saving to file)
     /// - proverResults: Phase 2 results (for saving to file)
     /// </summary>
-    private async Task<(bool VerificationPassed, IReadOnlyList<VerificationWorkerResult> ScoutResults, IReadOnlyList<VerificationWorkerResult> ProverResults)> VerifySingleHypothesisAsync(
+    private async Task<(bool VerificationPassed, HypothesisDecompositionResult? DecompositionResult, IReadOnlyList<VerificationWorkerResult> ScoutResults, IReadOnlyList<VerificationWorkerResult> ProverResults)> VerifySingleHypothesisAsync(
         VibeRoundContext ctx,
         SraDagSnapshot dag,
         ExtractedHypothesis hypothesis,
@@ -2347,14 +2673,14 @@ internal sealed partial class VibeOrchestrator
             
             var proverPhasePass = proverResults.Count(r => r.Accept) >= ProverWorkers.MinAcceptCount;
             
-            // Return both verification result and phase results for saving
-            return (proverPhasePass && scoutPhasePass, scoutResults, proverResults);
+            // Return verification result, decomposition result, and phase results for saving
+            return (proverPhasePass && scoutPhasePass, decompositionResult, scoutResults, proverResults);
         }
         catch (Exception ex)
         {
             // If verification fails due to error, return false with empty results
             Console.WriteLine($"[Verification] Error verifying hypothesis {hypothesis.Id}: {ex.Message}");
-            return (false, new List<VerificationWorkerResult>(), new List<VerificationWorkerResult>());
+            return (false, null, new List<VerificationWorkerResult>(), new List<VerificationWorkerResult>());
         }
     }
 

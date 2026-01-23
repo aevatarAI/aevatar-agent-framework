@@ -110,6 +110,18 @@ public sealed record VerificationPhaseResult(
 );
 
 /// <summary>
+/// Result from verifying a single hypothesis in the loop (includes Step 2, Step 3, Phase 1, Phase 2).
+/// </summary>
+public sealed record HypothesisVerificationResult(
+    ExtractedHypothesis Hypothesis,
+    HypothesisSelectionResult? SelectionResult,
+    HypothesisDecompositionResult? DecompositionResult,
+    VerificationPhaseResult? ScoutPhase,
+    VerificationPhaseResult? ProverPhase,
+    bool VerificationPassed
+);
+
+/// <summary>
 /// Final result from multi-stage verification.
 /// </summary>
 public sealed record MultiStageVerificationResult(
@@ -118,7 +130,8 @@ public sealed record MultiStageVerificationResult(
     VerificationPhaseResult? ProverPhase,
     bool OverallPass,
     string Summary,
-    IReadOnlyList<ExtractedHypothesis> VerifiedHypotheses
+    IReadOnlyList<ExtractedHypothesis> VerifiedHypotheses,
+    IReadOnlyList<HypothesisVerificationResult> LoopVerificationResults
 );
 
 /// <summary>

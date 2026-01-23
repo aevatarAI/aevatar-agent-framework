@@ -146,7 +146,7 @@ export function ReviewProgressGraph({
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rendererRef = useRef<ReviewGraphRenderer | null>(null)
-  const simulationRef = useRef<d3.Simulation<LayoutNode, ReviewLayoutEdge> | null>(null)
+  const simulationRef = useRef<d3.Simulation<LayoutNode, d3.SimulationLinkDatum<LayoutNode>> | null>(null)
   const animationRef = useRef<number>(0)
   const pulseRef = useRef<number>(0)
   const nodePositionsRef = useRef<Map<string, { x: number; y: number }>>(new Map())
@@ -293,8 +293,8 @@ export function ReviewProgressGraph({
     const newLayoutEdges = baseEdges.map(e => ({ ...e }))
 
     // Create new simulation with Main Graph-like config
-    const simulation = d3.forceSimulation<LayoutNode, ReviewLayoutEdge>(newLayoutNodes)
-      .force('link', d3.forceLink<LayoutNode, ReviewLayoutEdge>(newLayoutEdges)
+    const simulation = d3.forceSimulation<LayoutNode>(newLayoutNodes)
+      .force('link', d3.forceLink<LayoutNode, d3.SimulationLinkDatum<LayoutNode>>(newLayoutEdges as d3.SimulationLinkDatum<LayoutNode>[])
         .id(d => d.id)
         .distance(100)
         .strength(0.3))  // Weaker link force

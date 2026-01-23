@@ -320,7 +320,8 @@ export function ReviewProgressPopup({
   nodesReviewed,
   nodesPending,
   nodesDeactivated,
-  nodesRemoved,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  nodesRemoved: _nodesRemoved,
 }: ReviewProgressPopupProps) {
   const [graphData, setGraphData] = useState<ReviewGraphResponse | null>(null)
   const [loading, setLoading] = useState(false)

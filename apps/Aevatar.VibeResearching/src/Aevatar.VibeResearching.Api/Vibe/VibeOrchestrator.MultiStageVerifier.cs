@@ -532,23 +532,89 @@ internal sealed partial class VibeOrchestrator
 
                 if (result.PreProcessing.ExtractionResult != null)
                 {
-                    sb.AppendLine("### Step 1: Hypothesis Extraction");
+                    sb.AppendLine("### Step 1: Knowledge Extraction");
                     sb.AppendLine();
-                    sb.AppendLine($"- **Extracted**: {result.PreProcessing.ExtractionResult.Hypotheses.Count} hypotheses");
+                    sb.AppendLine($"- **Extracted**: {result.PreProcessing.ExtractionResult.AllKnowledgeItems.Count} total knowledge items");
+                    sb.AppendLine($"  - Axioms: {result.PreProcessing.ExtractionResult.Axioms.Count}");
+                    sb.AppendLine($"  - Theorems: {result.PreProcessing.ExtractionResult.Theorems.Count}");
+                    sb.AppendLine($"  - Definitions: {result.PreProcessing.ExtractionResult.Definitions.Count}");
+                    sb.AppendLine($"  - Hypotheses: {result.PreProcessing.ExtractionResult.Hypotheses.Count}");
                     sb.AppendLine();
-                    foreach (var h in result.PreProcessing.ExtractionResult.Hypotheses)
+                    
+                    // Display axioms
+                    if (result.PreProcessing.ExtractionResult.Axioms.Count > 0)
                     {
-                        sb.AppendLine($"#### Hypothesis {h.Id}");
-                        sb.AppendLine($"- **Statement**: {h.Statement}");
-                        if (!string.IsNullOrWhiteSpace(h.Context))
+                        sb.AppendLine("#### Axioms");
+                        foreach (var item in result.PreProcessing.ExtractionResult.Axioms)
                         {
-                            sb.AppendLine($"- **Context**: {h.Context}");
+                            sb.AppendLine($"- **{item.Id}**: {item.Statement}");
+                            if (!string.IsNullOrWhiteSpace(item.Context))
+                            {
+                                sb.AppendLine($"  Context: {item.Context}");
+                            }
+                            if (item.Confidence.HasValue)
+                            {
+                                sb.AppendLine($"  Confidence: {item.Confidence.Value:F2}");
+                            }
+                            sb.AppendLine();
                         }
-                        if (h.Confidence.HasValue)
+                    }
+                    
+                    // Display theorems
+                    if (result.PreProcessing.ExtractionResult.Theorems.Count > 0)
+                    {
+                        sb.AppendLine("#### Theorems");
+                        foreach (var item in result.PreProcessing.ExtractionResult.Theorems)
                         {
-                            sb.AppendLine($"- **Confidence**: {h.Confidence.Value:F2}");
+                            sb.AppendLine($"- **{item.Id}**: {item.Statement}");
+                            if (!string.IsNullOrWhiteSpace(item.Context))
+                            {
+                                sb.AppendLine($"  Context: {item.Context}");
+                            }
+                            if (item.Confidence.HasValue)
+                            {
+                                sb.AppendLine($"  Confidence: {item.Confidence.Value:F2}");
+                            }
+                            sb.AppendLine();
                         }
-                        sb.AppendLine();
+                    }
+                    
+                    // Display definitions
+                    if (result.PreProcessing.ExtractionResult.Definitions.Count > 0)
+                    {
+                        sb.AppendLine("#### Definitions");
+                        foreach (var item in result.PreProcessing.ExtractionResult.Definitions)
+                        {
+                            sb.AppendLine($"- **{item.Id}**: {item.Statement}");
+                            if (!string.IsNullOrWhiteSpace(item.Context))
+                            {
+                                sb.AppendLine($"  Context: {item.Context}");
+                            }
+                            if (item.Confidence.HasValue)
+                            {
+                                sb.AppendLine($"  Confidence: {item.Confidence.Value:F2}");
+                            }
+                            sb.AppendLine();
+                        }
+                    }
+                    
+                    // Display hypotheses
+                    if (result.PreProcessing.ExtractionResult.Hypotheses.Count > 0)
+                    {
+                        sb.AppendLine("#### Hypotheses");
+                        foreach (var h in result.PreProcessing.ExtractionResult.Hypotheses)
+                        {
+                            sb.AppendLine($"- **{h.Id}**: {h.Statement}");
+                            if (!string.IsNullOrWhiteSpace(h.Context))
+                            {
+                                sb.AppendLine($"  Context: {h.Context}");
+                            }
+                            if (h.Confidence.HasValue)
+                            {
+                                sb.AppendLine($"  Confidence: {h.Confidence.Value:F2}");
+                            }
+                            sb.AppendLine();
+                        }
                     }
                     sb.AppendLine("<details>");
                     sb.AppendLine("<summary>System Prompt</summary>");
@@ -1047,12 +1113,44 @@ internal sealed partial class VibeOrchestrator
                     errorMessage = result.PreProcessing.ErrorMessage,
                     extractionResult = result.PreProcessing.ExtractionResult != null ? new
                     {
+                        axioms = result.PreProcessing.ExtractionResult.Axioms.Select(a => new
+                        {
+                            id = a.Id,
+                            statement = a.Statement,
+                            type = a.Type,
+                            context = a.Context,
+                            confidence = a.Confidence
+                        }).ToList(),
+                        theorems = result.PreProcessing.ExtractionResult.Theorems.Select(t => new
+                        {
+                            id = t.Id,
+                            statement = t.Statement,
+                            type = t.Type,
+                            context = t.Context,
+                            confidence = t.Confidence
+                        }).ToList(),
+                        definitions = result.PreProcessing.ExtractionResult.Definitions.Select(d => new
+                        {
+                            id = d.Id,
+                            statement = d.Statement,
+                            type = d.Type,
+                            context = d.Context,
+                            confidence = d.Confidence
+                        }).ToList(),
                         hypotheses = result.PreProcessing.ExtractionResult.Hypotheses.Select(h => new
                         {
                             id = h.Id,
                             statement = h.Statement,
                             context = h.Context,
                             confidence = h.Confidence
+                        }).ToList(),
+                        allKnowledgeItems = result.PreProcessing.ExtractionResult.AllKnowledgeItems.Select(k => new
+                        {
+                            id = k.Id,
+                            statement = k.Statement,
+                            type = k.Type,
+                            context = k.Context,
+                            confidence = k.Confidence
                         }).ToList(),
                         rawOutput = result.PreProcessing.ExtractionResult.RawOutput,
                         systemPrompt = result.PreProcessing.ExtractionResult.SystemPrompt,
@@ -1832,8 +1930,11 @@ internal sealed partial class VibeOrchestrator
             var (ver, verId) = await _core.Runtime.GetVerifierAgentAsync(ctx.Session.Id, providerName, ct);
 
             var systemPrompt = """
-                You are a hypothesis extractor. Your task is to identify all hypotheses, claims, or assertions 
-                that need verification from the reasoner output.
+                You are a knowledge extractor. Your task is to identify and categorize all knowledge items from the reasoner output:
+                - Axioms: Fundamental assumptions or postulates that are accepted without proof
+                - Theorems: Proven statements derived from axioms or other theorems
+                - Definitions: Precise explanations of mathematical terms or concepts
+                - Hypotheses: Unproven claims or assertions that need verification
 
                 CRITICAL OUTPUT REQUIREMENTS:
                 - Return ONLY valid JSON (no markdown, no code blocks, no commentary, no ```json tags, no ``` markers).
@@ -1848,6 +1949,30 @@ internal sealed partial class VibeOrchestrator
 
                 MANDATORY Output JSON schema (you MUST follow this exact structure):
                 {
+                  "axioms": [
+                    {
+                      "id": "string (unique identifier, e.g., A1, A2, O1, O2)",
+                      "statement": "string (the axiom statement)",
+                      "context": "string (optional: surrounding context)",
+                      "confidence": number (optional: 0.0-1.0)
+                    }
+                  ],
+                  "theorems": [
+                    {
+                      "id": "string (unique identifier, e.g., T1, T2, Th1)",
+                      "statement": "string (the theorem statement)",
+                      "context": "string (optional: surrounding context)",
+                      "confidence": number (optional: 0.0-1.0)
+                    }
+                  ],
+                  "definitions": [
+                    {
+                      "id": "string (unique identifier, e.g., D1, D2, Def1)",
+                      "statement": "string (the definition statement)",
+                      "context": "string (optional: surrounding context)",
+                      "confidence": number (optional: 0.0-1.0)
+                    }
+                  ],
                   "hypotheses": [
                     {
                       "id": "string (unique identifier, e.g., H1, H2, H3)",
@@ -1859,22 +1984,28 @@ internal sealed partial class VibeOrchestrator
                 }
 
                 IMPORTANT:
-                - The root object MUST have a field named "hypotheses" (plural, lowercase).
-                - The "hypotheses" field MUST be an array.
+                - All four fields ("axioms", "theorems", "definitions", "hypotheses") MUST be present in the root object, even if empty arrays [].
+                - Each field MUST be an array (can be empty [] if no items found).
                 - Each array element MUST be an object with "id" and "statement" fields.
-                - Do NOT use alternative field names like "hypothesis", "items", "results", etc.
-                - Do NOT output a simple array without the "hypotheses" wrapper.
+                - Do NOT use alternative field names.
                 - Do NOT output Markdown lists or numbered lists.
+                - Assign unique IDs within each category (A1, A2 for axioms; T1, T2 for theorems; D1, D2 for definitions; H1, H2 for hypotheses).
+
+                Classification Rules:
+                - Axioms: Fundamental assumptions, postulates, or principles that are accepted without proof (e.g., "For all m,n in M, ρ_w(mn) = ρ_w(m)ρ_w(n)")
+                - Theorems: Proven statements that follow from axioms or other theorems (e.g., "For all m,n in M, Z(mn) = Z(m)Z(n)")
+                - Definitions: Precise explanations of terms or concepts (e.g., "Define M := (N_{>0}, ·) as the multiplicative monoid")
+                - Hypotheses: Unproven claims that need verification (e.g., "|O_p| = 240(1+p^3)")
 
                 Rules:
-                - Extract only verifiable claims (not definitions or facts).
-                - Each hypothesis should be a testable statement.
-                - Include context if it helps understand the hypothesis.
-                - Assign unique IDs to each hypothesis (H1, H2, H3, ...).
+                - Extract all knowledge items from the reasoner output.
+                - Categorize each item correctly based on its nature.
+                - Include context if it helps understand the item.
+                - Assign unique IDs within each category.
                 """;
 
             var userMessage = $$"""
-                Extract all hypotheses from the following reasoner output:
+                Extract all knowledge items (axioms, theorems, definitions, and hypotheses) from the following reasoner output:
 
                 === REASONER OUTPUT ===
                 {{Bound(reasonerOutput, 10000)}}
@@ -1882,11 +2013,35 @@ internal sealed partial class VibeOrchestrator
 
                 CRITICAL: You MUST output ONLY valid JSON following the exact schema specified in the system prompt:
                 {
+                  "axioms": [
+                    {
+                      "id": "string (unique identifier, e.g., A1, A2, O1)",
+                      "statement": "string (the axiom statement)",
+                      "context": "string (optional)",
+                      "confidence": number (optional: 0.0-1.0)
+                    }
+                  ],
+                  "theorems": [
+                    {
+                      "id": "string (unique identifier, e.g., T1, T2)",
+                      "statement": "string (the theorem statement)",
+                      "context": "string (optional)",
+                      "confidence": number (optional: 0.0-1.0)
+                    }
+                  ],
+                  "definitions": [
+                    {
+                      "id": "string (unique identifier, e.g., D1, D2)",
+                      "statement": "string (the definition statement)",
+                      "context": "string (optional)",
+                      "confidence": number (optional: 0.0-1.0)
+                    }
+                  ],
                   "hypotheses": [
                     {
                       "id": "string (unique identifier, e.g., H1, H2, H3)",
                       "statement": "string (the hypothesis statement)",
-                      "context": "string (optional: surrounding context)",
+                      "context": "string (optional)",
                       "confidence": number (optional: 0.0-1.0)
                     }
                   ]
@@ -1894,9 +2049,9 @@ internal sealed partial class VibeOrchestrator
 
                 Requirements:
                 - Output ONLY the JSON object (no markdown, no code blocks, no commentary).
-                - The root object MUST have a field named "hypotheses" (plural, lowercase).
-                - Each hypothesis MUST have "id" and "statement" fields.
-                - Assign unique IDs (H1, H2, H3, ...) to each hypothesis.
+                - ALL four fields ("axioms", "theorems", "definitions", "hypotheses") MUST be present, even if empty arrays [].
+                - Each item MUST have "id" and "statement" fields.
+                - Assign unique IDs within each category (A1, A2 for axioms; T1, T2 for theorems; D1, D2 for definitions; H1, H2 for hypotheses).
                 - Do NOT output any text before or after the JSON object.
                 """;
 
@@ -1914,8 +2069,79 @@ internal sealed partial class VibeOrchestrator
 
             // Parse JSON response using robust JSON extraction
             var hypotheses = new List<ExtractedHypothesis>();
+            var axioms = new List<ExtractedKnowledgeItem>();
+            var theorems = new List<ExtractedKnowledgeItem>();
+            var definitions = new List<ExtractedKnowledgeItem>();
+            var allKnowledgeItems = new List<ExtractedKnowledgeItem>();
             var jsonParseSuccess = false;
             var jsonParseError = "";
+            
+            // Helper function to extract knowledge items from JSON array
+            void ExtractKnowledgeItemsFromArray(JsonElement arrayElement, string type, List<ExtractedKnowledgeItem> targetList)
+            {
+                if (arrayElement.ValueKind != JsonValueKind.Array) return;
+                
+                foreach (var item in arrayElement.EnumerateArray())
+                {
+                    if (item.ValueKind != JsonValueKind.Object) continue;
+                    
+                    var id = item.TryGetProperty("id", out var idProp) ? idProp.GetString() ?? $"{type[0].ToString().ToUpper()}{targetList.Count + 1}" : $"{type[0].ToString().ToUpper()}{targetList.Count + 1}";
+                    var statement = "";
+                    
+                    // Try to get statement with robust LaTeX handling
+                    if (item.TryGetProperty("statement", out var stmtProp) && stmtProp.ValueKind == JsonValueKind.String)
+                    {
+                        statement = stmtProp.GetString() ?? "";
+                        if (string.IsNullOrWhiteSpace(statement))
+                        {
+                            var rawStatement = stmtProp.GetRawText();
+                            if (!string.IsNullOrWhiteSpace(rawStatement) && rawStatement.Length > 2)
+                            {
+                                statement = rawStatement.Trim().Trim('"').Trim('\'');
+                            }
+                        }
+                    }
+                    
+                    // Try alternative field names
+                    if (string.IsNullOrWhiteSpace(statement))
+                    {
+                        if (item.TryGetProperty("text", out var textProp) && textProp.ValueKind == JsonValueKind.String)
+                        {
+                            statement = textProp.GetString() ?? "";
+                            if (string.IsNullOrWhiteSpace(statement))
+                            {
+                                var rawText = textProp.GetRawText();
+                                if (!string.IsNullOrWhiteSpace(rawText) && rawText.Length > 2)
+                                {
+                                    statement = rawText.Trim().Trim('"').Trim('\'');
+                                }
+                            }
+                        }
+                        else if (item.TryGetProperty("content", out var contentProp) && contentProp.ValueKind == JsonValueKind.String)
+                        {
+                            statement = contentProp.GetString() ?? "";
+                        }
+                        else if (item.TryGetProperty("claim", out var claimProp) && claimProp.ValueKind == JsonValueKind.String)
+                        {
+                            statement = claimProp.GetString() ?? "";
+                        }
+                    }
+                    
+                    if (!string.IsNullOrWhiteSpace(statement))
+                    {
+                        var context = item.TryGetProperty("context", out var ctxProp) ? ctxProp.GetString() : null;
+                        double? confidence = null;
+                        if (item.TryGetProperty("confidence", out var confProp) && confProp.ValueKind == JsonValueKind.Number)
+                        {
+                            confidence = confProp.GetDouble();
+                        }
+                        
+                        var knowledgeItem = new ExtractedKnowledgeItem(id, statement, type, context, confidence);
+                        targetList.Add(knowledgeItem);
+                        allKnowledgeItems.Add(knowledgeItem);
+                    }
+                }
+            }
             
             try
             {
@@ -1935,7 +2161,31 @@ internal sealed partial class VibeOrchestrator
                     
                     Console.WriteLine($"[Verification] JSON root element type: {root.ValueKind}");
 
-                    // First, try the required format: "hypotheses" field
+                    // Extract axioms
+                    if (root.TryGetProperty("axioms", out var axiomsProp) && axiomsProp.ValueKind == JsonValueKind.Array)
+                    {
+                        jsonParseSuccess = true;
+                        ExtractKnowledgeItemsFromArray(axiomsProp, "axiom", axioms);
+                        Console.WriteLine($"[Verification] Extracted {axioms.Count} axioms");
+                    }
+                    
+                    // Extract theorems
+                    if (root.TryGetProperty("theorems", out var theoremsProp) && theoremsProp.ValueKind == JsonValueKind.Array)
+                    {
+                        jsonParseSuccess = true;
+                        ExtractKnowledgeItemsFromArray(theoremsProp, "theorem", theorems);
+                        Console.WriteLine($"[Verification] Extracted {theorems.Count} theorems");
+                    }
+                    
+                    // Extract definitions
+                    if (root.TryGetProperty("definitions", out var definitionsProp) && definitionsProp.ValueKind == JsonValueKind.Array)
+                    {
+                        jsonParseSuccess = true;
+                        ExtractKnowledgeItemsFromArray(definitionsProp, "definition", definitions);
+                        Console.WriteLine($"[Verification] Extracted {definitions.Count} definitions");
+                    }
+
+                    // Extract hypotheses (for backward compatibility and verification loop)
                     if (root.TryGetProperty("hypotheses", out var hypothesesProp) && hypothesesProp.ValueKind == JsonValueKind.Array)
                     {
                         jsonParseSuccess = true;
@@ -2226,7 +2476,11 @@ internal sealed partial class VibeOrchestrator
             // Log parsing result
             if (jsonParseSuccess)
             {
-                Console.WriteLine($"[Verification] JSON parsing successful: extracted {hypotheses.Count} hypotheses");
+                Console.WriteLine($"[Verification] JSON parsing successful:");
+                Console.WriteLine($"[Verification]   - Extracted {axioms.Count} axioms");
+                Console.WriteLine($"[Verification]   - Extracted {theorems.Count} theorems");
+                Console.WriteLine($"[Verification]   - Extracted {definitions.Count} definitions");
+                Console.WriteLine($"[Verification]   - Extracted {hypotheses.Count} hypotheses");
             }
             else if (!string.IsNullOrWhiteSpace(jsonParseError))
             {
@@ -2246,10 +2500,14 @@ internal sealed partial class VibeOrchestrator
                     Console.WriteLine($"[Verification] Raw output preview: {Bound(rawOutput, 500)}");
                     // Do NOT use text fallback - reject the output
                     return new HypothesisExtractionResult(
-                        new List<ExtractedHypothesis>(), 
-                        rawOutput, 
-                        systemPrompt, 
-                        userMessage + "\n\nERROR: Output was rejected because it contained Markdown instead of JSON.");
+                        Hypotheses: new List<ExtractedHypothesis>(),
+                        Axioms: new List<ExtractedKnowledgeItem>(),
+                        Theorems: new List<ExtractedKnowledgeItem>(),
+                        Definitions: new List<ExtractedKnowledgeItem>(),
+                        AllKnowledgeItems: new List<ExtractedKnowledgeItem>(),
+                        RawOutput: rawOutput,
+                        SystemPrompt: systemPrompt,
+                        UserPrompt: userMessage + "\n\nERROR: Output was rejected because it contained Markdown instead of JSON.");
                 }
             }
             
@@ -2382,7 +2640,24 @@ internal sealed partial class VibeOrchestrator
                 Console.WriteLine($"[Verification] JSON parse error: {jsonParseError}");
             }
             
-            return new HypothesisExtractionResult(hypotheses, rawOutput, systemPrompt, userMessage);
+            // Log final extraction summary
+            Console.WriteLine($"[Verification] Extraction summary:");
+            Console.WriteLine($"[Verification]   - Axioms: {axioms.Count}");
+            Console.WriteLine($"[Verification]   - Theorems: {theorems.Count}");
+            Console.WriteLine($"[Verification]   - Definitions: {definitions.Count}");
+            Console.WriteLine($"[Verification]   - Hypotheses: {hypotheses.Count}");
+            Console.WriteLine($"[Verification]   - Total knowledge items: {allKnowledgeItems.Count}");
+            
+            return new HypothesisExtractionResult(
+                Hypotheses: hypotheses,
+                Axioms: axioms,
+                Theorems: theorems,
+                Definitions: definitions,
+                AllKnowledgeItems: allKnowledgeItems,
+                RawOutput: rawOutput,
+                SystemPrompt: systemPrompt,
+                UserPrompt: userMessage
+            );
         }
         catch (Exception ex)
         {

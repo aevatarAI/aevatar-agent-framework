@@ -33,10 +33,26 @@ public sealed record ExtractedHypothesis(
 );
 
 /// <summary>
+/// A knowledge item extracted from reasoner output (axiom, theorem, definition, or hypothesis).
+/// </summary>
+public sealed record ExtractedKnowledgeItem(
+    string Id,
+    string Statement,
+    string Type, // "axiom", "theorem", "definition", or "hypothesis"
+    string? Context,
+    double? Confidence
+);
+
+/// <summary>
 /// Result of hypothesis extraction (Step 1).
+/// Now includes axioms, theorems, definitions, and hypotheses.
 /// </summary>
 public sealed record HypothesisExtractionResult(
     IReadOnlyList<ExtractedHypothesis> Hypotheses,
+    IReadOnlyList<ExtractedKnowledgeItem> Axioms,
+    IReadOnlyList<ExtractedKnowledgeItem> Theorems,
+    IReadOnlyList<ExtractedKnowledgeItem> Definitions,
+    IReadOnlyList<ExtractedKnowledgeItem> AllKnowledgeItems, // Combined list of all types
     string RawOutput,
     string? SystemPrompt,
     string? UserPrompt

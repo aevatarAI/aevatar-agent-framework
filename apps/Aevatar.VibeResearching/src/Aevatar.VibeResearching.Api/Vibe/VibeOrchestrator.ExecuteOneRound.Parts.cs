@@ -1,6 +1,11 @@
+using System.Text;
+using System.Text.Encodings.Web;
+using System.Text.Json;
+using System.Text.Unicode;
 using Aevatar.Agents.AGUI;
 using VibeResearching.Api.Materials;
 using VibeResearching.Api.Sessions;
+using VibeResearching.Api.Workspace;
 using VibeResearching.Contracts.Collab;
 using VibeResearching.Vibe.Pivot;
 
@@ -8,6 +13,17 @@ namespace VibeResearching.Api.Vibe;
 
 internal sealed partial class VibeOrchestrator
 {
+    /// <summary>
+    /// Record for storing agent prompt information (system prompt, user prompt, materials context, and output).
+    /// </summary>
+    public sealed record AgentPromptRecord(
+        string AgentName,
+        string SystemPrompt,
+        string UserPrompt,
+        string? MaterialsContext,
+        string RawOutput,
+        DateTimeOffset Timestamp
+    );
     // ============================================================
     //  ExecuteOneRoundAsync helpers (split to keep main file small)
     // ============================================================
@@ -52,14 +68,6 @@ internal sealed partial class VibeOrchestrator
                 currentDirection,
                 ctx.EmitAssistantDelta,
                 ct);
-
-            if (pivotIntent == null)
-            {
-                _host.Logger.LogDebug(
-                    "Pivot detection returned null for session {SessionId}",
-                    session.Id);
-                return;
-            }
 
             var pivotEmitter = _pivot.FeedbackEmitter;
             var pivotId = (pivotIntent.PivotId ?? string.Empty).Trim();
@@ -242,7 +250,7 @@ internal sealed partial class VibeOrchestrator
         }
     }
 
-    private async Task<(PlanResult Plan, SraDagSnapshot DagSnapshot)> RunPlanPhaseAsync(
+    private async Task<(PlanResult Plan, SraDagSnapshot DagSnapshot, AgentPromptRecord? PromptRecord)> RunPlanPhaseAsync(
         VibeRoundContext ctx,
         string dagId,
         SraDagSnapshot dagSnap,
@@ -257,7 +265,7 @@ internal sealed partial class VibeOrchestrator
             StepName = "vibe.ra_plan"
         });
 
-        var plan = await TryGetPlanAsync(
+        var (plan, promptRecord) = await TryGetPlanAsync(
             session.Id,
             ctx.Input,
             ctx.Question,
@@ -311,10 +319,10 @@ internal sealed partial class VibeOrchestrator
             StepName = "vibe.ra_plan"
         });
 
-        return (plan, dagSnap);
+        return (plan, dagSnap, promptRecord);
     }
 
-    private async Task<(Dictionary<string, string> Outputs, bool MeshUsed)> RunWorkerPhaseAsync(
+    private async Task<(Dictionary<string, string> Outputs, bool MeshUsed, Dictionary<string, AgentPromptRecord> PromptRecords)> RunWorkerPhaseAsync(
         VibeRoundContext ctx,
         string dagId,
         SraDagSnapshot dagSnap,
@@ -325,6 +333,7 @@ internal sealed partial class VibeOrchestrator
         CancellationToken ct)
     {
         var outputs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var promptRecords = new Dictionary<string, AgentPromptRecord>(StringComparer.OrdinalIgnoreCase);
 
         var localDagSnap = dagSnap;
         var meshUsed = await TryRunMeshWorkerPhaseAsync(
@@ -346,12 +355,13 @@ internal sealed partial class VibeOrchestrator
                 outputs,
                 librarianAxioms,
                 factsWritten,
+                promptRecords,
                 ct,
                 onDagRefreshed: s => localDagSnap = s,
                 getDagSnapshot: () => localDagSnap);
         }
 
-        return (outputs, meshUsed);
+        return (outputs, meshUsed, promptRecords);
     }
 
     private async Task<bool> TryRunMeshWorkerPhaseAsync(
@@ -504,19 +514,27 @@ internal sealed partial class VibeOrchestrator
         Dictionary<string, string> outputs,
         List<LibrarianAxiomCandidate> librarianAxioms,
         List<string> factsWritten,
+        Dictionary<string, AgentPromptRecord> promptRecords,
         CancellationToken ct,
         Action<SraDagSnapshot> onDagRefreshed,
         Func<SraDagSnapshot> getDagSnapshot)
     {
         // Worker roster (fallback-first).
+        // MODIFIED: Run planner, reasoner, and verifier, then stop (skip dag_builder)
         var workers = plan.Workers?.Where(w => !string.IsNullOrWhiteSpace(w.Agent)).ToList()
                       ?? new List<PlanWorker>
                       {
                           new() { Agent = "planner", Task = "Produce an executable plan and unknowns" },
                           new() { Agent = "reasoner", Task = "Provide grounded reasoning with explicit hypotheses" },
-                          new() { Agent = "librarian", Task = "List key evidence and missing gaps" },
-                          new() { Agent = "dag_builder", Task = "Propose a DAG mutation candidate in strict JSON" }
+                          new() { Agent = "verifier", Task = "Verify hypotheses using multi-stage verification" }
                       };
+
+        // Filter to only include planner, reasoner, and verifier (exclude dag_builder and others)
+        workers = workers.Where(w => 
+        {
+            var agent = (w.Agent ?? string.Empty).Trim().ToLowerInvariant();
+            return agent == "planner" || agent == "reasoner" || agent == "verifier";
+        }).ToList();
 
         // Deterministic ordering (helps librarian->dag_builder handoff).
         workers = workers
@@ -524,6 +542,8 @@ internal sealed partial class VibeOrchestrator
             .ToList();
 
         // Run workers (best-effort; keep outputs bounded).
+        // Stop after verifier completes (skip dag_builder and other workers)
+        bool shouldStopAfterVerifier = false;
         foreach (var w in workers)
         {
             ct.ThrowIfCancellationRequested();
@@ -532,6 +552,12 @@ internal sealed partial class VibeOrchestrator
 
             if (outputs.ContainsKey(agent))
                 continue;
+
+            // Stop after verifier completes
+            if (shouldStopAfterVerifier)
+            {
+                break;
+            }
 
             switch (agent)
             {
@@ -545,11 +571,13 @@ internal sealed partial class VibeOrchestrator
                         resolveProvider: () => resolveProvider("planner"),
                         emitAssistantDelta: ctx.EmitAssistantDelta,
                         ct: ct);
-                    outputs[agent] = await RunPlannerAsync(
+                    var (plannerOutput, plannerPrompt) = await RunPlannerAsync(
                         ctx,
                         getDagSnapshot(),
                         provider,
                         ct);
+                    outputs[agent] = plannerOutput;
+                    if (plannerPrompt != null) promptRecords[agent] = plannerPrompt;
                     break;
                 }
                 case "reasoner":
@@ -562,12 +590,14 @@ internal sealed partial class VibeOrchestrator
                         resolveProvider: () => resolveProvider("reasoner"),
                         emitAssistantDelta: ctx.EmitAssistantDelta,
                         ct: ct);
-                    outputs[agent] = await RunReasonerAsync(
+                    var (reasonerOutput, reasonerPrompt) = await RunReasonerAsync(
                         ctx,
                         getDagSnapshot(),
                         outputs.TryGetValue("planner", out var p) ? p : null,
                         provider,
                         ct);
+                    outputs[agent] = reasonerOutput;
+                    if (reasonerPrompt != null) promptRecords[agent] = reasonerPrompt;
                     break;
                 }
                 case "librarian":
@@ -580,11 +610,13 @@ internal sealed partial class VibeOrchestrator
                         resolveProvider: () => resolveProvider("librarian"),
                         emitAssistantDelta: ctx.EmitAssistantDelta,
                         ct: ct);
-                    outputs[agent] = await RunLibrarianAsync(
+                    var (librarianOutput, librarianPrompt) = await RunLibrarianAsync(
                         ctx,
                         getDagSnapshot(),
                         provider,
                         ct);
+                    outputs[agent] = librarianOutput;
+                    if (librarianPrompt != null) promptRecords[agent] = librarianPrompt;
 
                     await ApplyLibrarianSideEffectsAsync(
                         ctx,
@@ -604,12 +636,39 @@ internal sealed partial class VibeOrchestrator
                         resolveProvider: () => resolveProvider("verifier"),
                         emitAssistantDelta: ctx.EmitAssistantDelta,
                         ct: ct);
-                    outputs[agent] = await RunVerifierAsync(
-                        ctx,
-                        getDagSnapshot(),
-                        outputs.TryGetValue("reasoner", out var r) ? r : null,
-                        provider,
-                        ct);
+
+                    // Check if multi-stage verification is enabled (default: true)
+                    var useMultiStage = _core.Configuration?.GetValue<bool?>("Vibe:MultiStageVerification:Enabled") ?? true;
+
+                    if (useMultiStage)
+                    {
+                        // Multi-stage verification: Scout (2 workers) + Prover (5 workers)
+                        var multiStageResult = await RunMultiStageVerifierAsync(
+                            ctx,
+                            getDagSnapshot(),
+                            outputs.TryGetValue("reasoner", out var reasonerOut) ? reasonerOut : null,
+                            provider,
+                            ct);
+                        outputs[agent] = multiStageResult.Summary;
+
+                        // Store verification pass/fail status for downstream use
+                        outputs["verifier_passed"] = multiStageResult.OverallPass.ToString();
+                    }
+                    else
+                    {
+                        // Legacy single-pass verification
+                        var (verifierOutput, verifierPrompt) = await RunVerifierAsync(
+                            ctx,
+                            getDagSnapshot(),
+                            outputs.TryGetValue("reasoner", out var r) ? r : null,
+                            provider,
+                            ct);
+                        outputs[agent] = verifierOutput;
+                        if (verifierPrompt != null) promptRecords[agent] = verifierPrompt;
+                    }
+                    
+                    // Stop after verifier completes (skip dag_builder and other workers)
+                    shouldStopAfterVerifier = true;
                     break;
                 }
                 case "dag_builder":
@@ -640,6 +699,8 @@ internal sealed partial class VibeOrchestrator
                     break;
             }
         }
+
+        // Note: promptRecords are collected and will be saved by the caller (ExecuteOneRoundAsync)
     }
 
     private async Task ApplyLibrarianSideEffectsAsync(
@@ -683,6 +744,137 @@ internal sealed partial class VibeOrchestrator
         {
             // best-effort only
         }
+    }
+
+    // ============================================================
+    //  Agent Prompt Logger (per-session file)
+    // ============================================================
+
+    /// <summary>
+    /// Saves agent prompts to a Markdown file named prompts_{sessionId}.md in the session's artifacts directory.
+    /// Each run appends a new section with all agent prompts (system prompt, user prompt, materials context, and output).
+    /// </summary>
+    private async Task SaveAgentPromptsToFileAsync(
+        string sessionId,
+        string runId,
+        string question,
+        Dictionary<string, AgentPromptRecord> promptRecords,
+        CancellationToken ct)
+    {
+        if (promptRecords == null || promptRecords.Count == 0)
+            return;
+
+        try
+        {
+            var ws = _core.Workspace.EnsureSessionWorkspace(sessionId);
+            var promptsDir = Path.Combine(ws.ArtifactsDir, "prompts");
+            Directory.CreateDirectory(promptsDir);
+
+            var filename = $"prompts_{sessionId}.md";
+            var filepath = Path.Combine(promptsDir, filename);
+
+            // Build Markdown content for this run
+            var sb = new StringBuilder(4096);
+            sb.AppendLine($"# Run: {runId}");
+            sb.AppendLine();
+            sb.AppendLine($"**Timestamp**: {DateTimeOffset.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
+            sb.AppendLine($"**Question**: {question}");
+            sb.AppendLine();
+            sb.AppendLine("---");
+            sb.AppendLine();
+
+            // Order agents: research_assistant (if any) -> planner -> reasoner -> verifier -> others
+            var agentOrder = new[] { "research_assistant", "planner", "reasoner", "verifier", "librarian", "dag_builder" };
+            var orderedAgents = promptRecords.Keys
+                .OrderBy(a => Array.IndexOf(agentOrder, a.ToLowerInvariant()) >= 0 
+                    ? Array.IndexOf(agentOrder, a.ToLowerInvariant()) 
+                    : int.MaxValue)
+                .ThenBy(a => a, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            foreach (var agentName in orderedAgents)
+            {
+                if (!promptRecords.TryGetValue(agentName, out var record))
+                    continue;
+
+                sb.AppendLine($"## {agentName}");
+                sb.AppendLine();
+                sb.AppendLine($"**Timestamp**: {record.Timestamp:yyyy-MM-dd HH:mm:ss} UTC");
+                sb.AppendLine();
+
+                // System Prompt
+                sb.AppendLine("<details>");
+                sb.AppendLine("<summary><strong>System Prompt</strong></summary>");
+                sb.AppendLine();
+                sb.AppendLine("```text");
+                sb.AppendLine(EscapeMarkdown(record.SystemPrompt));
+                sb.AppendLine("```");
+                sb.AppendLine();
+                sb.AppendLine("</details>");
+                sb.AppendLine();
+
+                // Materials Context (if present)
+                if (!string.IsNullOrWhiteSpace(record.MaterialsContext))
+                {
+                    sb.AppendLine("<details>");
+                    sb.AppendLine("<summary><strong>Materials Context</strong></summary>");
+                    sb.AppendLine();
+                    sb.AppendLine("```text");
+                    sb.AppendLine(EscapeMarkdown(record.MaterialsContext));
+                    sb.AppendLine("```");
+                    sb.AppendLine();
+                    sb.AppendLine("</details>");
+                    sb.AppendLine();
+                }
+
+                // User Prompt
+                sb.AppendLine("<details>");
+                sb.AppendLine("<summary><strong>User Prompt</strong></summary>");
+                sb.AppendLine();
+                sb.AppendLine("```text");
+                sb.AppendLine(EscapeMarkdown(record.UserPrompt));
+                sb.AppendLine("```");
+                sb.AppendLine();
+                sb.AppendLine("</details>");
+                sb.AppendLine();
+
+                // Output
+                sb.AppendLine("<details>");
+                sb.AppendLine("<summary><strong>Output</strong></summary>");
+                sb.AppendLine();
+                
+                // Determine if output is JSON or Markdown
+                var output = record.RawOutput ?? string.Empty;
+                var isJson = output.TrimStart().StartsWith("{") || output.TrimStart().StartsWith("[");
+                var lang = isJson ? "json" : "markdown";
+                
+                sb.AppendLine($"```{lang}");
+                sb.AppendLine(EscapeMarkdown(output));
+                sb.AppendLine("```");
+                sb.AppendLine();
+                sb.AppendLine("</details>");
+                sb.AppendLine();
+                sb.AppendLine("---");
+                sb.AppendLine();
+            }
+
+            // Append to file (create if not exists)
+            var content = sb.ToString();
+            await File.AppendAllTextAsync(filepath, content, Encoding.UTF8, ct);
+        }
+        catch (Exception ex)
+        {
+            _host.Logger.LogWarning(ex, "[VibeOrchestrator] Failed to save agent prompts to file (best-effort).");
+        }
+    }
+
+    private static string EscapeMarkdown(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return string.Empty;
+        
+        // Basic markdown escaping for code blocks
+        return text.Replace("```", "\\`\\`\\`");
     }
 }
 

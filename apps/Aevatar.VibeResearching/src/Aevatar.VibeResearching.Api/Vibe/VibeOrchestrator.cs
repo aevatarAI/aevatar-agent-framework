@@ -170,6 +170,9 @@ internal sealed partial class VibeOrchestrator
         var librarianAxioms = new List<LibrarianAxiomCandidate>();
         var factsWritten = new List<string>();
 
+        // Collect all prompt records for this run
+        var allPromptRecords = new Dictionary<string, AgentPromptRecord>(StringComparer.OrdinalIgnoreCase);
+
         // ------------------------------------------------------------
         // Step: Research Brief (1 page) - generate once if missing
         // ------------------------------------------------------------
@@ -179,9 +182,17 @@ internal sealed partial class VibeOrchestrator
             if (existing.Version > 0)
                 return;
 
-            var brief = await TryGetBriefAsync(session.Id, input, question, materials, dagSnap, recentTrace, raProvider, innerCt);
+            var (brief, briefPrompt) = await TryGetBriefAsync(session.Id, input, question, materials, dagSnap, recentTrace, raProvider, innerCt);
             if (brief == null)
+            {
+                if (briefPrompt != null)
+                    allPromptRecords["research_assistant_brief"] = briefPrompt;
                 return;
+            }
+            
+            // Store prompt record
+            if (briefPrompt != null)
+                allPromptRecords["research_assistant_brief"] = briefPrompt;
 
             // First brief for a session: start at version=1.
             brief.Version = 1;
@@ -227,7 +238,7 @@ internal sealed partial class VibeOrchestrator
             }
         }, ct);
 
-        var (plan, dagAfterPlan) = await RunPlanPhaseAsync(
+        var (plan, dagAfterPlan, planPrompt) = await RunPlanPhaseAsync(
             ctx,
             dagId,
             dagSnap,
@@ -235,8 +246,12 @@ internal sealed partial class VibeOrchestrator
             raProvider,
             ct);
         dagSnap = dagAfterPlan;
+        
+        // Store plan prompt record
+        if (planPrompt != null)
+            allPromptRecords["research_assistant_plan"] = planPrompt;
 
-        var (outputs, _) = await RunWorkerPhaseAsync(
+        var (outputs, _, workerPromptRecords) = await RunWorkerPhaseAsync(
             ctx,
             dagId,
             dagSnap,
@@ -245,6 +260,12 @@ internal sealed partial class VibeOrchestrator
             librarianAxioms,
             factsWritten,
             ct);
+        
+        // Merge worker prompt records
+        foreach (var kvp in workerPromptRecords)
+        {
+            allPromptRecords[kvp.Key] = kvp.Value;
+        }
 
         // ------------------------------------------------------------
         // Step: DAG apply (no consensus)
@@ -322,12 +343,16 @@ internal sealed partial class VibeOrchestrator
             StepName = "vibe.summary"
         });
 
-        var summaryMd = await TryGetSummaryAsync(session.Id, input, question, dagResult, outputs, factsWritten, raProvider, ct);
+        var (summaryMd, summaryPrompt) = await TryGetSummaryAsync(session.Id, input, question, dagResult, outputs, factsWritten, raProvider, ct);
         if (!string.IsNullOrWhiteSpace(summaryMd))
         {
             EmitSection(ctx.EmitAssistantDelta, "### Round Summary\n");
             ctx.EmitAssistantDelta(summaryMd!.Trim() + "\n\n");
         }
+        
+        // Store summary prompt record
+        if (summaryPrompt != null)
+            allPromptRecords["research_assistant_summary"] = summaryPrompt;
 
         await PersistTraceAsync(session, runId, input, question, outputs, dagResult, summaryMd, ct);
 
@@ -336,6 +361,28 @@ internal sealed partial class VibeOrchestrator
             Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             StepName = "vibe.summary"
         });
+
+        // Save all collected prompts to file (best-effort, async)
+        if (allPromptRecords.Count > 0)
+        {
+            var promptRecordsSnapshot = new Dictionary<string, AgentPromptRecord>(allPromptRecords, StringComparer.OrdinalIgnoreCase);
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await SaveAgentPromptsToFileAsync(
+                        session.Id,
+                        runId,
+                        question,
+                        promptRecordsSnapshot,
+                        CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    _host.Logger.LogWarning(ex, "[VibeOrchestrator] Failed to save agent prompts to file (best-effort).");
+                }
+            });
+        }
     }
 
 }

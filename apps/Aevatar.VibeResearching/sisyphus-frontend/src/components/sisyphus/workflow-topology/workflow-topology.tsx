@@ -127,6 +127,9 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
   const simulationRef = useRef<SimulationManager | null>(null)
   const positionCacheRef = useRef<Map<string, { x: number; y: number }>>(new Map())
   const animationRef = useRef<number>(0)
+  const needsRenderRef = useRef<boolean>(true)  // Track if render is needed
+  const lastSessionIdRef = useRef<string>(sessionId)  // Track session changes
+  const initialFitDoneRef = useRef<string | null>(null)  // Track initial fit per session
 
   // State
   const [refreshing, setRefreshing] = useState(false)
@@ -201,6 +204,16 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
     return { filteredNodes: nodes, filteredEdges: edges, centerNodeId: center }
   }, [dag, selectedNodeId, highlightMode, highlightedNodeIds, sessionId, activeMilestoneNodeId, filterMode])
 
+  // ── Clear position cache on session change ──
+  useEffect(() => {
+    if (sessionId !== lastSessionIdRef.current) {
+      // Session changed - clear position cache to avoid cross-session contamination
+      positionCacheRef.current.clear()
+      lastSessionIdRef.current = sessionId
+      needsRenderRef.current = true
+    }
+  }, [sessionId])
+
   // ── Calculate layout with persistent simulation ──
   useEffect(() => {
     // Wait for renderer to be ready before creating simulation
@@ -231,6 +244,7 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
       (nodes) => {
         // Update layout and cache positions
         setLayoutNodes([...nodes])
+        needsRenderRef.current = true  // Mark render needed when layout updates
         // Update position cache
         nodes.forEach(n => {
           if (n.x !== undefined && n.y !== undefined) {
@@ -243,6 +257,7 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
     simulationRef.current = manager
     setLayoutNodes([...manager.nodes])
     setLayoutEdges([...manager.edges])
+    needsRenderRef.current = true  // Mark render needed for initial layout
 
     // Initial cache update
     manager.nodes.forEach(n => {
@@ -354,25 +369,43 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
       if (actualWidth > 0 && actualHeight > 0) {
         rendererRef.current.resize(actualWidth, actualHeight)
         setCanvasSize({ width: actualWidth, height: actualHeight })
+        needsRenderRef.current = true  // Request re-render after resize
       }
-    }, 50)
+    }, 100)  // Increased delay for smoother session switch
     return () => clearTimeout(timeoutId)
   }, [sessionId])
 
-  // ── Render loop ──
+  // ── Render loop (optimized: only render when needed) ──
   useEffect(() => {
+    let isRunning = true
+    
     const render = () => {
+      if (!isRunning) return
+      
       const renderer = rendererRef.current
-      if (renderer && layoutNodes.length > 0) {
+      // Only render when flagged or simulation is active
+      const simulationActive = (simulationRef.current?.simulation?.alpha() ?? 0) > 0.001
+      
+      if (renderer && layoutNodes.length > 0 && (needsRenderRef.current || simulationActive)) {
         renderer.setTransform(transform)
         renderer.render(layoutNodes, layoutEdges)
+        needsRenderRef.current = false  // Reset flag after render
       }
+      
       animationRef.current = requestAnimationFrame(render)
     }
 
     render()
-    return () => cancelAnimationFrame(animationRef.current)
+    return () => {
+      isRunning = false
+      cancelAnimationFrame(animationRef.current)
+    }
   }, [layoutNodes, layoutEdges, transform])
+  
+  // Mark render needed when transform changes
+  useEffect(() => {
+    needsRenderRef.current = true
+  }, [transform])
 
   // ── Update interaction manager nodes ──
   useEffect(() => {
@@ -400,16 +433,25 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
     return () => resizeObserver.disconnect()
   }, [])
 
-  // ── Auto-fit on initial load or session change ──
+  // ── Auto-fit on initial load or session change (debounced) ──
   useEffect(() => {
-    if (layoutNodes.length > 0 && interactionRef.current && canvasSize.width > 0) {
-      // Use requestAnimationFrame to ensure DOM is ready, then fit view
-      const rafId = requestAnimationFrame(() => {
-        setTimeout(() => {
-          interactionRef.current?.fitView(layoutNodes, canvasSize.width, canvasSize.height)
-        }, 50)
-      })
-      return () => cancelAnimationFrame(rafId)
+    // Only auto-fit once per session, when we have nodes and renderer is ready
+    if (
+      layoutNodes.length > 0 &&
+      interactionRef.current &&
+      canvasSize.width > 0 &&
+      initialFitDoneRef.current !== sessionId
+    ) {
+      // Mark fit as done for this session immediately to prevent re-triggers
+      initialFitDoneRef.current = sessionId
+      
+      // Use longer delay to ensure simulation has settled
+      const timeoutId = setTimeout(() => {
+        interactionRef.current?.fitView(layoutNodes, canvasSize.width, canvasSize.height)
+        needsRenderRef.current = true
+      }, 200)  // Increased delay for smoother transition
+      
+      return () => clearTimeout(timeoutId)
     }
   }, [sessionId, layoutNodes.length, canvasSize.width, canvasSize.height])
 

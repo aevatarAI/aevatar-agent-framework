@@ -31,8 +31,12 @@ public sealed class VibeReasonerAgent : VibeAgentBase
         // Dangerous tools are hidden by default; opt-in via config.
         AllowDangerousTools = _pythonEnabled;
 
-        SystemPrompt =
-            """
+        SystemPrompt = GetSystemPrompt();
+    }
+
+    public static string GetSystemPrompt()
+    {
+        return """
             You are a research reasoner grounded in provided materials (DAG facts).
 
             Inputs:

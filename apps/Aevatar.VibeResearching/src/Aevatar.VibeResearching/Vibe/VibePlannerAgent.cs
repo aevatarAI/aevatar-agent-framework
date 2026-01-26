@@ -13,10 +13,9 @@ namespace VibeResearching.Vibe;
 
 public sealed class VibePlannerAgent : VibeAgentBase
 {
-    public VibePlannerAgent()
+    public static string GetSystemPrompt()
     {
-        SystemPrompt =
-            """
+        return """
             You are a research planner.
 
             Inputs:
@@ -29,6 +28,11 @@ public sealed class VibePlannerAgent : VibeAgentBase
             - Produce a short plan with steps that can be executed (including computations if needed).
             - If you propose computations, specify what to compute and what would falsify the hypothesis.
             """;
+    }
+
+    public VibePlannerAgent()
+    {
+        SystemPrompt = GetSystemPrompt();
     }
 }
 

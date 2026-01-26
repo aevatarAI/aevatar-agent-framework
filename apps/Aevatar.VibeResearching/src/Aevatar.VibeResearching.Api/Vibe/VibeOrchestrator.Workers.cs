@@ -441,7 +441,17 @@ internal sealed partial class VibeOrchestrator
             EmitAgentDelta(session, messageId, "assistant", "\n\n");
 
             session.Events.Publish(new StepFinishedEvent { Timestamp = NowMs(), StepName = "vibe.verifier" });
-            return Bound(sb.ToString(), 20_000);
+            
+            var output = Bound(sb.ToString(), 20_000);
+            var promptRecord = new AgentPromptRecord(
+                AgentName: "verifier",
+                SystemPrompt: finalSystemPrompt,
+                UserPrompt: userMessage,
+                MaterialsContext: materialsContext,
+                RawOutput: output,
+                Timestamp: DateTimeOffset.UtcNow
+            );
+            return (output, promptRecord);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {

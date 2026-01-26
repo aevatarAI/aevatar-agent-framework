@@ -42,12 +42,9 @@ public sealed class VibeResearchAssistantAgent : VibeAgentBase
                node.Attestations.Count > 0;
     }
 
-    public VibeResearchAssistantAgent(IVibeGraphAccess? graphAccess = null)
+    public static string GetSystemPrompt()
     {
-        _graphAccess = graphAccess;
-
-        SystemPrompt =
-            """
+        return """
             You are the Scientific Research Assistant (single authority).
 
             Context:
@@ -116,6 +113,12 @@ public sealed class VibeResearchAssistantAgent : VibeAgentBase
                    propose them explicitly and ask the user to CONFIRM (do NOT claim they were applied).
                - Open questions / next actions
             """;
+    }
+
+    public VibeResearchAssistantAgent(IVibeGraphAccess? graphAccess = null)
+    {
+        _graphAccess = graphAccess;
+        SystemPrompt = GetSystemPrompt();
     }
 
     protected override async Task RegisterToolsAsync(CancellationToken cancellationToken = default)

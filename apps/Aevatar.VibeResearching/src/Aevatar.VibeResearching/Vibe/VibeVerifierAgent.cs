@@ -37,8 +37,12 @@ public sealed class VibeVerifierAgent : VibeAgentBase
 
         AllowDangerousTools = _pythonEnabled;
 
-        SystemPrompt =
-            """
+        SystemPrompt = GetSystemPrompt();
+    }
+
+    public static string GetSystemPrompt()
+    {
+        return """
             You are a verifier.
 
             Goal:

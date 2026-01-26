@@ -327,6 +327,44 @@ internal sealed partial class VibeOrchestrator
             sb.AppendLine("Use clear section headers (## Known Definitions, ## Axioms, ## Hypotheses to Verify, ## Execution Plan)");
         }
 
+        // Add instructions for reasoner to explicitly list all axioms, theorems, definitions, and hypotheses
+        if (string.Equals(role, "reasoner", StringComparison.OrdinalIgnoreCase))
+        {
+            sb.AppendLine();
+            sb.AppendLine("=== CRITICAL: Your output MUST explicitly list ===");
+            sb.AppendLine();
+            sb.AppendLine("1. **Known Axioms**:");
+            sb.AppendLine("   - Extract from planner output (if provided above)");
+            sb.AppendLine("   - Extract from Materials context (see system prompt)");
+            sb.AppendLine("   - Extract from DAG facts");
+            sb.AppendLine("   - Format: Axiom ID (e.g., A1, O1), complete statement, source");
+            sb.AppendLine();
+            sb.AppendLine("2. **Known Theorems**:");
+            sb.AppendLine("   - Extract from planner output (if provided above)");
+            sb.AppendLine("   - Extract from Materials context (see system prompt)");
+            sb.AppendLine("   - Extract from DAG facts");
+            sb.AppendLine("   - Format: Theorem ID (e.g., T1, T2), complete statement, dependencies, source");
+            sb.AppendLine();
+            sb.AppendLine("3. **Known Definitions**:");
+            sb.AppendLine("   - Extract from planner output (if provided above)");
+            sb.AppendLine("   - Extract from Materials context (see system prompt)");
+            sb.AppendLine("   - Extract from DAG facts");
+            sb.AppendLine("   - Format: Definition ID (e.g., D1, D2), term name, complete definition, source");
+            sb.AppendLine();
+            sb.AppendLine("4. **Hypotheses to Prove** (MUST be explicitly listed):");
+            sb.AppendLine("   - Extract from planner output (if provided above)");
+            sb.AppendLine("   - Infer from the research question if not in planner output");
+            sb.AppendLine("   - Format: Hypothesis ID (e.g., H1, H2, H3), complete statement, dependencies, verification method");
+            sb.AppendLine("   - CRITICAL: Every hypothesis you reason about MUST be listed here first");
+            sb.AppendLine();
+            sb.AppendLine("5. **Reasoning Process**:");
+            sb.AppendLine("   - Provide detailed reasoning for each hypothesis listed above");
+            sb.AppendLine("   - Reference axioms/theorems/definitions by their IDs from sections above");
+            sb.AppendLine("   - Ground claims in material IDs like [material:...] when applicable");
+            sb.AppendLine();
+            sb.AppendLine("Use clear section headers: ## Known Axioms, ## Known Theorems, ## Known Definitions, ## Hypotheses to Prove, ## Reasoning Process");
+        }
+
         if (!string.IsNullOrWhiteSpace(extra))
         {
             sb.AppendLine();

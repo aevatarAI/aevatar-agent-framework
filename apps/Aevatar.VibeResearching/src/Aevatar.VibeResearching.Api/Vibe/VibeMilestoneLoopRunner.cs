@@ -1,10 +1,12 @@
 using Aevatar.Agents.AGUI;
 using Aevatar.Agents.Knowledge.Graph;
 using Aevatar.Agents.Knowledge.Graph.Models;
+using System.Text;
 using VibeResearching.Api.Materials;
 using VibeResearching.Api.Sessions;
 using VibeResearching.Api.Vibe.Brief;
 using VibeResearching.Api.Vibe.Dag;
+using VibeResearching.Api.Vibe.Trace;
 using VibeResearching.Contracts.Collab;
 
 namespace VibeResearching.Api.Vibe;
@@ -37,6 +39,8 @@ internal sealed class VibeMilestoneLoopRunner
     private readonly VibeOrchestrator _vibe;
     private readonly BriefStore _brief;
     private readonly DagStore _dag;
+    private readonly TraceStore _trace;
+    private readonly MaterialsService _materials;
     private readonly IKnowledgeGraphClientFactory _graphFactory;
     private readonly ILogger<VibeMilestoneLoopRunner> _logger;
 
@@ -44,12 +48,16 @@ internal sealed class VibeMilestoneLoopRunner
         VibeOrchestrator vibe,
         BriefStore brief,
         DagStore dag,
+        TraceStore trace,
+        MaterialsService materials,
         IKnowledgeGraphClientFactory graphFactory,
         ILogger<VibeMilestoneLoopRunner> logger)
     {
         _vibe = vibe ?? throw new ArgumentNullException(nameof(vibe));
         _brief = brief ?? throw new ArgumentNullException(nameof(brief));
         _dag = dag ?? throw new ArgumentNullException(nameof(dag));
+        _trace = trace ?? throw new ArgumentNullException(nameof(trace));
+        _materials = materials ?? throw new ArgumentNullException(nameof(materials));
         _graphFactory = graphFactory ?? throw new ArgumentNullException(nameof(graphFactory));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -328,6 +336,8 @@ internal sealed class VibeMilestoneLoopRunner
                             session,
                             milestone.ExpectedOutput,
                             iterationCount,
+                            question,
+                            materials,
                             providerOverride,
                             ct);
 
@@ -792,6 +802,8 @@ internal sealed class VibeMilestoneLoopRunner
         ResearchSession session,
         string milestoneGoal,
         int iterationCount,
+        string question,
+        MaterialsSnapshot materials,
         string? providerOverride,
         CancellationToken ct)
     {
@@ -800,32 +812,96 @@ internal sealed class VibeMilestoneLoopRunner
             // Use verifier agent to evaluate completion
             var (verifier, verifierId) = await _vibe.Runtime.GetVerifierAgentAsync(session.Id, providerOverride, ct);
 
-            var evaluationPrompt = $$"""
-                # Milestone Completion Evaluation
+            // Load current research context for evaluation
+            var dagId = session.EffectiveDagId;
+            var dagSnap = await _dag.LoadSnapshotAsync(dagId, ct);
+            var recentTrace = await _trace.LoadLatestAsync(session.Id, max: 5, ct);
 
-                **Milestone Goal**: {{milestoneGoal}}
-                **Iterations Completed**: {{iterationCount}}
+            // Build context sections for the evaluation prompt
+            var sb = new StringBuilder(4096);
+            sb.AppendLine("# Milestone Completion Evaluation");
+            sb.AppendLine();
+            sb.AppendLine($"**Milestone Goal**: {milestoneGoal}");
+            sb.AppendLine($"**Research Question**: {question}");
+            sb.AppendLine($"**Iterations Completed**: {iterationCount}");
+            sb.AppendLine();
 
-                Based on the research conducted in this session, evaluate whether the milestone goal has been achieved.
-
-                Respond in this exact JSON format:
-                ```json
+            // Add DAG snapshot summary
+            sb.AppendLine("## Current Knowledge State (DAG)");
+            sb.AppendLine($"- Total nodes: {dagSnap.Nodes.Count}");
+            sb.AppendLine($"- Total edges: {dagSnap.Edges.Count}");
+            if (dagSnap.Nodes.Count > 0)
+            {
+                var knowledgeNodes = dagSnap.Nodes.Where(n => n.Kind == SraDagNodeKind.Knowledge).Take(10).ToList();
+                if (knowledgeNodes.Count > 0)
                 {
-                    "isComplete": true/false,
-                    "completionPercentage": 0-100,
-                    "summary": "Brief assessment of current progress",
-                    "achievedAspects": ["list", "of", "achieved", "items"],
-                    "missingAspects": ["list", "of", "missing", "items"],
-                    "nextSteps": "What needs to be done next if not complete"
+                    sb.AppendLine("- Recent knowledge nodes:");
+                    foreach (var node in knowledgeNodes)
+                    {
+                        var label = Bound((node.Label ?? string.Empty).Trim(), 200);
+                        sb.AppendLine($"  - {node.Id}: {label}");
+                    }
                 }
-                ```
+            }
+            sb.AppendLine();
 
-                Be strict in your evaluation. Only mark isComplete=true if:
-                1. The core question/goal has been thoroughly addressed
-                2. Key derivations or proofs have been completed (if applicable)
-                3. Findings are supported by credible evidence
-                4. Knowledge has been properly synthesized
-                """;
+            // Add recent research trace
+            if (recentTrace.Count > 0)
+            {
+                sb.AppendLine("## Recent Research History");
+                foreach (var round in recentTrace.Take(3))
+                {
+                    sb.AppendLine($"- Round {round.RoundIndex} (run: {round.RunId}):");
+                    foreach (var agent in round.PerAgent.Take(5))
+                    {
+                        sb.AppendLine($"  - {agent.Agent}: {string.Join(", ", agent.Highlights.Take(2))}");
+                    }
+                    if (round.DagChanges.Count > 0)
+                    {
+                        sb.AppendLine($"  - DAG changes: {round.DagChanges.Count} nodes");
+                    }
+                }
+                sb.AppendLine();
+            }
+
+            // Add materials context (if available)
+            if (!string.IsNullOrWhiteSpace(materials.RenderedContext))
+            {
+                sb.AppendLine("## Materials Context");
+                sb.AppendLine(Bound(materials.RenderedContext, 2000));
+                sb.AppendLine();
+            }
+
+            // Add evaluation instructions
+            sb.AppendLine("## Evaluation Instructions");
+            sb.AppendLine();
+            sb.AppendLine("Based on the research conducted in this session (including DAG state, research history, and materials), evaluate whether the milestone goal has been achieved.");
+            sb.AppendLine();
+            sb.AppendLine("Respond in this exact JSON format:");
+            sb.AppendLine("```json");
+            sb.AppendLine("{");
+            sb.AppendLine("    \"isComplete\": true/false,");
+            sb.AppendLine("    \"completionPercentage\": 0-100,");
+            sb.AppendLine("    \"summary\": \"Brief assessment of current progress\",");
+            sb.AppendLine("    \"achievedAspects\": [\"list\", \"of\", \"achieved\", \"items\"],");
+            sb.AppendLine("    \"missingAspects\": [\"list\", \"of\", \"missing\", \"items\"],");
+            sb.AppendLine("    \"nextSteps\": \"What needs to be done next if not complete\"");
+            sb.AppendLine("}");
+            sb.AppendLine("```");
+            sb.AppendLine();
+            sb.AppendLine("Be strict in your evaluation. Only mark isComplete=true if ALL of the following are satisfied:");
+            sb.AppendLine("1. The core question/goal has been thoroughly addressed");
+            sb.AppendLine("2. Key derivations or proofs have been completed (if applicable)");
+            sb.AppendLine("3. Findings are supported by credible evidence");
+            sb.AppendLine("4. Knowledge has been properly synthesized");
+            sb.AppendLine();
+            sb.AppendLine("When evaluating, consider:");
+            sb.AppendLine("- What new knowledge nodes were added to the DAG?");
+            sb.AppendLine("- What progress was made in recent research rounds?");
+            sb.AppendLine("- Are the findings grounded in the materials context?");
+            sb.AppendLine("- Is the milestone goal fully achieved or only partially?");
+
+            var evaluationPrompt = sb.ToString();
 
             var req = new Aevatar.Agents.AI.ChatRequest
             {
@@ -834,6 +910,7 @@ internal sealed class VibeMilestoneLoopRunner
                 StageHint = "session:vibe:milestone_evaluation"
             };
             req.Context["agent_id"] = verifierId;
+            req.Context["materials_context"] = materials.RenderedContext; // Include materials context
 
             var resp = await verifier.ChatAsync(req, ct);
             var content = resp.Content ?? string.Empty;
@@ -851,6 +928,12 @@ internal sealed class VibeMilestoneLoopRunner
                 NextSteps = "Continue research"
             };
         }
+    }
+
+    private static string Bound(string text, int maxLength)
+    {
+        if (string.IsNullOrEmpty(text)) return string.Empty;
+        return text.Length <= maxLength ? text : text[..maxLength] + "...";
     }
 
     // ============================================================
@@ -1504,6 +1587,8 @@ internal sealed class VibeMilestoneLoopRunner
                 session,
                 milestone.ExpectedOutput,
                 iterationCount,
+                question,
+                materials,
                 providerOverride,
                 ct);
 

@@ -48,10 +48,20 @@ public sealed class VibePlannerAgent : VibeAgentBase
              * Verification method (how to test/verify it)
 
         4. **Execution Plan**:
-           - Produce a short plan with steps that can be executed
-           - Be explicit about assumptions and unknowns
+           - CRITICAL: The execution plan MUST be strictly structured according to the hypotheses list above
+           - For EACH hypothesis listed in "Hypotheses to Verify", you MUST create a corresponding execution step
+           - Each execution step MUST:
+             * Explicitly reference the hypothesis ID (e.g., "Step 1: Verify H1 - [hypothesis statement]")
+             * Use the verification method specified in that hypothesis
+             * List the dependencies (axioms/definitions) required for this step
+             * Provide specific, executable actions (computations, derivations, or evidence gathering)
+           - The order of execution steps MUST respect the dependency order of hypotheses
+           - If hypothesis H2 depends on H1, then H1's verification step MUST come before H2's step
+           - Do NOT create execution steps that are not directly tied to verifying a specific hypothesis from your list
+           - Be explicit about assumptions and unknowns for each step
            - Separate what is derivable from axioms vs what requires empirical/extra references
            - If you propose computations, specify what to compute and what would falsify the hypothesis
+           - Format: Use numbered steps (1., 2., 3., ...), each clearly linked to a hypothesis ID
 
         Rules:
         - Extract definitions, axioms, and hypotheses from:

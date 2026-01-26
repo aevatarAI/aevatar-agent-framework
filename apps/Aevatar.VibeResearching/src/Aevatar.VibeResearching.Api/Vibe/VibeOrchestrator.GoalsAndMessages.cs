@@ -312,7 +312,17 @@ internal sealed partial class VibeOrchestrator
             sb.AppendLine("   - Format: Hypothesis ID, statement, dependencies, verification method");
             sb.AppendLine();
             sb.AppendLine("4. **Execution Plan**:");
-            sb.AppendLine("   - Provide executable steps based on the above");
+            sb.AppendLine("   - CRITICAL: The execution plan MUST be strictly structured according to the hypotheses list");
+            sb.AppendLine("   - For EACH hypothesis in \"Hypotheses to Verify\", create a corresponding execution step");
+            sb.AppendLine("   - Each execution step MUST:");
+            sb.AppendLine("     * Reference the specific hypothesis ID (e.g., \"For H1: ...\", \"To verify H2: ...\")");
+            sb.AppendLine("     * Specify the verification method mentioned in the hypothesis");
+            sb.AppendLine("     * List required dependencies (axioms/definitions) that need to be used");
+            sb.AppendLine("     * Provide executable actions (computations, derivations, or evidence gathering)");
+            sb.AppendLine("   - The order of execution steps MUST match the logical dependency order of hypotheses");
+            sb.AppendLine("   - If a hypothesis depends on another, its verification step MUST come after the dependency");
+            sb.AppendLine("   - Do NOT create execution steps that are not directly related to verifying the listed hypotheses");
+            sb.AppendLine("   - Format: Use numbered steps, each clearly linked to a hypothesis ID");
             sb.AppendLine();
             sb.AppendLine("Use clear section headers (## Known Definitions, ## Axioms, ## Hypotheses to Verify, ## Execution Plan)");
         }

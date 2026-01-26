@@ -501,28 +501,20 @@ internal sealed partial class VibeOrchestrator
         Func<SraDagSnapshot> getDagSnapshot)
     {
         // Worker roster (fallback-first).
+        // MODIFIED: Only run planner and reasoner, skip verifier and dag_builder
         var workers = plan.Workers?.Where(w => !string.IsNullOrWhiteSpace(w.Agent)).ToList()
                       ?? new List<PlanWorker>
                       {
                           new() { Agent = "planner", Task = "Produce an executable plan and unknowns" },
-                          new() { Agent = "reasoner", Task = "Provide grounded reasoning with explicit hypotheses" },
-                          // new() { Agent = "librarian", Task = "List key evidence and missing gaps" }, // DISABLED
-                          new() { Agent = "verifier", Task = "Verify reasoning correctness and identify gaps" },
-                          new() { Agent = "dag_builder", Task = "Propose a DAG mutation candidate in strict JSON" }
+                          new() { Agent = "reasoner", Task = "Provide grounded reasoning with explicit hypotheses" }
                       };
 
-        // Filter out librarian from workers list (disabled)
+        // Filter out all workers except planner and reasoner
         workers = workers.Where(w => 
-            !(w.Agent ?? string.Empty).Trim().Equals("librarian", StringComparison.OrdinalIgnoreCase)
-        ).ToList();
-
-        // Ensure verifier is always included (even if LLM didn't include it in the plan)
-        var hasVerifier = workers.Any(w => 
-            (w.Agent ?? string.Empty).Trim().Equals("verifier", StringComparison.OrdinalIgnoreCase));
-        if (!hasVerifier)
         {
-            workers.Add(new PlanWorker { Agent = "verifier", Task = "Verify reasoning correctness and identify gaps" });
-        }
+            var agent = (w.Agent ?? string.Empty).Trim().ToLowerInvariant();
+            return agent == "planner" || agent == "reasoner";
+        }).ToList();
 
         // Deterministic ordering (helps librarian->dag_builder handoff).
         workers = workers

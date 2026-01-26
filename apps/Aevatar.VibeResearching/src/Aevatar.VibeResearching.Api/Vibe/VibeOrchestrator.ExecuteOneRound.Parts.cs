@@ -501,19 +501,20 @@ internal sealed partial class VibeOrchestrator
         Func<SraDagSnapshot> getDagSnapshot)
     {
         // Worker roster (fallback-first).
-        // MODIFIED: Only run planner and reasoner, skip verifier and dag_builder
+        // MODIFIED: Run planner, reasoner, and verifier, then stop (skip dag_builder)
         var workers = plan.Workers?.Where(w => !string.IsNullOrWhiteSpace(w.Agent)).ToList()
                       ?? new List<PlanWorker>
                       {
                           new() { Agent = "planner", Task = "Produce an executable plan and unknowns" },
-                          new() { Agent = "reasoner", Task = "Provide grounded reasoning with explicit hypotheses" }
+                          new() { Agent = "reasoner", Task = "Provide grounded reasoning with explicit hypotheses" },
+                          new() { Agent = "verifier", Task = "Verify hypotheses using multi-stage verification" }
                       };
 
-        // Filter out all workers except planner and reasoner
+        // Filter to only include planner, reasoner, and verifier (exclude dag_builder and others)
         workers = workers.Where(w => 
         {
             var agent = (w.Agent ?? string.Empty).Trim().ToLowerInvariant();
-            return agent == "planner" || agent == "reasoner";
+            return agent == "planner" || agent == "reasoner" || agent == "verifier";
         }).ToList();
 
         // Deterministic ordering (helps librarian->dag_builder handoff).
@@ -525,6 +526,8 @@ internal sealed partial class VibeOrchestrator
         var promptRecords = new Dictionary<string, AgentPromptRecord>();
 
         // Run workers (best-effort; keep outputs bounded).
+        // Stop after verifier completes (skip dag_builder and other workers)
+        bool shouldStopAfterVerifier = false;
         foreach (var w in workers)
         {
             ct.ThrowIfCancellationRequested();
@@ -533,6 +536,12 @@ internal sealed partial class VibeOrchestrator
 
             if (outputs.ContainsKey(agent))
                 continue;
+
+            // Stop after verifier completes
+            if (shouldStopAfterVerifier)
+            {
+                break;
+            }
 
             switch (agent)
             {
@@ -639,6 +648,9 @@ internal sealed partial class VibeOrchestrator
                             provider,
                             ct);
                     }
+                    
+                    // Stop after verifier completes (skip dag_builder and other workers)
+                    shouldStopAfterVerifier = true;
                     break;
                 }
                 case "dag_builder":

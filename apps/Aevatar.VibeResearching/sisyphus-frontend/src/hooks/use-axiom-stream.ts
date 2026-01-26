@@ -5,16 +5,84 @@ import { useStreamContentStore } from "@/store/stream-content-store"
 import { createAxiomEventStream, getToolsSnapshot, getDagSnapshot } from "@/lib/axiom-client"
 import type { EventStream } from "@aevatar/kit-protocol"
 import { parseMessageId } from "@aevatar/kit-protocol"
-import type {
-  VibeAgentsSnapshotValue,
-  VibeAgentProvidersSnapshotValue,
-  VibeMessageMetaValue,
-  VibeDagSnapshotValue,
-  VibeMilestoneStartedValue,
-  VibeMilestoneFinishedValue,
-  AevatarAgentStatusReportValue,
-} from "@aevatar/kit-protocol"
-import type { ToolOutput, NodeKind } from "@/types"
+import type { ToolOutput, NodeKind, PlanNodeStatus } from "@/types"
+
+// ============================================================================
+//  Vibe Protocol Types (locally defined for type safety)
+// ============================================================================
+
+interface VibeDagNode {
+  id?: string
+  label?: string
+  status?: string
+  type?: string
+  kind?: string
+  owner?: string
+  proof?: string
+  attestations?: Array<{ pubkey?: string; signature?: string }>
+  attestationsCount?: number
+  planStatus?: string
+  sessionId?: string
+}
+
+interface VibeDagEdge {
+  fromId?: string
+  toId?: string
+  type?: string
+}
+
+interface VibeDagSnapshotValue {
+  nodes?: VibeDagNode[]
+  edges?: VibeDagEdge[]
+}
+
+interface VibeAgentsSnapshotValue {
+  agents?: Array<{
+    agent: string
+    agentId?: string
+    name?: string
+    role?: string
+    status?: string
+  }>
+}
+
+interface VibeAgentProvidersSnapshotValue {
+  providers?: Record<string, string>
+}
+
+interface VibeMessageMetaValue {
+  messageId?: string
+  agent?: string
+  stepName?: string
+  providerName?: string
+  role?: string
+  status?: string
+}
+
+interface VibeMilestoneStartedValue {
+  milestoneId?: string
+  milestoneNodeId?: string
+  sessionId?: string
+  name?: string
+  description?: string
+}
+
+interface VibeMilestoneFinishedValue {
+  milestoneId?: string
+  sessionId?: string
+  name?: string
+  success?: boolean
+  summary?: string
+}
+
+interface AevatarAgentStatusReportValue {
+  agentId?: string
+  agentName?: string
+  statusText?: string
+  progress?: number
+  status?: string
+  message?: string
+}
 
 // ============================================================================
 //  Axiom Event Stream Hook
@@ -782,7 +850,7 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
         proof: node.proof,
         attestations: node.attestations,
         attestationsCount: node.attestationsCount,
-        planStatus: node.planStatus,
+        planStatus: node.planStatus as PlanNodeStatus | undefined,
         sessionId: node.sessionId,
       }))
       // Transform edges from {fromId, toId} to {source, target} format

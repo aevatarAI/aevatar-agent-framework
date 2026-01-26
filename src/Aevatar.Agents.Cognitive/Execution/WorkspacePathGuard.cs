@@ -85,12 +85,14 @@ internal static class WorkspacePathGuard
             return false;
         }
 
+        var expandedPath = ExpandHome(path);
+
         // NOTE:
-        // - If user provides an absolute path, we still enforce it must be under root.
-        // - If relative, we resolve against root.
-        var combined = Path.IsPathRooted(path)
-            ? path
-            : Path.Combine(root, path);
+        // - If user provides an absolute path, we still enforce it must be under allowed roots.
+        // - If relative, we resolve against workspace root.
+        var combined = Path.IsPathRooted(expandedPath)
+            ? expandedPath
+            : Path.Combine(root, expandedPath);
 
         var normalized = TryNormalizeFullPath(combined, out var pathError);
         if (normalized == null)
@@ -99,9 +101,11 @@ internal static class WorkspacePathGuard
             return false;
         }
 
-        if (!IsWithinRoot(root, normalized))
+        var allowedRoots = GetAllowedRoots(root);
+        if (!IsWithinAnyRoot(allowedRoots, normalized))
         {
-            error = $"path_out_of_workspace: '{path}' -> '{normalized}' (root='{root}')";
+            var allowed = string.Join("|", allowedRoots);
+            error = $"path_out_of_workspace: '{path}' -> '{normalized}' (allowed='{allowed}')";
             return false;
         }
 
@@ -119,6 +123,16 @@ internal static class WorkspacePathGuard
 
         return string.Equals(fullPath, root, StringComparison.Ordinal)
                || fullPath.StartsWith(rootPrefix, StringComparison.Ordinal);
+    }
+
+    private static bool IsWithinAnyRoot(IReadOnlyList<string> roots, string fullPath)
+    {
+        foreach (var root in roots)
+        {
+            if (IsWithinRoot(root, fullPath))
+                return true;
+        }
+        return false;
     }
 
     private static string? TryFindRepoRoot()
@@ -151,6 +165,72 @@ internal static class WorkspacePathGuard
             error = ex.Message;
             return null;
         }
+    }
+
+    private static List<string> GetAllowedRoots(string workspaceRoot)
+    {
+        var roots = new List<string>();
+        TryAddRoot(roots, workspaceRoot);
+
+        var configDir = ResolveAevatarConfigDirectory();
+        TryAddRoot(roots, configDir);
+
+        return roots;
+    }
+
+    private static void TryAddRoot(List<string> roots, string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+
+        var expanded = ExpandHome(path);
+        var normalized = TryNormalizeFullPath(expanded, out _);
+        if (normalized == null)
+            return;
+
+        normalized = normalized.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (!roots.Contains(normalized, StringComparer.Ordinal))
+            roots.Add(normalized);
+    }
+
+    private static string ResolveAevatarConfigDirectory()
+    {
+        var fromEnv = (Environment.GetEnvironmentVariable("AEVATAR_CONFIG_DIR") ?? string.Empty).Trim();
+        if (fromEnv.Length > 0)
+            return ExpandHome(fromEnv);
+
+        var secretsDir = (Environment.GetEnvironmentVariable("AEVATAR_SECRETS_DIR") ?? string.Empty).Trim();
+        if (secretsDir.Length > 0)
+            return ExpandHome(secretsDir);
+
+        var secretsPath = (Environment.GetEnvironmentVariable("AEVATAR_SECRETS_PATH") ?? string.Empty).Trim();
+        if (secretsPath.Length > 0)
+            return Path.GetDirectoryName(ExpandHome(secretsPath)) ?? ExpandHome(secretsPath);
+
+        var legacySecrets = (Environment.GetEnvironmentVariable("AEVATAR_SECRETS") ?? string.Empty).Trim();
+        if (legacySecrets.Length > 0)
+            return Path.GetDirectoryName(ExpandHome(legacySecrets)) ?? ExpandHome(legacySecrets);
+
+        var configPath = (Environment.GetEnvironmentVariable("AEVATAR_CONFIG") ?? string.Empty).Trim();
+        if (configPath.Length > 0)
+            return Path.GetDirectoryName(ExpandHome(configPath)) ?? ExpandHome(configPath);
+
+        var configPath2 = (Environment.GetEnvironmentVariable("AEVATAR_CONFIG_PATH") ?? string.Empty).Trim();
+        if (configPath2.Length > 0)
+            return Path.GetDirectoryName(ExpandHome(configPath2)) ?? ExpandHome(configPath2);
+
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return Path.Combine(home, ".aevatar");
+    }
+
+    private static string ExpandHome(string path)
+    {
+        var p = (path ?? string.Empty).Trim().Replace('\\', '/');
+        if (!p.StartsWith("~/", StringComparison.Ordinal))
+            return path;
+
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return Path.Combine(home, p[2..]);
     }
 }
 

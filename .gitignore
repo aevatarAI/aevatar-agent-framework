@@ -513,7 +513,9 @@ scripts/.pids/
 
 # Scientific Research Assistant runtime workspace (safe: anchored)
 /apps/Aevatar.VibeResearching/workspace/
+/apps/Aevatar.VibeResearching/trace/
 /apps/Aevatar.VibeResearching/traces/
+/apps/Aevatar.VibeResearching/memory/
 /apps/Aevatar.VibeResearching/outputs/
 
 # Local skill packs (downloaded/updated at runtime)
@@ -544,3 +546,5 @@ scripts/.pids/
 deploy-frontend-s3.sh
 
 .playwright-mcp
+
+*.db

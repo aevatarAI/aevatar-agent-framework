@@ -6,10 +6,18 @@ using Aevatar.Agents.AI.DependencyInjection;
 using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Runtime.Local;
 using Aevatar.Agents.AI.Tool.MCP.Configuration;
+using Aevatar.Agents.Cognitive.DependencyInjection;
+using Aevatar.Agents.Cognitive.Primitives;
 using Aevatar.Agents.Core.Secrets;
 using Aevatar.Agents.Knowledge.Graph;
+using Aevatar.Agents.Sessions;
 using Aevatar.Agents.Persistence.InMemory.Graph;
+using Aevatar.Agents.Persistence.MongoDB;
+using Aevatar.Agents.Persistence.MongoDB.GAgent;
+using Aevatar.Agents.Persistence.SQLite.GAgent.DependencyInjection;
+using Aevatar.Agents.Persistence.SQLite.GAgent.Stores;
 using Aevatar.Agents.Persistence.Neo4j.Graph.DependencyInjection;
+using Microsoft.Data.Sqlite;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.Options;
 using VibeResearching.Api.Infrastructure;
@@ -25,6 +33,11 @@ using VibeResearching.Api.Vibe.Delivery;
 using VibeResearching.Api.Vibe.Dag;
 using VibeResearching.Vibe.Pivot;
 using VibeResearching.Api.Vibe.Pivot;
+using VibeResearching.Vibe.ReviewAgent;
+using Aevatar.VibeResearching.Api.ReviewAgent.Api;
+using Aevatar.VibeResearching.Api.ReviewAgent.Events;
+using Aevatar.VibeResearching.Api.ReviewAgent.Storage;
+using VibeResearching.Api.ReviewAgent.Verification;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -110,13 +123,94 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
 });
 
-builder.Services.AddAevatarAgentSystem(b => b.UseLocalRuntime());
+// Optional: MongoDB / SQLite persistence for session registry + agent state
+var mongoConn =
+    builder.Configuration["MongoDB:ConnectionString"] ??
+    builder.Configuration["MONGODB_CONNECTION_STRING"] ??
+    builder.Configuration["AEVATAR_MONGODB_CONNECTION_STRING"];
+
+var mongoDb =
+    builder.Configuration["MongoDB:Database"] ??
+    builder.Configuration["MONGODB_DATABASE"] ??
+    "aevatar";
+
+var sqliteConn =
+    builder.Configuration["SQLite:ConnectionString"] ??
+    builder.Configuration["SQLITE_CONNECTION_STRING"] ??
+    builder.Configuration["AEVATAR_SQLITE_CONNECTION_STRING"];
+
+var sqlitePath =
+    builder.Configuration["SQLite:Path"] ??
+    builder.Configuration["SQLITE_PATH"] ??
+    builder.Configuration["AEVATAR_SQLITE_PATH"];
+
+var sqliteEnabled = builder.Configuration.GetValue<bool?>("SQLite:Enabled") ?? false;
+
+if (string.IsNullOrWhiteSpace(sqliteConn) && string.IsNullOrWhiteSpace(sqlitePath) && sqliteEnabled)
+{
+    var root = Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", ".."));
+    var dataDir = Path.Combine(root, "workspace", ".data");
+    Directory.CreateDirectory(dataDir);
+    sqlitePath = Path.Combine(dataDir, "vibe.db");
+}
+
+if (string.IsNullOrWhiteSpace(sqliteConn) && !string.IsNullOrWhiteSpace(sqlitePath))
+{
+    var builderConn = new SqliteConnectionStringBuilder
+    {
+        DataSource = sqlitePath!.Trim(),
+        Cache = SqliteCacheMode.Shared
+    };
+    sqliteConn = builderConn.ToString();
+}
+
+var useMongo = !string.IsNullOrWhiteSpace(mongoConn);
+var useSqlite = !useMongo && (sqliteEnabled || !string.IsNullOrWhiteSpace(sqliteConn));
+
+if (useMongo)
+{
+    builder.Services.AddAevatarMongoDB(mongoConn!, mongoDb);
+    builder.Services.AddAevatarAgentSystem(options =>
+    {
+        options.StateStoreType = typeof(MongoDBStateStore<>);
+        options.EventRouterStoreType = typeof(MongoDBEventRouterStore);
+    }, b => b.UseLocalRuntime());
+}
+else if (useSqlite)
+{
+    builder.Services.AddAevatarSQLiteGAgent(sqliteConn!);
+    builder.Services.AddAevatarAgentSystem(options =>
+    {
+        options.StateStoreType = typeof(SQLiteStateStore<>);
+        options.EventRouterStoreType = typeof(SQLiteEventRouterStore);
+    }, b => b.UseLocalRuntime());
+}
+else
+{
+    builder.Services.AddAevatarAgentSystem(b => b.UseLocalRuntime());
+}
+// Cognitive workflows (session API + DAG consensus): load from project-local workflows directory.
+var workflowsDir = Path.Combine(builder.Environment.ContentRootPath, "workflows");
+builder.Services.AddCognitiveAgents(options =>
+{
+    options.WorkflowsDirectory = workflowsDir;
+    options.LoadBuiltInWorkflows = true;
+});
+// builder.Services.AddAevatarCognitiveSessions();
 
 // Default: enable both MEAI + LLMTornado providers (framework will composite-inject factories).
 builder.Services.AddAevatarLLMProviders();
 
 builder.Services.AddSingleton<ResearchRuntime>();
 builder.Services.AddSingleton<MaterialsService>();
+if (useMongo || useSqlite)
+{
+    builder.Services.AddSingleton<IVibeSessionStore, VibeSessionStore>();
+}
+else
+{
+    builder.Services.AddSingleton<IVibeSessionStore, FileVibeSessionStore>();
+}
 builder.Services.AddSingleton<ResearchSessionManager>();
 builder.Services.AddSingleton<SessionUiSnapshotStore>();
 builder.Services.AddSingleton<SessionUiTraceRecorder>();
@@ -134,6 +228,8 @@ builder.Services.AddSingleton<FactLifecycleService>();
 
 // Vibe: safe uploads for attachment references
 builder.Services.AddSingleton<VibeResearching.Api.Vibe.Uploads.UploadsStore>();
+builder.Services.AddSingleton<VibeResearching.Api.Vibe.Uploads.FileTextParser>();
+builder.Services.AddSingleton<VibeResearching.Api.Vibe.Uploads.UploadExtractionService>();
 
 // Vibe: per-round derivation trace (file-backed)
 builder.Services.AddSingleton<VibeResearching.Api.Vibe.Trace.TraceStore>();
@@ -149,6 +245,7 @@ builder.Services.AddSingleton<BriefStore>();
 // - DagStore 会把图快照同步落盘到 artifacts/dag/snapshot.json，保证可审阅/可恢复
 // ==========================================
 builder.Services.AddAevatarGraphNeo4j();
+// builder.Services.AddAevatarGraphInMemory();
 builder.Services.AddKnowledgeGraph();
 
 // Vibe: DAG/Graph store (SSoT: KnowledgeGraph + file snapshot mirror)
@@ -192,6 +289,40 @@ builder.Services.AddSingleton<VibeResearching.Api.Vibe.VibeGoalLoopRunner>();
 // Vibe: milestone-driven loop runner (execute research by iterating through milestones)
 builder.Services.AddSingleton<VibeResearching.Api.Vibe.VibeMilestoneLoopRunner>();
 
+// Review Agent: background knowledge node verification
+builder.Services.Configure<ReviewAgentOptions>(builder.Configuration.GetSection(ReviewAgentOptions.SectionName));
+builder.Services.AddSingleton<IKnowledgeNodeVerifier, KnowledgeNodeVerifier>();
+builder.Services.AddSingleton<IReviewAgentService, ReviewAgentService>();
+builder.Services.AddSingleton<IReviewAgentStorage>(sp =>
+{
+    var env = sp.GetRequiredService<IHostEnvironment>();
+    var logger = sp.GetRequiredService<ILogger<FileReviewAgentStorage>>();
+    var systemRoot = Path.GetFullPath(Path.Combine(env.ContentRootPath, "..", ".."));
+    var basePath = Path.Combine(systemRoot, "workspace", "review-agent");
+    return new FileReviewAgentStorage(basePath, logger);
+});
+builder.Services.AddSingleton<IReviewAgentEventPublisher, ReviewAgentEventPublisher>();
+// Register ReviewAgentHostedService as singleton so IReviewAgentTrigger can be injected
+builder.Services.AddSingleton<ReviewAgentHostedService>();
+builder.Services.AddSingleton<IReviewAgentTrigger>(sp => sp.GetRequiredService<ReviewAgentHostedService>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ReviewAgentHostedService>());
+
+// CORS configuration for cross-origin deployment
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        // 从配置读取允许的域名，支持多个域名
+        var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+            ?? ["http://localhost:3000", "http://localhost:5173"];
+
+        policy.WithOrigins(allowedOrigins)
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials();  // 需要支持 SSE 的 credentials
+    });
+});
+
 var app = builder.Build();
 
 if (syncOnly)
@@ -204,7 +335,33 @@ if (syncOnly)
     return;
 }
 
+// Best-effort: restore persisted session registry (if any)
+try
+{
+    var sessions = app.Services.GetRequiredService<ResearchSessionManager>();
+    await sessions.LoadPersistedSessionsAsync(CancellationToken.None);
+}
+catch
+{
+    // best-effort only
+}
+
+// Enable CORS (must be before routing/endpoints)
+app.UseCors();
+
 app.MapGet("/health", () => Results.Text("ok"));
+// NOTE: Cognitive Session API registers /api/sessions (conflicts with current Vibe API).
+// Enable only when we switch the frontend to the protobuf contract.
+// app.MapAevatarSessionApi();
+
+// Workflow list for current frontend (JSON list of names).
+app.MapGet("/api/workflows", (IWorkflowRegistry workflows) =>
+{
+    var list = workflows.List()
+        .OrderBy(x => x, StringComparer.Ordinal)
+        .ToList();
+    return Results.Json(list);
+});
 
 // Manual sync (no restart)
 app.MapPost("/api/skills/sync", async (SkillPacksSyncService sync, CancellationToken ct) =>
@@ -219,7 +376,7 @@ app.MapGet("/api/skills/sync/status", (SkillPacksSyncProgress progress) =>
     return Results.Json(progress.GetSnapshot());
 });
 
-app.MapGet("/api/info", (IOptionsMonitor<LLMProvidersConfig> llm, IConfiguration cfg) =>
+app.MapGet("/api/info", (IOptionsMonitor<LLMProvidersConfig> llm, IConfiguration cfg, IAevatarUserSecretsStore secrets) =>
 {
     var cur = llm.CurrentValue;
     var defaultProvider = LlmConfigDefaults.ResolveEffectiveDefaultProviderName(cur);
@@ -228,10 +385,26 @@ app.MapGet("/api/info", (IOptionsMonitor<LLMProvidersConfig> llm, IConfiguration
     var mcpResolved = MCPServersConfigReader.Resolve(cfg);
 
     // Only show providers that are actually runnable (have apiKey).
-    // We still expose full provider keys as `providersAll` for debugging.
-    var providersWithKey = cur.Providers
+    // Check both LLMProvidersConfig and secrets store for providers with API keys.
+    var providersFromConfig = cur.Providers
         .Where(kv => kv.Value != null && !string.IsNullOrWhiteSpace(kv.Value.ApiKey))
-        .Select(kv => kv.Key)
+        .Select(kv => kv.Key);
+
+    // Also include providers from secrets store (for freshly saved keys before config reload)
+    var providersFromSecrets = secrets.GetAll()
+        .Where(kv => kv.Key.StartsWith("LLMProviders:Providers:", StringComparison.OrdinalIgnoreCase) &&
+                     kv.Key.EndsWith(":ApiKey", StringComparison.OrdinalIgnoreCase) &&
+                     !string.IsNullOrWhiteSpace(kv.Value))
+        .Select(kv =>
+        {
+            var parts = kv.Key.Split(':');
+            return parts.Length >= 3 ? parts[2] : null;
+        })
+        .Where(name => !string.IsNullOrWhiteSpace(name))
+        .Cast<string>();
+
+    var providersWithKey = providersFromConfig
+        .Union(providersFromSecrets, StringComparer.OrdinalIgnoreCase)
         .OrderBy(x => x, StringComparer.Ordinal)
         .ToList();
 
@@ -297,7 +470,7 @@ app.MapGet("/api/llm/test", async (
     CancellationToken ct) =>
 {
     if (!IsLocal(http))
-        return Results.Forbid();
+        return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
     var resolved = LlmProbe.Resolve(llm.CurrentValue, providerName);
     if (!resolved.Ok)
@@ -315,7 +488,7 @@ app.MapGet("/api/llm/models", async (
     CancellationToken ct) =>
 {
     if (!IsLocal(http))
-        return Results.Forbid();
+        return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
     var resolved = LlmProbe.Resolve(llm.CurrentValue, providerName);
     if (!resolved.Ok)
@@ -331,7 +504,7 @@ app.MapGet("/api/llm/status", (
     string? providerName) =>
 {
     if (!IsLocal(http))
-        return Results.Forbid();
+        return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
     var resolved = LlmProbe.Resolve(llm.CurrentValue, providerName);
     if (!resolved.Ok)
@@ -360,10 +533,18 @@ app.MapResearchSessionsApi();
 // Pivot API (rollback support for US-5)
 app.MapPivotApi();
 
+// Review Agent API (background verification status + settings)
+app.MapReviewAgentApi();
+
 app.Run();
 
 static bool IsLocal(HttpContext ctx)
 {
+    // Allow disabling local check for trusted Docker environments
+    var allowRemote = Environment.GetEnvironmentVariable("ALLOW_REMOTE_LLM_API");
+    if (string.Equals(allowRemote, "true", StringComparison.OrdinalIgnoreCase))
+        return true;
+
     var ip = ctx.Connection.RemoteIpAddress;
     return ip == null || System.Net.IPAddress.IsLoopback(ip);
 }

@@ -7,6 +7,9 @@ namespace Aevatar.Agents.AI;
 /// </summary>
 public partial class ChatRequest
 {
+    public const string SessionIdKey = "session_id";
+    public const string SessionIdKeyCamel = "sessionId";
+
     /// <summary>
     /// Creates a new ChatRequest with a generated ID
     /// </summary>
@@ -29,6 +32,31 @@ public partial class ChatRequest
     public void AddContext(string key, string value)
     {
         Context[key] = value;
+    }
+
+    /// <summary>
+    /// Sets session id for cross-agent session persistence.
+    /// </summary>
+    public void SetSessionId(string sessionId)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+            return;
+
+        Context[SessionIdKey] = sessionId.Trim();
+    }
+
+    /// <summary>
+    /// Gets session id from context (if any).
+    /// </summary>
+    public string? GetSessionId()
+    {
+        if (Context.TryGetValue(SessionIdKey, out var value) && !string.IsNullOrWhiteSpace(value))
+            return value;
+
+        if (Context.TryGetValue(SessionIdKeyCamel, out var camel) && !string.IsNullOrWhiteSpace(camel))
+            return camel;
+
+        return null;
     }
 
     /// <summary>

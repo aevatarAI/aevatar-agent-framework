@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package VibeResearching.Sessions;
+
+option csharp_namespace = "VibeResearching.Contracts.Sessions";
+
+import "google/protobuf/timestamp.proto";
+
+// ============================================================
+//  Session Registry (DB-backed, process-agnostic)
+//
+//  Purpose:
+//  - Persist session list metadata for VibeResearching API.
+//  - Restore sessions after process restart when a DB is connected.
+// ============================================================
+
+message VibeSessionRecord {
+  string session_id = 1;
+  string provider_name = 2;
+  string dag_id = 3; // empty => per-session
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
+  string coordinator_id = 6;
+  repeated string worker_ids = 7;
+  repeated string agent_ids = 8;
+}
+
+message VibeSessionIndex {
+  repeated VibeSessionRecord sessions = 1;
+}

@@ -138,14 +138,18 @@ public partial class CognitiveCoordinatorGAgent
         _onStepEvent?.Invoke(evt);
 
         // Publish unified ExecutionTraceEvent for external streaming (best-effort, no await).
-        var traceEvent = BuildExecutionTraceEvent(evt, resolvedMessage);
+        var traceEvent = BuildExecutionTraceEvent(evt, resolvedMessage, SessionId, Id);
         _ = PublishAsync(traceEvent);
 
         Logger.LogDebug("[Workflow] Step {StepId} ({Type}): {Status} - {Message}",
             step.Id, step.Type, status, resolvedMessage);
     }
 
-    private static ExecutionTraceEvent BuildExecutionTraceEvent(WorkflowStepEvent evt, string resolvedMessage)
+    private static ExecutionTraceEvent BuildExecutionTraceEvent(
+        WorkflowStepEvent evt,
+        string resolvedMessage,
+        string? sessionId,
+        string agentId)
     {
         var traceEvent = new ExecutionTraceEvent
         {
@@ -154,6 +158,18 @@ public partial class CognitiveCoordinatorGAgent
             Message = resolvedMessage,
             NodeId = evt.StepId ?? string.Empty
         };
+
+        if (!string.IsNullOrWhiteSpace(sessionId))
+        {
+            traceEvent.Fields[ExecutionTraceEventFields.SessionId] =
+                ExecutionTraceEventFieldValue.FromString(sessionId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(agentId))
+        {
+            traceEvent.Fields[ExecutionTraceEventFields.AgentId] =
+                ExecutionTraceEventFieldValue.FromString(agentId);
+        }
 
         traceEvent.Fields[ExecutionTraceEventFields.Status] =
             ExecutionTraceEventFieldValue.FromString(MapTraceStatus(evt.Status));

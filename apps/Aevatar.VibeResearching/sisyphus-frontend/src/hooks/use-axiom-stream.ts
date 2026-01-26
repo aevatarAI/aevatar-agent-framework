@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from "react"
 import { flushSync } from "react-dom"
 import { useSisyphusStore } from "@/store/sisyphus-store"
+import { useStreamContentStore } from "@/store/stream-content-store"
 import { createAxiomEventStream, getToolsSnapshot, getDagSnapshot } from "@/lib/axiom-client"
 import type { EventStream } from "@aevatar/kit-protocol"
 import { parseMessageId } from "@aevatar/kit-protocol"
@@ -29,14 +30,22 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     addRawEvent,
     setTools,
     setCurrentRun,
-    updateAgentMessage,
+    setInputMode,
+    // updateAgentMessage removed - now using isolated stream store
     setAgentRoster,
     setAgentProviders,
     updateAgentStatusReport,
+    updateAgentLlmStatus,
   } = useSisyphusStore()
 
   // Tool outputs state (per-message)
+  // NOTE: Cleared on session change to prevent memory leaks
   const toolOutputsRef = useRef<Map<string, Map<string, ToolOutput>>>(new Map())
+
+  // Clear tool outputs (called on session change)
+  const clearToolOutputs = useCallback(() => {
+    toolOutputsRef.current.clear()
+  }, [])
 
   // Upsert tool output for a message
   const upsertToolOutput = useCallback((messageId: string, tool: ToolOutput) => {
@@ -48,35 +57,36 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     msgTools.set(tool.toolCallId, { ...existing, ...tool })
   }, [])
 
-  // Handle worker streaming content - use flushSync for immediate render
+  // ── Stream Content Store Actions ──
+  // Using isolated store for high-frequency streaming updates
+  // This prevents cascading re-renders across the entire app
+  const { 
+    appendWorkerContent, 
+    appendAgentContent,
+    setAgentMeta,
+    finalizeWorkerContent,
+    finalizeAgentContent,
+    clearAllStreams,
+  } = useStreamContentStore.getState()
+
+  // Handle worker streaming content - use flushSync with ISOLATED store
+  // Only components subscribed to this specific workerId will re-render
   const appendWorkerStream = useCallback((workerId: string, delta: string) => {
     flushSync(() => {
-      useSisyphusStore.setState((state) => {
-        const worker = state.workers[workerId]
-        // Auto-create worker if not exists (for real-time streaming)
-        const baseWorker = worker || {
-          id: workerId,
-          name: workerId,
-          status: "running" as const,
-          streaming: true,
-          streamContent: "",
-          lastResponse: "",
-          tokenIndex: 0,
-          history: [],
-        }
-        return {
-          workers: {
-            ...state.workers,
-            [workerId]: {
-              ...baseWorker,
-              streaming: true,
-              streamContent: (baseWorker.streamContent || "") + delta,
-            },
-          },
-        }
-      })
+      appendWorkerContent(workerId, delta)
     })
-  }, [])
+    
+    // Also ensure worker exists in main store (without streaming content)
+    const state = useSisyphusStore.getState()
+    if (!state.workers[workerId]) {
+      updateWorker({
+        id: workerId,
+        name: workerId,
+        status: "streaming",
+        streaming: true,
+      })
+    }
+  }, [appendWorkerContent, updateWorker])
 
   useEffect(() => {
     if (!sessionId || !enabled) {
@@ -97,20 +107,29 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     const stream = createAxiomEventStream(sessionId)
     streamRef.current = stream
 
-    // === Status Change ===
-    // Note: stream.onStatusChange may not work as expected with @aevatar/kit-protocol
-    // We'll set connected = true when we receive the first event
-    stream.onStatusChange((status) => {
-      console.log(`[useAxiomStream] Status changed: ${status}`)
-      setConnected(status === "connected")
-    })
-
     // Fallback: Set connected when we receive any event (first event = connected)
     let hasReceivedEvent = false
+    
+    // Connection timeout: if no event received in 10 seconds, log warning
+    const connectionTimeout = setTimeout(() => {
+      if (!hasReceivedEvent) {
+        console.warn(`[useAxiomStream] No events received after 10s for session ${sessionId}. Check backend connection.`)
+      }
+    }, 10000)
+
+    // === Status Change ===
+    stream.onStatusChange((status) => {
+      setConnected(status === "connected")
+      if (status === "connected") {
+        hasReceivedEvent = true
+        clearTimeout(connectionTimeout)
+      }
+    })
+
     const markConnected = () => {
       if (!hasReceivedEvent) {
         hasReceivedEvent = true
-        console.log(`[useAxiomStream] First event received, marking connected`)
+        clearTimeout(connectionTimeout)
         setConnected(true)
       }
     }
@@ -120,13 +139,17 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     // Messages Snapshot - marks connection as established and restores streaming content
     stream.on("MESSAGES_SNAPSHOT", (event) => {
       markConnected()
-      addRawEvent(event)
+      if (import.meta.env.DEV) {
+        addRawEvent(event)
+      }
 
       // Restore messages from snapshot - this is crucial for session switching
       // When user switches back to a session that's still streaming, we need to
       // restore the accumulated content immediately
       const messages = (event as { messages?: Array<{ id: string; role: string; content: string }> }).messages || []
-      console.log(`[AxiomStream] MESSAGES_SNAPSHOT received with ${messages.length} messages`)
+
+      // Get isolated store for direct state updates
+      const streamStore = useStreamContentStore.getState()
 
       for (const msg of messages) {
         if (!msg.id || !msg.content) continue
@@ -142,47 +165,47 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
           const agentName = role === "assistant" ? "research_assistant" : role
           const parsed = parseMessageId(msg.id)
 
-          // Restore worker streaming content
+          // Restore worker streaming content to isolated store
           if (parsed.workerId) {
-            flushSync(() => {
-              useSisyphusStore.setState((state) => {
-                const existingWorker = state.workers[parsed.workerId]
-                // Only restore if worker doesn't exist or has no content yet
-                if (!existingWorker || !existingWorker.streamContent) {
-                  return {
-                    workers: {
-                      ...state.workers,
-                      [parsed.workerId]: {
-                        // Base defaults
-                        id: parsed.workerId,
-                        name: parsed.workerId === "coordinator" ? "Coordinator" : `Worker ${parsed.workerId}`,
-                        status: "streaming" as const,
-                        streaming: true,
-                        lastResponse: "",
-                        tokenIndex: 0,
-                        history: [],
-                        // Override with restored streaming content
-                        streamContent: msg.content,
-                      },
-                    },
-                  }
-                }
-                return state
+            const existingWorker = streamStore.workerStreams[parsed.workerId]
+            if (!existingWorker?.content) {
+              // Set full content directly (not append)
+              useStreamContentStore.setState((state) => ({
+                workerStreams: {
+                  ...state.workerStreams,
+                  [parsed.workerId]: {
+                    content: msg.content,
+                    isStreaming: true,
+                    tokenCount: Math.ceil(msg.content.length / 4),
+                  },
+                },
+              }))
+              
+              // Ensure worker exists in main store
+              updateWorker({
+                id: parsed.workerId,
+                name: parsed.workerId === "coordinator" ? "Coordinator" : `Worker ${parsed.workerId}`,
+                status: "streaming",
+                streaming: true,
               })
-            })
+            }
           }
 
-          // Restore agent message
-          flushSync(() => {
-            updateAgentMessage(agentName, {
-              agent: agentName,
-              isStreaming: true, // Assume still streaming, TEXT_MESSAGE_END will finalize
-              isFinal: false,
-              content: msg.content, // Set full content (not delta) - store will handle
-            })
-          })
-
-          console.log(`[AxiomStream] Restored message for agent=${agentName}, content.length=${msg.content.length}`)
+          // Restore agent message to isolated store
+          const existingAgent = streamStore.agentStreams[agentName]
+          if (!existingAgent?.content) {
+            useStreamContentStore.setState((state) => ({
+              agentStreams: {
+                ...state.agentStreams,
+                [agentName]: {
+                  content: msg.content,
+                  isStreaming: true,
+                  isFinal: false,
+                  tokenCount: Math.ceil(msg.content.length / 4),
+                },
+              },
+            }))
+          }
         }
       }
     })
@@ -237,58 +260,43 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
 
     // Text Message Start
     stream.on("TEXT_MESSAGE_START", (event) => {
-      addRawEvent(event)
+      if (import.meta.env.DEV) {
+        addRawEvent(event)
+      }
       const parsed = parseMessageId(event.messageId)
       
-      // Update worker
+      // Update worker in main store (metadata only, not streaming content)
       updateWorker({
         id: parsed.workerId,
         name: parsed.workerId === "coordinator" ? "Coordinator" : `Worker ${parsed.workerId}`,
         status: "streaming",
         streaming: true,
         stepId: parsed.stepId,
-        streamContent: "",
       })
       
-      // Also update agent message if this is an agent (not worker-N)
-      // messageId format: msg:sessionId:agent:runId
-      const parts = event.messageId.split(":")
-      if (parts.length >= 4) {
-        const agent = parts[2]
-        // Check if it's an agent name (not "user" or "worker-*")
-        if (agent && agent !== "user" && !agent.startsWith("worker")) {
-          const agentName = agent === "assistant" ? "research_assistant" : agent
-          updateAgentMessage(agentName, {
-            agent: agentName,
-            isStreaming: true,
-            isFinal: false,
-            content: "", // Will accumulate via TEXT_MESSAGE_CONTENT
-          })
-        }
-      }
+      // Agent streaming state is managed by isolated store
+      // No need to update main store here - content will flow via TEXT_MESSAGE_CONTENT
     })
 
     // Text Message Content
     stream.on("TEXT_MESSAGE_CONTENT", (event) => {
-      addRawEvent(event)
+      // Skip rawEvents in production for performance
+      if (import.meta.env.DEV) {
+        addRawEvent(event)
+      }
+      
       const parsed = parseMessageId(event.messageId)
       appendWorkerStream(parsed.workerId, event.delta)
 
-      // Debug: log streaming events
-      console.log(`[SSE] TEXT_MESSAGE_CONTENT: workerId=${parsed.workerId}, delta.length=${event.delta?.length}`)
-
-      // Also update agent message - use flushSync for immediate render
+      // Also update agent message - use ISOLATED store for immediate render
+      // Only components subscribed to this specific agent will re-render
       const parts = event.messageId.split(":")
       if (parts.length >= 4) {
         const agent = parts[2]
         if (agent && agent !== "user" && !agent.startsWith("worker")) {
           const agentName = agent === "assistant" ? "research_assistant" : agent
           flushSync(() => {
-            updateAgentMessage(agentName, {
-              agent: agentName,
-              isStreaming: true,
-              content: event.delta, // Will be accumulated by store
-            })
+            appendAgentContent(agentName, event.delta)
           })
         }
       }
@@ -296,33 +304,28 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
 
     // Text Message End
     stream.on("TEXT_MESSAGE_END", (event) => {
-      addRawEvent(event)
+      if (import.meta.env.DEV) {
+        addRawEvent(event)
+      }
       const parsed = parseMessageId(event.messageId)
       
-      // Get final content and move to lastResponse
-      const state = useSisyphusStore.getState()
-      const worker = state.workers[parsed.workerId]
-      const finalContent = worker?.streamContent || ""
+      // Finalize worker content from isolated store and sync to main store
+      const finalContent = finalizeWorkerContent(parsed.workerId)
       
       updateWorker({
         id: parsed.workerId,
         status: "completed",
         streaming: false,
         lastResponse: finalContent,
-        streamContent: "",
       })
       
-      // Also finalize agent message
+      // Finalize agent message in isolated store
       const parts = event.messageId.split(":")
       if (parts.length >= 4) {
         const agent = parts[2]
         if (agent && agent !== "user" && !agent.startsWith("worker")) {
           const agentName = agent === "assistant" ? "research_assistant" : agent
-          updateAgentMessage(agentName, {
-            agent: agentName,
-            isStreaming: false,
-            isFinal: true,
-          })
+          finalizeAgentContent(agentName)
         }
       }
     })
@@ -409,7 +412,6 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
       addRawEvent(event)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const snapshot = (event as any).snapshot as Record<string, unknown> | undefined
-      console.log("[AxiomStream] STATE_SNAPSHOT snapshot:", snapshot) // Debug
       if (snapshot) {
         // Extract workers from snapshot
         if (snapshot.workers && Array.isArray(snapshot.workers)) {
@@ -490,6 +492,32 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     stream.onAevatar("aevatar.graph", (event) => {
       addRawEvent(event)
       // Could update DAG visualization here
+    })
+
+    // LLM Trace Event (from ExecutionTraceProgressHook)
+    // Provides real-time LLM request/response status
+    stream.onCustom("aevatar.llm.trace", (event) => {
+      if (import.meta.env.DEV) {
+        addRawEvent(event)
+      }
+      const value = event.value as {
+        phase?: string
+        status?: string
+        sessionId?: string
+        executionId?: string
+      }
+      
+      // Try to extract agent_id and model from rawEvent fields
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rawEvent = (event as any).rawEvent
+      const fields = rawEvent?.fields as Record<string, { stringValue?: string }> | undefined
+      const agentId = fields?.agent_id?.stringValue
+      const model = fields?.llm_model?.stringValue
+      
+      if (agentId && value.phase) {
+        const phase = value.phase as "llm.request" | "llm.response" | "idle"
+        updateAgentLlmStatus(agentId, { phase, model })
+      }
     })
 
     // Worker Started
@@ -639,6 +667,23 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
 
     // === Aevatar Vibe Custom Events (Agent Cards View) ===
 
+    // Run Steps Snapshot (bootstrap event containing runId)
+    // This restores currentRunId on page refresh
+    stream.onCustom("aevatar.ui.run_steps_snapshot", (event) => {
+      addRawEvent(event)
+      const data = event.value as {
+        sessionId?: string
+        runId?: string
+        order?: string[]
+        map?: Record<string, unknown>
+      }
+      // Only set if runId is non-empty (empty string means no active run)
+      if (data?.runId && data.runId.length > 0) {
+        setCurrentRun(data.runId)
+        setInputMode('vibe')
+      }
+    })
+
     // Agents Roster Snapshot
     stream.onCustom("aevatar.vibe.agents_snapshot", (event) => {
       addRawEvent(event)
@@ -679,7 +724,9 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
 
     // Agent Message Meta (per-agent card labels: agent/stepName/providerName)
     stream.onCustom("aevatar.vibe.message_meta", (event) => {
-      addRawEvent(event)
+      if (import.meta.env.DEV) {
+        addRawEvent(event)
+      }
       const data = event.value as {
         messageId?: string
         agent?: string
@@ -687,17 +734,16 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
         providerName?: string
       }
       if (data?.messageId && data?.agent) {
-        const { setAgentMessageMeta, updateAgentMessage } = useSisyphusStore.getState()
+        const { setAgentMessageMeta } = useSisyphusStore.getState()
         setAgentMessageMeta({
           messageId: data.messageId,
           agent: data.agent,
           stepName: data.stepName,
           providerName: data.providerName,
         })
-        // Also update the agentMessage with providerName/stepName
+        // Update agent metadata in isolated store
         const agentName = data.agent === "assistant" ? "research_assistant" : data.agent
-        updateAgentMessage(agentName, {
-          agent: agentName,
+        setAgentMeta(agentName, {
           providerName: data.providerName,
           stepName: data.stepName,
         })
@@ -718,14 +764,11 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
       addRawEvent(event)
       // Flexible parsing: data may be nested differently
       const raw = event.value as Record<string, unknown>
-      console.log("[AxiomStream] dag_snapshot raw:", JSON.stringify(raw, null, 2))
       
       // Try to find nodes/edges at various paths
       const dagData = (raw?.dag || raw) as Record<string, unknown>
       const rawNodes = (dagData?.nodes || []) as unknown[]
       const rawEdges = (dagData?.edges || []) as unknown[]
-      
-      console.log("[AxiomStream] Parsed nodes/edges:", { nodes: rawNodes.length, edges: rawEdges.length })
       
       // Always update dag state even if empty (to clear stale data)
       const { setDag } = useSisyphusStore.getState()
@@ -753,14 +796,12 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
           type: edge.type as string | undefined,
         }
       })
-      console.log("[AxiomStream] Setting DAG:", { nodes: nodes.length, edges: edges.length })
       setDag({ nodes, edges })
     })
 
     // DAG Updated - Trigger refresh by fetching latest DAG
     stream.onCustom("aevatar.vibe.dag_updated", async (event) => {
       addRawEvent(event)
-      console.log("[AxiomStream] DAG updated notification received, fetching latest DAG...")
 
       // Fetch updated DAG from API
       if (sessionId) {
@@ -785,7 +826,6 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
               source: e.fromId,
               target: e.toId,
             }))
-            console.log("[AxiomStream] DAG refreshed:", { nodes: nodes.length, edges: edges.length })
             setDag({ nodes, edges })
           }
         } catch (err) {
@@ -803,7 +843,6 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
         milestoneIndex?: number
         totalMilestones?: number
       }
-      console.log("[AxiomStream] Milestone started:", data)
       if (data.milestoneNodeId) {
         const { setActiveMilestoneNodeId } = useSisyphusStore.getState()
         // Pass sessionId to store milestone per-session
@@ -819,16 +858,49 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
         milestoneNodeId?: string
         milestoneIndex?: number
       }
-      console.log("[AxiomStream] Milestone finished:", data)
       // Clear the active milestone highlight for this session
       const { setActiveMilestoneNodeId } = useSisyphusStore.getState()
       setActiveMilestoneNodeId(null, data.sessionId || sessionId)
     })
 
+    // System Reply - Dynamic user input response from interruption analysis
+    stream.onCustom("aevatar.scientific.system_reply", (event) => {
+      addRawEvent(event)
+      const data = event.value as {
+        sessionId?: string
+        messageType?: "acknowledgment" | "direction_change" | "progress_inquiry" | "other"
+        content?: string
+      }
+      console.log("[AxiomStream] System reply:", data)
+      if (data?.content) {
+        addMessage({
+          role: "system",
+          content: data.content,
+          agentName: "SYSTEM",
+        })
+      }
+    })
+
+    // Run Interrupted - Notifies UI that a run was interrupted by new input
+    stream.onCustom("aevatar.scientific.run_interrupted", (event) => {
+      addRawEvent(event)
+      const data = event.value as {
+        threadId?: string
+        oldRunId?: string
+        newRunId?: string
+        reason?: string
+      }
+      console.log("[AxiomStream] Run interrupted:", data)
+      // Update current run to the new run
+      if (data.newRunId) {
+        setCurrentRun(data.newRunId)
+      }
+      // Clear isolated streams for the new run
+      clearAllStreams()
+    })
+
     // Catch-all handler - extract worker data from ProgressEvent
     stream.onAny((event) => {
-      console.log("[AxiomStream] Event:", event.type, event)
-      
       // Handle ProgressEvent to extract worker data (like reference project)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const eventData = event as any
@@ -902,8 +974,13 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     stream.connect()
 
     return () => {
+      clearTimeout(connectionTimeout)
       stream.disconnect()
       setConnected(false)
+      // Clear isolated streaming state on disconnect
+      clearAllStreams()
+      // Clear tool outputs to prevent memory leaks
+      clearToolOutputs()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- Store functions are stable, only sessionId/enabled should trigger reconnect
   }, [sessionId, enabled])

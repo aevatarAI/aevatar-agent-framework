@@ -146,6 +146,7 @@ YAML 应用由 `AgentYamlConfigApplier` 驱动，并通过以下 hook 统一策�
 
 - **开关**：
   - `EnableMemoryStoreAppend`
+  - `EnableSessionMemoryStoreAppend`（需要 `ChatRequest.Context["session_id"]`）
   - `EnableMemoryVectorIndexAppend`
 - **Scope**：
   - `MemoryStoreScopeType`（默认 PrivateAgent）

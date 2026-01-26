@@ -13,42 +13,54 @@
 
 @layer base {
   :root {
+    /* ============================================================
+       Nebula Warm - High Contrast Dark Theme
+       Optimized for readability with warm accents
+       ============================================================ */
+    
     /* === Background Colors === */
-    --bg-base: #030308;           /* 深黑紫 - 主背景 */
-    --bg-surface: #0a0a12;        /* 暗紫黑 - 卡片/面板 */
-    --bg-elevated: #101018;       /* 稍亮 - hover状态 */
-    --bg-accent: #18181f;         /* 激活状态 */
+    --bg-base: #0c0f14;           /* 深蓝黑 - 主背景 (比纯黑更舒适) */
+    --bg-surface: #141820;        /* 面板背景 - 明显分层 */
+    --bg-elevated: #1c2028;       /* hover/激活状态 */
+    --bg-accent: #242830;         /* 强调背景 */
     
-    /* === Text Colors === */
-    --text-primary: #f0f0f5;
-    --text-secondary: #a0a0b0;
-    --text-muted: #606075;
-    --text-dimmed: #404050;
+    /* === Text Colors (Maximum Visibility) === */
+    --text-primary: #ffffff;      /* 纯白 */
+    --text-secondary: #e8ecf2;    /* 次要 - 接近白 */
+    --text-muted: #d1d9e6;        /* 静音 - 仍然亮 */
+    --text-dimmed: #b8c4d4;       /* 最弱 - 保证可读 */
     
-    /* === Border Colors === */
-    --border-subtle: rgba(0, 240, 255, 0.08);
-    --border-default: rgba(0, 240, 255, 0.15);
-    --border-strong: rgba(0, 240, 255, 0.3);
+    /* === Border Colors (High Visibility) === */
+    --border-subtle: rgba(148, 163, 184, 0.18);   /* Slate 边框 */
+    --border-default: rgba(148, 163, 184, 0.28);  /* 更明显 */
+    --border-strong: rgba(148, 163, 184, 0.45);   /* 强边框 */
     
-    /* === Neon Colors === */
-    --neon-cyan: #00f0ff;         /* 🔵 主色 - 主要交互 */
-    --neon-gold: #f0b000;         /* 🟡 强调色 - 高亮 */
-    --neon-purple: #8b5cf6;       /* 🟣 次要色 - 辅助 */
-    --neon-green: #00ff88;        /* 🟢 成功状态 */
-    --neon-orange: #ffaa00;       /* 🟡 警告状态 */
-    --neon-red: #ff3366;          /* 🔴 错误状态 */
+    /* === Primary Accent (Bright Sky Blue) === */
+    --neon-cyan: #7dd3fc;         /* Sky-300 - 主色，更亮 */
+    --neon-sky: #bae6fd;          /* Sky-200 - 高亮蓝 */
     
-    /* === Glow Effects === */
-    --glow-cyan: 0 0 10px rgba(0, 240, 255, 0.5), 0 0 20px rgba(0, 240, 255, 0.3), 0 0 30px rgba(0, 240, 255, 0.1);
-    --glow-gold: 0 0 10px rgba(240, 176, 0, 0.5), 0 0 20px rgba(240, 176, 0, 0.3), 0 0 30px rgba(240, 176, 0, 0.1);
-    --glow-purple: 0 0 10px rgba(139, 92, 246, 0.5), 0 0 20px rgba(139, 92, 246, 0.3);
-    --glow-green: 0 0 10px rgba(0, 255, 136, 0.5), 0 0 20px rgba(0, 255, 136, 0.3);
+    /* === Warm Accent (Bright Amber/Gold) === */
+    --neon-gold: #fcd34d;         /* Amber-300 - 金色更亮 */
+    --neon-amber: #fbbf24;        /* Amber-400 - 金色 */
+    
+    /* === Semantic Colors (Brighter) === */
+    --neon-purple: #c4b5fd;       /* Violet-300 - 辅助紫更亮 */
+    --neon-green: #86efac;        /* Green-300 - 成功状态更亮 */
+    --neon-orange: #fdba74;       /* Orange-300 - 警告状态更亮 */
+    --neon-red: #fca5a5;          /* Red-300 - 错误状态更亮 */
+    
+    /* === Glow Effects (Brighter) === */
+    --glow-cyan: 0 0 12px rgba(125, 211, 252, 0.5), 0 0 24px rgba(125, 211, 252, 0.25);
+    --glow-gold: 0 0 12px rgba(252, 211, 77, 0.5), 0 0 24px rgba(252, 211, 77, 0.25);
+    --glow-purple: 0 0 12px rgba(196, 181, 253, 0.5), 0 0 24px rgba(196, 181, 253, 0.25);
+    --glow-green: 0 0 12px rgba(134, 239, 172, 0.5), 0 0 24px rgba(134, 239, 172, 0.25);
     
     /* === Shadows === */
-    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.6);
-    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
-    --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.6);
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
+    --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.4);
     
+    /* === Radius === */
     --radius-sm: 4px;
     --radius-md: 8px;
     --radius-lg: 12px;
@@ -74,28 +86,28 @@
     }
   }
 
-  /* === Scrollbar === */
+  /* === Scrollbar (More Visible) === */
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    height: 8px;
   }
 
   ::-webkit-scrollbar-track {
-    background: var(--bg-base);
+    background: var(--bg-surface);
+    border-radius: 4px;
   }
 
   ::-webkit-scrollbar-thumb {
-    background: var(--border-default);
-    border-radius: 3px;
+    background: var(--border-strong);
+    border-radius: 4px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: var(--neon-cyan);
-    box-shadow: var(--glow-cyan);
+    background: var(--text-muted);
   }
 
   ::selection {
-    background: rgba(0, 240, 255, 0.25);
+    background: rgba(56, 189, 248, 0.3);
     color: var(--text-primary);
   }
 }
@@ -179,17 +191,23 @@
 
   .status-dot-warning {
     background: var(--neon-orange);
-    box-shadow: 0 0 10px rgba(255, 170, 0, 0.5);
+    box-shadow: 0 0 12px rgba(253, 186, 116, 0.6);
   }
 
   .status-dot-error {
     background: var(--neon-red);
-    box-shadow: 0 0 10px rgba(255, 51, 102, 0.5);
+    box-shadow: 0 0 12px rgba(252, 165, 165, 0.6);
     animation: pulse-error 1s ease-in-out infinite;
   }
 
   .status-dot-idle {
     background: var(--text-muted);
+  }
+  
+  .status-dot-running {
+    background: var(--neon-cyan);
+    box-shadow: var(--glow-cyan);
+    animation: pulse-glow 1.5s ease-in-out infinite;
   }
 
   @keyframes pulse-glow {
@@ -202,54 +220,60 @@
     50% { opacity: 0.5; }
   }
 
-  /* === Neon Badge === */
+  /* === Badges (High Contrast) === */
   .badge {
-    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium;
-    background: rgba(0, 240, 255, 0.08);
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold;
+    background: rgba(148, 163, 184, 0.12);
     border: 1px solid var(--border-default);
-    color: var(--text-secondary);
+    color: var(--text-primary);
     font-family: "JetBrains Mono", monospace;
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }
 
   .badge-cyan {
-    background: rgba(0, 240, 255, 0.12);
-    color: var(--neon-cyan);
-    border-color: rgba(0, 240, 255, 0.3);
+    background: rgba(56, 189, 248, 0.18);
+    color: #7dd3fc;  /* Sky-300 更亮 */
+    border-color: rgba(56, 189, 248, 0.45);
+  }
+
+  .badge-sky {
+    background: rgba(125, 211, 252, 0.18);
+    color: #bae6fd;  /* Sky-200 更亮 */
+    border-color: rgba(125, 211, 252, 0.45);
   }
 
   .badge-gold {
-    background: rgba(240, 176, 0, 0.12);
-    color: var(--neon-gold);
-    border-color: rgba(240, 176, 0, 0.3);
+    background: rgba(251, 191, 36, 0.18);
+    color: #fcd34d;  /* Amber-300 更亮 */
+    border-color: rgba(251, 191, 36, 0.45);
   }
 
   .badge-purple {
-    background: rgba(139, 92, 246, 0.12);
-    color: var(--neon-purple);
-    border-color: rgba(139, 92, 246, 0.3);
+    background: rgba(167, 139, 250, 0.18);
+    color: #c4b5fd;  /* Violet-300 更亮 */
+    border-color: rgba(167, 139, 250, 0.45);
   }
 
   .badge-green {
-    background: rgba(0, 255, 136, 0.12);
-    color: var(--neon-green);
-    border-color: rgba(0, 255, 136, 0.3);
+    background: rgba(74, 222, 128, 0.18);
+    color: #86efac;  /* Green-300 更亮 */
+    border-color: rgba(74, 222, 128, 0.45);
   }
 
   .badge-orange {
-    background: rgba(255, 170, 0, 0.12);
-    color: var(--neon-orange);
-    border-color: rgba(255, 170, 0, 0.3);
+    background: rgba(251, 146, 60, 0.18);
+    color: #fdba74;  /* Orange-300 更亮 */
+    border-color: rgba(251, 146, 60, 0.45);
   }
 
   .badge-red {
-    background: rgba(255, 51, 102, 0.12);
-    color: var(--neon-red);
-    border-color: rgba(255, 51, 102, 0.3);
+    background: rgba(248, 113, 113, 0.18);
+    color: #fca5a5;  /* Red-300 更亮 */
+    border-color: rgba(248, 113, 113, 0.45);
   }
 
-  /* Legacy mappings */
+  /* === Legacy Mappings === */
   .badge-blue { @apply badge-cyan; }
   .badge-violet { @apply badge-purple; }
   .badge-emerald { @apply badge-green; }
@@ -261,8 +285,7 @@
   .typing-cursor::after {
     content: '▌';
     animation: cursor-blink 0.8s step-end infinite;
-    color: var(--neon-cyan);
-    text-shadow: var(--glow-cyan);
+    color: var(--neon-gold);
     margin-left: 2px;
   }
 
@@ -304,7 +327,7 @@
   /* === Node Card (Workflow) === */
   .node-card {
     background: var(--bg-surface);
-    border: 1px solid var(--border-subtle);
+    border: 1px solid var(--border-default);
     border-radius: var(--radius-lg);
     padding: 1rem;
     transition: all 0.2s ease;
@@ -313,7 +336,7 @@
 
   .node-card:hover {
     background: var(--bg-elevated);
-    border-color: var(--border-default);
+    border-color: var(--border-strong);
     transform: translateY(-2px);
     box-shadow: var(--shadow-md);
   }
@@ -325,18 +348,23 @@
 
   .node-card.running {
     border-color: var(--neon-gold);
-    box-shadow: var(--glow-pink);
+    box-shadow: var(--glow-gold);
   }
 
   .node-card.completed {
     border-color: var(--neon-green);
     box-shadow: var(--glow-green);
   }
+  
+  .node-card.error {
+    border-color: var(--neon-red);
+    box-shadow: 0 0 10px rgba(248, 113, 113, 0.3);
+  }
 
   /* === Worker Card === */
   .worker-card {
     background: var(--bg-surface);
-    border: 1px solid var(--border-subtle);
+    border: 1px solid var(--border-default);
     border-radius: var(--radius-lg);
     overflow: hidden;
     transition: all 0.2s ease;
@@ -345,11 +373,11 @@
 
   .worker-card:hover {
     background: var(--bg-elevated);
-    border-color: var(--border-default);
+    border-color: var(--border-strong);
   }
 
   .worker-card.streaming {
-    border-color: rgba(0, 240, 255, 0.4);
+    border-color: rgba(56, 189, 248, 0.5);
   }
 
   .worker-card.streaming::before {
@@ -375,16 +403,23 @@
 
   .chat-bubble.agent {
     background: var(--bg-surface);
-    border: 1px solid var(--border-subtle);
+    border: 1px solid var(--border-default);
     border-left: 3px solid var(--neon-cyan);
   }
 
   .chat-bubble.user {
-    background: rgba(255, 0, 170, 0.06);
-    border: 1px solid rgba(255, 0, 170, 0.2);
+    background: rgba(251, 191, 36, 0.08);
+    border: 1px solid rgba(251, 191, 36, 0.25);
+    border-left: 3px solid var(--neon-gold);
+  }
+  
+  .chat-bubble.system {
+    background: rgba(167, 139, 250, 0.08);
+    border: 1px solid rgba(167, 139, 250, 0.25);
+    border-left: 3px solid var(--neon-purple);
   }
 
-  /* === Neon Buttons === */
+  /* === Buttons (Nebula Warm) === */
   .btn-primary {
     @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold;
     background: var(--neon-cyan);
@@ -395,6 +430,8 @@
   }
 
   .btn-primary:hover {
+    background: var(--neon-sky);
+    border-color: var(--neon-sky);
     box-shadow: var(--glow-cyan);
     transform: translateY(-1px);
   }
@@ -405,14 +442,28 @@
 
   .btn-secondary {
     @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium;
+    background: var(--bg-surface);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-default);
+    transition: all 0.2s ease;
+  }
+
+  .btn-secondary:hover {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    border-color: var(--border-strong);
+  }
+
+  .btn-outline {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium;
     background: transparent;
     color: var(--neon-cyan);
     border: 1px solid var(--neon-cyan);
     transition: all 0.2s ease;
   }
 
-  .btn-secondary:hover {
-    background: rgba(0, 240, 255, 0.1);
+  .btn-outline:hover {
+    background: rgba(56, 189, 248, 0.1);
     box-shadow: var(--glow-cyan);
   }
 
@@ -423,8 +474,21 @@
   }
 
   .btn-ghost:hover {
-    color: var(--neon-cyan);
-    background: rgba(0, 240, 255, 0.08);
+    color: var(--text-primary);
+    background: var(--bg-elevated);
+  }
+
+  .btn-warning {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold;
+    background: var(--neon-gold);
+    color: var(--bg-base);
+    border: 1px solid var(--neon-gold);
+    transition: all 0.2s ease;
+  }
+
+  .btn-warning:hover {
+    box-shadow: var(--glow-gold);
+    transform: translateY(-1px);
   }
 
   /* === Icon Button === */
@@ -435,16 +499,21 @@
   }
 
   .icon-btn:hover {
-    color: var(--neon-cyan);
-    background: rgba(0, 240, 255, 0.08);
+    color: var(--text-primary);
+    background: var(--bg-elevated);
   }
 
-  /* === Input with Neon Focus === */
+  .icon-btn:hover.icon-btn-accent {
+    color: var(--neon-cyan);
+    background: rgba(56, 189, 248, 0.1);
+  }
+
+  /* === Input (High Contrast Focus) === */
   .input {
     @apply w-full px-4 py-3 rounded-lg text-sm;
     background: var(--bg-base);
     color: var(--text-primary);
-    border: 1px solid var(--border-subtle);
+    border: 1px solid var(--border-default);
     font-family: "Space Grotesk", sans-serif;
     transition: all 0.2s ease;
   }
@@ -454,19 +523,19 @@
   }
 
   .input:hover {
-    border-color: var(--border-default);
+    border-color: var(--border-strong);
   }
 
   .input:focus {
     outline: none;
     border-color: var(--neon-cyan);
-    box-shadow: 0 0 0 2px rgba(0, 240, 255, 0.15), var(--glow-cyan);
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
   }
 
   /* === Background Patterns === */
   .bg-dots {
     background-image: radial-gradient(
-      rgba(0, 240, 255, 0.06) 1px,
+      rgba(148, 163, 184, 0.08) 1px,
       transparent 1px
     );
     background-size: 24px 24px;
@@ -474,20 +543,20 @@
 
   .bg-gradient-subtle {
     background: 
-      radial-gradient(ellipse at 20% 0%, rgba(0, 240, 255, 0.06) 0%, transparent 50%),
-      radial-gradient(ellipse at 80% 100%, rgba(255, 0, 170, 0.04) 0%, transparent 50%),
-      radial-gradient(ellipse at 50% 50%, rgba(139, 92, 246, 0.03) 0%, transparent 60%),
+      radial-gradient(ellipse at 20% 0%, rgba(56, 189, 248, 0.06) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 100%, rgba(251, 191, 36, 0.04) 0%, transparent 50%),
+      radial-gradient(ellipse at 50% 50%, rgba(167, 139, 250, 0.03) 0%, transparent 60%),
       var(--bg-base);
   }
 
   .bg-grid-animated {
     background-image: 
-      linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px);
+      linear-gradient(rgba(148, 163, 184, 0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148, 163, 184, 0.04) 1px, transparent 1px);
     background-size: 40px 40px;
   }
 
-  /* === Neon Line Decoration === */
+  /* === Decorative Lines === */
   .neon-line-top {
     position: relative;
   }
@@ -515,6 +584,16 @@
     height: 1px;
     background: linear-gradient(90deg, transparent, var(--neon-gold), transparent);
   }
+  
+  .divider {
+    height: 1px;
+    background: var(--border-default);
+  }
+  
+  .divider-strong {
+    height: 1px;
+    background: var(--border-strong);
+  }
 }
 
 @layer utilities {
@@ -526,17 +605,21 @@
     transition: all 0.2s ease;
   }
 
-  /* === Neon Text Glow === */
+  /* === Text Glow (Subtle) === */
   .text-glow-cyan {
-    text-shadow: 0 0 8px var(--neon-cyan), 0 0 16px rgba(0, 240, 255, 0.4);
+    text-shadow: 0 0 8px rgba(56, 189, 248, 0.5);
   }
 
   .text-glow-gold {
-    text-shadow: 0 0 8px var(--neon-gold), 0 0 16px rgba(240, 176, 0, 0.4);
+    text-shadow: 0 0 8px rgba(251, 191, 36, 0.5);
   }
 
   .text-glow-purple {
-    text-shadow: 0 0 8px var(--neon-purple), 0 0 16px rgba(139, 92, 246, 0.4);
+    text-shadow: 0 0 8px rgba(167, 139, 250, 0.5);
+  }
+
+  .text-glow-green {
+    text-shadow: 0 0 8px rgba(74, 222, 128, 0.5);
   }
 
   .animate-fade-in {

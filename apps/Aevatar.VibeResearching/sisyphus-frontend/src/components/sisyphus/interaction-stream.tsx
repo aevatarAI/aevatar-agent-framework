@@ -1,24 +1,71 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback, memo } from 'react';
+import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { useSisyphusStore, type AgentMessage } from '@/store/sisyphus-store';
+import { useSisyphusStore } from '@/store/sisyphus-store';
+import { useStreamContentStore, selectAgentStream } from '@/store/stream-content-store';
 import { cn } from '@/lib/utils';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogCloseButton } from '@/components/ui/dialog';
 import Composer from './composer';
 import ToolOutputDisplay from './tool-output-display';
+import AgentTimeline from './agent-timeline';
+import WorkflowSteps from './workflow-steps';
 import type { ChatMessage, ToolOutput } from '@/types';
+
+// ============================================================
+//  Throttle utility for scroll optimization
+// ============================================================
+
+function throttle<T extends (...args: unknown[]) => void>(fn: T, delay: number): T {
+  let lastCall = 0;
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  
+  return ((...args: unknown[]) => {
+    const now = Date.now();
+    const remaining = delay - (now - lastCall);
+    
+    if (remaining <= 0) {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      lastCall = now;
+      fn(...args);
+    } else if (!timeoutId) {
+      timeoutId = setTimeout(() => {
+        lastCall = Date.now();
+        timeoutId = null;
+        fn(...args);
+      }, remaining);
+    }
+  }) as T;
+}
 
 interface InteractionStreamProps {
   sessionId: string;
 }
 
+// NOTE: Legacy AgentChip, AgentDetailModalContent, AllAgentsModalContent
+// have been replaced with stream-based versions below (AgentChipWithStream, etc.)
+
 // ============================================================
-//  Agent Chip (Horizontal scroll style)
+//  Agents Panel (Workers-style horizontal chips)
+//  PERFORMANCE: Uses isolated stream store for status detection
 // ============================================================
 
-const AgentChip: React.FC<{ msg: AgentMessage; onClick: () => void }> = ({ msg, onClick }) => {
-  const isStreaming = msg.isStreaming;
-  const isFinal = msg.isFinal;
+interface AgentsPanelProps {
+  agentNames: string[];
+  isVibeMode: boolean;
+  hasActiveRun: boolean;
+}
+
+// Single agent chip with isolated stream subscription
+const AgentChipWithStream: React.FC<{ agentName: string; onClick: () => void }> = memo(({ agentName, onClick }) => {
+  // FINE-GRAINED: Only re-renders when THIS agent's stream changes
+  const streamData = useStreamContentStore(selectAgentStream(agentName));
+  
+  const isStreaming = streamData?.isStreaming || false;
+  const isFinal = streamData?.isFinal || false;
   
   const statusConfig = isStreaming 
     ? { color: 'text-neon-cyan', bgColor: 'bg-neon-cyan/20', label: 'LIVE', animate: true }
@@ -38,20 +85,15 @@ const AgentChip: React.FC<{ msg: AgentMessage; onClick: () => void }> = ({ msg, 
             : "border-border-subtle bg-bg-surface/50 hover:border-border-default"
       )}
     >
-      {/* Avatar */}
       <div className={cn(
         "size-6 rounded flex items-center justify-center text-[10px] font-bold flex-shrink-0",
         statusConfig.bgColor, statusConfig.color
       )}>
-        {msg.agent.charAt(0).toUpperCase()}
+        {agentName.charAt(0).toUpperCase()}
       </div>
-      
-      {/* Name */}
       <span className="font-mono text-[10px] text-text-primary capitalize">
-        {msg.agent.replace(/_/g, ' ')}
+        {agentName.replace(/_/g, ' ')}
       </span>
-      
-      {/* Status */}
       <span className={cn(
         "text-[8px] font-mono px-1.5 py-0.5 rounded flex-shrink-0",
         statusConfig.bgColor, statusConfig.color,
@@ -61,17 +103,418 @@ const AgentChip: React.FC<{ msg: AgentMessage; onClick: () => void }> = ({ msg, 
       </span>
     </div>
   );
-};
+});
 
 // ============================================================
-//  Agent Detail Modal Content
+//  Agent Dashboard Drawer - Slides in from right
 // ============================================================
+interface AgentDashboardDrawerProps {
+  open: boolean;
+  onClose: () => void;
+  agentNames: string[];
+}
 
-const AgentDetailModalContent: React.FC<{ agent: AgentMessage | null; onBack: () => void }> = ({ agent, onBack }) => {
-  if (!agent) return null;
+const AgentDashboardDrawer: React.FC<AgentDashboardDrawerProps> = memo(({ open, onClose, agentNames }) => {
+  // Prevent body scroll when drawer is open
+  useEffect(() => {
+    if (open) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [open]);
 
-  const isStreaming = agent.isStreaming;
-  const isFinal = agent.isFinal;
+  if (!open) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-50">
+      {/* Backdrop */}
+      <div 
+        className="absolute inset-0 bg-bg-base/60 backdrop-blur-sm animate-in fade-in duration-200"
+        onClick={onClose}
+      />
+      
+      {/* Drawer Panel */}
+      <div className={cn(
+        "absolute top-0 right-0 h-full w-full max-w-2xl",
+        "bg-bg-surface/95 backdrop-blur-md border-l border-border-default",
+        "shadow-2xl shadow-black/20",
+        "animate-in slide-in-from-right duration-300",
+        "flex flex-col"
+      )}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border-default">
+          <div className="flex items-center gap-3">
+            <div className="size-9 rounded-lg bg-neon-gold/20 flex items-center justify-center">
+              <svg className="size-5 text-neon-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-base font-display font-semibold text-neon-gold tracking-wide">Agent Dashboard</h2>
+              <p className="text-[10px] text-text-muted">Multi-agent work visualization</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="size-8 rounded-lg flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-surface-elevated transition-colors"
+          >
+            <svg className="size-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          {/* Status Overview - Timeline and Steps side by side on larger screens */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <AgentTimeline agentNames={agentNames} />
+            <WorkflowSteps />
+          </div>
+          
+          {/* Agent Cards */}
+          <div className="space-y-3">
+            <h3 className="text-xs font-display font-medium text-text-muted tracking-wider">AGENT OUTPUTS</h3>
+            <div className="grid grid-cols-1 gap-3">
+              {agentNames.map((name) => (
+                <DrawerAgentCard key={name} agentName={name} />
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+});
+
+// Compact agent card for the drawer
+const DrawerAgentCard: React.FC<{ agentName: string }> = memo(({ agentName }) => {
+  const [collapsed, setCollapsed] = useState(true);
+  const streamData = useStreamContentStore(selectAgentStream(agentName));
+  const llmStatus = useSisyphusStore((s) => s.agentLlmStatus[agentName]);
+  
+  const content = streamData?.content || '';
+  const isStreaming = streamData?.isStreaming || false;
+  const isFinal = streamData?.isFinal || false;
+  const tokenCount = streamData?.tokenCount || 0;
+  const stepName = streamData?.stepName;
+  
+  const isRequesting = llmStatus?.phase === 'llm.request';
+  const llmModel = llmStatus?.model;
+  
+  const preview = useMemo(() => {
+    const text = content.replace(/\s+/g, ' ').trim();
+    if (text.length <= 150) return text;
+    return text.slice(0, 150) + '…';
+  }, [content]);
+  
+  const hasContent = Boolean(content);
+
+  return (
+    <div className={cn(
+      "rounded-lg border overflow-hidden transition-all",
+      isStreaming 
+        ? "border-neon-cyan bg-neon-cyan/5" 
+        : isFinal
+          ? "border-neon-green/50 bg-neon-green/5"
+          : hasContent 
+            ? "border-border-default bg-bg-surface" 
+            : "border-border-subtle bg-bg-surface/60"
+    )}>
+      {/* Header */}
+      <div
+        className={cn(
+          "px-3 py-2 flex items-center justify-between gap-2 cursor-pointer",
+          isStreaming ? "bg-neon-cyan/10" : isFinal ? "bg-neon-green/10" : "bg-surface-elevated/30"
+        )}
+        onClick={() => hasContent && setCollapsed(!collapsed)}
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <div className={cn(
+            "size-6 rounded flex items-center justify-center text-[10px] font-bold flex-shrink-0",
+            isStreaming ? "bg-neon-cyan/20 text-neon-cyan" : isFinal ? "bg-neon-green/20 text-neon-green" : "bg-surface-elevated text-text-muted"
+          )}>
+            {agentName.charAt(0).toUpperCase()}
+          </div>
+          <span className={cn(
+            "text-xs font-semibold capitalize truncate",
+            isStreaming ? "text-neon-cyan" : isFinal ? "text-neon-green" : "text-text-primary"
+          )}>
+            {agentName.replace(/_/g, ' ')}
+          </span>
+          {isStreaming && (
+            <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-neon-cyan text-bg-base font-bold animate-pulse flex-shrink-0">LIVE</span>
+          )}
+          {isRequesting && (
+            <span className="text-[8px] px-1.5 py-0.5 rounded bg-neon-gold/20 text-neon-gold font-mono flex-shrink-0">
+              LLM {llmModel ? `· ${llmModel}` : ''}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <span className="text-[9px] text-text-muted font-mono tabular-nums">{tokenCount} tok</span>
+          {stepName && <span className="text-[9px] text-text-dimmed truncate max-w-[80px]">{stepName}</span>}
+          {hasContent && (
+            <svg className={cn("size-3 text-text-muted transition-transform", !collapsed && "rotate-180")} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          )}
+        </div>
+      </div>
+      
+      {/* Content */}
+      {!collapsed && hasContent && (
+        <div className="px-3 py-2 border-t border-border-subtle max-h-48 overflow-y-auto">
+          <p className="text-[11px] text-text-secondary leading-relaxed whitespace-pre-wrap">
+            {content}
+            {isStreaming && <span className="text-neon-cyan animate-pulse">▌</span>}
+          </p>
+        </div>
+      )}
+      
+      {/* Preview when collapsed */}
+      {collapsed && preview && (
+        <div className="px-3 py-1.5 border-t border-border-subtle">
+          <p className="text-[10px] text-text-muted truncate">
+            {preview}
+            {isStreaming && <span className="text-neon-cyan animate-pulse">▌</span>}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+});
+
+// Inline expanded agent detail card (shown below chips when selected)
+const AgentExpandedCard: React.FC<{ agentName: string; onClose: () => void }> = memo(({ agentName, onClose }) => {
+  const streamData = useStreamContentStore(selectAgentStream(agentName));
+  const llmStatus = useSisyphusStore((s) => s.agentLlmStatus[agentName]);
+  const sessionStatus = useSisyphusStore((s) => s.sessionStatus);
+  
+  const runningTools = useMemo(() => {
+    if (!sessionStatus) return [];
+    return sessionStatus.runningTools.filter(
+      (t) => t.targetAgent.toLowerCase() === agentName.toLowerCase()
+    );
+  }, [sessionStatus, agentName]);
+  
+  const agentStatusFromApi = useMemo(() => {
+    if (!sessionStatus) return null;
+    return sessionStatus.agents.find(
+      (a) => a.agent.toLowerCase() === agentName.toLowerCase()
+    ) || null;
+  }, [sessionStatus, agentName]);
+
+  const content = streamData?.content || '';
+  const isStreaming = streamData?.isStreaming || false;
+  const isFinal = streamData?.isFinal || false;
+  const tokenCount = streamData?.tokenCount || 0;
+  const stepName = streamData?.stepName || agentStatusFromApi?.stepName;
+  
+  const isRequesting = llmStatus?.phase === 'llm.request';
+  const llmModel = llmStatus?.model;
+  
+  // Format LLM duration
+  const llmDuration = useMemo(() => {
+    if (!isRequesting || !llmStatus?.timestamp) return "";
+    const diffSec = Math.floor((Date.now() - llmStatus.timestamp) / 1000);
+    return diffSec < 1 ? "<1s" : `${diffSec}s`;
+  }, [isRequesting, llmStatus?.timestamp]);
+  
+  const preview = useMemo(() => {
+    const text = content.replace(/\s+/g, ' ').trim();
+    if (text.length <= 200) return text;
+    return text.slice(0, 200) + '…';
+  }, [content]);
+
+  return (
+    <div className={cn(
+      "mt-2 rounded-lg border overflow-hidden animate-in slide-in-from-top-2 duration-200",
+      isStreaming 
+        ? "border-neon-cyan bg-neon-cyan/5" 
+        : isFinal
+          ? "border-neon-green/50 bg-neon-green/5"
+          : "border-border-default bg-bg-surface"
+    )}>
+      {/* Header */}
+      <div className={cn(
+        "px-3 py-2 flex items-center justify-between gap-2",
+        isStreaming ? "bg-neon-cyan/10" : isFinal ? "bg-neon-green/10" : "bg-surface-elevated/50"
+      )}>
+        <div className="flex items-center gap-2 min-w-0">
+          <div className={cn(
+            "size-6 rounded flex items-center justify-center text-[10px] font-bold flex-shrink-0",
+            isStreaming ? "bg-neon-cyan/20 text-neon-cyan" : isFinal ? "bg-neon-green/20 text-neon-green" : "bg-surface-elevated text-text-muted"
+          )}>
+            {agentName.charAt(0).toUpperCase()}
+          </div>
+          <span className={cn(
+            "text-xs font-semibold capitalize truncate",
+            isStreaming ? "text-neon-cyan" : isFinal ? "text-neon-green" : "text-text-primary"
+          )}>
+            {agentName.replace(/_/g, ' ')}
+          </span>
+          {isStreaming && (
+            <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-neon-cyan text-bg-base font-bold animate-pulse flex-shrink-0">LIVE</span>
+          )}
+        </div>
+        <button
+          onClick={onClose}
+          className="size-5 rounded flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-surface-elevated transition-colors flex-shrink-0"
+        >
+          <svg className="size-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      
+      {/* Status Row */}
+      <div className="px-3 py-1.5 flex items-center gap-2 text-[9px] text-text-muted border-b border-border-subtle">
+        <span className="font-mono tabular-nums">{tokenCount} tok</span>
+        {stepName && (
+          <>
+            <span className="text-border-subtle">·</span>
+            <span className="truncate">{stepName}</span>
+          </>
+        )}
+      </div>
+      
+      {/* Activity Status */}
+      {(isRequesting || runningTools.length > 0) && (
+        <div className="px-3 py-1.5 space-y-1 border-b border-border-subtle bg-bg-elevated/30">
+          {isRequesting && (
+            <div className="flex items-center gap-2 text-[9px] text-neon-gold">
+              <svg className="size-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              <span className="font-mono">LLM: {llmModel || 'requesting'}</span>
+              {llmDuration && <span className="font-mono tabular-nums ml-auto">{llmDuration}</span>}
+            </div>
+          )}
+          {runningTools.map((tool) => (
+            <div key={tool.toolCallId} className="flex items-center gap-2 text-[9px] text-neon-purple">
+              <svg className="size-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              <span className="font-mono truncate">{tool.toolName}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      
+      {/* Content Preview */}
+      <div className="px-3 py-2 max-h-32 overflow-y-auto">
+        {preview ? (
+          <p className="text-[11px] text-text-secondary leading-relaxed">
+            {preview}
+            {isStreaming && <span className="text-neon-cyan animate-pulse">▌</span>}
+          </p>
+        ) : (
+          <p className="text-[10px] text-text-dimmed italic">Waiting for output…</p>
+        )}
+      </div>
+    </div>
+  );
+});
+
+const AgentsPanel: React.FC<AgentsPanelProps> = memo(({ agentNames, isVibeMode, hasActiveRun }) => {
+  const [showDrawer, setShowDrawer] = useState(false);
+  const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
+  
+  // Get streaming count from isolated store
+  const streamingCount = useStreamContentStore((s) => 
+    agentNames.filter(name => s.agentStreams[name]?.isStreaming).length
+  );
+
+  // Don't show if nothing to display
+  if (!isVibeMode || !hasActiveRun || agentNames.length === 0) return null;
+
+  const handleChipClick = (agentName: string) => {
+    // Toggle: if same agent clicked, collapse; else expand new one
+    setExpandedAgent(prev => prev === agentName ? null : agentName);
+  };
+
+  return (
+    <div className="mt-4 relative z-10">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <svg className="size-4 text-neon-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          <span className="text-xs font-display font-medium text-neon-gold tracking-wider">AGENTS</span>
+          <span className="text-[9px] text-text-dimmed font-mono tabular-nums">
+            <span className="text-neon-gold">{streamingCount}</span>/{agentNames.length}
+          </span>
+        </div>
+        <button
+          onClick={() => setShowDrawer(true)}
+          className={cn(
+            "group relative text-[10px] font-medium px-3 py-1.5 rounded-lg transition-all duration-300 flex items-center gap-1.5",
+            "bg-gradient-to-r from-neon-gold/20 to-neon-gold/10",
+            "border border-neon-gold/50 text-neon-gold",
+            "hover:from-neon-gold/30 hover:to-neon-gold/20 hover:border-neon-gold hover:shadow-glow-gold",
+            "active:scale-95"
+          )}
+        >
+          {/* Pulse indicator */}
+          <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-neon-gold animate-ping opacity-75" />
+          <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-neon-gold" />
+          
+          {/* Icon */}
+          <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
+          </svg>
+          <span>Dashboard</span>
+          <svg className="size-3 transition-transform group-hover:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Horizontal scrolling chips - each chip has its own subscription */}
+      <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-border-subtle scrollbar-track-transparent">
+        {agentNames.map((name) => (
+          <AgentChipWithStream 
+            key={name} 
+            agentName={name}
+            onClick={() => handleChipClick(name)}
+          />
+        ))}
+      </div>
+      
+      {/* Inline Expanded Agent Card */}
+      {expandedAgent && (
+        <AgentExpandedCard 
+          agentName={expandedAgent} 
+          onClose={() => setExpandedAgent(null)} 
+        />
+      )}
+
+      {/* Full Dashboard Drawer */}
+      <AgentDashboardDrawer 
+        open={showDrawer} 
+        onClose={() => setShowDrawer(false)}
+        agentNames={agentNames}
+      />
+    </div>
+  );
+});
+
+// Agent detail modal using isolated stream store (reserved for future use)
+export const AgentDetailModalWithStream: React.FC<{ agentName: string; onBack: () => void }> = ({ agentName, onBack }) => {
+  const streamData = useStreamContentStore(selectAgentStream(agentName));
+  
+  if (!streamData) return null;
+
+  const { content, isStreaming, isFinal, tokenCount, providerName, stepName } = streamData;
 
   return (
     <DialogContent className="max-w-2xl mx-4 bg-bg-surface/95 backdrop-blur-md border border-border-default rounded-lg shadow-lg text-text-primary max-h-[70vh] overflow-hidden flex flex-col">
@@ -90,17 +533,17 @@ const AgentDetailModalContent: React.FC<{ agent: AgentMessage | null; onBack: ()
             "flex h-10 w-10 items-center justify-center rounded-lg text-lg font-bold",
             isStreaming ? "bg-neon-cyan/20 text-neon-cyan" : isFinal ? "bg-neon-green/20 text-neon-green" : "bg-surface-elevated text-text-muted"
           )}>
-            {agent.agent.charAt(0).toUpperCase()}
+            {agentName.charAt(0).toUpperCase()}
           </div>
           <div className="flex-1 min-w-0">
             <DialogTitle className={cn(
               "text-lg font-display font-semibold capitalize",
               isStreaming ? "text-neon-cyan" : isFinal ? "text-neon-green" : "text-text-primary"
             )}>
-              {agent.agent.replace(/_/g, ' ')}
+              {agentName.replace(/_/g, ' ')}
             </DialogTitle>
             <DialogDescription className="text-xs text-text-muted font-mono tabular-nums">
-              {agent.tokenCount}t · {isStreaming ? 'streaming' : isFinal ? 'completed' : 'waiting'}
+              {tokenCount}t · {isStreaming ? 'streaming' : isFinal ? 'completed' : 'waiting'}
             </DialogDescription>
           </div>
           {isStreaming && (
@@ -110,30 +553,28 @@ const AgentDetailModalContent: React.FC<{ agent: AgentMessage | null; onBack: ()
         <DialogCloseButton />
       </DialogHeader>
 
-      {/* Meta badges */}
-      {(agent.providerName || agent.stepName) && (
+      {(providerName || stepName) && (
         <div className="px-4 py-2 border-b border-border-default flex flex-wrap gap-2 flex-shrink-0">
-          {agent.providerName && (
+          {providerName && (
             <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-bg-elevated border border-border-subtle">
               <span className="text-[9px] text-text-subtle font-mono">PROVIDER:</span>
-              <span className="text-[10px] text-neon-violet font-mono">{agent.providerName}</span>
+              <span className="text-[10px] text-neon-violet font-mono">{providerName}</span>
             </div>
           )}
-          {agent.stepName && (
+          {stepName && (
             <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-bg-elevated border border-border-subtle">
               <span className="text-[9px] text-text-subtle font-mono">STEP:</span>
-              <span className="text-[10px] text-neon-cyan font-mono">{agent.stepName}</span>
+              <span className="text-[10px] text-neon-cyan font-mono">{stepName}</span>
             </div>
           )}
         </div>
       )}
 
-      {/* Content */}
       <div className="flex-1 overflow-y-auto p-4">
-        {agent.content ? (
+        {content ? (
           <div className="rounded-lg bg-bg-elevated p-4 border border-border-subtle">
             <pre className="text-sm text-text-primary font-mono whitespace-pre-wrap break-words leading-relaxed">
-              {agent.content}
+              {content}
               {isStreaming && <span className="animate-pulse text-neon-cyan">▌</span>}
             </pre>
           </div>
@@ -152,16 +593,15 @@ const AgentDetailModalContent: React.FC<{ agent: AgentMessage | null; onBack: ()
   );
 };
 
-// ============================================================
-//  All Agents Modal Content (List View)
-// ============================================================
-
-const AllAgentsModalContent: React.FC<{ 
-  agents: AgentMessage[]; 
-  onSelectAgent: (agent: AgentMessage) => void;
-}> = ({ agents, onSelectAgent }) => {
-  const streamingCount = agents.filter(a => a.isStreaming).length;
-  const completedCount = agents.filter(a => a.isFinal).length;
+// All agents modal using isolated stream store (reserved for future use)
+export const AllAgentsModalWithStream: React.FC<{ 
+  agentNames: string[]; 
+  onSelectAgent: (name: string) => void;
+}> = ({ agentNames, onSelectAgent }) => {
+  const agentStreams = useStreamContentStore((s) => s.agentStreams);
+  
+  const streamingCount = agentNames.filter(name => agentStreams[name]?.isStreaming).length;
+  const completedCount = agentNames.filter(name => agentStreams[name]?.isFinal).length;
 
   return (
     <DialogContent className="max-w-2xl mx-4 bg-bg-surface/95 backdrop-blur-md border border-border-default rounded-lg shadow-lg text-text-primary max-h-[70vh] overflow-hidden flex flex-col">
@@ -175,7 +615,7 @@ const AllAgentsModalContent: React.FC<{
           <div>
             <DialogTitle className="text-lg font-display font-semibold text-neon-gold">All Agents</DialogTitle>
             <DialogDescription className="text-xs text-text-muted font-mono tabular-nums">
-              {agents.length} agents · {streamingCount} active · {completedCount} completed
+              {agentNames.length} agents · {streamingCount} active · {completedCount} completed
             </DialogDescription>
           </div>
         </div>
@@ -184,14 +624,15 @@ const AllAgentsModalContent: React.FC<{
 
       <div className="flex-1 overflow-y-auto p-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {agents.map((agent) => {
-            const isStreaming = agent.isStreaming;
-            const isFinal = agent.isFinal;
+          {agentNames.map((name) => {
+            const stream = agentStreams[name];
+            const isStreaming = stream?.isStreaming || false;
+            const isFinal = stream?.isFinal || false;
             
             return (
               <button
-                key={agent.agent}
-                onClick={() => onSelectAgent(agent)}
+                key={name}
+                onClick={() => onSelectAgent(name)}
                 className={cn(
                   "rounded-lg border p-3 text-left transition-all hover:scale-[1.01]",
                   isStreaming 
@@ -206,17 +647,17 @@ const AllAgentsModalContent: React.FC<{
                     "size-8 rounded flex items-center justify-center text-sm font-bold",
                     isStreaming ? "bg-neon-cyan/20 text-neon-cyan" : isFinal ? "bg-neon-green/20 text-neon-green" : "bg-surface-elevated text-text-muted"
                   )}>
-                    {agent.agent.charAt(0).toUpperCase()}
+                    {name.charAt(0).toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className={cn(
                       "text-sm font-semibold capitalize truncate",
                       isStreaming ? "text-neon-cyan" : isFinal ? "text-neon-green" : "text-text-primary"
                     )}>
-                      {agent.agent.replace(/_/g, ' ')}
+                      {name.replace(/_/g, ' ')}
                     </p>
                     <p className="text-[10px] text-text-muted font-mono">
-                      {agent.providerName || '—'} · {agent.tokenCount}t
+                      {stream?.providerName || '—'} · {stream?.tokenCount || 0}t
                     </p>
                   </div>
                   <span className={cn(
@@ -236,78 +677,6 @@ const AllAgentsModalContent: React.FC<{
 };
 
 // ============================================================
-//  Agents Panel (Workers-style horizontal chips)
-// ============================================================
-
-interface AgentsPanelProps {
-  agentMessages: AgentMessage[];
-  isVibeMode: boolean;
-  hasActiveRun: boolean;
-}
-
-const AgentsPanel: React.FC<AgentsPanelProps> = ({ agentMessages, isVibeMode, hasActiveRun }) => {
-  const [showModal, setShowModal] = useState(false);
-  const [selectedAgent, setSelectedAgent] = useState<AgentMessage | null>(null);
-  
-  const streamingAgents = agentMessages.filter(m => m.isStreaming);
-
-  // Don't show if nothing to display
-  if (!isVibeMode || !hasActiveRun || agentMessages.length === 0) return null;
-
-  const handleChipClick = (agent: AgentMessage) => {
-    setSelectedAgent(agent);
-    setShowModal(true);
-  };
-
-  const handleBack = () => {
-    setSelectedAgent(null);
-  };
-
-  return (
-    <div className="mt-4 relative z-10">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <svg className="size-4 text-neon-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
-          <span className="text-xs font-display font-medium text-neon-gold tracking-wider">AGENTS</span>
-          <span className="text-[9px] text-text-dimmed font-mono tabular-nums">
-            <span className="text-neon-gold">{streamingAgents.length}</span>/{agentMessages.length}
-          </span>
-        </div>
-        <button
-          onClick={() => { setSelectedAgent(null); setShowModal(true); }}
-          className="text-[9px] px-2 py-0.5 rounded border border-border-subtle text-text-muted hover:text-neon-gold hover:border-neon-gold/40 transition-colors"
-        >
-          VIEW ALL
-        </button>
-      </div>
-
-      {/* Horizontal scrolling chips */}
-      <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-border-subtle scrollbar-track-transparent">
-        {agentMessages.map((msg) => (
-          <AgentChip 
-            key={msg.agent} 
-            msg={msg} 
-            onClick={() => handleChipClick(msg)}
-          />
-        ))}
-      </div>
-
-      {/* Agent Detail Modal */}
-      <Dialog open={showModal} onOpenChange={setShowModal}>
-        {selectedAgent ? (
-          <AgentDetailModalContent agent={selectedAgent} onBack={handleBack} />
-        ) : (
-          <AllAgentsModalContent agents={agentMessages} onSelectAgent={setSelectedAgent} />
-        )}
-      </Dialog>
-    </div>
-  );
-};
-
-// ============================================================
 //  Message Bubble with Markdown + Tool Outputs
 // ============================================================
 
@@ -317,9 +686,38 @@ interface MessageBubbleProps {
   formatTime: (timestamp: number) => string;
 }
 
+// System message bubble for interruption responses
+const SystemMessageBubble: React.FC<{ message: ChatMessage; formatTime: (timestamp: number) => string }> = memo(({ message, formatTime }) => {
+  return (
+    <div className="mx-auto max-w-xl animate-fade-in">
+      <div className="rounded-lg border border-neon-violet/30 bg-neon-violet/10 px-4 py-3">
+        <div className="flex items-center gap-2 mb-2">
+          <div className="size-5 rounded flex items-center justify-center bg-neon-violet/20">
+            <svg className="w-3 h-3 text-neon-violet" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <span className="text-[10px] font-mono text-neon-violet tracking-wider">SYSTEM</span>
+          <span className="text-[9px] text-text-dimmed font-mono tabular-nums ml-auto">
+            {formatTime(message.timestamp)}
+          </span>
+        </div>
+        <p className="text-sm text-text-primary leading-relaxed">{message.content}</p>
+      </div>
+    </div>
+  );
+});
+
 const MessageBubble: React.FC<MessageBubbleProps> = ({ message, index, formatTime }) => {
   const [collapsed, setCollapsed] = useState(false);
   const isAgent = message.role === 'agent';
+  const isSystem = message.role === 'system';
+
+  // Render system messages with special bubble
+  if (isSystem) {
+    return <SystemMessageBubble message={message} formatTime={formatTime} />;
+  }
+
   const extMessage = message as ChatMessage & { toolOutputs?: ToolOutput[] };
   const hasToolOutputs = Array.isArray(extMessage.toolOutputs) && extMessage.toolOutputs.length > 0;
 
@@ -398,25 +796,38 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, index, formatTim
 };
 
 // ============================================================
-//  Research Assistant Bubble (from agentMessages)
-//  Format inspired by original frontend ChatMessageRow
+//  Research Assistant Bubble (using isolated stream store)
+//  PERFORMANCE: Uses fine-grained selector to only re-render
+//  when research_assistant's stream content changes
 // ============================================================
 
 interface ResearchAssistantBubbleProps {
-  message: AgentMessage;
+  agentName?: string;
 }
 
-const ResearchAssistantBubble: React.FC<ResearchAssistantBubbleProps> = ({ message }) => {
+const ResearchAssistantBubble: React.FC<ResearchAssistantBubbleProps> = memo(({ agentName = 'research_assistant' }) => {
   const [collapsed, setCollapsed] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const isStreaming = message.isStreaming;
-  const isFinal = message.isFinal;
+  
+  // FINE-GRAINED SUBSCRIPTION: Only re-renders when THIS agent's stream changes
+  const streamData = useStreamContentStore(selectAgentStream(agentName));
+  
+  // Derive display values from stream data
+  const content = streamData?.content || '';
+  const isStreaming = streamData?.isStreaming || false;
+  const isFinal = streamData?.isFinal || false;
+  const tokenCount = streamData?.tokenCount || 0;
+  const providerName = streamData?.providerName;
+  const stepName = streamData?.stepName;
   
   const preview = useMemo(() => {
-    const text = (message.content || '').replace(/\s+/g, ' ').trim();
+    const text = content.replace(/\s+/g, ' ').trim();
     if (text.length <= 220) return text;
     return text.slice(0, 220) + '…';
-  }, [message.content]);
+  }, [content]);
+  
+  // Don't render if no content
+  if (!content && !isStreaming) return null;
   
   return (
     <>
@@ -426,7 +837,7 @@ const ResearchAssistantBubble: React.FC<ResearchAssistantBubbleProps> = ({ messa
           <div className="flex items-center gap-3 min-w-0">
             {/* Agent name + status */}
             <span className="text-sm font-mono font-medium text-text-primary">
-              research_assistant
+              {agentName}
             </span>
             {isStreaming ? (
               <span className="flex items-center gap-1.5 text-[10px] px-2 py-0.5 rounded bg-neon-gold/10 text-neon-gold border border-neon-gold/30">
@@ -465,15 +876,15 @@ const ResearchAssistantBubble: React.FC<ResearchAssistantBubbleProps> = ({ messa
 
         {/* Meta info row */}
         <div className="flex items-center gap-3 px-4 py-2 bg-bg-void/30 text-[11px] text-text-muted font-mono">
-          {message.providerName && (
-            <span className="text-neon-cyan">{message.providerName}</span>
+          {providerName && (
+            <span className="text-neon-cyan">{providerName}</span>
           )}
           <span>·</span>
-          <span className="tabular-nums">{message.tokenCount || 0} tokens</span>
-          {message.stepName && (
+          <span className="tabular-nums">{tokenCount} tokens</span>
+          {stepName && (
             <>
               <span>·</span>
-              <span className="text-neon-violet">{message.stepName}</span>
+              <span className="text-neon-violet">{stepName}</span>
             </>
           )}
         </div>
@@ -484,7 +895,7 @@ const ResearchAssistantBubble: React.FC<ResearchAssistantBubbleProps> = ({ messa
             {isStreaming ? (
               // Streaming: show raw pre for real-time updates
               <pre className="text-sm text-text-primary whitespace-pre-wrap break-words leading-relaxed">
-                {message.content || '…'}
+                {content || '…'}
                 <span className="animate-pulse text-neon-cyan">▌</span>
               </pre>
             ) : (
@@ -497,8 +908,8 @@ const ResearchAssistantBubble: React.FC<ResearchAssistantBubbleProps> = ({ messa
                 prose-strong:text-text-primary prose-strong:font-semibold
                 prose-ul:marker:text-neon-cyan prose-ol:marker:text-neon-cyan
               ">
-                {message.content ? (
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+                {content ? (
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
                 ) : (
                   <span className="text-text-dimmed italic">…</span>
                 )}
@@ -526,10 +937,10 @@ const ResearchAssistantBubble: React.FC<ResearchAssistantBubbleProps> = ({ messa
               </div>
               <div>
                 <DialogTitle className="text-lg font-display font-semibold text-neon-violet">
-                  research_assistant
+                  {agentName}
                 </DialogTitle>
                 <DialogDescription className="text-xs text-text-muted font-mono tabular-nums">
-                  {message.providerName || '—'} · {message.tokenCount || 0} tokens · {message.stepName || '—'}
+                  {providerName || '—'} · {tokenCount} tokens · {stepName || '—'}
                 </DialogDescription>
               </div>
               {isStreaming ? (
@@ -547,20 +958,20 @@ const ResearchAssistantBubble: React.FC<ResearchAssistantBubbleProps> = ({ messa
 
           {/* Meta badges */}
           <div className="px-4 py-2 border-b border-border-default flex flex-wrap gap-2 flex-shrink-0">
-            {message.providerName && (
+            {providerName && (
               <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-bg-elevated border border-border-subtle">
                 <span className="text-[9px] text-text-subtle font-mono">PROVIDER:</span>
-                <span className="text-[10px] text-neon-cyan font-mono">{message.providerName}</span>
+                <span className="text-[10px] text-neon-cyan font-mono">{providerName}</span>
               </div>
             )}
             <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-bg-elevated border border-border-subtle">
               <span className="text-[9px] text-text-subtle font-mono">TOKENS:</span>
-              <span className="text-[10px] text-neon-gold font-mono tabular-nums">{message.tokenCount || 0}</span>
+              <span className="text-[10px] text-neon-gold font-mono tabular-nums">{tokenCount}</span>
             </div>
-            {message.stepName && (
+            {stepName && (
               <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-bg-elevated border border-border-subtle">
                 <span className="text-[9px] text-text-subtle font-mono">STEP:</span>
-                <span className="text-[10px] text-neon-violet font-mono">{message.stepName}</span>
+                <span className="text-[10px] text-neon-violet font-mono">{stepName}</span>
               </div>
             )}
             <div className={cn(
@@ -580,7 +991,7 @@ const ResearchAssistantBubble: React.FC<ResearchAssistantBubbleProps> = ({ messa
 
           {/* Content */}
           <div className="flex-1 overflow-y-auto p-4">
-            {message.content ? (
+            {content ? (
               <div className="rounded-lg bg-bg-elevated p-4 border border-border-subtle">
                 <div className="prose prose-sm prose-invert max-w-none text-text-primary leading-relaxed
                   prose-headings:text-neon-cyan prose-headings:font-display
@@ -590,7 +1001,7 @@ const ResearchAssistantBubble: React.FC<ResearchAssistantBubbleProps> = ({ messa
                   prose-strong:text-text-primary prose-strong:font-semibold
                   prose-ul:marker:text-neon-cyan prose-ol:marker:text-neon-cyan
                 ">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
                 </div>
                 {isStreaming && (
                   <span className="animate-pulse text-neon-cyan text-lg">▌</span>
@@ -611,74 +1022,83 @@ const ResearchAssistantBubble: React.FC<ResearchAssistantBubbleProps> = ({ messa
       </Dialog>
     </>
   );
-};
+});
 
 // ============================================================
 //  Interaction Stream Main Component
+//  PERFORMANCE OPTIMIZATIONS:
+//  1. Throttled scroll (100ms) to prevent layout thrashing
+//  2. Fine-grained store subscriptions
+//  3. Isolated stream content store for real-time updates
 // ============================================================
 
 // Fallback roster when agents_snapshot not received (matches original frontend)
 const FALLBACK_AGENTS = ['planner', 'reasoner', 'librarian', 'verifier', 'dag_builder', 'paper_editor'];
 
 const InteractionStream: React.FC<InteractionStreamProps> = ({ sessionId }) => {
-  const { messages, researchBrief, isConnected, isSending, inputMode, currentRunId, agentMessages, agentRoster, agentProviders } = useSisyphusStore();
+  // FINE-GRAINED SUBSCRIPTIONS: Only subscribe to what we need
+  const messages = useSisyphusStore((s) => s.messages);
+  const researchBrief = useSisyphusStore((s) => s.researchBrief);
+  const isConnected = useSisyphusStore((s) => s.isConnected);
+  const isSending = useSisyphusStore((s) => s.isSending);
+  const inputMode = useSisyphusStore((s) => s.inputMode);
+  const currentRunId = useSisyphusStore((s) => s.currentRunId);
+  const agentRoster = useSisyphusStore((s) => s.agentRoster);
+
+  // Use isolated stream store for detecting if RA has content
+  const raStreamData = useStreamContentStore(selectAgentStream('research_assistant'));
+  const hasRaContent = Boolean(raStreamData?.content || raStreamData?.isStreaming);
 
   // Auto-switch to cards view when vibe run starts
   const isVibeMode = inputMode === 'vibe' || inputMode === 'vibe_loop';
   const hasActiveRun = Boolean(currentRunId);
 
-  const formatTime = (timestamp: number) => {
+  // Ref for auto-scroll container
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const scrollEndRef = useRef<HTMLDivElement>(null);
+
+  // THROTTLED SCROLL: Prevent layout thrashing during rapid updates
+  const scrollToBottom = useCallback(
+    throttle(() => {
+      if (scrollEndRef.current) {
+        scrollEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      }
+    }, 100),  // 100ms throttle
+    []
+  );
+
+  // Auto-scroll when content changes (uses token count change, not content string)
+  const raTokenCount = raStreamData?.tokenCount || 0;
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages.length, raTokenCount, isSending, scrollToBottom]);
+
+  const formatTime = useCallback((timestamp: number) => {
     return new Date(timestamp).toLocaleTimeString('en-US', { 
       hour12: false, 
       hour: '2-digit', 
       minute: '2-digit',
       second: '2-digit'
     });
-  };
+  }, []);
 
-  // Filter messages: only show user messages + research_assistant (main dialogue)
+  // Filter messages: only show user messages + system messages
   const filteredMessages = useMemo(() => {
     return messages.filter(msg => 
       msg.role === 'user' || 
       msg.role === 'system' ||
-      msg.agentName === 'research_assistant' ||
       msg.agentName === 'SISYPHUS' ||
       !msg.agentName // fallback for old messages
     );
   }, [messages]);
-
-  // Get research_assistant message for main chat
-  const raMessage = agentMessages['research_assistant'];
   
-  
-  // Get all agents (from roster + messages + fallback) except research_assistant
-  const otherAgentMessages = useMemo(() => {
-    // Start with agents from agentMessages
-    const messageAgents = Object.values(agentMessages).filter(
-      am => am.agent !== 'research_assistant'
-    );
-    const messageAgentNames = new Set(messageAgents.map(m => m.agent));
-    
-    // Use roster if available, otherwise fallback
+  // Get agents from roster for the panel (lightweight, no content needed)
+  const otherAgentNames = useMemo(() => {
     const effectiveRoster = agentRoster.length > 0 
       ? agentRoster.filter(r => r.agent !== 'research_assistant')
       : FALLBACK_AGENTS.map(a => ({ agent: a }));
-    
-    // Add agents from effective roster that don't have messages yet
-    const pendingAgents = effectiveRoster
-      .filter(r => !messageAgentNames.has(r.agent))
-      .map(r => ({
-        agent: r.agent,
-        content: '',
-        isStreaming: false,
-        isFinal: false,
-        tokenCount: 0,
-        providerName: agentProviders[r.agent] || undefined,
-        stepName: undefined,
-      } as AgentMessage));
-    
-    return [...messageAgents, ...pendingAgents];
-  }, [agentMessages, agentRoster, agentProviders]);
+    return effectiveRoster.map(r => r.agent);
+  }, [agentRoster]);
 
   return (
     <div className="card p-5 flex flex-col h-full relative overflow-hidden cyber-corners">
@@ -689,45 +1109,45 @@ const InteractionStream: React.FC<InteractionStreamProps> = ({ sessionId }) => {
       {/* Header */}
       <div className="flex items-center justify-between mb-5 relative z-10">
         <div className="flex items-center gap-4">
-          <div className="size-10 rounded-lg bg-neon-cyan flex items-center justify-center shadow-glow-cyan">
+          <div className="size-10 rounded-lg bg-neon-cyan shadow-glow-cyan flex items-center justify-center">
             <svg className="size-5 text-bg-base" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
             </svg>
           </div>
           <div>
-            <h2 className="font-display text-sm font-semibold text-neon-cyan tracking-wider text-balance">Interaction Stream</h2>
+            <h2 className="font-display text-sm font-semibold text-neon-cyan tracking-wider text-balance">
+              Interaction Stream
+            </h2>
             <p className="text-xs text-text-muted text-pretty">Research dialogue with Sisyphus</p>
           </div>
         </div>
         
-        <div className="flex items-center gap-3">
-          <span className={cn(
-            "badge flex items-center gap-2",
-            isSending ? "badge-gold" : isConnected ? "badge-green" : "badge-rose"
-          )}>
-            <div className={cn(
-              "w-1.5 h-1.5 rounded-full animate-pulse",
-              isSending ? "bg-neon-gold" : isConnected ? "bg-neon-green" : "bg-neon-rose"
-            )} />
-            {isSending ? 'Sending' : isConnected ? 'Active' : 'Offline'}
-          </span>
-        </div>
+        <span className={cn(
+          "badge flex items-center gap-2",
+          isSending ? "badge-gold" : isConnected ? "badge-green" : "badge-rose"
+        )}>
+          <div className={cn(
+            "w-1.5 h-1.5 rounded-full animate-pulse",
+            isSending ? "bg-neon-gold" : isConnected ? "bg-neon-green" : "bg-neon-rose"
+          )} />
+          {isSending ? 'Sending' : isConnected ? 'Active' : 'Offline'}
+        </span>
       </div>
 
       {/* Content Area */}
-      <div className="flex-1 overflow-y-auto space-y-4 pr-2 relative z-10">
-        {/* Chat Messages View - Only research_assistant / user / system */}
-        {filteredMessages.length === 0 && !raMessage ? (
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto space-y-4 pr-2 relative z-10">
+        {/* Chat Messages View - Only user / system messages + RA bubble */}
+        {filteredMessages.length === 0 && !hasRaContent ? (
           <div className="flex flex-col items-center justify-center h-full text-center py-12">
-            <div className="size-16 rounded-lg bg-surface-elevated flex items-center justify-center mb-4 border border-border-subtle cyber-corners">
-              <svg className="size-8 text-text-dimmed" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="size-16 rounded-lg bg-surface-elevated flex items-center justify-center mb-4 border border-border-default cyber-corners">
+              <svg className="size-8 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
               </svg>
             </div>
-            <p className="text-sm text-text-muted mb-2 font-display text-balance">
+            <p className="text-sm text-text-secondary mb-2 font-display text-balance">
               No messages yet
             </p>
-            <p className="text-xs text-text-dimmed max-w-xs text-pretty">
+            <p className="text-xs text-text-muted max-w-xs text-pretty">
               Start a conversation with Sisyphus to explore research topics
             </p>
           </div>
@@ -737,35 +1157,33 @@ const InteractionStream: React.FC<InteractionStreamProps> = ({ sessionId }) => {
               <MessageBubble key={msg.id} message={msg} index={index} formatTime={formatTime} />
             ))}
             
-            {/* Research Assistant Message from agentMessages */}
-            {raMessage && raMessage.content && (
-              <ResearchAssistantBubble message={raMessage} />
-            )}
+            {/* Research Assistant Bubble - uses isolated stream store */}
+            <ResearchAssistantBubble agentName="research_assistant" />
           </>
         )}
 
-            {/* Research Brief */}
-            {researchBrief && (
-              <div className="card bg-surface-elevated/50 backdrop-blur-sm border-neon-purple/30 p-5 animate-fade-in cyber-corners">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-8 h-8 rounded-lg bg-neon-purple/20 flex items-center justify-center">
-                    <svg className="w-4 h-4 text-neon-purple" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                  </div>
-                  <span className="font-display text-[10px] font-medium text-neon-purple tracking-[0.2em] uppercase">Research Brief</span>
-                </div>
-                
-                <h3 className="text-base font-semibold text-text-primary mb-3">{researchBrief.title}</h3>
-                <p className="text-sm text-text-secondary mb-4 leading-relaxed">{researchBrief.summary}</p>
-                
-                <div className="flex items-center gap-3 flex-wrap">
-                  {researchBrief.keywords.map((keyword, i) => (
-                    <span key={i} className="badge badge-purple text-[10px]">{keyword}</span>
-                  ))}
-                </div>
+        {/* Research Brief */}
+        {researchBrief && (
+          <div className="card bg-surface-elevated/50 backdrop-blur-sm border-neon-purple/30 p-5 animate-fade-in cyber-corners">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-8 h-8 rounded-lg bg-neon-purple/20 flex items-center justify-center">
+                <svg className="w-4 h-4 text-neon-purple" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
               </div>
-            )}
+              <span className="font-display text-[10px] font-medium text-neon-purple tracking-[0.2em] uppercase">Research Brief</span>
+            </div>
+            
+            <h3 className="text-base font-semibold text-text-primary mb-3">{researchBrief.title}</h3>
+            <p className="text-sm text-text-secondary mb-4 leading-relaxed">{researchBrief.summary}</p>
+            
+            <div className="flex items-center gap-3 flex-wrap">
+              {researchBrief.keywords.map((keyword, i) => (
+                <span key={i} className="badge badge-purple text-[10px]">{keyword}</span>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Typing Indicator */}
         {isConnected && isSending && (
@@ -778,11 +1196,14 @@ const InteractionStream: React.FC<InteractionStreamProps> = ({ sessionId }) => {
             <span className="text-xs text-text-muted font-mono">Sisyphus is processing...</span>
           </div>
         )}
+
+        {/* Scroll anchor - auto-scroll target */}
+        <div ref={scrollEndRef} className="h-px" />
       </div>
 
-      {/* Agents Panel (horizontal chips) */}
+      {/* Agents Panel (horizontal chips with inline expand + drawer) */}
       <AgentsPanel 
-        agentMessages={otherAgentMessages}
+        agentNames={otherAgentNames}
         isVibeMode={isVibeMode}
         hasActiveRun={hasActiveRun}
       />

@@ -24,51 +24,32 @@ public abstract partial class AIGAgentBase
             ChatRequest request,
             CancellationToken ct)
         {
-            if (!_owner.EnableMemoryStoreAppend)
-                return;
+            await AppendChatMemoryCoreAsync(
+                role,
+                content,
+                request,
+                ct,
+                enabled: _owner.EnableMemoryStoreAppend,
+                scopeOverride: null,
+                memoryIdOverride: null);
+        }
 
-            if (_owner.MemoryStore == null)
-                return;
-
-            if (string.IsNullOrWhiteSpace(content))
-                return;
-
-            await BestEffort.TryAsync(
-                async () =>
-                {
-                    var scope = _owner.BuildMemoryScope(request);
-                    var memoryId = _owner.BuildMemoryId(scope);
-                    var runId = TryGetContextValue(request, "run_id", "runId") ?? string.Empty;
-
-                    var entry = new MemoryEntry
-                    {
-                        EntryId = Guid.NewGuid().ToString("N"),
-                        MemoryId = memoryId,
-                        Scope = scope,
-                        RunId = runId,
-                        AgentId = _owner.Id.ToString(),
-                        Role = role.ToString().ToLowerInvariant(),
-                        Content = content.Trim(),
-                        CreatedAt = Timestamp.FromDateTime(DateTime.UtcNow)
-                    };
-
-                    // Lightweight tags for governance / debug
-                    entry.Tags["agent_type"] = _owner.GetType().FullName ?? _owner.GetType().Name;
-                    entry.Tags["request_id"] = request.RequestId ?? string.Empty;
-                    entry.Tags["scope_type"] = scope.Type.ToString();
-                    entry.Tags["scope_id"] = scope.ScopeId ?? string.Empty;
-
-                    if (!string.IsNullOrWhiteSpace(request.StageHint))
-                        entry.Tags["stage_hint"] = request.StageHint!;
-
-                    await _owner.MemoryStore.AppendAsync(entry, ct);
-
-                    // Optional: persist vector record (best-effort, does NOT affect chat).
-                    await AppendMemoryVectorAsync(entry, ct);
-                },
-                _owner.Logger,
-                LogLevel.Debug,
-                "Failed to append chat memory (best-effort)");
+        internal async Task AppendChatMemoryOverrideAsync(
+            AevatarChatRole role,
+            string content,
+            ChatRequest request,
+            MemoryScope scope,
+            string memoryId,
+            CancellationToken ct)
+        {
+            await AppendChatMemoryCoreAsync(
+                role,
+                content,
+                request,
+                ct,
+                enabled: true,
+                scopeOverride: scope,
+                memoryIdOverride: memoryId);
         }
 
         internal async Task AppendMemoryVectorAsync(MemoryEntry entry, CancellationToken ct)
@@ -121,6 +102,71 @@ public abstract partial class AIGAgentBase
                 _owner.Logger,
                 LogLevel.Debug,
                 "Failed to append memory vector record (best-effort)");
+        }
+
+        private async Task AppendChatMemoryCoreAsync(
+            AevatarChatRole role,
+            string content,
+            ChatRequest request,
+            CancellationToken ct,
+            bool enabled,
+            MemoryScope? scopeOverride,
+            string? memoryIdOverride)
+        {
+            if (!enabled)
+                return;
+
+            if (_owner.MemoryStore == null)
+                return;
+
+            if (string.IsNullOrWhiteSpace(content))
+                return;
+
+            await BestEffort.TryAsync(
+                async () =>
+                {
+                    var scope = scopeOverride ?? _owner.BuildMemoryScope(request);
+                    if (scope == null)
+                        return;
+
+                    var memoryId = !string.IsNullOrWhiteSpace(memoryIdOverride)
+                        ? memoryIdOverride.Trim()
+                        : _owner.BuildMemoryId(scope);
+
+                    if (string.IsNullOrWhiteSpace(memoryId))
+                        return;
+
+                    var runId = TryGetContextValue(request, "run_id", "runId") ?? string.Empty;
+
+                    var entry = new MemoryEntry
+                    {
+                        EntryId = Guid.NewGuid().ToString("N"),
+                        MemoryId = memoryId,
+                        Scope = scope,
+                        RunId = runId,
+                        AgentId = _owner.Id.ToString(),
+                        Role = role.ToString().ToLowerInvariant(),
+                        Content = content.Trim(),
+                        CreatedAt = Timestamp.FromDateTime(DateTime.UtcNow)
+                    };
+
+                    // Lightweight tags for governance / debug
+                    entry.Tags["agent_type"] = _owner.GetType().FullName ?? _owner.GetType().Name;
+                    entry.Tags["request_id"] = request.RequestId ?? string.Empty;
+                    entry.Tags["scope_type"] = scope.Type.ToString();
+                    entry.Tags["scope_id"] = scope.ScopeId ?? string.Empty;
+
+                    if (!string.IsNullOrWhiteSpace(request.StageHint))
+                        entry.Tags["stage_hint"] = request.StageHint!;
+
+                    await _owner.MemoryStore.AppendAsync(entry, ct);
+
+                    // Optional: persist vector record (best-effort, does NOT affect chat).
+                    await AppendMemoryVectorAsync(entry, ct);
+                },
+                _owner.Logger,
+                LogLevel.Debug,
+                "Failed to append chat memory (best-effort)");
         }
 
         private static string? TryGetContextValue(ChatRequest request, params string[] keys)

@@ -25,7 +25,7 @@ public static class SkillsMpApi
             HttpContext http) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             var raw =
                 (secrets.TryGet(ApiKeyPath, out var s) ? s : null) ??
@@ -55,7 +55,7 @@ public static class SkillsMpApi
             HttpContext http) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             var raw =
                 (secrets.TryGet(ApiKeyPath, out var s) ? s : null) ??
@@ -84,7 +84,7 @@ public static class SkillsMpApi
             HttpContext http) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             void SetOrRemove(string key, string? raw)
             {
@@ -105,7 +105,7 @@ public static class SkillsMpApi
             HttpContext http) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             var removed = new Dictionary<string, bool>
             {
@@ -126,7 +126,7 @@ public static class SkillsMpApi
             CancellationToken ct) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             var query = (q ?? string.Empty).Trim();
             if (query.Length == 0)
@@ -158,7 +158,7 @@ public static class SkillsMpApi
             CancellationToken ct) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             var query = (q ?? string.Empty).Trim();
             if (query.Length == 0)
@@ -188,7 +188,7 @@ public static class SkillsMpApi
             CancellationToken ct) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             var repoUrl = (req.RepoUrl ?? string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(repoUrl))
@@ -246,6 +246,11 @@ public static class SkillsMpApi
 
     private static bool IsLocal(HttpContext ctx)
     {
+        // Allow disabling local check for trusted Docker environments
+        var allowRemote = Environment.GetEnvironmentVariable("ALLOW_REMOTE_LLM_API");
+        if (string.Equals(allowRemote, "true", StringComparison.OrdinalIgnoreCase))
+            return true;
+
         var ip = ctx.Connection.RemoteIpAddress;
         return ip == null || System.Net.IPAddress.IsLoopback(ip);
     }

@@ -27,6 +27,7 @@ internal static partial class ResearchSessionsApi
         MapList(app);
         MapTools(app);
         MapAgentProviders(app);
+        MapAgents(app);
         MapDeliverables(app);
         MapCompute(app);
         MapUploads(app);

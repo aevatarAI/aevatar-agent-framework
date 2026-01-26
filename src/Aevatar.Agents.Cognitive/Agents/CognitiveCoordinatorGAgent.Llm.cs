@@ -1,7 +1,9 @@
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
+using Aevatar.Agents.Cognitive.Execution;
 using Aevatar.Agents.Cognitive.Messages;
 using Aevatar.Agents.Cognitive.Primitives;
+using Aevatar.Agents.Cognitive.Utilities;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
@@ -69,6 +71,11 @@ public partial class CognitiveCoordinatorGAgent
 
         var outputType = generator.Parameters.GetValueOrDefault("output")?.ToString() ?? "text";
 
+        var agentOverride = ResolveAgentOverride(generator);
+        var effectiveSystemPrompt = string.IsNullOrWhiteSpace(systemPrompt)
+            ? agentOverride?.SystemPrompt
+            : systemPrompt;
+
         // Guardrails (configurable via DSL / workflow defaults)
         var maxLength = ResolveIntParameter(generator.Parameters, "max_length", 102400);
         maxLength = Math.Clamp(maxLength, 1024, 1024 * 1024); // [1KB, 1MB]
@@ -91,17 +98,22 @@ public partial class CognitiveCoordinatorGAgent
 
         // Prepare per-step chat request (system prompt is passed via Context override).
         var chat = ChatRequest.Create(userPrompt);
+        ApplySessionContext(chat);
         chat.StageHint = eventStep.Id ?? string.Empty;
-        if (!string.IsNullOrWhiteSpace(systemPrompt))
+        if (!string.IsNullOrWhiteSpace(effectiveSystemPrompt))
         {
-            chat.AddContext("system_prompt", systemPrompt!);
+            chat.AddContext("system_prompt", effectiveSystemPrompt!);
         }
+        if (agentOverride?.Temperature is not null)
+            chat.SetTemperatureIfNotSet(agentOverride.Temperature.Value);
+        if (agentOverride?.MaxTokens is not null)
+            chat.SetMaxTokensIfNotSet(agentOverride.MaxTokens.Value);
 
         // Bind step metadata to history writes (async-local, safe for concurrent vote fan-out).
         using var _ = BeginStepHistory(
             stepId: eventStep.Id ?? string.Empty,
             stepType: eventStep.Type ?? "llm_call",
-            systemPrompt: systemPrompt);
+            systemPrompt: effectiveSystemPrompt);
 
         var output = string.Empty;
         var promptTokens = 0;
@@ -139,7 +151,7 @@ public partial class CognitiveCoordinatorGAgent
                             {
                                 Success = false,
                                 Error = $"llm-timeout>{timeoutSeconds}s",
-                                SystemPrompt = systemPrompt,
+                                SystemPrompt = effectiveSystemPrompt,
                                 UserPrompt = userPrompt,
                                 AssistantResponse = output,
                                 TokensUsed = 0,
@@ -159,7 +171,7 @@ public partial class CognitiveCoordinatorGAgent
                                 Error = waitTimeout == idleTimeout
                                     ? $"llm-idle-timeout>{idleTimeoutSeconds}s"
                                     : $"llm-timeout>{timeoutSeconds}s",
-                                SystemPrompt = systemPrompt,
+                                SystemPrompt = effectiveSystemPrompt,
                                 UserPrompt = userPrompt,
                                 AssistantResponse = output,
                                 TokensUsed = 0,
@@ -246,7 +258,7 @@ public partial class CognitiveCoordinatorGAgent
                     {
                         Success = false,
                         Error = $"llm-timeout>{timeoutSeconds}s",
-                        SystemPrompt = systemPrompt,
+            SystemPrompt = effectiveSystemPrompt,
                         UserPrompt = userPrompt,
                         AssistantResponse = output,
                         TokensUsed = 0,
@@ -288,7 +300,7 @@ public partial class CognitiveCoordinatorGAgent
                 PromptTokens = promptTokens,
                 CompletionTokens = completionTokens,
                 LlmCalls = 1,
-                SystemPrompt = systemPrompt,
+                SystemPrompt = effectiveSystemPrompt,
                 UserPrompt = userPrompt,
                 AssistantResponse = output
             };
@@ -302,7 +314,7 @@ public partial class CognitiveCoordinatorGAgent
             {
                 Success = false,
                 Error = $"llm-timeout>{(int)callTimeout.TotalSeconds}s",
-                SystemPrompt = systemPrompt,
+                SystemPrompt = effectiveSystemPrompt,
                 UserPrompt = userPrompt,
                 AssistantResponse = output,
                 TokensUsed = 0,
@@ -317,13 +329,53 @@ public partial class CognitiveCoordinatorGAgent
             {
                 Success = false,
                 Error = $"llm-error:{ex.Message}",
-                SystemPrompt = systemPrompt,
+                SystemPrompt = effectiveSystemPrompt,
                 UserPrompt = userPrompt,
                 AssistantResponse = output,
                 TokensUsed = 0,
                 LlmCalls = 1
             };
         }
+    }
+
+    private sealed record AgentOverride(
+        string Role,
+        string? SystemPrompt,
+        double? Temperature,
+        int? MaxTokens);
+
+    private AgentOverride? ResolveAgentOverride(StepDefinition step)
+    {
+        if (!step.Parameters.TryGetValue("agent", out var agentObj) || agentObj == null)
+            return null;
+
+        var raw = agentObj.ToString() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(raw))
+            return null;
+
+        var role = _templateEngine.Render(raw, _workflowVariables).Trim();
+        if (role.Length == 0)
+            return null;
+
+        string? workingDirectory = null;
+        if (WorkspacePathGuard.TryGetWorkspaceRoot(out var workspaceRoot, out _))
+            workingDirectory = workspaceRoot;
+
+        var yaml = AgentYamlResolver.TryLoad(role, workingDirectory);
+        if (yaml == null)
+            return null;
+
+        var systemPrompt = (yaml.SystemPrompt ?? string.Empty).Trim();
+        if (systemPrompt.Length == 0 && yaml.Persona?.Role is { Length: > 0 } personaRole)
+        {
+            systemPrompt = $"You are {personaRole}.";
+        }
+
+        return new AgentOverride(
+            Role: role,
+            SystemPrompt: systemPrompt.Length == 0 ? null : systemPrompt,
+            Temperature: yaml.Temperature,
+            MaxTokens: yaml.MaxTokens);
     }
 
 }

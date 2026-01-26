@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils';
 import { useSisyphusStore } from '@/store/sisyphus-store';
 import {
   listLlmProviders,
+  listLlmInstances,
   getLlmProvider,
   getApiKeyStatus,
   setLlmApiKey,
@@ -22,6 +23,7 @@ import {
   getAgentProviders,
   setAgentProvider,
   type ProviderPublic,
+  type ProviderInstance,
 } from '@/lib/axiom-client';
 import type { LlmProvider, ToolSummary } from '@/types';
 import SkillsMpModal from './skills-mp-modal';
@@ -357,10 +359,11 @@ interface ProvidersTabProps {
 
 const ProvidersTab: React.FC<ProvidersTabProps> = ({ defaultProvider: initialDefaultProvider }) => {
   const [providers, setProviders] = useState<LlmProvider[]>([]);
+  const [instances, setInstances] = useState<ProviderInstance[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  
+
   // Default provider state
   const [currentDefault, setCurrentDefault] = useState(initialDefaultProvider || '');
   const [settingDefault, setSettingDefault] = useState(false);
@@ -381,17 +384,20 @@ const ProvidersTab: React.FC<ProvidersTabProps> = ({ defaultProvider: initialDef
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
-  // Fetch providers and default
+  // Fetch providers, instances, and default
   useEffect(() => {
     const fetch = async () => {
       setLoading(true);
       try {
-        const [providersRes, defaultRes] = await Promise.all([
+        const [providersRes, instancesRes, defaultRes] = await Promise.all([
           listLlmProviders(),
+          listLlmInstances(),
           getDefaultProvider(),
         ]);
         const arr = Array.isArray(providersRes?.providers) ? providersRes.providers : [];
         setProviders(arr);
+        const inst = Array.isArray(instancesRes?.instances) ? instancesRes.instances : [];
+        setInstances(inst);
         if (defaultRes?.providerName) {
           setCurrentDefault(defaultRes.providerName);
         }
@@ -520,6 +526,19 @@ const ProvidersTab: React.FC<ProvidersTabProps> = ({ defaultProvider: initialDef
     setBusy(true);
     setMsg(null);
     try {
+      // If user has entered a new API key, save it first before testing
+      if (apiKey.trim()) {
+        setMsg({ kind: 'ok', text: 'Saving key before test...' });
+        await setLlmApiKey(selected, apiKey.trim());
+        setHasKey(true);
+        setApiKey('');
+        setKeyShown(false);
+        // Refresh masked key
+        const keyRes = await getApiKeyStatus(selected);
+        setKeyMasked(keyRes?.masked || '');
+      }
+      
+      // Now test with saved credentials
       const res = await testLlmProvider(selected);
       const latency = res?.latencyMs ? ` (${res.latencyMs}ms)` : '';
       const modelsInfo = res?.modelsCount ? ` | ${res.modelsCount} models` : '';
@@ -531,7 +550,7 @@ const ProvidersTab: React.FC<ProvidersTabProps> = ({ defaultProvider: initialDef
       setMsg({ kind: 'err', text: e?.message || 'Test failed' });
     }
     setBusy(false);
-  }, [selected, busy]);
+  }, [selected, apiKey, busy]);
 
   const handleDelete = useCallback(async () => {
     if (!selected || busy) return;
@@ -562,10 +581,8 @@ const ProvidersTab: React.FC<ProvidersTabProps> = ({ defaultProvider: initialDef
     return { configured, popular, other };
   }, [filtered]);
 
-  // Get configured providers for default selection
-  const configuredProviders = useMemo(() => {
-    return providers.filter(p => p.apiKeyConfigured);
-  }, [providers]);
+  // Get configured instances for default selection (instances have API keys configured)
+  const configuredInstances = instances;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -580,14 +597,16 @@ const ProvidersTab: React.FC<ProvidersTabProps> = ({ defaultProvider: initialDef
             <Select
               value={currentDefault || undefined}
               onValueChange={handleSetDefault}
-              disabled={settingDefault || configuredProviders.length === 0}
+              disabled={settingDefault || configuredInstances.length === 0}
             >
               <SelectTrigger className="flex-1 text-sm">
-                <SelectValue placeholder={configuredProviders.length === 0 ? "No configured providers" : "Select default..."} />
+                <SelectValue placeholder={configuredInstances.length === 0 ? "No configured providers" : "Select default..."} />
               </SelectTrigger>
               <SelectContent>
-                {configuredProviders.map(p => (
-                  <SelectItem key={p.id} value={p.id}>{p.displayName || p.id}</SelectItem>
+                {configuredInstances.map(inst => (
+                  <SelectItem key={inst.name} value={inst.name}>
+                    {inst.providerDisplayName} ({inst.name})
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -602,6 +621,11 @@ const ProvidersTab: React.FC<ProvidersTabProps> = ({ defaultProvider: initialDef
           {currentDefault && (
             <div className="mt-1 text-[10px] font-mono text-neon-cyan">
               Current: {currentDefault}
+            </div>
+          )}
+          {configuredInstances.length === 0 && !loading && (
+            <div className="mt-1 text-[10px] font-mono text-neon-gold">
+              Configure a provider API key below first
             </div>
           )}
           {defaultMsg && (

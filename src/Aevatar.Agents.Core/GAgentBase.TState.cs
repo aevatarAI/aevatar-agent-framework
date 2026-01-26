@@ -138,9 +138,9 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
         // StateProjector is injected by StateProjectorInjector after agent creation
         
         // State initialization strategy:
-        // - If EventStore is configured: Use Event Sourcing (replay events from snapshot)
-        // - Otherwise: Use StateStore for simple state persistence
-        // These two strategies are mutually exclusive to avoid duplication
+        // - If EventStore is configured: replay events (may or may not activate event sourcing)
+        // - If event sourcing is not active (version==0), fall back to StateStore
+        // This avoids blocking StateStore just because EventStore is injected.
         
         if (EventStore != null)
         {
@@ -148,7 +148,8 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
             // No need for StateStore - EventStore handles all persistence
             await ReplayEventsAsync(ct);
         }
-        else if (StateStore != null)
+
+        if (_currentVersion == 0 && StateStore != null)
         {
             // Simple state mode: Load state directly from StateStore
             // Only load if there's persisted state, otherwise keep current state
@@ -181,12 +182,14 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
     /// </summary>
     public override async Task HandleEventAsync(EventEnvelope envelope, CancellationToken ct = default)
     {
-        // Persistence strategy: EventStore and StateStore are mutually exclusive
-        // to avoid duplicate storage operations
-        var useEventSourcing = EventStore != null;
+        // Persistence strategy:
+        // - EventStore may be injected but event sourcing is active only when version > 0.
+        // - StateStore should not be blocked until event sourcing actually starts.
+        var eventStoreEnabled = EventStore != null;
+        var eventSourcingActive = eventStoreEnabled && _currentVersion > 0;
         
-        // 1. Load State (only in StateStore mode - EventStore mode uses in-memory state from replay)
-        if (!useEventSourcing && StateStore != null)
+        // 1. Load State (only when event sourcing is not active)
+        if (!eventSourcingActive && StateStore != null)
         {
             using (StateProtectionContext.BeginEventHandlerScope())
             {
@@ -203,16 +206,16 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
         await HandleEventCoreAsync(envelope, ct);
 
         // 3. Persist state changes
-        if (useEventSourcing)
+        if (eventStoreEnabled)
         {
-            // Event Sourcing mode: Persist via events + snapshots
-            // EventStore handles all persistence, no StateStore needed
-            // Pass notifyStateChanged=false to avoid duplicate call (we call it below)
+            // Event Sourcing mode: Persist via events + snapshots (best-effort).
+            // Pass notifyStateChanged=false to avoid duplicate call (we call it below).
             await ConfirmEventsAsync(ct, notifyStateChanged: false);
         }
-        else if (StateStore != null)
+
+        if (StateStore != null && _currentVersion == 0)
         {
-            // StateStore mode: Direct state persistence
+            // StateStore mode (event sourcing not active): Direct state persistence.
             await StateStore.SaveAsync(Id, _state, ct);
         }
 

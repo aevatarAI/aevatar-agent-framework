@@ -185,6 +185,35 @@ public sealed class BriefStore
         if (maxChars == 0) return string.Empty;
         return s.Length <= maxChars ? s : s[..maxChars];
     }
+
+    /// <summary>
+    /// Updates only the milestones in the brief, preserving all other fields.
+    /// Used for dynamic milestone modification (direction change).
+    /// </summary>
+    public async Task<SraResearchBriefSnapshot> UpdateMilestonesAsync(
+        string sessionId,
+        List<SraResearchMilestone> newMilestones,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        // Load existing brief
+        var snapshot = await LoadAsync(sessionId, ct);
+
+        // Clear and replace milestones
+        snapshot.Milestones.Clear();
+        foreach (var m in newMilestones)
+        {
+            if (m != null)
+                snapshot.Milestones.Add(m);
+        }
+
+        // Increment version
+        snapshot.Version++;
+
+        // Save and return
+        return await SaveAsync(sessionId, snapshot, ct);
+    }
 }
 
 

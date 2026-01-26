@@ -17,20 +17,22 @@ namespace VibeResearching.Api.Vibe;
 //  - Each milestone is a PlanNode in the DAG
 //  - Update milestone status as research progresses:
 //      Pending -> Active -> Completed
-//  - Stop when all milestones are completed or timeout
+//  - Quality gate driven: iterate until goal achieved or safety limit (50)
 //
 //  Flow:
 //  1. Load milestones from Brief
 //  2. For each milestone (ordered by roundIndex):
 //     a. Set milestone status to Active
-//     b. Execute one research round focused on this milestone
+//     b. Execute research iterations until quality gate passes
 //     c. Set milestone status to Completed
 //  3. Publish completion event
 // ============================================================
 
 internal sealed class VibeMilestoneLoopRunner
 {
-    private const int DefaultMaxTotalDurationMs = 2 * 60 * 60 * 1000; // 2 hours for all milestones
+    private const int AbsoluteMaxIterationsPerMilestone = 50; // Safety limit for quality-gate driven iteration
+    private const int MaxMilestones = 20; // Maximum milestones including auto-extensions
+    private const int MaxExtensionRounds = 3; // Maximum auto-extension rounds
 
     private readonly VibeOrchestrator _vibe;
     private readonly BriefStore _brief;
@@ -67,14 +69,54 @@ internal sealed class VibeMilestoneLoopRunner
         ArgumentNullException.ThrowIfNull(materials);
         emitAssistantDelta ??= _ => { };
 
-        var maxTotalMs = Math.Clamp(input.Loop?.MaxTotalDurationMs ?? DefaultMaxTotalDurationMs, 1_000, 2 * 60 * 60 * 1000);
         var startedAt = DateTimeOffset.UtcNow;
         var stopReason = "completed";
         var milestonesExecuted = 0;
         var totalMilestones = 0;
+        var milestonesSkipped = 0;
+        var extensionRound = 0;
 
         try
         {
+            // ============================================================
+            // Dynamic User Input: Check for interruption and analyze intent
+            // ============================================================
+            var interruptionContext = session.ConsumeLastInterruption();
+            if (interruptionContext != null)
+            {
+                _logger.LogInformation(
+                    "[MilestoneLoop] Detected interruption from run {OldRunId}, analyzing user intent...",
+                    interruptionContext.InterruptedRunId);
+
+                var intentAnalysis = await AnalyzeUserIntentAsync(
+                    session,
+                    interruptionContext,
+                    question,
+                    providerOverride,
+                    ct);
+
+                // Emit system reply event based on intent
+                await HandleUserIntentAsync(
+                    session,
+                    interruptionContext,
+                    intentAnalysis,
+                    providerOverride,
+                    emitAssistantDelta,
+                    ct);
+
+                // If intent was handled and no further research needed, return early
+                if (intentAnalysis.IntentType == UserIntentType.ProgressInquiry)
+                {
+                    return new MilestoneLoopResult
+                    {
+                        Ok = true,
+                        StopReason = "progress_inquiry_handled",
+                        MilestonesExecuted = interruptionContext.CompletedMilestones,
+                        TotalMilestones = interruptionContext.TotalMilestones
+                    };
+                }
+            }
+
             // Load milestones from Brief
             var briefSnapshot = await _brief.LoadAsync(session.Id, ct);
             var milestones = briefSnapshot.Milestones
@@ -109,14 +151,29 @@ internal sealed class VibeMilestoneLoopRunner
 
                 if (totalMilestones == 0)
                 {
-                    _logger.LogWarning("[MilestoneLoop] Still no milestones after planning round. Research complete.");
+                    _logger.LogWarning(
+                        "[MilestoneLoop] Still no milestones after planning round. " +
+                        "Possible causes: LLM did not generate milestones in Brief, Brief generation failed, or question is too simple. " +
+                        "Research complete.");
+                    
+                    emitAssistantDelta(
+                        "\n\n## ⚠️ Research Plan Not Generated\n\n" +
+                        "The system was unable to generate a research plan with milestones. " +
+                        "This may happen if:\n" +
+                        "- The question is too simple and doesn't require multi-step research\n" +
+                        "- The LLM provider is not configured correctly\n" +
+                        "- The Brief generation failed\n\n" +
+                        "You can try:\n" +
+                        "1. Rephrasing your question to be more specific\n" +
+                        "2. Using a different LLM provider\n" +
+                        "3. Using 'chat' mode instead of 'vibe' mode for simpler questions\n\n");
+                    
                     return new MilestoneLoopResult
                     {
                         Ok = true,
                         StopReason = "no_milestones",
                         MilestonesExecuted = 0,
-                        TotalMilestones = 0,
-                        MaxTotalDurationMs = maxTotalMs
+                        TotalMilestones = 0
                     };
                 }
 
@@ -146,6 +203,17 @@ internal sealed class VibeMilestoneLoopRunner
             // EffectiveDagId may be "global" for cross-session DAG, but PlanNodes use actual session.Id.
             var graphClient = _graphFactory.CreateClient(session.Id);
 
+            // ============================================================
+            // Resume Logic: Get completed milestone status from graph
+            // Skip milestones that are already marked as Completed.
+            // ============================================================
+            var completedMilestoneIds = await GetCompletedMilestoneIdsAsync(graphClient, session.Id, milestones, ct);
+            if (completedMilestoneIds.Count > 0)
+            {
+                _logger.LogInformation("[MilestoneLoop] Found {Count} completed milestones, will skip them",
+                    completedMilestoneIds.Count);
+            }
+
             // Only show research plan if we didn't already show it after initial round
             if (milestonesExecuted == 0)
             {
@@ -163,18 +231,23 @@ internal sealed class VibeMilestoneLoopRunner
             {
                 ct.ThrowIfCancellationRequested();
 
-                var elapsedMs = (int)(DateTimeOffset.UtcNow - startedAt).TotalMilliseconds;
-                if (elapsedMs >= maxTotalMs)
-                {
-                    stopReason = "timeout";
-                    _logger.LogInformation("[MilestoneLoop] Timeout after {Elapsed}ms, completed {Done}/{Total} milestones",
-                        elapsedMs, milestonesExecuted, totalMilestones);
-                    break;
-                }
-
                 var milestone = milestones[i];
                 var milestoneNodeId = GetMilestoneNodeId(session.Id, milestone.RoundIndex, i + 1);
                 var stepName = $"vibe.milestone.round_{milestone.RoundIndex}";
+
+                // ============================================================
+                // Resume Logic: Skip already completed milestones
+                // ============================================================
+                if (completedMilestoneIds.Contains(milestoneNodeId))
+                {
+                    _logger.LogInformation("[MilestoneLoop] Skipping completed milestone {NodeId} (round {Round})",
+                        milestoneNodeId, milestone.RoundIndex);
+
+                    emitAssistantDelta($"\n**Skipping completed milestone {i + 1}/{totalMilestones} (Round {milestone.RoundIndex})**\n");
+                    milestonesSkipped++;
+                    milestonesExecuted++;
+                    continue;
+                }
 
                 // Publish milestone started
                 session.Events.Publish(new StepStartedEvent
@@ -206,6 +279,9 @@ internal sealed class VibeMilestoneLoopRunner
                 await TryUpdateMilestoneStatusAsync(graphClient, milestoneNodeId, PlanNodeStatus.Active,
                     $"Starting research for milestone {currentMilestoneNum}/{totalMilestones}", ct);
 
+                // Update session context for potential interruption tracking
+                UpdateInterruptionTrackingContext(session, milestoneNodeId, currentMilestoneNum, totalMilestones, milestonesExecuted);
+
                 emitAssistantDelta($"\n## Milestone {currentMilestoneNum}/{totalMilestones} (Round {milestone.RoundIndex})\n\n");
                 emitAssistantDelta($"**Goal**: {milestone.ExpectedOutput}\n\n");
 
@@ -215,26 +291,17 @@ internal sealed class VibeMilestoneLoopRunner
                     // Deep Research Loop for this milestone
                     // - Execute multiple iterations until goal is achieved
                     // - Each iteration: research -> evaluate -> decide continue/done
+                    // - No fixed iteration limit - driven entirely by quality gate
                     // ============================================================
-                    const int maxIterationsPerMilestone = 5;
                     var iterationCount = 0;
                     var milestoneAchieved = false;
 
-                    while (!milestoneAchieved && iterationCount < maxIterationsPerMilestone)
+                    while (!milestoneAchieved && iterationCount < AbsoluteMaxIterationsPerMilestone)
                     {
                         ct.ThrowIfCancellationRequested();
                         iterationCount++;
 
-                        // Check timeout
-                        var iterElapsedMs = (int)(DateTimeOffset.UtcNow - startedAt).TotalMilliseconds;
-                        if (iterElapsedMs >= maxTotalMs)
-                        {
-                            _logger.LogInformation("[MilestoneLoop] Timeout during milestone {Index} iteration {Iter}", i + 1, iterationCount);
-                            stopReason = "timeout";
-                            break;
-                        }
-
-                        emitAssistantDelta($"\n### Iteration {iterationCount}/{maxIterationsPerMilestone}\n\n");
+                        emitAssistantDelta($"\n### Iteration {iterationCount}\n\n");
 
                         // Build iteration-specific prompt with deep research instructions
                         var iterationPrompt = BuildDeepResearchPrompt(
@@ -243,7 +310,6 @@ internal sealed class VibeMilestoneLoopRunner
                             currentMilestoneNum,
                             totalMilestones,
                             iterationCount,
-                            maxIterationsPerMilestone,
                             milestoneNodeId);
 
                         // Execute research round
@@ -272,13 +338,16 @@ internal sealed class VibeMilestoneLoopRunner
                             milestoneAchieved = true;
                             emitAssistantDelta($"\n✓ **Goal achieved after {iterationCount} iteration(s).**\n");
                         }
-                        else if (iterationCount < maxIterationsPerMilestone)
+                        else if (iterationCount >= AbsoluteMaxIterationsPerMilestone)
                         {
-                            emitAssistantDelta($"\n→ **Continuing research...** (Need: {evaluation.NextSteps})\n");
+                            emitAssistantDelta(
+                                $"\n⚠ **Safety iteration limit reached ({AbsoluteMaxIterationsPerMilestone}).** " +
+                                $"Moving to next milestone with current progress.\n");
                         }
                         else
                         {
-                            emitAssistantDelta($"\n⚠ **Max iterations reached.** Moving to next milestone.\n");
+                            emitAssistantDelta(
+                                $"\n→ **Quality gate not yet met.** Continuing research... (Need: {evaluation.NextSteps})\n");
                         }
                     }
 
@@ -352,9 +421,185 @@ internal sealed class VibeMilestoneLoopRunner
                 });
             }
 
+            // ============================================================
+            // Auto-Extension Loop: Continue extending until done or limits reached
+            // ============================================================
+            while (milestonesExecuted >= totalMilestones && stopReason == "completed")
+            {
+                // Check if we can extend
+                var canExtend = totalMilestones < MaxMilestones && extensionRound < MaxExtensionRounds;
+
+                if (!canExtend)
+                {
+                    _logger.LogInformation(
+                        "[MilestoneLoop] Cannot extend: totalMilestones={Total}, maxMilestones={Max}, extensionRound={Round}, maxRounds={MaxRounds}",
+                        totalMilestones, MaxMilestones, extensionRound, MaxExtensionRounds);
+                    break;
+                }
+
+                ct.ThrowIfCancellationRequested();
+
+                _logger.LogInformation(
+                    "[MilestoneLoop] All {Count} milestones completed. Attempting auto-extension (round {Round})",
+                    totalMilestones, extensionRound + 1);
+
+                emitAssistantDelta("\n\n## Exploring Further...\n\nAnalyzing research progress for potential extensions...\n\n");
+
+                var autoExtensionResult = await TryAutoExtendAsync(
+                    session,
+                    briefSnapshot,
+                    milestones,
+                    providerOverride,
+                    emitAssistantDelta,
+                    ct);
+
+                if (autoExtensionResult.ExtendedMilestones.Count == 0)
+                {
+                    emitAssistantDelta($"**Decision**: No further extensions needed. {autoExtensionResult.Reason}\n\n");
+                    break;
+                }
+
+                extensionRound++;
+                stopReason = "auto_extended";
+
+                // Add extended milestones to the list
+                var newMilestones = autoExtensionResult.ExtendedMilestones;
+                milestones.AddRange(newMilestones);
+                totalMilestones = milestones.Count;
+
+                // Save extended milestones to Brief
+                await _brief.UpdateMilestonesAsync(session.Id, milestones, ct);
+
+                // Create Plan Nodes for new milestones
+                await CreatePlanNodesForExtendedMilestonesAsync(
+                    graphClient,
+                    session.Id,
+                    milestonesExecuted,
+                    newMilestones,
+                    ct);
+
+                emitAssistantDelta($"\n### Auto-Extension Round {extensionRound}\n");
+                emitAssistantDelta($"Added {newMilestones.Count} new milestones to explore:\n\n");
+                for (var i = 0; i < newMilestones.Count; i++)
+                {
+                    emitAssistantDelta($"{milestonesExecuted + i + 1}. {newMilestones[i].ExpectedOutput}\n");
+                }
+                emitAssistantDelta("\n---\n");
+
+                // Update completed milestone IDs for new milestones
+                completedMilestoneIds = await GetCompletedMilestoneIdsAsync(graphClient, session.Id, milestones, ct);
+
+                // Execute the new milestones
+                for (var i = milestonesExecuted; i < milestones.Count; i++)
+                {
+                    ct.ThrowIfCancellationRequested();
+
+                    var milestone = milestones[i];
+                    var milestoneNodeId = GetMilestoneNodeId(session.Id, milestone.RoundIndex, i + 1);
+                    var stepName = $"vibe.milestone.round_{milestone.RoundIndex}";
+                    var currentMilestoneNum = i + 1;
+
+                    // Skip if already completed
+                    if (completedMilestoneIds.Contains(milestoneNodeId))
+                    {
+                        milestonesSkipped++;
+                        milestonesExecuted++;
+                        continue;
+                    }
+
+                    // Publish milestone started
+                    session.Events.Publish(new StepStartedEvent
+                    {
+                        Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                        StepName = stepName
+                    });
+
+                    session.Events.Publish(new CustomEvent
+                    {
+                        Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                        Name = "aevatar.vibe.milestone_started",
+                        Value = new
+                        {
+                            sessionId = session.Id,
+                            dagId,
+                            milestoneNodeId,
+                            milestoneIndex = currentMilestoneNum,
+                            totalMilestones,
+                            roundIndex = milestone.RoundIndex,
+                            expectedOutput = milestone.ExpectedOutput,
+                            isExtension = true
+                        }
+                    });
+
+                    await TryUpdateMilestoneStatusAsync(graphClient, milestoneNodeId, PlanNodeStatus.Active,
+                        $"Starting extended research for milestone {currentMilestoneNum}/{totalMilestones}", ct);
+
+                    UpdateInterruptionTrackingContext(session, milestoneNodeId, currentMilestoneNum, totalMilestones, milestonesExecuted);
+
+                    emitAssistantDelta($"\n## Extended Milestone {currentMilestoneNum}/{totalMilestones} (Round {milestone.RoundIndex})\n\n");
+                    emitAssistantDelta($"**Goal**: {milestone.ExpectedOutput}\n\n");
+
+                    try
+                    {
+                        await ExecuteMilestoneWithDeepResearchAsync(
+                            session, runId, input, question, materials, milestone,
+                            milestoneNodeId, dagId, graphClient,
+                            providerOverride, emitAssistantDelta, ct);
+
+                        milestonesExecuted++;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[MilestoneLoop] Extended milestone {NodeId} failed: {Msg}", milestoneNodeId, ex.Message);
+                        await TryUpdateMilestoneStatusAsync(graphClient, milestoneNodeId, PlanNodeStatus.Completed,
+                            $"Completed with error: {ex.Message}", ct);
+                        milestonesExecuted++;
+                    }
+
+                    // Publish milestone finished
+                    session.Events.Publish(new StepFinishedEvent
+                    {
+                        Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                        StepName = stepName
+                    });
+
+                    session.Events.Publish(new CustomEvent
+                    {
+                        Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                        Name = "aevatar.vibe.milestone_finished",
+                        Value = new
+                        {
+                            sessionId = session.Id,
+                            dagId,
+                            milestoneNodeId,
+                            milestoneIndex = milestonesExecuted,
+                            totalMilestones,
+                            roundIndex = milestone.RoundIndex,
+                            milestonesExecuted,
+                            remainingMilestones = totalMilestones - milestonesExecuted
+                        }
+                    });
+                }
+
+                // Reset stopReason to completed if we finished all extended milestones
+                if (milestonesExecuted >= totalMilestones && stopReason == "auto_extended")
+                {
+                    stopReason = "completed";
+                }
+            }
+
             if (milestonesExecuted >= totalMilestones)
             {
-                emitAssistantDelta($"\n\n## Research Complete!\n\nAll {totalMilestones} milestones have been completed.\n");
+                emitAssistantDelta($"\n\n## Research Complete!\n\nAll {totalMilestones} milestones have been completed");
+                if (extensionRound > 0)
+                {
+                    emitAssistantDelta($" (including {extensionRound} auto-extension round{(extensionRound > 1 ? "s" : "")})");
+                }
+                emitAssistantDelta(".\n");
             }
             else
             {
@@ -374,11 +619,12 @@ internal sealed class VibeMilestoneLoopRunner
 
         return new MilestoneLoopResult
         {
-            Ok = stopReason == "completed",
+            Ok = stopReason == "completed" || stopReason == "auto_extended",
             StopReason = stopReason,
             MilestonesExecuted = milestonesExecuted,
             TotalMilestones = totalMilestones,
-            MaxTotalDurationMs = maxTotalMs
+            MilestonesSkipped = milestonesSkipped,
+            ExtensionRound = extensionRound
         };
     }
 
@@ -474,7 +720,6 @@ internal sealed class VibeMilestoneLoopRunner
         int milestoneIndex,
         int totalMilestones,
         int iterationCount,
-        int maxIterations,
         string milestoneNodeId)
     {
         var iterationGuidance = iterationCount switch
@@ -493,12 +738,20 @@ internal sealed class VibeMilestoneLoopRunner
                 3. Cross-referencing multiple evidence items
                 4. Identifying gaps in your understanding
                 """,
-            _ => $"""
-                This is iteration {iterationCount}/{maxIterations}. Focus on:
+            3 or 4 => """
+                This is a REFINEMENT iteration. Focus on:
                 1. Filling remaining knowledge gaps
                 2. Verifying your conclusions with additional evidence
                 3. Synthesizing findings into coherent knowledge
                 4. Ensuring completeness of your research
+                """,
+            _ => """
+                This is an EXTENDED iteration. The quality gate has not yet been met.
+                Focus on:
+                1. Addressing specific gaps identified in previous evaluations
+                2. Finding additional corroborating evidence
+                3. Resolving any contradictions or inconsistencies
+                4. Achieving a comprehensive understanding of the milestone goal
                 """
         };
 
@@ -600,6 +853,930 @@ internal sealed class VibeMilestoneLoopRunner
         }
     }
 
+    // ============================================================
+    //  User Intent Analysis (Dynamic User Input)
+    // ============================================================
+
+    /// <summary>
+    /// Analyzes the user's intent from their interruption message.
+    /// Returns the intent type and any relevant information.
+    /// </summary>
+    private async Task<UserIntentAnalysis> AnalyzeUserIntentAsync(
+        ResearchSession session,
+        InterruptionContext interruptionContext,
+        string newMessage,
+        string? providerOverride,
+        CancellationToken ct)
+    {
+        try
+        {
+            var (verifier, verifierId) = await _vibe.Runtime.GetVerifierAgentAsync(session.Id, providerOverride, ct);
+
+            var analysisPrompt = $$"""
+                # User Intent Analysis
+
+                The user has interrupted an ongoing research session with a new message.
+                Analyze the user's intent and categorize it into one of three types.
+
+                **User's New Message**: {{newMessage}}
+
+                **Research Progress Context**:
+                - Interrupted at milestone: {{interruptionContext.InterruptedAtMilestoneIndex}}/{{interruptionContext.TotalMilestones}}
+                - Completed milestones: {{interruptionContext.CompletedMilestones}}
+
+                Respond in this exact JSON format:
+                ```json
+                {
+                    "intentType": "direction_change" | "progress_inquiry" | "other",
+                    "summary": "Brief summary of what the user wants",
+                    "directionChangeDescription": "Only if intentType is direction_change: describe the new direction",
+                    "suggestedNewMilestones": ["Only if direction_change: list of 1-3 new milestone descriptions"],
+                    "systemReplyContent": "A friendly response to show to the user (1-2 sentences)"
+                }
+                ```
+
+                **Intent Type Definitions**:
+                - **direction_change**: User wants to change research focus, add new topics, modify goals, or pivot the research direction
+                - **progress_inquiry**: User asks about current progress, status, what's been done, or time remaining
+                - **other**: Any other message (general comments, encouragement, unrelated questions)
+
+                Be strict in categorization. Only use "direction_change" if the user clearly wants to modify the research plan.
+                """;
+
+            var req = new Aevatar.Agents.AI.ChatRequest
+            {
+                Message = analysisPrompt,
+                RequestId = Guid.NewGuid().ToString("N"),
+                StageHint = "session:vibe:intent_analysis"
+            };
+            req.Context["agent_id"] = verifierId;
+
+            var resp = await verifier.ChatAsync(req, ct);
+            var content = resp.Content ?? string.Empty;
+
+            return ParseIntentAnalysisResponse(content);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[MilestoneLoop] Intent analysis failed, defaulting to 'other'");
+            return new UserIntentAnalysis
+            {
+                IntentType = UserIntentType.Other,
+                Summary = "Unable to analyze intent",
+                SystemReplyContent = "I've received your message. Let me continue with the research."
+            };
+        }
+    }
+
+    private UserIntentAnalysis ParseIntentAnalysisResponse(string content)
+    {
+        try
+        {
+            var jsonStart = content.IndexOf('{');
+            var jsonEnd = content.LastIndexOf('}');
+            if (jsonStart >= 0 && jsonEnd > jsonStart)
+            {
+                var json = content[jsonStart..(jsonEnd + 1)];
+                var parsed = System.Text.Json.JsonSerializer.Deserialize<IntentAnalysisJson>(json,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (parsed != null)
+                {
+                    var intentType = (parsed.IntentType ?? "other").ToLowerInvariant() switch
+                    {
+                        "direction_change" => UserIntentType.DirectionChange,
+                        "progress_inquiry" => UserIntentType.ProgressInquiry,
+                        _ => UserIntentType.Other
+                    };
+
+                    return new UserIntentAnalysis
+                    {
+                        IntentType = intentType,
+                        Summary = parsed.Summary ?? "Intent analyzed",
+                        DirectionChangeDescription = parsed.DirectionChangeDescription,
+                        SuggestedNewMilestones = parsed.SuggestedNewMilestones,
+                        SystemReplyContent = parsed.SystemReplyContent
+                    };
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[MilestoneLoop] Failed to parse intent analysis JSON");
+        }
+
+        return new UserIntentAnalysis
+        {
+            IntentType = UserIntentType.Other,
+            Summary = "Unable to parse intent",
+            SystemReplyContent = "I've received your message and will continue with the research."
+        };
+    }
+
+    /// <summary>
+    /// Handles the analyzed user intent by emitting appropriate system replies
+    /// and taking action based on intent type.
+    /// </summary>
+    private async Task HandleUserIntentAsync(
+        ResearchSession session,
+        InterruptionContext interruptionContext,
+        UserIntentAnalysis intentAnalysis,
+        string? providerOverride,
+        Action<string> emitAssistantDelta,
+        CancellationToken ct)
+    {
+        long Ts() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+        switch (intentAnalysis.IntentType)
+        {
+            case UserIntentType.DirectionChange:
+                _logger.LogInformation("[MilestoneLoop] User requested direction change: {Desc}",
+                    intentAnalysis.DirectionChangeDescription);
+
+                // Emit system reply acknowledging direction change
+                session.Events.Publish(new CustomEvent
+                {
+                    Timestamp = Ts(),
+                    Name = "aevatar.scientific.system_reply",
+                    Value = new
+                    {
+                        sessionId = session.Id,
+                        messageType = "direction_change",
+                        content = intentAnalysis.SystemReplyContent ??
+                            "Got it! I'll adjust the research direction based on your feedback."
+                    }
+                });
+
+                // Modify pending milestones based on user's new direction
+                await ModifyPendingMilestonesAsync(
+                    session,
+                    interruptionContext,
+                    intentAnalysis,
+                    providerOverride,
+                    emitAssistantDelta,
+                    ct);
+
+                break;
+
+            case UserIntentType.ProgressInquiry:
+                _logger.LogInformation("[MilestoneLoop] User requested progress inquiry");
+
+                // Generate progress summary
+                var progressContent = GenerateProgressSummary(interruptionContext);
+
+                session.Events.Publish(new CustomEvent
+                {
+                    Timestamp = Ts(),
+                    Name = "aevatar.scientific.system_reply",
+                    Value = new
+                    {
+                        sessionId = session.Id,
+                        messageType = "progress_inquiry",
+                        content = progressContent
+                    }
+                });
+
+                emitAssistantDelta($"\n## Progress Update\n\n{progressContent}\n\n");
+                break;
+
+            case UserIntentType.Other:
+            default:
+                _logger.LogInformation("[MilestoneLoop] User message categorized as 'other', continuing research");
+
+                session.Events.Publish(new CustomEvent
+                {
+                    Timestamp = Ts(),
+                    Name = "aevatar.scientific.system_reply",
+                    Value = new
+                    {
+                        sessionId = session.Id,
+                        messageType = "other",
+                        content = intentAnalysis.SystemReplyContent ??
+                            "Thanks for your message! I haven't detected a specific research direction change, so I'll continue with the current plan."
+                    }
+                });
+                break;
+        }
+    }
+
+    private static string GenerateProgressSummary(InterruptionContext ctx)
+    {
+        var completed = ctx.CompletedMilestones;
+        var total = ctx.TotalMilestones;
+        var percent = total > 0 ? (completed * 100 / total) : 0;
+
+        return $"**Research Progress**: {completed}/{total} milestones completed ({percent}% done)\n" +
+               $"Currently working on milestone {ctx.InterruptedAtMilestoneIndex}.\n" +
+               "The research will continue from where it left off.";
+    }
+
+    private sealed class IntentAnalysisJson
+    {
+        public string? IntentType { get; init; }
+        public string? Summary { get; init; }
+        public string? DirectionChangeDescription { get; init; }
+        public List<string>? SuggestedNewMilestones { get; init; }
+        public string? SystemReplyContent { get; init; }
+    }
+
+    // ============================================================
+    //  Milestone Modification (Phase 5: Direction Change)
+    // ============================================================
+
+    /// <summary>
+    /// Modifies pending milestones based on user's direction change request.
+    /// </summary>
+    private async Task ModifyPendingMilestonesAsync(
+        ResearchSession session,
+        InterruptionContext interruptionContext,
+        UserIntentAnalysis intentAnalysis,
+        string? providerOverride,
+        Action<string> emitAssistantDelta,
+        CancellationToken ct)
+    {
+        try
+        {
+            // Load current Brief
+            var briefSnapshot = await _brief.LoadAsync(session.Id, ct);
+            var existingMilestones = briefSnapshot.Milestones
+                .Where(m => !string.IsNullOrWhiteSpace(m?.ExpectedOutput))
+                .OrderBy(m => m.RoundIndex)
+                .ToList();
+
+            if (existingMilestones.Count == 0)
+            {
+                _logger.LogWarning("[MilestoneLoop] No existing milestones to modify");
+                return;
+            }
+
+            // Get completed milestones (don't modify these)
+            var graphClient = _graphFactory.CreateClient(session.Id);
+            var completedIds = await GetCompletedMilestoneIdsAsync(graphClient, session.Id, existingMilestones, ct);
+
+            // Separate completed and pending milestones
+            var completedMilestones = new List<SraResearchMilestone>();
+            var pendingMilestones = new List<SraResearchMilestone>();
+
+            for (var i = 0; i < existingMilestones.Count; i++)
+            {
+                var ms = existingMilestones[i];
+                var nodeId = GetMilestoneNodeId(session.Id, ms.RoundIndex, i + 1);
+                if (completedIds.Contains(nodeId))
+                    completedMilestones.Add(ms);
+                else
+                    pendingMilestones.Add(ms);
+            }
+
+            if (pendingMilestones.Count == 0)
+            {
+                _logger.LogInformation("[MilestoneLoop] All milestones completed, cannot modify");
+                emitAssistantDelta("\n**Note**: All existing milestones are completed. The new direction will be applied via auto-extension.\n\n");
+                return;
+            }
+
+            // Generate modified milestones using LLM
+            var modifiedMilestones = await GenerateModifiedMilestonesAsync(
+                session,
+                briefSnapshot.RewrittenQuestion,
+                completedMilestones,
+                pendingMilestones,
+                intentAnalysis,
+                providerOverride,
+                ct);
+
+            if (modifiedMilestones.Count == 0)
+            {
+                _logger.LogWarning("[MilestoneLoop] Failed to generate modified milestones");
+                emitAssistantDelta("\n**Note**: Could not generate modified milestones. Continuing with original plan.\n\n");
+                return;
+            }
+
+            // Update the Brief with modified milestones
+            var allMilestones = completedMilestones.Concat(modifiedMilestones).ToList();
+            await _brief.UpdateMilestonesAsync(session.Id, allMilestones, ct);
+
+            // Update Plan Nodes in graph (pass original pending count for orphan handling)
+            await UpdatePlanNodesForModifiedMilestonesAsync(
+                graphClient,
+                session.Id,
+                completedMilestones.Count,
+                modifiedMilestones,
+                pendingMilestones.Count,  // Original pending count for orphan detection
+                ct);
+
+            // Emit UI update
+            emitAssistantDelta("\n## Research Direction Updated\n\n");
+            emitAssistantDelta($"**Your request**: {intentAnalysis.Summary}\n\n");
+            emitAssistantDelta($"**Modified plan** ({modifiedMilestones.Count} milestones):\n");
+            for (var i = 0; i < modifiedMilestones.Count; i++)
+            {
+                var ms = modifiedMilestones[i];
+                emitAssistantDelta($"{completedMilestones.Count + i + 1}. {ms.ExpectedOutput}\n");
+            }
+            emitAssistantDelta("\n");
+
+            _logger.LogInformation(
+                "[MilestoneLoop] Modified {Count} pending milestones based on direction change",
+                modifiedMilestones.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[MilestoneLoop] Failed to modify milestones");
+            emitAssistantDelta("\n**Note**: Failed to modify milestones. Continuing with original plan.\n\n");
+        }
+    }
+
+    /// <summary>
+    /// Generates modified milestones based on user's direction change.
+    /// </summary>
+    private async Task<List<SraResearchMilestone>> GenerateModifiedMilestonesAsync(
+        ResearchSession session,
+        string originalQuestion,
+        List<SraResearchMilestone> completedMilestones,
+        List<SraResearchMilestone> pendingMilestones,
+        UserIntentAnalysis intentAnalysis,
+        string? providerOverride,
+        CancellationToken ct)
+    {
+        try
+        {
+            var (verifier, verifierId) = await _vibe.Runtime.GetVerifierAgentAsync(session.Id, providerOverride, ct);
+
+            var completedSummary = string.Join("\n", completedMilestones.Select((m, i) => $"- [DONE] {m.ExpectedOutput}"));
+            var pendingSummary = string.Join("\n", pendingMilestones.Select((m, i) => $"- [PENDING] {m.ExpectedOutput}"));
+
+            var prompt = $$"""
+                # Modify Research Milestones
+
+                The user wants to change the research direction. Modify the PENDING milestones to align with their new direction while keeping COMPLETED milestones unchanged.
+
+                **Original Research Question**: {{originalQuestion}}
+
+                **Current Milestones**:
+                {{completedSummary}}
+                {{pendingSummary}}
+
+                **User's New Direction**: {{intentAnalysis.DirectionChangeDescription ?? intentAnalysis.Summary}}
+
+                **Suggested New Milestones (if any)**:
+                {{string.Join("\n", intentAnalysis.SuggestedNewMilestones ?? new List<string>())}}
+
+                Generate 1-5 modified milestones that:
+                1. Build upon the completed work
+                2. Align with the user's new direction
+                3. Are specific and actionable
+                4. Can be completed in 1-2 research iterations each
+
+                Respond with a JSON array of milestone objects:
+                ```json
+                [
+                    { "roundIndex": {{completedMilestones.Count + 1}}, "expectedOutput": "Description of milestone 1" },
+                    { "roundIndex": {{completedMilestones.Count + 2}}, "expectedOutput": "Description of milestone 2" }
+                ]
+                ```
+                """;
+
+            var req = new Aevatar.Agents.AI.ChatRequest
+            {
+                Message = prompt,
+                RequestId = Guid.NewGuid().ToString("N"),
+                StageHint = "session:vibe:milestone_modification"
+            };
+            req.Context["agent_id"] = verifierId;
+
+            var resp = await verifier.ChatAsync(req, ct);
+            var content = resp.Content ?? string.Empty;
+
+            return ParseModifiedMilestonesResponse(content, completedMilestones.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[MilestoneLoop] Failed to generate modified milestones");
+            return new List<SraResearchMilestone>();
+        }
+    }
+
+    private List<SraResearchMilestone> ParseModifiedMilestonesResponse(string content, int startingRoundIndex)
+    {
+        var milestones = new List<SraResearchMilestone>();
+
+        try
+        {
+            var jsonStart = content.IndexOf('[');
+            var jsonEnd = content.LastIndexOf(']');
+            if (jsonStart >= 0 && jsonEnd > jsonStart)
+            {
+                var json = content[jsonStart..(jsonEnd + 1)];
+                var parsed = System.Text.Json.JsonSerializer.Deserialize<List<MilestoneJson>>(json,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (parsed != null)
+                {
+                    var roundIndex = startingRoundIndex + 1;
+                    foreach (var m in parsed)
+                    {
+                        if (!string.IsNullOrWhiteSpace(m.ExpectedOutput))
+                        {
+                            milestones.Add(new SraResearchMilestone
+                            {
+                                RoundIndex = m.RoundIndex > 0 ? m.RoundIndex : roundIndex,
+                                ExpectedOutput = m.ExpectedOutput
+                            });
+                            roundIndex++;
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[MilestoneLoop] Failed to parse modified milestones JSON");
+        }
+
+        return milestones;
+    }
+
+    private sealed class MilestoneJson
+    {
+        public int RoundIndex { get; init; }
+        public string? ExpectedOutput { get; init; }
+    }
+
+    // ============================================================
+    //  Auto-Extension (Phase 6)
+    // ============================================================
+
+    private sealed class AutoExtensionResult
+    {
+        public List<SraResearchMilestone> ExtendedMilestones { get; init; } = new();
+        public string Reason { get; init; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Attempts to auto-extend the research by generating additional milestones.
+    /// </summary>
+    private async Task<AutoExtensionResult> TryAutoExtendAsync(
+        ResearchSession session,
+        SraResearchBriefSnapshot briefSnapshot,
+        List<SraResearchMilestone> completedMilestones,
+        string? providerOverride,
+        Action<string> emitAssistantDelta,
+        CancellationToken ct)
+    {
+        try
+        {
+            var (verifier, verifierId) = await _vibe.Runtime.GetVerifierAgentAsync(session.Id, providerOverride, ct);
+
+            // Build summary of completed work
+            var completedSummary = string.Join("\n", completedMilestones.Select((m, i) =>
+                $"- Milestone {i + 1}: {m.ExpectedOutput}"));
+
+            var remainingCapacity = MaxMilestones - completedMilestones.Count;
+            var maxNewMilestones = Math.Min(3, remainingCapacity);
+
+            var prompt = $$"""
+                # Auto-Extension Analysis
+
+                The research has completed all planned milestones. Analyze whether further exploration would be valuable.
+
+                **Original Research Question**: {{briefSnapshot.RewrittenQuestion}}
+
+                **Scope**: {{briefSnapshot.Scope}}
+
+                **Completed Milestones** ({{completedMilestones.Count}} total):
+                {{completedSummary}}
+
+                **Task**: Determine if the research would benefit from additional milestones.
+
+                Consider:
+                1. Are there unexplored aspects of the original question?
+                2. Did the completed milestones reveal new interesting directions?
+                3. Would additional research deepen understanding significantly?
+                4. Is the research scope sufficiently covered?
+
+                **Constraints**:
+                - Generate 0-{{maxNewMilestones}} new milestones
+                - Each milestone should be specific and actionable
+                - Don't repeat completed work
+                - Only extend if genuinely valuable
+
+                Respond with a JSON object:
+                ```json
+                {
+                    "shouldExtend": true/false,
+                    "reason": "Brief explanation for the decision",
+                    "newMilestones": [
+                        { "roundIndex": {{completedMilestones.Count + 1}}, "expectedOutput": "Description" }
+                    ]
+                }
+                ```
+
+                If shouldExtend is false, newMilestones should be an empty array.
+                """;
+
+            var req = new Aevatar.Agents.AI.ChatRequest
+            {
+                Message = prompt,
+                RequestId = Guid.NewGuid().ToString("N"),
+                StageHint = "session:vibe:auto_extension"
+            };
+            req.Context["agent_id"] = verifierId;
+
+            var resp = await verifier.ChatAsync(req, ct);
+            var content = resp.Content ?? string.Empty;
+
+            return ParseAutoExtensionResponse(content, completedMilestones.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[MilestoneLoop] Auto-extension failed");
+            return new AutoExtensionResult { Reason = "Extension analysis failed" };
+        }
+    }
+
+    private AutoExtensionResult ParseAutoExtensionResponse(string content, int startingIndex)
+    {
+        try
+        {
+            var jsonStart = content.IndexOf('{');
+            var jsonEnd = content.LastIndexOf('}');
+            if (jsonStart >= 0 && jsonEnd > jsonStart)
+            {
+                var json = content[jsonStart..(jsonEnd + 1)];
+                var parsed = System.Text.Json.JsonSerializer.Deserialize<AutoExtensionJson>(json,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (parsed != null && parsed.ShouldExtend && parsed.NewMilestones?.Count > 0)
+                {
+                    var milestones = new List<SraResearchMilestone>();
+                    var roundIndex = startingIndex + 1;
+
+                    foreach (var m in parsed.NewMilestones)
+                    {
+                        if (!string.IsNullOrWhiteSpace(m.ExpectedOutput))
+                        {
+                            milestones.Add(new SraResearchMilestone
+                            {
+                                RoundIndex = m.RoundIndex > 0 ? m.RoundIndex : roundIndex,
+                                ExpectedOutput = m.ExpectedOutput
+                            });
+                            roundIndex++;
+                        }
+                    }
+
+                    return new AutoExtensionResult
+                    {
+                        ExtendedMilestones = milestones,
+                        Reason = parsed.Reason ?? "Research extended with new milestones"
+                    };
+                }
+
+                return new AutoExtensionResult
+                {
+                    Reason = parsed?.Reason ?? "No extension needed"
+                };
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[MilestoneLoop] Failed to parse auto-extension JSON");
+        }
+
+        return new AutoExtensionResult { Reason = "Failed to parse extension response" };
+    }
+
+    private sealed class AutoExtensionJson
+    {
+        public bool ShouldExtend { get; init; }
+        public string? Reason { get; init; }
+        public List<MilestoneJson>? NewMilestones { get; init; }
+    }
+
+    /// <summary>
+    /// Executes a single milestone with deep research loop (multiple iterations until goal achieved).
+    /// </summary>
+    private async Task ExecuteMilestoneWithDeepResearchAsync(
+        ResearchSession session,
+        string runId,
+        SessionInputInDto input,
+        string question,
+        Materials.MaterialsSnapshot materials,
+        SraResearchMilestone milestone,
+        string milestoneNodeId,
+        string dagId,
+        IKnowledgeGraphClient graphClient,
+        string? providerOverride,
+        Action<string> emitAssistantDelta,
+        CancellationToken ct)
+    {
+        var iterationCount = 0;
+        var milestoneAchieved = false;
+
+        while (!milestoneAchieved && iterationCount < AbsoluteMaxIterationsPerMilestone)
+        {
+            ct.ThrowIfCancellationRequested();
+            iterationCount++;
+
+            emitAssistantDelta($"\n### Iteration {iterationCount}\n\n");
+
+            // Build iteration-specific prompt with deep research instructions
+            var iterationPrompt = BuildDeepResearchPrompt(
+                question,
+                milestone.ExpectedOutput,
+                1, // milestoneIndex - not important for auto-extension
+                1, // totalMilestones - not important for auto-extension
+                iterationCount,
+                milestoneNodeId);
+
+            // Execute research round
+            await _vibe.ExecuteOneRoundAsync(
+                session,
+                runId,
+                input,
+                iterationPrompt,
+                materials,
+                providerOverride,
+                emitAssistantDelta,
+                ct);
+
+            // Evaluate if milestone goal is achieved
+            var evaluation = await EvaluateMilestoneCompletionAsync(
+                session,
+                milestone.ExpectedOutput,
+                iterationCount,
+                providerOverride,
+                ct);
+
+            emitAssistantDelta($"\n**Self-Assessment**: {evaluation.Summary}\n");
+
+            if (evaluation.IsComplete)
+            {
+                milestoneAchieved = true;
+                emitAssistantDelta($"\n✓ **Goal achieved after {iterationCount} iteration(s).**\n");
+            }
+            else if (iterationCount >= AbsoluteMaxIterationsPerMilestone)
+            {
+                emitAssistantDelta(
+                    $"\n⚠ **Safety iteration limit reached ({AbsoluteMaxIterationsPerMilestone}).** " +
+                    $"Moving to next milestone with current progress.\n");
+            }
+            else
+            {
+                emitAssistantDelta(
+                    $"\n→ **Quality gate not yet met.** Continuing research... (Need: {evaluation.NextSteps})\n");
+            }
+        }
+
+        // Mark milestone as Completed
+        await TryUpdateMilestoneStatusAsync(graphClient, milestoneNodeId, PlanNodeStatus.Completed,
+            $"Completed milestone after {iterationCount} iterations", ct);
+
+        emitAssistantDelta($"\n\n**Milestone completed.**\n\n---\n");
+    }
+
+    /// <summary>
+    /// Creates Plan Nodes in the graph for newly extended milestones.
+    /// </summary>
+    private async Task CreatePlanNodesForExtendedMilestonesAsync(
+        IKnowledgeGraphClient graphClient,
+        string sessionId,
+        int existingCount,
+        List<SraResearchMilestone> newMilestones,
+        CancellationToken ct)
+    {
+        try
+        {
+            for (var i = 0; i < newMilestones.Count; i++)
+            {
+                var ms = newMilestones[i];
+                var nodeId = GetMilestoneNodeId(sessionId, ms.RoundIndex, existingCount + i + 1);
+
+                try
+                {
+                    await graphClient.CreatePlanNodeAsync(
+                        nodeId,
+                        ms.ExpectedOutput ?? $"Extended Milestone {existingCount + i + 1}",
+                        $"Auto-extended milestone: {ms.ExpectedOutput}",
+                        methodology: null,
+                        sequentialOrder: existingCount + i + 1,
+                        cancellationToken: ct);
+
+                    _logger.LogDebug("[MilestoneLoop] Created extended plan node {NodeId}", nodeId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "[MilestoneLoop] Failed to create extended plan node {NodeId}", nodeId);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[MilestoneLoop] Failed to create plan nodes for extended milestones");
+        }
+    }
+
+    /// <summary>
+    /// Updates Plan Nodes in the graph to reflect modified milestones.
+    /// Handles content updates for existing nodes and marks orphaned nodes as Cancelled.
+    /// </summary>
+    /// <param name="graphClient">The knowledge graph client.</param>
+    /// <param name="sessionId">The session ID.</param>
+    /// <param name="completedCount">Number of completed milestones (these are not modified).</param>
+    /// <param name="modifiedMilestones">The new/modified pending milestones.</param>
+    /// <param name="originalPendingCount">Original number of pending milestones before modification.</param>
+    /// <param name="ct">Cancellation token.</param>
+    private async Task UpdatePlanNodesForModifiedMilestonesAsync(
+        IKnowledgeGraphClient graphClient,
+        string sessionId,
+        int completedCount,
+        List<SraResearchMilestone> modifiedMilestones,
+        int originalPendingCount,
+        CancellationToken ct)
+    {
+        try
+        {
+            // Get existing plan nodes
+            var existingNodes = await graphClient.GetPlanNodesAsync(ct);
+            var existingNodeIds = existingNodes.Select(n => n.Id).ToHashSet(StringComparer.Ordinal);
+
+            // 1. Update or create plan nodes for modified milestones
+            for (var i = 0; i < modifiedMilestones.Count; i++)
+            {
+                var ms = modifiedMilestones[i];
+                var nodeId = GetMilestoneNodeId(sessionId, ms.RoundIndex, completedCount + i + 1);
+
+                if (existingNodeIds.Contains(nodeId))
+                {
+                    // Update existing node: update content + reset status to Pending
+                    try
+                    {
+                        var existingNode = existingNodes.FirstOrDefault(n => n.Id == nodeId);
+                        if (existingNode != null && existingNode.Status != PlanNodeStatus.Completed)
+                        {
+                            // Update content (CoreDescription and DetailedDescription)
+                            await graphClient.UpdatePlanNodeContentAsync(
+                                nodeId,
+                                coreDescription: ms.ExpectedOutput ?? $"Milestone {completedCount + i + 1}",
+                                detailedDescription: $"Modified milestone: {ms.ExpectedOutput}",
+                                cancellationToken: ct);
+
+                            // Reset status to Pending
+                            await graphClient.UpdatePlanNodeStatusAsync(
+                                nodeId,
+                                PlanNodeStatus.Pending,
+                                "Re-opened after direction change",
+                                ct);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "[MilestoneLoop] Failed to update plan node {NodeId}", nodeId);
+                    }
+                }
+                else
+                {
+                    // Create new plan node
+                    try
+                    {
+                        await graphClient.CreatePlanNodeAsync(
+                            nodeId,
+                            ms.ExpectedOutput ?? $"Milestone {completedCount + i + 1}",
+                            $"Modified milestone: {ms.ExpectedOutput}",
+                            methodology: null,
+                            sequentialOrder: completedCount + i + 1,
+                            cancellationToken: ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "[MilestoneLoop] Failed to create plan node {NodeId}", nodeId);
+                    }
+                }
+            }
+
+            // 2. Mark orphaned plan nodes as Cancelled (if new milestone count < original pending count)
+            if (modifiedMilestones.Count < originalPendingCount)
+            {
+                _logger.LogInformation(
+                    "[MilestoneLoop] New milestones ({NewCount}) < original pending ({OrigCount}), marking {OrphanCount} orphans as Cancelled",
+                    modifiedMilestones.Count, originalPendingCount, originalPendingCount - modifiedMilestones.Count);
+
+                for (var i = modifiedMilestones.Count; i < originalPendingCount; i++)
+                {
+                    // Calculate the original milestone index (1-based, after completed)
+                    var orphanIndex = completedCount + i + 1;
+                    // We need to find the original roundIndex for this orphan
+                    // Since milestones are ordered by roundIndex, we use the index to estimate
+                    var orphanNodeId = GetMilestoneNodeId(sessionId, orphanIndex, orphanIndex);
+
+                    // Also try with the sequential node ID pattern used in the existing code
+                    var alternateOrphanNodeId = GetMilestoneNodeId(sessionId, completedCount + i + 1, completedCount + i + 1);
+
+                    try
+                    {
+                        // Try to remove with the first pattern
+                        if (existingNodeIds.Contains(orphanNodeId))
+                        {
+                            var removed = await graphClient.RemoveNodeAsync(orphanNodeId, ct);
+                            if (removed)
+                            {
+                                _logger.LogInformation("[MilestoneLoop] Removed orphan plan node {NodeId} due to direction change", orphanNodeId);
+                            }
+                        }
+                        else if (existingNodeIds.Contains(alternateOrphanNodeId) && alternateOrphanNodeId != orphanNodeId)
+                        {
+                            var removed = await graphClient.RemoveNodeAsync(alternateOrphanNodeId, ct);
+                            if (removed)
+                            {
+                                _logger.LogInformation("[MilestoneLoop] Removed orphan plan node {NodeId} due to direction change", alternateOrphanNodeId);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "[MilestoneLoop] Failed to remove orphan plan node");
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[MilestoneLoop] Failed to update plan nodes for modified milestones");
+        }
+    }
+
+    /// <summary>
+    /// Updates the session's tracking context so that if an interruption occurs,
+    /// the new run knows exactly where the old run was in the milestone sequence.
+    /// </summary>
+    private static void UpdateInterruptionTrackingContext(
+        ResearchSession session,
+        string currentMilestoneNodeId,
+        int currentMilestoneIndex,
+        int totalMilestones,
+        int completedMilestones)
+    {
+        // Update the last interruption context if one exists (it will be overwritten
+        // when a new interruption occurs, so we just keep the tracking info fresh)
+        var existingCtx = session.GetLastInterruption();
+        if (existingCtx != null)
+        {
+            existingCtx.InterruptedAtMilestoneNodeId = currentMilestoneNodeId;
+            existingCtx.InterruptedAtMilestoneIndex = currentMilestoneIndex;
+            existingCtx.TotalMilestones = totalMilestones;
+            existingCtx.CompletedMilestones = completedMilestones;
+        }
+
+        // Also store in session's workspace for other components to access
+        session.Workspace.Vibe.CurrentMilestoneIndex = currentMilestoneIndex;
+        session.Workspace.Vibe.TotalMilestones = totalMilestones;
+        session.Workspace.Vibe.CompletedMilestones = completedMilestones;
+    }
+
+    /// <summary>
+    /// Gets the set of milestone node IDs that are already marked as Completed in the graph.
+    /// Used for resume logic to skip completed milestones.
+    /// </summary>
+    private async Task<HashSet<string>> GetCompletedMilestoneIdsAsync(
+        IKnowledgeGraphClient graphClient,
+        string sessionId,
+        List<SraResearchMilestone> milestones,
+        CancellationToken ct)
+    {
+        var completed = new HashSet<string>(StringComparer.Ordinal);
+
+        try
+        {
+            // Get all plan nodes from the graph
+            var planNodes = await graphClient.GetPlanNodesAsync(ct);
+            if (planNodes.Count == 0)
+                return completed;
+
+            // Build a lookup of plan node IDs to their status
+            var statusLookup = planNodes.ToDictionary(p => p.Id, p => p.Status, StringComparer.Ordinal);
+
+            // Check each milestone
+            for (var i = 0; i < milestones.Count; i++)
+            {
+                var milestone = milestones[i];
+                var milestoneNodeId = GetMilestoneNodeId(sessionId, milestone.RoundIndex, i + 1);
+
+                if (statusLookup.TryGetValue(milestoneNodeId, out var status) &&
+                    status == PlanNodeStatus.Completed)
+                {
+                    completed.Add(milestoneNodeId);
+                }
+            }
+
+            return completed;
+        }
+        catch (Exception ex)
+        {
+            // Best-effort: don't fail if we can't get plan node status
+            _logger.LogWarning(ex, "[MilestoneLoop] Failed to get completed milestone status (best-effort)");
+            return completed;
+        }
+    }
+
     private MilestoneEvaluation ParseEvaluationResponse(string content, int iterationCount)
     {
         try
@@ -630,14 +1807,14 @@ internal sealed class VibeMilestoneLoopRunner
             _logger.LogDebug(ex, "[MilestoneLoop] Failed to parse evaluation JSON");
         }
 
-        // Fallback: check for keywords
+        // Fallback: check for keywords - fully rely on quality gate, no auto-complete fallback
         var isComplete = content.Contains("\"isComplete\": true", StringComparison.OrdinalIgnoreCase) ||
                          content.Contains("\"isComplete\":true", StringComparison.OrdinalIgnoreCase) ||
                          content.Contains("goal achieved", StringComparison.OrdinalIgnoreCase);
 
         return new MilestoneEvaluation
         {
-            IsComplete = isComplete || iterationCount >= 3,
+            IsComplete = isComplete,  // No auto-complete fallback - fully driven by quality gate
             Summary = "Evaluation parsed from content",
             NextSteps = isComplete ? "Goal achieved" : "Continue research"
         };
@@ -662,11 +1839,70 @@ internal sealed class MilestoneEvaluation
     public string NextSteps { get; init; } = string.Empty;
 }
 
+/// <summary>
+/// User intent type detected from interruption message.
+/// </summary>
+internal enum UserIntentType
+{
+    /// <summary>User wants to change research direction, modify or add milestones.</summary>
+    DirectionChange,
+
+    /// <summary>User wants to know about current progress.</summary>
+    ProgressInquiry,
+
+    /// <summary>Other intent that doesn't affect research execution.</summary>
+    Other
+}
+
+/// <summary>
+/// Result of analyzing user intent from an interruption message.
+/// </summary>
+internal sealed class UserIntentAnalysis
+{
+    public UserIntentType IntentType { get; init; } = UserIntentType.Other;
+    public string Summary { get; init; } = string.Empty;
+    public string? DirectionChangeDescription { get; init; }
+    public List<string>? SuggestedNewMilestones { get; init; }
+    public string? SystemReplyContent { get; init; }
+}
+
 internal sealed class MilestoneLoopResult
 {
     public bool Ok { get; init; }
-    public string StopReason { get; init; } = "completed"; // completed | timeout | cancelled | error | no_milestones
+    public string StopReason { get; init; } = "completed"; // completed | cancelled | error | no_milestones | interrupted | auto_extended
     public int MilestonesExecuted { get; init; }
     public int TotalMilestones { get; init; }
-    public int MaxTotalDurationMs { get; init; }
+    public int MilestonesSkipped { get; init; } // Number of milestones skipped due to already completed
+    public int ExtensionRound { get; init; } // Current auto-extension round (0 = original plan)
+}
+
+/// <summary>
+/// Context information about an interrupted milestone loop execution.
+/// Used to provide context when analyzing user intent and handling interruptions.
+/// </summary>
+internal sealed class InterruptionContext
+{
+    /// <summary>The run ID that was interrupted.</summary>
+    public string InterruptedRunId { get; init; } = string.Empty;
+
+    /// <summary>The new user message that triggered the interruption.</summary>
+    public string NewUserMessage { get; init; } = string.Empty;
+
+    /// <summary>When the interruption occurred.</summary>
+    public DateTimeOffset InterruptedAt { get; init; }
+
+    /// <summary>Reason for the interruption (e.g., "new_input").</summary>
+    public string Reason { get; init; } = string.Empty;
+
+    /// <summary>The milestone index (1-based) where the interruption occurred.</summary>
+    public int InterruptedAtMilestoneIndex { get; set; }
+
+    /// <summary>The milestone node ID where the interruption occurred.</summary>
+    public string? InterruptedAtMilestoneNodeId { get; set; }
+
+    /// <summary>Total number of milestones in the current plan.</summary>
+    public int TotalMilestones { get; set; }
+
+    /// <summary>Number of milestones that have been completed.</summary>
+    public int CompletedMilestones { get; set; }
 }

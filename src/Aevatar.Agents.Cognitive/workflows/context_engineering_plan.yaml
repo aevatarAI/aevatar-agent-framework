@@ -1,0 +1,59 @@
+name: context_engineering_plan
+description: Compose query, chunking, and memory plans into a single context strategy.
+
+inputs:
+  - name: task
+    type: string
+    required: true
+  - name: domain
+    type: string
+    default: ""
+  - name: constraints
+    type: string
+    default: ""
+  - name: doc_type
+    type: string
+    default: ""
+  - name: doc_length
+    type: string
+    default: ""
+  - name: structure
+    type: string
+    default: ""
+  - name: retrieval_goal
+    type: string
+    default: ""
+
+steps:
+  - id: query_plan
+    type: workflow_call
+    workflow: context_query_augmentation
+    params:
+      task: "{{ task }}"
+      domain: "{{ domain }}"
+      constraints: "{{ constraints }}"
+    store: query_plan
+
+  - id: chunking_plan
+    type: workflow_call
+    workflow: context_chunking_strategy
+    params:
+      doc_type: "{{ doc_type }}"
+      doc_length: "{{ doc_length }}"
+      structure: "{{ structure }}"
+      retrieval_goal: "{{ retrieval_goal }}"
+    store: chunking_plan
+
+  - id: memory_plan
+    type: workflow_call
+    workflow: context_memory_policy
+    params:
+      task: "{{ task }}"
+      domain: "{{ domain }}"
+      constraints: "{{ constraints }}"
+    store: memory_plan
+
+output:
+  query: "{{ query_plan }}"
+  chunking: "{{ chunking_plan }}"
+  memory: "{{ memory_plan }}"

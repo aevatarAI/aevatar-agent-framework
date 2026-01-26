@@ -45,6 +45,18 @@ public static class AgUiTraceProjector
                 RunId = runId,
                 RawEvent = evt
             });
+            events.Add(new CustomEvent
+            {
+                Timestamp = timestamp,
+                Name = "session.start",
+                Value = new
+                {
+                    sessionId,
+                    executionId,
+                    status = status ?? ExecutionTraceEventStatus.Running
+                },
+                RawEvent = evt
+            });
             return events;
         }
 
@@ -75,6 +87,19 @@ public static class AgUiTraceProjector
                     RawEvent = evt
                 });
             }
+            events.Add(new CustomEvent
+            {
+                Timestamp = timestamp,
+                Name = "session.stop",
+                Value = new
+                {
+                    sessionId,
+                    executionId,
+                    status = status ?? ExecutionTraceEventStatus.Completed,
+                    durationMs = ReadLongField(evt, ExecutionTraceEventFields.DurationMs)
+                },
+                RawEvent = evt
+            });
             return events;
         }
 

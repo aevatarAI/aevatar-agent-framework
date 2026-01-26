@@ -32,6 +32,7 @@ dotnet run --project examples/ProgressHookChatWebDemo/ProgressHookChatWebDemo.cs
 - **Progress Hook**：`ExecutionTraceProgressHook` 在 session/llm/tool 边界产生 `ExecutionTraceEvent`。
 - **投影到 AG‑UI**：后端订阅 agent stream → `AgUiTraceProjector.Map`。
 - **流式回复**：`ChatStreamAsync` 的 token 被实时转成 `TEXT_MESSAGE_*`。
+- **Session Demo + SQLite**：会话消息写入 SQLite MemoryStore；`/api/sessions` 可列出已有会话。
 
 ## 可选：本地 appsettings.secrets.json
 

@@ -50,7 +50,7 @@
     <PackageVersion Include="Orleans.Streams.Kafka" Version="8.0.3-serializer.2" />
     <!-- Protobuf & gRPC -->
     <PackageVersion Include="Google.Protobuf" Version="3.33.0" />
-    <PackageVersion Include="Grpc.Tools" Version="2.72.0" />
+    <PackageVersion Include="Grpc.Tools" Version="2.76.0" />
     <!-- Proto.Actor -->
     <PackageVersion Include="Proto.Actor" Version="1.8.0" />
     <PackageVersion Include="Proto.Remote" Version="1.8.0" />
@@ -193,6 +193,7 @@
     <PackageVersion Include="StackExchange.Redis" Version="2.8.16" />
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.1" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.1" />
+    <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.1" />
     <PackageVersion Include="Microsoft.Extensions.FileProviders.Embedded" Version="10.0.1" />
     <PackageVersion Include="Microsoft.Extensions.Http.Polly" Version="10.0.1" />
     <!-- Roslyn (align versions to avoid NU1608) -->

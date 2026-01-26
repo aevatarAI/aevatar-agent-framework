@@ -15,13 +15,18 @@ public static partial class LlmSecretsApi
             return ProviderProfiles.All
                 .OrderBy(x => string.Equals(x.Category, "popular", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
                 .ThenBy(x => x.DisplayName, StringComparer.OrdinalIgnoreCase)
-                .Select(p => new ProviderTypeItem(
-                    Id: p.Id,
-                    DisplayName: p.DisplayName,
-                    Category: p.Category,
-                    Description: p.Description,
-                    Recommended: p.Recommended,
-                    ConfiguredInstancesCount: counts.TryGetValue(p.Id, out var c) ? c : 0))
+                .Select(p =>
+                {
+                    var count = counts.TryGetValue(p.Id, out var c) ? c : 0;
+                    return new ProviderTypeItem(
+                        Id: p.Id,
+                        DisplayName: p.DisplayName,
+                        Category: p.Category,
+                        Description: p.Description,
+                        Recommended: p.Recommended,
+                        ConfiguredInstancesCount: count,
+                        ApiKeyConfigured: count > 0);
+                })
                 .ToList();
         }
 

@@ -21,5 +21,11 @@ public enum PlanNodeStatus
     /// <summary>
     /// Plan step has been successfully completed.
     /// </summary>
-    Completed = 2
+    Completed = 2,
+
+    /// <summary>
+    /// Plan step was cancelled due to direction change.
+    /// Used to mark orphaned plan nodes when milestone count decreases.
+    /// </summary>
+    Cancelled = 3
 }

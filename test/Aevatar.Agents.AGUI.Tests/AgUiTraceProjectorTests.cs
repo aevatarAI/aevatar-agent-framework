@@ -25,10 +25,11 @@ public class AgUiTraceProjectorTests
             ExecutionTraceEventFieldValue.FromString(ExecutionTraceEventStatus.Running);
 
         var mapped = AgUiTraceProjector.Map(evt);
-        mapped.Count.ShouldBe(1);
+        mapped.Count.ShouldBe(2);
         var run = mapped[0].ShouldBeOfType<RunStartedEvent>();
         run.ThreadId.ShouldBe("s1");
         run.RunId.ShouldBe("run1");
+        mapped[1].ShouldBeOfType<CustomEvent>().Name.ShouldBe("session.start");
     }
 
     [Fact]

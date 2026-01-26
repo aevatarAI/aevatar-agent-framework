@@ -19,7 +19,7 @@ internal static partial class ResearchSessionsApi
             PaperService paper,
             CancellationToken ct) =>
         {
-            var s = sessions.Create(input?.ProviderName);
+            var s = await sessions.CreateAsync(input?.ProviderName, ct);
 
             // File-SSoT: ensure workspace + paper scaffold exists at creation time.
             workspace.EnsureSessionWorkspace(s.Id);

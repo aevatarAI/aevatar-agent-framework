@@ -39,6 +39,52 @@ export interface RunResult {
   error?: string
 }
 
+// === Agent State Types (from Session API) ===
+
+export interface ToolCallInfo {
+  id: string
+  toolName: string
+  arguments?: string
+  type?: string
+}
+
+export interface ToolResultInfo {
+  toolCallId: string
+  toolName: string
+  content?: string
+  isSuccess: boolean
+}
+
+export interface AgentChatMessage {
+  id: string
+  role: "user" | "assistant" | "system" | "tool"
+  content: string
+  toolCalls?: ToolCallInfo[]
+  toolResult?: ToolResultInfo
+  timestamp?: string
+  tokenUsed: number
+  metadata?: Record<string, string>
+}
+
+export interface AgentState {
+  history: AgentChatMessage[]
+  totalTokenUsed: number
+  lastActivity: string | null
+  context: Record<string, string>
+}
+
+export interface AgentStateBundle {
+  agentId: string
+  state: AgentState
+}
+
+export interface SessionAgentsInfo {
+  sessionId: string
+  coordinatorId: string
+  workerIds: string[]
+  agentIds: string[]
+}
+
 // === API Base URL ===
 // Development: uses Vite proxy (see vite.config.ts → localhost:5678)
 // Production: set VITE_AXIOM_API_BASE to full backend URL
@@ -85,7 +131,6 @@ export function abortCurrentSessionRequests(): void {
   currentSessionAbortController = new AbortController()
   // Clear pending requests map since they're all aborted
   pendingRequests.clear()
-  console.log('[axiom-client] Aborted all pending session requests')
 }
 
 /**
@@ -109,14 +154,12 @@ async function fetchJson<T>(
   if (useCaching) {
     const cached = requestCache.get(cacheKey) as CacheEntry<T> | undefined
     if (cached && Date.now() - cached.timestamp < ttl) {
-      console.log(`[axiom-client] Cache hit: ${path}`)
       return cached.data
     }
   }
 
   // Check for pending identical request (deduplication)
   if (useCaching && pendingRequests.has(cacheKey)) {
-    console.log(`[axiom-client] Dedup hit: ${path}`)
     return pendingRequests.get(cacheKey)!.promise as Promise<T>
   }
 
@@ -288,6 +331,121 @@ export async function getSessionResult(sessionId: string | null | undefined): Pr
 }
 
 /**
+ * Get session agents list (coordinator + workers)
+ */
+export async function getSessionAgents(sessionId: string | null | undefined): Promise<SessionAgentsInfo | null> {
+  if (!sessionId) {
+    console.warn('[axiom-client] getSessionAgents called with invalid sessionId:', sessionId);
+    return null;
+  }
+  return fetchJson<SessionAgentsInfo>(`/api/sessions/${sessionId}/agents`)
+}
+
+/**
+ * Get all agent states for a session (includes history and token usage)
+ * @param sessionId - Session ID
+ * @param includeHistory - Whether to include chat history (default: true)
+ * @param historyLimit - Max history entries per agent (default: 50)
+ */
+export async function getAgentStates(
+  sessionId: string | null | undefined,
+  includeHistory = true,
+  historyLimit = 50
+): Promise<AgentStateBundle[]> {
+  if (!sessionId) {
+    console.warn('[axiom-client] getAgentStates called with invalid sessionId:', sessionId);
+    return [];
+  }
+  const params = new URLSearchParams({
+    include_history: String(includeHistory),
+    history_limit: String(historyLimit),
+  });
+  const result = await fetchJson<{ agents?: AgentStateBundle[] }>(
+    `/api/sessions/${sessionId}/agents/states?${params}`,
+    undefined,
+    { cache: false }  // Disable cache for real-time data
+  );
+  return result?.agents || [];
+}
+
+/**
+ * Get single agent history
+ */
+export async function getAgentHistory(
+  sessionId: string | null | undefined,
+  agentId: string,
+  limit = 50
+): Promise<AgentChatMessage[]> {
+  if (!sessionId || !agentId) {
+    console.warn('[axiom-client] getAgentHistory called with invalid params:', { sessionId, agentId });
+    return [];
+  }
+  const result = await fetchJson<{ history?: AgentChatMessage[] }>(
+    `/api/sessions/${sessionId}/agents/${encodeURIComponent(agentId)}/history?limit=${limit}`,
+    undefined,
+    { cache: false }
+  );
+  return result?.history || [];
+}
+
+// === Session Status Types ===
+
+export interface SessionStatusAgent {
+  agent: string
+  stepName: string
+  providerName: string
+  status: "running" | "idle"
+}
+
+export interface SessionStatusStep {
+  status?: "running" | "done" | "pending"
+  startedAt?: string
+  finishedAt?: string
+}
+
+export interface SessionStatus {
+  ok: boolean
+  sessionId: string
+  runId: string
+  updatedAt: string
+  steps: {
+    order: string[]
+    map: Record<string, SessionStatusStep>
+    running: string[]
+    done: string[]
+  }
+  agents: SessionStatusAgent[]
+  runningTools: Array<{
+    messageId: string
+    toolCallId: string
+    toolName: string
+    status: string
+    startedAt: string
+    providerName: string
+    targetAgent: string
+  }>
+}
+
+/**
+ * Get session status including running agents, steps, and tools.
+ * Used to detect if a session has an active run on page load.
+ */
+export async function getSessionStatus(
+  sessionId: string | null | undefined
+): Promise<SessionStatus | null> {
+  if (!sessionId) {
+    console.warn('[axiom-client] getSessionStatus called with invalid sessionId:', sessionId);
+    return null;
+  }
+  const result = await fetchJson<SessionStatus>(
+    `/api/sessions/${sessionId}/status`,
+    undefined,
+    { cache: false }
+  );
+  return result ?? null;
+}
+
+/**
  * Get DAG snapshot
  */
 export async function getDagSnapshot(sessionId: string | null | undefined): Promise<DagSnapshot | null> {
@@ -296,6 +454,15 @@ export async function getDagSnapshot(sessionId: string | null | undefined): Prom
     return null;
   }
   const result = await fetchJson<{ dag?: DagSnapshot }>(`/api/sessions/${sessionId}/dag`)
+  return result?.dag ?? null
+}
+
+/**
+ * Get Global DAG snapshot (all nodes across all sessions)
+ * No sessionId required - returns the complete knowledge graph
+ */
+export async function getGlobalDagSnapshot(): Promise<DagSnapshot | null> {
+  const result = await fetchJson<{ dag?: DagSnapshot }>("/api/dag/global")
   return result?.dag ?? null
 }
 
@@ -571,8 +738,8 @@ export function createAxiomEventStream(sessionId: string): EventStream<AxiomCust
     onError: (error, context) => {
       console.error(`[AxiomEventStream] Error:`, error, context)
     },
-    onReconnecting: (attempt, max, delay) => {
-      console.log(`[AxiomEventStream] Reconnecting ${attempt}/${max} in ${delay}ms`)
+    onReconnecting: () => {
+      // Silent reconnection
     },
     onReconnectFailed: () => {
       console.error(`[AxiomEventStream] All reconnection attempts failed`)
@@ -664,10 +831,28 @@ export async function setDefaultProvider(providerName: string): Promise<{ ok: bo
 }
 
 /**
- * List all LLM providers
+ * List all LLM providers (provider types catalog)
  */
 export async function listLlmProviders(): Promise<{ providers: ProviderItem[] }> {
   return fetchJson<{ providers: ProviderItem[] }>("/api/llm/providers")
+}
+
+/**
+ * Provider instance (configured with API key)
+ */
+export interface ProviderInstance {
+  name: string
+  providerType: string
+  providerDisplayName: string
+  model: string
+  endpoint: string
+}
+
+/**
+ * List all configured LLM provider instances
+ */
+export async function listLlmInstances(): Promise<{ instances: ProviderInstance[] }> {
+  return fetchJson<{ instances: ProviderInstance[] }>("/api/llm/instances")
 }
 
 /**
@@ -1084,6 +1269,225 @@ export async function getPivotSnapshots(
   } catch {
     return []
   }
+}
+
+// ============================================================================
+//  File Upload with Knowledge Extraction
+// ============================================================================
+
+/**
+ * Extracted knowledge node returned from upload extraction
+ */
+export interface ExtractedKnowledgeNode {
+  id: string
+  title: string
+  content: string
+  keywords: string[]
+}
+
+/**
+ * Upload extraction response
+ */
+export interface UploadExtractionResponse {
+  ok: boolean
+  sessionId?: string
+  fileName?: string
+  filePath?: string
+  message?: string
+  error?: string
+  extractedNodes?: ExtractedKnowledgeNode[]
+}
+
+/**
+ * Upload a file and extract ALL knowledge points to create KnowledgeNodes in the graph.
+ * Uses LLM to thoroughly analyze the file content and extract as many distinct
+ * knowledge points as possible, which are then stored in the global DAG.
+ *
+ * @param sessionId - The session ID
+ * @param file - The file to upload (supports .txt, .md, .json, .csv, .pdf)
+ * @param options - Optional configuration
+ * @param options.providerName - Optional LLM provider to use
+ * @param options.maxKnowledgePoints - Optional limit (default: 0 = unlimited, extract all)
+ * @returns Extraction result with created knowledge nodes
+ */
+export async function uploadWithExtraction(
+  sessionId: string | null | undefined,
+  file: File,
+  options?: {
+    providerName?: string
+    /** Max points to extract. 0 or undefined = unlimited (extract all) */
+    maxKnowledgePoints?: number
+  }
+): Promise<UploadExtractionResponse> {
+  if (!sessionId) {
+    console.warn('[axiom-client] uploadWithExtraction called with invalid sessionId:', sessionId)
+    return { ok: false, error: 'Invalid sessionId' }
+  }
+
+  if (!file) {
+    console.warn('[axiom-client] uploadWithExtraction called with no file')
+    return { ok: false, error: 'No file provided' }
+  }
+
+  const formData = new FormData()
+  formData.append('file', file)
+
+  // Build query params for options
+  const params = new URLSearchParams()
+  if (options?.providerName) {
+    params.set('providerName', options.providerName)
+  }
+  if (options?.maxKnowledgePoints) {
+    params.set('maxKnowledgePoints', String(options.maxKnowledgePoints))
+  }
+
+  const queryString = params.toString()
+  const url = `${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}/uploads/extract${queryString ? `?${queryString}` : ''}`
+
+  try {
+    const sessionController = getSessionAbortController()
+    const res = await fetch(url, {
+      method: 'POST',
+      body: formData,
+      signal: sessionController.signal,
+      // Note: Don't set Content-Type header - browser will set it with boundary for FormData
+    })
+
+    if (!res.ok) {
+      const text = await res.text()
+      return { ok: false, error: `Upload failed: ${res.status} ${text}` }
+    }
+
+    const result = await res.json() as UploadExtractionResponse
+    return result
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    console.error('[axiom-client] uploadWithExtraction error:', message)
+    return { ok: false, error: message }
+  }
+}
+
+// ============================================================================
+//  Review Agent API
+// ============================================================================
+
+import type {
+  ReviewAgentSettings,
+  ReviewAgentSettingsUpdate,
+  ReviewAgentStatus,
+  IterationListResponse,
+  ReviewIteration,
+  ReviewGraphResponse,
+} from '../types/review-agent'
+
+/**
+ * Get Review Agent status
+ * Normalizes PascalCase response from .NET backend to camelCase
+ */
+export async function getReviewAgentStatus(): Promise<ReviewAgentStatus & { isRunning?: boolean; hasStarted?: boolean }> {
+  const data = await fetchJson<Record<string, unknown>>('/api/review-agent/status', undefined, { cache: false })
+  return {
+    status: (data.status ?? data.Status ?? 'Idle') as ReviewAgentStatus['status'],
+    currentIterationId: (data.currentIterationId ?? data.CurrentIterationId ?? null) as string | null,
+    lastCompletedAt: (data.lastCompletedAt ?? data.LastCompletedAt ?? null) as string | null,
+    nextScheduledAt: (data.nextScheduledAt ?? data.NextScheduledAt ?? null) as string | null,
+    nodesReviewed: (data.nodesReviewed ?? data.NodesReviewed ?? 0) as number,
+    nodesPending: (data.nodesPending ?? data.NodesPending ?? 0) as number,
+    nodesDeactivated: (data.nodesDeactivated ?? data.NodesDeactivated ?? 0) as number,
+    nodesRemoved: (data.nodesRemoved ?? data.NodesRemoved ?? 0) as number,
+    errorMessage: (data.errorMessage ?? data.ErrorMessage ?? null) as string | null,
+    // Extended fields for manual trigger state
+    isRunning: (data.isRunning ?? data.IsRunning) as boolean | undefined,
+    hasStarted: (data.hasStarted ?? data.HasStarted) as boolean | undefined,
+  }
+}
+
+/**
+ * Get Review Agent settings
+ * Normalizes PascalCase response from .NET backend to camelCase
+ */
+export async function getReviewAgentSettings(): Promise<ReviewAgentSettings> {
+  const data = await fetchJson<Record<string, unknown>>('/api/review-agent/settings')
+  return {
+    iterationIntervalMinutes: (data.iterationIntervalMinutes ?? data.IterationIntervalMinutes ?? 30) as number,
+    outOfDateThresholdMinutes: (data.outOfDateThresholdMinutes ?? data.OutOfDateThresholdMinutes ?? 60) as number,
+    toDeleteThresholdMinutes: (data.toDeleteThresholdMinutes ?? data.ToDeleteThresholdMinutes ?? 1440) as number,
+    llmProviderName: (data.llmProviderName ?? data.LLMProviderName ?? 'default') as string,
+    perNodeTimeoutSeconds: (data.perNodeTimeoutSeconds ?? data.PerNodeTimeoutSeconds ?? 120) as number,
+  }
+}
+
+/**
+ * Update Review Agent settings
+ */
+export async function updateReviewAgentSettings(
+  settings: ReviewAgentSettingsUpdate
+): Promise<ReviewAgentSettings> {
+  return fetchJson<ReviewAgentSettings>('/api/review-agent/settings', {
+    method: 'PUT',
+    body: JSON.stringify(settings),
+  })
+}
+
+/**
+ * Get Review Agent iterations (history)
+ */
+export async function getReviewAgentIterations(
+  limit = 10,
+  offset = 0
+): Promise<IterationListResponse> {
+  return fetchJson<IterationListResponse>(
+    `/api/review-agent/iterations?limit=${limit}&offset=${offset}`
+  )
+}
+
+/**
+ * Get Review Agent iteration detail
+ */
+export async function getReviewAgentIteration(
+  iterationId: string
+): Promise<ReviewIteration> {
+  return fetchJson<ReviewIteration>(
+    `/api/review-agent/iterations/${encodeURIComponent(iterationId)}`
+  )
+}
+
+/**
+ * Get Review Agent graph data
+ */
+export async function getReviewAgentGraph(): Promise<ReviewGraphResponse> {
+  return fetchJson<ReviewGraphResponse>('/api/review-agent/graph')
+}
+
+/**
+ * Get current Review Agent iteration entries
+ */
+export async function getReviewAgentCurrentEntries(): Promise<{
+  iterationId?: string
+  entries: Array<{
+    entryId?: string
+    nodeId: string
+    nodeLabel: string
+    explainContent?: string | null
+    result: string
+    deactivatedReason?: string | null
+    timestamp: string
+    verificationContent?: string | null
+  }>
+}> {
+  return fetchJson('/api/review-agent/current-entries')
+}
+
+/**
+ * Trigger a Review Agent iteration
+ */
+export async function triggerReviewAgent(): Promise<{
+  triggered: boolean
+  message: string
+  isRunning?: boolean
+  hasStarted?: boolean
+}> {
+  return fetchJson('/api/review-agent/trigger', { method: 'POST' })
 }
 
 // === Export API Base for Vite proxy configuration ===

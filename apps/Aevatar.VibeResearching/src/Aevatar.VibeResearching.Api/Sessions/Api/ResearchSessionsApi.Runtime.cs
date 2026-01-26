@@ -92,10 +92,88 @@ internal static partial class ResearchSessionsApi
 
             return Results.Json(new { ok = true, sessionId = session.Id, attachmentPaths = paths });
         });
+
+        // Upload with knowledge extraction - extracts key knowledge points and creates KnowledgeNodes
+        app.MapPost("/api/sessions/{sessionId}/uploads/extract", async (
+            string sessionId,
+            HttpRequest request,
+            ResearchSessionManager sessions,
+            UploadExtractionService extraction,
+            CancellationToken ct) =>
+        {
+            if (!sessions.TryGet(sessionId, out var session))
+                return Results.NotFound(new { error = "session not found" });
+
+            if (!request.HasFormContentType)
+                return Results.BadRequest(new { error = "multipart/form-data is required" });
+
+            var form = await request.ReadFormAsync(ct);
+            var file = form.Files.FirstOrDefault();
+            if (file == null)
+                return Results.BadRequest(new { error = "no file uploaded" });
+
+            // Check file type
+            if (!FileTextParser.IsSupported(file.FileName))
+                return Results.BadRequest(new { error = $"unsupported file type: {Path.GetExtension(file.FileName)}" });
+
+            // Optional: provider override from form data
+            var providerName = form.TryGetValue("provider", out var pv) ? pv.FirstOrDefault() : null;
+
+            // Optional: max knowledge points (default 0 = unlimited, extract all)
+            var maxPoints = 0; // 0 means unlimited - extract ALL knowledge points
+            if (form.TryGetValue("maxPoints", out var mp) && int.TryParse(mp.FirstOrDefault(), out var parsedMax) && parsedMax > 0)
+                maxPoints = parsedMax; // Only set limit if explicitly provided and > 0
+
+            var result = await extraction.ExtractAndCreateNodesAsync(
+                session.Id,
+                file,
+                providerName,
+                maxPoints,
+                ct);
+
+            if (!result.Success)
+            {
+                return Results.Json(new
+                {
+                    ok = false,
+                    sessionId = session.Id,
+                    error = result.ErrorMessage,
+                    fileName = result.FileName
+                }, statusCode: 500);
+            }
+
+            return Results.Json(new
+            {
+                ok = true,
+                sessionId = session.Id,
+                fileName = result.FileName,
+                filePath = result.FilePath,
+                message = result.Message,
+                extractedNodes = result.ExtractedNodes.Select(n => new
+                {
+                    id = n.Id,
+                    title = n.Title,
+                    content = n.Content,
+                    keywords = n.Keywords
+                }).ToList()
+            });
+        });
     }
 
     private static void MapDag(WebApplication app)
     {
+        // ============================================================
+        //  Global DAG API - No sessionId required
+        //  Returns ALL nodes across ALL sessions
+        // ============================================================
+        app.MapGet("/api/dag/global", async (
+            DagStore dag,
+            CancellationToken ct) =>
+        {
+            var snap = await dag.GetSnapshotForListAsync(ResearchSession.GlobalDagId, ct);
+            return Results.Json(new { ok = true, dagId = ResearchSession.GlobalDagId, dag = snap });
+        });
+
         app.MapGet("/api/sessions/{sessionId}/dag", async (
             string sessionId,
             ResearchSessionManager sessions,
@@ -207,6 +285,7 @@ internal static partial class ResearchSessionsApi
             if (dagId.Length == 0)
             {
                 session.DagId = null;
+                await sessions.PersistSessionAsync(session, ct);
                 return Results.Json(new { ok = true, sessionId = session.Id, dagId = session.Id, mode = "per_session" });
             }
 
@@ -215,6 +294,7 @@ internal static partial class ResearchSessionsApi
             await Task.CompletedTask; // keep signature async
 
             session.DagId = dagId;
+            await sessions.PersistSessionAsync(session, ct);
             return Results.Json(new { ok = true, sessionId = session.Id, dagId, mode = "shared" });
         });
 

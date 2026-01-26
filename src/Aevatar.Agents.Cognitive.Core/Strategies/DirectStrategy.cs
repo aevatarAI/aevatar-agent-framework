@@ -58,7 +58,7 @@ public sealed class DirectStrategy : IReasoningStrategy
 
             // 构建系统提示
             var systemPrompt = "You are a helpful AI assistant. Respond in the same language as the user's input.";
-            
+
             // 如果有注入的内容，添加到任务中
             var fullTask = task;
             if (!string.IsNullOrEmpty(options.DirectSystemPrompt))
@@ -66,7 +66,7 @@ public sealed class DirectStrategy : IReasoningStrategy
                 systemPrompt = options.DirectSystemPrompt;
             }
 
-            // ─── 阶段 2：调用 AI ───
+            // ─── 阶段 2：调用 AI (流式) ───
             progress?.Report(new ReasoningProgress
             {
                 Phase = "CALLING_AI",
@@ -74,29 +74,67 @@ public sealed class DirectStrategy : IReasoningStrategy
                 ProgressPercent = 0.3f
             });
 
-            _logger.LogInformation("Direct AI call: task length = {Length} chars", fullTask.Length);
+            _logger.LogInformation("Direct AI call (streaming): task length = {Length} chars", fullTask.Length);
 
             // 获取 LLM Provider
             var providerName = options.ProviderName ?? AevatarAgentsConstants.DefaultProviderName;
             var provider = _llmFactory.GetProvider(providerName);
-            
-            // 调用 LLM
+
+            // 构建请求
             var request = new Aevatar.Agents.AI.Abstractions.AevatarLLMRequest
             {
                 SystemPrompt = systemPrompt,
                 UserPrompt = fullTask
             };
-            
-            var response = await provider.GenerateAsync(request, ct);
 
-            var content = response.Content ?? "";
-            
-            // 统计 token
-            if (response.Usage != null)
+            // 使用流式调用并报告每个 token
+            var contentBuilder = new System.Text.StringBuilder();
+            var workerId = $"direct-{Guid.NewGuid():N}";
+            var tokenIndex = 0;
+            var isFirstToken = true;
+
+            await foreach (var token in provider.GenerateStreamAsync(request, ct))
             {
-                promptTokens = response.Usage.PromptTokens;
-                completionTokens = response.Usage.CompletionTokens;
+                if (!string.IsNullOrEmpty(token.Content))
+                {
+                    contentBuilder.Append(token.Content);
+
+                    // 报告流式 token 进度
+                    progress?.Report(new ReasoningProgress
+                    {
+                        Phase = "STREAMING",
+                        Message = "Receiving response...",
+                        ProgressPercent = 0.5f,
+                        StreamingToken = new StreamingTokenProgress
+                        {
+                            WorkerId = workerId,
+                            ProposalId = workerId,
+                            Token = token.Content,
+                            AccumulatedContent = contentBuilder.ToString(),
+                            TokenIndex = tokenIndex,
+                            IsFirstToken = isFirstToken,
+                            IsLastToken = token.IsComplete,
+                            SystemPrompt = systemPrompt,
+                            UserPrompt = fullTask,
+                            ProviderName = providerName
+                        }
+                    });
+
+                    isFirstToken = false;
+                    tokenIndex++;
+                }
+
+                if (token.IsComplete)
+                {
+                    break;
+                }
             }
+
+            var content = contentBuilder.ToString();
+
+            // 估算 token 数 (粗略估计: 4 字符 ≈ 1 token)
+            promptTokens = (systemPrompt.Length + fullTask.Length) / 4;
+            completionTokens = content.Length / 4;
 
             // ─── 阶段 3：完成 ───
             progress?.Report(new ReasoningProgress
@@ -106,10 +144,11 @@ public sealed class DirectStrategy : IReasoningStrategy
                 ProgressPercent = 1.0f,
                 TotalPromptTokens = promptTokens,
                 TotalCompletionTokens = completionTokens,
-                TotalLlmCalls = 1
+                TotalLlmCalls = 1,
+                AssistantResponse = content
             });
 
-            _logger.LogInformation("Direct AI completed: {Tokens} tokens, {Length} chars output",
+            _logger.LogInformation("Direct AI completed (streaming): ~{Tokens} tokens, {Length} chars output",
                 promptTokens + completionTokens, content.Length);
 
             return ReasoningResult.Succeeded(

@@ -52,6 +52,14 @@ public partial class CognitiveCoordinatorGAgent
 
         try
         {
+            if (string.IsNullOrWhiteSpace(SessionId))
+            {
+                await EmitSessionTraceAsync(
+                    ExecutionTraceEventPhase.SessionStart,
+                    ExecutionTraceEventStatus.Running,
+                    error: null);
+            }
+
             // Get workflow definition
             var workflow = _workflowRegistry.Get(request.WorkflowName);
             if (workflow == null)
@@ -115,6 +123,11 @@ public partial class CognitiveCoordinatorGAgent
                 Success = true,
                 Result = _workflowVariables.GetValueOrDefault("_output")?.ToString() ?? ""
             });
+
+            await EmitSessionTraceAsync(
+                ExecutionTraceEventPhase.SessionStop,
+                ExecutionTraceEventStatus.Completed,
+                error: null);
         }
         catch (Exception ex)
         {
@@ -180,6 +193,11 @@ public partial class CognitiveCoordinatorGAgent
         // - Failures must be visible in logs (at least include executionId / current step)
         Logger.LogError("[WORKFLOW] Failed (executionId={ExecutionId}, step={StepId}, phase={Phase}): {Error}",
             CustomState.ExecutionId, CustomState.CurrentStepId, CustomState.CurrentPhase, error);
+
+        await EmitSessionTraceAsync(
+            ExecutionTraceEventPhase.SessionStop,
+            ExecutionTraceEventStatus.Failed,
+            error);
 
         await TryExportExecutionTraceAsync();
 
@@ -268,6 +286,52 @@ public partial class CognitiveCoordinatorGAgent
         {
             Logger.LogWarning(ex, "[WORKFLOW] Failed to export ExecutionTrace (executionId={ExecutionId})",
                 CustomState.ExecutionId);
+        }
+    }
+
+    private async Task EmitSessionTraceAsync(
+        string phase,
+        string status,
+        string? error)
+    {
+        var sessionId = SessionId;
+        if (string.IsNullOrWhiteSpace(sessionId))
+            return;
+
+        var evt = new ExecutionTraceEvent
+        {
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
+            Phase = phase,
+            Message = phase,
+            NodeId = $"session:{sessionId}"
+        };
+
+        evt.Fields[ExecutionTraceEventFields.Status] =
+            ExecutionTraceEventFieldValue.FromString(status);
+        evt.Fields[ExecutionTraceEventFields.Phase] =
+            ExecutionTraceEventFieldValue.FromString(phase);
+        evt.Fields[ExecutionTraceEventFields.SessionId] =
+            ExecutionTraceEventFieldValue.FromString(sessionId);
+        evt.Fields[ExecutionTraceEventFields.ExecutionId] =
+            ExecutionTraceEventFieldValue.FromString(CustomState.ExecutionId ?? string.Empty);
+        evt.Fields[ExecutionTraceEventFields.WorkflowName] =
+            ExecutionTraceEventFieldValue.FromString(CustomState.WorkflowName ?? string.Empty);
+        evt.Fields[ExecutionTraceEventFields.AgentId] =
+            ExecutionTraceEventFieldValue.FromString(Id);
+
+        if (!string.IsNullOrWhiteSpace(error))
+        {
+            evt.Fields[ExecutionTraceEventFields.Error] =
+                ExecutionTraceEventFieldValue.FromString(error);
+        }
+
+        try
+        {
+            await PublishAsync(evt);
+        }
+        catch
+        {
+            // best-effort only
         }
     }
 

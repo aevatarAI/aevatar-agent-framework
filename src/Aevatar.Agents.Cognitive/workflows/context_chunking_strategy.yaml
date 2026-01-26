@@ -1,0 +1,33 @@
+name: context_chunking_strategy
+description: Recommend chunking strategy for retrieval.
+
+inputs:
+  - name: doc_type
+    type: string
+    required: true
+  - name: doc_length
+    type: string
+    default: ""
+  - name: structure
+    type: string
+    default: ""
+  - name: retrieval_goal
+    type: string
+    default: ""
+
+steps:
+  - id: plan_chunking
+    type: llm_call
+    agent: context_chunking_strategist
+    prompt: |
+      Document type: {{doc_type}}
+      Document length: {{doc_length}}
+      Structure: {{structure}}
+      Retrieval goal: {{retrieval_goal}}
+      Return JSON only.
+    output: json
+    strict_parse: true
+    store: strategy
+
+output:
+  result: "{{ strategy }}"

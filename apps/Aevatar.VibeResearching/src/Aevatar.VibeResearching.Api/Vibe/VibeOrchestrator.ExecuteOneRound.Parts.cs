@@ -671,8 +671,12 @@ internal sealed partial class VibeOrchestrator
         }
 
         // Save all collected prompts to file
+        // Create a snapshot copy to avoid issues if promptRecords is modified after this point
         if (promptRecords.Count > 0)
         {
+            // Create a defensive copy to ensure we save exactly what was collected at this point
+            var promptRecordsSnapshot = new Dictionary<string, AgentPromptRecord>(promptRecords, StringComparer.OrdinalIgnoreCase);
+            
             _ = Task.Run(async () =>
             {
                 try
@@ -681,7 +685,7 @@ internal sealed partial class VibeOrchestrator
                         ctx.Session.Id,
                         ctx.RunId,
                         ctx.Question,
-                        promptRecords,
+                        promptRecordsSnapshot,
                         CancellationToken.None);
                 }
                 catch (Exception ex)

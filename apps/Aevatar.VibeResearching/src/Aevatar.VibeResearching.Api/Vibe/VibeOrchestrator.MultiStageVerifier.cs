@@ -398,7 +398,7 @@ internal sealed partial class VibeOrchestrator
                     LoopVerificationResults: loopVerificationResults
                 );
 
-                // Save results to file
+                // Save results to file (early exit case)
                 await SaveVerificationResultsToFileAsync(session.Id, ctx.RunId, earlyResult, reasonerOutput, ct);
 
                 return earlyResult;

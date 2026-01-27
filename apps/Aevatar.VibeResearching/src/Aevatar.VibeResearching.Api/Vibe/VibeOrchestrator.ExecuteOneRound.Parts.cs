@@ -751,10 +751,10 @@ internal sealed partial class VibeOrchestrator
     // ============================================================
 
     /// <summary>
-    /// Saves agent prompts to a Markdown file named prompts_{sessionId}.md in the session's artifacts directory.
+    /// Saves agent prompts to a Markdown file in /Users/chronoai/.aevatar/prompt_logs/.
     /// Each run appends a new section with all agent prompts (system prompt, user prompt, materials context, and output).
     /// </summary>
-    private async Task SaveAgentPromptsToFileAsync(
+    internal async Task SaveAgentPromptsToFileAsync(
         string sessionId,
         string runId,
         string question,
@@ -766,12 +766,12 @@ internal sealed partial class VibeOrchestrator
 
         try
         {
-            var ws = _core.Workspace.EnsureSessionWorkspace(sessionId);
-            var promptsDir = Path.Combine(ws.ArtifactsDir, "prompts");
-            Directory.CreateDirectory(promptsDir);
+            // Save to fixed directory: /Users/chronoai/.aevatar/prompt_logs/
+            var promptLogsDir = "/Users/chronoai/.aevatar/prompt_logs";
+            Directory.CreateDirectory(promptLogsDir);
 
             var filename = $"prompts_{sessionId}.md";
-            var filepath = Path.Combine(promptsDir, filename);
+            var filepath = Path.Combine(promptLogsDir, filename);
 
             // Build Markdown content for this run
             var sb = new StringBuilder(4096);

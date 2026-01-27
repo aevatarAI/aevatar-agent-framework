@@ -8,6 +8,7 @@ using VibeResearching.Api.Vibe.Brief;
 using VibeResearching.Api.Vibe.Dag;
 using VibeResearching.Api.Vibe.Trace;
 using VibeResearching.Contracts.Collab;
+using VibeResearching.Vibe;
 
 namespace VibeResearching.Api.Vibe;
 
@@ -815,7 +816,7 @@ internal sealed class VibeMilestoneLoopRunner
             // Load current research context for evaluation
             var dagId = session.EffectiveDagId;
             var dagSnap = await _dag.LoadSnapshotAsync(dagId, ct);
-            var recentTrace = await _trace.LoadLatestAsync(session.Id, max: 5, ct);
+            var recentTrace = await _trace.LoadLatestAsync(session.Id, max: 2, ct);
 
             // Build context sections for the evaluation prompt
             var sb = new StringBuilder(4096);
@@ -864,6 +865,27 @@ internal sealed class VibeMilestoneLoopRunner
                 sb.AppendLine();
             }
 
+            // Extract verifier output from recent trace (most recent round)
+            var verifierOutput = string.Empty;
+            if (recentTrace.Count > 0)
+            {
+                var latestRound = recentTrace[0]; // Most recent round
+                var verifierAgent = latestRound.PerAgent.FirstOrDefault(a => 
+                    string.Equals(a.Agent, "verifier", StringComparison.OrdinalIgnoreCase));
+                if (verifierAgent != null && verifierAgent.Highlights.Count > 0)
+                {
+                    verifierOutput = string.Join("\n", verifierAgent.Highlights);
+                }
+            }
+
+            // Add verifier output (if available)
+            if (!string.IsNullOrWhiteSpace(verifierOutput))
+            {
+                sb.AppendLine("## Verifier Output (from most recent research round)");
+                sb.AppendLine(Bound(verifierOutput, 2000));
+                sb.AppendLine();
+            }
+
             // Add materials context (if available)
             if (!string.IsNullOrWhiteSpace(materials.RenderedContext))
             {
@@ -875,7 +897,7 @@ internal sealed class VibeMilestoneLoopRunner
             // Add evaluation instructions
             sb.AppendLine("## Evaluation Instructions");
             sb.AppendLine();
-            sb.AppendLine("Based on the research conducted in this session (including DAG state, research history, and materials), evaluate whether the milestone goal has been achieved.");
+            sb.AppendLine("Based on the research conducted in this session (including DAG state, research history, materials, and verifier output), evaluate whether the milestone goal has been achieved.");
             sb.AppendLine();
             sb.AppendLine("Respond in this exact JSON format:");
             sb.AppendLine("```json");
@@ -899,6 +921,7 @@ internal sealed class VibeMilestoneLoopRunner
             sb.AppendLine("- What new knowledge nodes were added to the DAG?");
             sb.AppendLine("- What progress was made in recent research rounds?");
             sb.AppendLine("- Are the findings grounded in the materials context?");
+            sb.AppendLine("- What did the verifier report? Were claims VERIFIED, NOT VERIFIED, or INCONCLUSIVE?");
             sb.AppendLine("- Is the milestone goal fully achieved or only partially?");
 
             var evaluationPrompt = sb.ToString();
@@ -912,8 +935,54 @@ internal sealed class VibeMilestoneLoopRunner
             req.Context["agent_id"] = verifierId;
             req.Context["materials_context"] = materials.RenderedContext; // Include materials context
 
+            // Get verifier system prompt
+            var verifierSystemPrompt = VibeVerifierAgent.GetSystemPrompt();
+            var finalSystemPrompt = string.IsNullOrWhiteSpace(materials.RenderedContext)
+                ? verifierSystemPrompt
+                : $"{verifierSystemPrompt}\n\nMaterials context:\n{materials.RenderedContext.Trim()}\n";
+
             var resp = await verifier.ChatAsync(req, ct);
             var content = resp.Content ?? string.Empty;
+
+            // Save verifier prompt record for milestone evaluation
+            try
+            {
+                var promptRecord = new VibeOrchestrator.AgentPromptRecord(
+                    AgentName: "verifier_milestone_evaluation",
+                    SystemPrompt: finalSystemPrompt,
+                    UserPrompt: evaluationPrompt,
+                    MaterialsContext: materials.RenderedContext,
+                    RawOutput: content,
+                    Timestamp: DateTimeOffset.UtcNow
+                );
+
+                var promptRecords = new Dictionary<string, VibeOrchestrator.AgentPromptRecord>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["verifier_milestone_evaluation"] = promptRecord
+                };
+
+                // Save asynchronously (fire-and-forget)
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _vibe.SaveAgentPromptsToFileAsync(
+                            session.Id,
+                            $"milestone_eval_{iterationCount}",
+                            $"Milestone Evaluation: {milestoneGoal}",
+                            promptRecords,
+                            CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[MilestoneLoop] Failed to save milestone evaluation prompts (best-effort).");
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[MilestoneLoop] Failed to create prompt record for milestone evaluation (best-effort).");
+            }
 
             // Parse JSON response
             return ParseEvaluationResponse(content, iterationCount);

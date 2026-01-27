@@ -14,6 +14,7 @@ using VibeResearching.Api.Vibe.Goals;
 using VibeResearching.Api.Vibe.Trace;
 using VibeResearching.Api.Workspace;
 using VibeResearching.Contracts.Collab;
+using VibeResearching.Vibe;
 
 namespace VibeResearching.Api.Vibe;
 
@@ -57,18 +58,19 @@ internal sealed partial class VibeOrchestrator
         string? providerOverride,
         CancellationToken ct)
     {
+        var msg = BuildBriefMessage(question, dag, recentTrace, input.ToAgents, input.AttachmentPaths);
+        var userMessage = "[MODE:BRIEF]\n" + msg;
+        var baseSystemPrompt = VibeResearchAssistantAgent.GetSystemPrompt();
+        var materialsContext = MergeGroundedContext(materials.RenderedContext, BuildDagKnowledgeGrounding(dag));
+        
+        // Build final system prompt (with Materials Context appended)
+        var finalSystemPrompt = string.IsNullOrWhiteSpace(materialsContext)
+            ? baseSystemPrompt
+            : $"{baseSystemPrompt}\n\nMaterials context:\n{materialsContext.Trim()}\n";
+
         try
         {
             var (ra, raId) = await _core.Runtime.GetResearchAssistantAgentAsync(sessionId, providerOverride, ct);
-            var msg = BuildBriefMessage(question, dag, recentTrace, input.ToAgents, input.AttachmentPaths);
-            var userMessage = "[MODE:BRIEF]\n" + msg;
-            var baseSystemPrompt = VibeResearchAssistantAgent.GetSystemPrompt();
-            var materialsContext = MergeGroundedContext(materials.RenderedContext, BuildDagKnowledgeGrounding(dag));
-            
-            // Build final system prompt (with Materials Context appended)
-            var finalSystemPrompt = string.IsNullOrWhiteSpace(materialsContext)
-                ? baseSystemPrompt
-                : $"{baseSystemPrompt}\n\nMaterials context:\n{materialsContext.Trim()}\n";
 
             var req = new ChatRequest
             {
@@ -175,8 +177,8 @@ internal sealed partial class VibeOrchestrator
             
             // Create prompt record even on error
             var errorPromptRecord = new AgentPromptRecord(
-                AgentName: "research_assistant",
-                SystemPrompt: baseSystemPrompt,
+                AgentName: "research_assistant_brief",
+                SystemPrompt: finalSystemPrompt,
                 UserPrompt: userMessage,
                 MaterialsContext: materialsContext,
                 RawOutput: $"[Error] {ex.Message}",
@@ -213,20 +215,18 @@ internal sealed partial class VibeOrchestrator
         CancellationToken ct)
     {
         var baseSystemPrompt = VibeResearchAssistantAgent.GetSystemPrompt();
-        var userMessage = string.Empty;
-        var materialsContext = string.Empty;
+        var msg = BuildPlanMessage(question, dag, recentTrace, input.ToAgents, input.AttachmentPaths);
+        var userMessage = "[MODE:PLAN]\n" + msg;
+        var materialsContext = MergeGroundedContext(materials.RenderedContext, BuildDagKnowledgeGrounding(dag));
         
+        // Build final system prompt (with Materials Context appended)
+        var finalSystemPrompt = string.IsNullOrWhiteSpace(materialsContext)
+            ? baseSystemPrompt
+            : $"{baseSystemPrompt}\n\nMaterials context:\n{materialsContext.Trim()}\n";
+
         try
         {
             var (ra, raId) = await _core.Runtime.GetResearchAssistantAgentAsync(sessionId, providerOverride, ct);
-            var msg = BuildPlanMessage(question, dag, recentTrace, input.ToAgents, input.AttachmentPaths);
-            userMessage = "[MODE:PLAN]\n" + msg;
-            materialsContext = MergeGroundedContext(materials.RenderedContext, BuildDagKnowledgeGrounding(dag));
-            
-            // Build final system prompt (with Materials Context appended)
-            var finalSystemPrompt = string.IsNullOrWhiteSpace(materialsContext)
-                ? baseSystemPrompt
-                : $"{baseSystemPrompt}\n\nMaterials context:\n{materialsContext.Trim()}\n";
 
             var req = new ChatRequest
             {
@@ -268,8 +268,8 @@ internal sealed partial class VibeOrchestrator
             
             // Create prompt record even on error
             var errorPromptRecord = new AgentPromptRecord(
-                AgentName: "research_assistant",
-                SystemPrompt: baseSystemPrompt,
+                AgentName: "research_assistant_plan",
+                SystemPrompt: finalSystemPrompt,
                 UserPrompt: userMessage,
                 MaterialsContext: materialsContext,
                 RawOutput: $"[Error] {ex.Message}",
@@ -290,16 +290,15 @@ internal sealed partial class VibeOrchestrator
         CancellationToken ct)
     {
         var baseSystemPrompt = VibeResearchAssistantAgent.GetSystemPrompt();
-        var userMessage = string.Empty;
+        var msg = BuildSummaryMessage(question, dagResult, outputs, factsWritten);
+        var userMessage = "[MODE:SUMMARY]\n" + msg;
         
+        // Note: SUMMARY mode does NOT include Materials Context
+        var finalSystemPrompt = baseSystemPrompt;
+
         try
         {
             var (ra, raId) = await _core.Runtime.GetResearchAssistantAgentAsync(sessionId, providerOverride, ct);
-            var msg = BuildSummaryMessage(question, dagResult, outputs, factsWritten);
-            userMessage = "[MODE:SUMMARY]\n" + msg;
-            
-            // Note: SUMMARY mode does NOT include Materials Context
-            var finalSystemPrompt = baseSystemPrompt;
 
             var req = new ChatRequest
             {
@@ -334,8 +333,8 @@ internal sealed partial class VibeOrchestrator
             
             // Create prompt record even on error
             var errorPromptRecord = new AgentPromptRecord(
-                AgentName: "research_assistant",
-                SystemPrompt: baseSystemPrompt,
+                AgentName: "research_assistant_summary",
+                SystemPrompt: finalSystemPrompt,
                 UserPrompt: userMessage,
                 MaterialsContext: null,
                 RawOutput: $"[Error] {ex.Message}",

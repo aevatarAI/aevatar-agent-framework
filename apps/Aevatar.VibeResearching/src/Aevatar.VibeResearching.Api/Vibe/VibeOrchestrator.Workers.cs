@@ -462,12 +462,49 @@ internal sealed partial class VibeOrchestrator
             var msg = $"[verifier error] {ex.Message}\n\n";
             EmitAgentDelta(session, messageId, "assistant", msg);
             session.Events.Publish(new StepFinishedEvent { Timestamp = NowMs(), StepName = "vibe.verifier" });
-            return msg;
+            
+            var errorPromptRecord = new AgentPromptRecord(
+                AgentName: "verifier",
+                SystemPrompt: finalSystemPrompt,
+                UserPrompt: userMessage,
+                MaterialsContext: materialsContext,
+                RawOutput: msg,
+                Timestamp: DateTimeOffset.UtcNow
+            );
+            return (msg, errorPromptRecord);
         }
         finally
         {
             EndAgentMessage(session, messageId);
         }
+    }
+
+    private sealed record MultiStageVerificationResult(
+        string Summary,
+        bool OverallPass
+    );
+
+    private async Task<MultiStageVerificationResult> RunMultiStageVerifierAsync(
+        VibeRoundContext ctx,
+        SraDagSnapshot dag,
+        string? reasonerOutput,
+        string? providerName,
+        CancellationToken ct)
+    {
+        // TODO: Implement full multi-stage verification (Scout + Prover phases)
+        // For now, delegate to single-pass verification as a fallback
+        var (output, _) = await RunVerifierAsync(ctx, dag, reasonerOutput, providerName, ct);
+        
+        // Simple heuristic: check if output contains verification success indicators
+        var overallPass = output.Contains("VERIFIED", StringComparison.OrdinalIgnoreCase) ||
+                          output.Contains("verified", StringComparison.OrdinalIgnoreCase) ||
+                          (!output.Contains("NOT VERIFIED", StringComparison.OrdinalIgnoreCase) &&
+                           !output.Contains("INCONCLUSIVE", StringComparison.OrdinalIgnoreCase));
+
+        return new MultiStageVerificationResult(
+            Summary: output,
+            OverallPass: overallPass
+        );
     }
 
     private async Task<string> RunDagBuilderAsync(

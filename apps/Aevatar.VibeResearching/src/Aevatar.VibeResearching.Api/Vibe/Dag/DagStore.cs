@@ -362,6 +362,9 @@ public sealed class DagStore
                 var sessionGraph = await sessionClient.GetGraphSnapshotAsync(ct);
                 var planNodes = sessionGraph.PlanNodes;
 
+                _logger.LogDebug("[DagStore] GetSnapshotForListAsync: dagId={DagId}, sessionId={SessionId}, planNodes={PlanNodeCount}, totalNodes={TotalNodes}",
+                    dagId, currentSessionId, planNodes.Count, snap.Nodes.Count);
+
                 if (planNodes.Count > 0)
                 {
                     var now = Timestamp.FromDateTime(DateTime.UtcNow);
@@ -390,11 +393,15 @@ public sealed class DagStore
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // best-effort: session plan nodes are optional enhancement
+                _logger.LogDebug(ex, "[DagStore] Failed to load session plan nodes (best-effort): dagId={DagId}, sessionId={SessionId}",
+                    dagId, currentSessionId);
             }
         }
+
+        _logger.LogDebug("[DagStore] GetSnapshotForListAsync result: dagId={DagId}, nodes={NodeCount}, edges={EdgeCount}",
+            dagId, snap.Nodes.Count, snap.Edges.Count);
 
         var nodes = snap.Nodes.Take(MaxNodesForList).Select(n => new
         {
@@ -423,7 +430,7 @@ public sealed class DagStore
             updatedAt = e.UpdatedAt?.ToDateTime().ToUniversalTime().ToString("O") ?? ""
         }).ToList();
 
-        return new
+        var result = new
         {
             sessionId = snap.SessionId,
             updatedAt = snap.UpdatedAt?.ToDateTime().ToUniversalTime().ToString("O") ?? "",
@@ -431,6 +438,11 @@ public sealed class DagStore
             edges,
             truncated = new { nodes = snap.Nodes.Count > MaxNodesForList, edges = snap.Edges.Count > MaxEdgesForList }
         };
+
+        _logger.LogDebug("[DagStore] GetSnapshotForListAsync returning: dagId={DagId}, nodes={NodeCount}, edges={EdgeCount}, truncated={Truncated}",
+            dagId, nodes.Count, edges.Count, result.truncated);
+
+        return result;
     }
 
     // ============================================================
@@ -629,12 +641,16 @@ public sealed class DagStore
             var edgesWithSession = await client.GetAllEdgesGlobalAsync(ct);
             allNodes = knowledgeNodes.Cast<IGraphNode>().ToList();
             allEdges = edgesWithSession.Select(e => e.Edge).ToList();
+            _logger.LogDebug("[DagStore] BuildSnapshotFromGraphAsync (global): nodes={NodeCount}, edges={EdgeCount}",
+                allNodes.Count, allEdges.Count);
         }
         else
         {
             var graph = await client.GetGraphSnapshotAsync(ct);
             allNodes = graph.AllNodes.ToList();
             allEdges = graph.Edges.Cast<KnowledgeEdge>().ToList();
+            _logger.LogDebug("[DagStore] BuildSnapshotFromGraphAsync (session): dagId={DagId}, nodes={NodeCount}, edges={EdgeCount}",
+                dagId, allNodes.Count, allEdges.Count);
         }
 
         var nodeList = new List<SraDagNode>(capacity: Math.Max(0, allNodes.Count));

@@ -142,6 +142,7 @@ fi
 export NEO4J_URI="${NEO4J_URI:-bolt://localhost:7687}"
 export NEO4J_USERNAME="${NEO4J_USERNAME:-neo4j}"
 export NEO4J_PASSWORD="${NEO4J_PASSWORD:-subfyz-naqmug-8Gemga}"  # ⚠️ 请替换为你的实际密码
+export NEO4J_DATABASE="${NEO4J_DATABASE:-neo4j}"  # 默认数据库名称（通常不需要修改）
 
 # Java Environment (required for Neo4j)
 # Use ${JAVA_HOME:-} to safely check if variable is unset (works with set -u)

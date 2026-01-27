@@ -220,10 +220,14 @@ internal sealed partial class VibeOrchestrator
             // ------------------------------------------------------------
             try
             {
-                        var mm = BuildMilestonesPlanDagMutation(session.Id, runId, question, saved);
+                var mm = BuildMilestonesPlanDagMutation(session.Id, runId, question, saved);
                 if (mm != null)
                 {
+                    _host.Logger.LogInformation("[VibeOrchestrator] Applying milestones DAG mutation: sessionId={SessionId}, runId={RunId}, nodeCount={NodeCount}", 
+                        session.Id, runId, mm.UpsertNodes.Count);
                     dagSnap = await _core.Dag.ApplyMutationAsync(dagId, mm, innerCt);
+                    _host.Logger.LogInformation("[VibeOrchestrator] Milestones DAG mutation applied: dagId={DagId}, resultNodes={ResultNodeCount}", 
+                        dagId, dagSnap.Nodes.Count);
                     session.Events.Publish(new CustomEvent
                     {
                         Timestamp = NowMs(),

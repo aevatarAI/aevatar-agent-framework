@@ -123,6 +123,8 @@ public sealed class DagStore
             // Use the actual session ID from mutation for writing nodes (preserves cross-session identity).
             // For global DAG, dagId="global" but mutation.SessionId contains the real session ID.
             var writeSessionId = string.IsNullOrWhiteSpace(mutation.SessionId) ? ws.DagId : mutation.SessionId;
+            _logger.LogInformation("[DagStore] ApplyMutationAsync starting: dagId={DagId}, writeSessionId={WriteSessionId}, nodeCount={NodeCount}, edgeCount={EdgeCount}",
+                dagId, writeSessionId, mutation.UpsertNodes.Count, mutation.UpsertEdges.Count);
             var client = _graphFactory.CreateClient(writeSessionId);
             var localOwner = TryGetLocalDagOwnerPubKey();
 
@@ -158,12 +160,14 @@ public sealed class DagStore
                         var existing = await client.GetNodeAsync(id, ct);
                         if (existing == null)
                         {
+                            _logger.LogInformation("[DagStore] Creating PlanNode: nodeId={NodeId}, label={Label}", id, label);
                             await client.CreatePlanNodeAsync(
                                 nodeId: id,
                                 coreDescription: string.IsNullOrWhiteSpace(label) ? id : label,
                                 detailedDescription: string.IsNullOrWhiteSpace(detail) ? id : detail,
                                 methodology: string.IsNullOrWhiteSpace(proof) ? null : proof,
                                 cancellationToken: ct);
+                            _logger.LogInformation("[DagStore] PlanNode created successfully: nodeId={NodeId}", id);
                         }
                         else
                         {
@@ -178,6 +182,8 @@ public sealed class DagStore
                     else
                     {
                         // KnowledgeNode (default): use UpsertNodeAsync
+                        _logger.LogInformation("[DagStore] Upserting KnowledgeNode: nodeId={NodeId}, label={Label}, type={Type}", 
+                            id, label, n.Type);
                         await client.UpsertNodeAsync(
                             nodeId: id,
                             nodeType: MapDagNodeType(n.Type),
@@ -187,11 +193,12 @@ public sealed class DagStore
                             proof: string.IsNullOrWhiteSpace(proof) ? null : proof,
                             resourceFolderPath: null,
                             cancellationToken: ct);
+                        _logger.LogInformation("[DagStore] KnowledgeNode upserted successfully: nodeId={NodeId}", id);
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogDebug(ex, "Failed to upsert dag node {NodeId} (best-effort).", id);
+                    _logger.LogWarning(ex, "[DagStore] Failed to upsert dag node {NodeId}: {Error}", id, ex.Message);
                 }
             }
 
@@ -646,13 +653,23 @@ public sealed class DagStore
 
         if (dagId == ResearchSession.GlobalDagId)
         {
-            var knowledgeNodes = await client.GetAllKnowledgeNodesGlobalAsync(ct);
-            var planNodes = await client.GetAllPlanNodesGlobalAsync(ct);
-            var edgesWithSession = await client.GetAllEdgesGlobalAsync(ct);
-            allNodes = knowledgeNodes.Cast<IGraphNode>().Concat(planNodes.Cast<IGraphNode>()).ToList();
-            allEdges = edgesWithSession.Select(e => e.Edge).ToList();
-            _logger.LogInformation("[DagStore] BuildSnapshotFromGraphAsync (global): knowledgeNodes={KnowledgeCount}, planNodes={PlanCount}, edges={EdgeCount}",
-                knowledgeNodes.Count, planNodes.Count, allEdges.Count);
+            try
+            {
+                var knowledgeNodes = await client.GetAllKnowledgeNodesGlobalAsync(ct);
+                var planNodes = await client.GetAllPlanNodesGlobalAsync(ct);
+                var edgesWithSession = await client.GetAllEdgesGlobalAsync(ct);
+                allNodes = knowledgeNodes.Cast<IGraphNode>().Concat(planNodes.Cast<IGraphNode>()).ToList();
+                allEdges = edgesWithSession.Select(e => e.Edge).ToList();
+                _logger.LogInformation("[DagStore] BuildSnapshotFromGraphAsync (global): knowledgeNodes={KnowledgeCount}, planNodes={PlanCount}, edges={EdgeCount}",
+                    knowledgeNodes.Count, planNodes.Count, allEdges.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[DagStore] Failed to query Neo4j for global DAG: dagId={DagId}, error={Error}", dagId, ex.Message);
+                // Return empty snapshot on error
+                allNodes = new List<IGraphNode>();
+                allEdges = new List<KnowledgeEdge>();
+            }
         }
         else
         {

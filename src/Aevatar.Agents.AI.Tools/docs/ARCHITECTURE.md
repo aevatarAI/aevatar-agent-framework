@@ -82,6 +82,15 @@ src/Aevatar.Agents.AI.Tools/
 - 路径白名单是唯一信任边界，避免任意文件访问。
 - 默认扩展名限制为 `.yaml/.yml/.json`，由上层按需放宽。
 
+## Tool Pack 集成（YAML 驱动）
+
+- `AevatarAiToolsPack`：实现 `IAevatarToolPack`，供 `AIGAgentBase` 按 YAML tools 动态注册。
+- 配置入口（可选，来自 `IConfiguration`）：
+  - `Aevatar:AiTools:WorkingDirectory`
+  - `Aevatar:AiTools:File:ReadRoots / WriteRoots / WriteExtensions / MaxReadChars / AllowOverwrite`
+  - `Aevatar:AiTools:Command:AllowedCommands / TimeoutSeconds / MaxOutputChars`
+- 运行时注册：`services.AddAevatarAiToolsPack()`
+
 ## 变更日志
 
 - 2026-01-17：新增文件读写工具（供 Hermes 与平台复用）。

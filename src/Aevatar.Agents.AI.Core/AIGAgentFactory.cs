@@ -1,6 +1,7 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI.Core.Helpers;
 using Aevatar.Agents.AI.Core.Hooks;
+using Aevatar.Agents.AI.Core.ToolPacks;
 using Aevatar.Agents.Core;
 using Aevatar.Agents.Core.Helpers;
 using Microsoft.Extensions.DependencyInjection;
@@ -96,6 +97,16 @@ public class AIGAgentFactory : IGAgentFactory
             catch
             {
                 // Best-effort: never fail agent creation due to hook injection.
+            }
+
+            try
+            {
+                var packs = _serviceProvider.GetServices<IAevatarToolPack>();
+                aiAgent.InjectToolPacks(packs);
+            }
+            catch
+            {
+                // Best-effort: tool pack injection should not block agent creation.
             }
         }
 

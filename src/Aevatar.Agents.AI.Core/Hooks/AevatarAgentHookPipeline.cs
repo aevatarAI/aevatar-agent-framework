@@ -80,6 +80,14 @@ public sealed class AevatarAgentHookPipeline
         => RunStageAsync("AfterToolExecute", context, cancellationToken,
             (h, ctx, ct) => h.AfterToolExecuteAsync(ctx, ct));
 
+    public Task RunBeforeEventHandlerAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
+        => RunStageAsync("BeforeEventHandler", context, cancellationToken,
+            (h, ctx, ct) => h.BeforeEventHandlerAsync(ctx, ct));
+
+    public Task RunAfterEventHandlerAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
+        => RunStageAsync("AfterEventHandler", context, cancellationToken,
+            (h, ctx, ct) => h.AfterEventHandlerAsync(ctx, ct));
+
     public Task RunOnErrorAsync(AevatarAgentHookContext context, Exception exception, CancellationToken cancellationToken)
         => RunStageAsync("OnError", context, cancellationToken,
             (h, ctx, ct) => h.OnErrorAsync(ctx, exception, ct));

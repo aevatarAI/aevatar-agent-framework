@@ -90,6 +90,19 @@ public sealed class AevatarAgentHookContext
     public ToolExecutionResult? ToolResult { get; set; }
     public string? ToolCallId { get; set; }
 
+    // ------------------------------------------------------------
+    // Event handler context (per handler)
+    //
+    // 中文 + ASCII:
+    // - 仅记录轻量可观测信息，不携带事件体，避免序列化负担。
+    // ------------------------------------------------------------
+    public string? EventId { get; set; }
+    public string? EventType { get; set; }
+    public string? EventHandlerName { get; set; }
+    public string? EventHandlerType { get; set; }
+    public TimeSpan? EventHandlerDuration { get; set; }
+    public Exception? EventHandlerException { get; set; }
+
     /// <summary>
     /// Free-form metadata for observability (truncation flags, downgrade reason, etc).
     /// Keep values small; do NOT store secrets here.

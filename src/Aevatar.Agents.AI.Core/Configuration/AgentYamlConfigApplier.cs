@@ -140,6 +140,9 @@ public static class AgentYamlConfigApplier
 
         agent.SetFixedToolAllowlist(allow.Count == 0 ? null : allow);
 
+        // Tool packs: register tools that appear in yaml.tools (best-effort).
+        await agent.RegisterYamlToolPacksAsync(yaml, ct);
+
         // Dangerous tools: enable only if explicitly allowlisted by YAML.
         // (We keep fallback semantics for agents that already configure AllowDangerousTools themselves.)
         if (policy.EnableDangerousTools)

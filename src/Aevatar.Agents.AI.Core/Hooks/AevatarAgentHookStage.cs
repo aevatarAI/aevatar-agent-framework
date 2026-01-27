@@ -12,5 +12,7 @@ public enum AevatarAgentHookStage
     AfterLLMResponse = 4,
     BeforeToolExecute = 5,
     AfterToolExecute = 6,
-    OnError = 7
+    OnError = 7,
+    BeforeEventHandler = 8,
+    AfterEventHandler = 9
 }

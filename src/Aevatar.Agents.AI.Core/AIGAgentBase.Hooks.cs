@@ -1,11 +1,13 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core.Hooks;
 using Aevatar.Agents.AI.Core.Hooks.BuiltIn;
 using Aevatar.Agents.AI.Tool.Abstractions;
 using Aevatar.Agents.AI.Core.Utils;
+using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 
 namespace Aevatar.Agents.AI.Core;
@@ -90,7 +92,13 @@ public abstract partial class AIGAgentBase
         string? toolName = null,
         Dictionary<string, object>? toolArguments = null,
         ToolExecutionResult? toolResult = null,
-        string? toolCallId = null)
+        string? toolCallId = null,
+        string? eventId = null,
+        string? eventType = null,
+        string? eventHandlerName = null,
+        string? eventHandlerType = null,
+        TimeSpan? eventHandlerDuration = null,
+        Exception? eventHandlerException = null)
     {
         var pipeline = GetHookPipeline();
         var policy = pipeline.CreatePolicySnapshot(AllowInternalTools, AllowDangerousTools);
@@ -112,7 +120,13 @@ public abstract partial class AIGAgentBase
             ToolName = toolName,
             ToolArguments = toolArguments,
             ToolResult = toolResult,
-            ToolCallId = toolCallId
+            ToolCallId = toolCallId,
+            EventId = eventId,
+            EventType = eventType,
+            EventHandlerName = eventHandlerName,
+            EventHandlerType = eventHandlerType,
+            EventHandlerDuration = eventHandlerDuration,
+            EventHandlerException = eventHandlerException
         };
     }
 
@@ -125,6 +139,76 @@ public abstract partial class AIGAgentBase
             AevatarAgentHookStopStatus.Error => "error",
             _ => "unknown"
         };
+    }
+
+    protected override async Task OnEventHandlerStartAsync(
+        EventEnvelope envelope,
+        EventHandlerMetadata handler,
+        object? payload,
+        CancellationToken ct)
+    {
+        var pipeline = GetHookPipeline();
+        if (!pipeline.HasHooks)
+            return;
+
+        var requestId = ResolveEventRequestId(envelope);
+        var ctx = CreateHookContext(
+            requestId,
+            eventId: string.IsNullOrWhiteSpace(envelope.Id) ? requestId : envelope.Id,
+            eventType: ResolveEventType(envelope, payload),
+            eventHandlerName: handler.Method.Name,
+            eventHandlerType: handler.Method.DeclaringType?.FullName);
+
+        await pipeline.RunBeforeEventHandlerAsync(ctx, ct);
+    }
+
+    protected override async Task OnEventHandlerEndAsync(
+        EventEnvelope envelope,
+        EventHandlerMetadata handler,
+        object? payload,
+        TimeSpan duration,
+        Exception? exception,
+        CancellationToken ct)
+    {
+        var pipeline = GetHookPipeline();
+        if (!pipeline.HasHooks)
+            return;
+
+        var requestId = ResolveEventRequestId(envelope);
+        var ctx = CreateHookContext(
+            requestId,
+            eventId: string.IsNullOrWhiteSpace(envelope.Id) ? requestId : envelope.Id,
+            eventType: ResolveEventType(envelope, payload),
+            eventHandlerName: handler.Method.Name,
+            eventHandlerType: handler.Method.DeclaringType?.FullName,
+            eventHandlerDuration: duration,
+            eventHandlerException: exception);
+
+        await pipeline.RunAfterEventHandlerAsync(ctx, ct);
+    }
+
+    private static string ResolveEventRequestId(EventEnvelope envelope)
+    {
+        if (!string.IsNullOrWhiteSpace(envelope.Id))
+            return envelope.Id;
+        if (!string.IsNullOrWhiteSpace(envelope.CorrelationId))
+            return envelope.CorrelationId;
+        return Guid.NewGuid().ToString("N");
+    }
+
+    private static string? ResolveEventType(EventEnvelope envelope, object? payload)
+    {
+        if (payload is IMessage message)
+        {
+            var descriptorName = message.Descriptor?.FullName;
+            if (!string.IsNullOrWhiteSpace(descriptorName))
+                return descriptorName;
+        }
+
+        var typeUrl = envelope.Payload?.TypeUrl;
+        if (string.IsNullOrWhiteSpace(typeUrl))
+            return null;
+        return typeUrl.Split('/').LastOrDefault() ?? typeUrl;
     }
 
     private async Task RunSessionStartHooksAsync(ChatRequest request, bool isStreaming, CancellationToken cancellationToken)

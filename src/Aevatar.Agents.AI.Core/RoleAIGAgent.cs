@@ -1,10 +1,7 @@
-using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Attributes;
-using Aevatar.Agents.AI;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
-using System.Threading;
 
 namespace Aevatar.Agents.AI.Core;
 
@@ -19,7 +16,7 @@ public abstract class RoleAIGAgent<TCustomState> : AIGAgentBase<TCustomState>
     where TCustomState : class, IMessage<TCustomState>, new()
 {
     private string? _sessionId;
-    private IEventModule[] _eventModules = Array.Empty<IEventModule>();
+    private IEventModule[] _eventModules = [];
 
     protected string? SessionId => _sessionId;
 
@@ -194,6 +191,6 @@ public abstract class RoleAIGAgent<TCustomState> : AIGAgentBase<TCustomState>
 
 }
 
-public sealed class RoleAIGAgent : RoleAIGAgent<Empty>
+public class RoleAIGAgent : RoleAIGAgent<Empty>
 {
 }

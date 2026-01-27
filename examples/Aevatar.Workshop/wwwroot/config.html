@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Aevatar.Workshop · Config</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="app-header">
+        <div class="brand">
+          <div class="brand-icon">A</div>
+          <div class="brand-text">
+            <div class="brand-title">AEVATAR WORKSHOP</div>
+            <div class="brand-subtitle">LLM Provider Config</div>
+          </div>
+        </div>
+        <a class="btn btn-outline" href="/index.html">Back</a>
+      </header>
+
+      <main class="main config-main">
+        <div class="panel card">
+          <div class="panel-title">LLM Providers</div>
+          <div class="panel-subtitle">Reuse UI pattern from Aevatar.VibeResearching (providers tab).</div>
+          <div class="config-status" id="config-status"></div>
+          <div class="config-layout">
+            <div class="config-sidebar">
+              <div class="inline-form">
+                <input id="provider-search" class="input" placeholder="Search provider" />
+                <button id="provider-refresh" class="btn btn-outline" type="button">Refresh</button>
+              </div>
+              <div class="provider-list" id="provider-list"></div>
+            </div>
+            <div class="provider-detail" id="provider-detail">
+              <div class="panel-subtitle">Select a provider to configure.</div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script src="app-core.js"></script>
+    <script src="config.js"></script>
+  </body>
+</html>

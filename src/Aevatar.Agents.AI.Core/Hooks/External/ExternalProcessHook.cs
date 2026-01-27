@@ -47,6 +47,12 @@ public sealed class ExternalProcessHook : IAevatarAgentHook
     public Task AfterToolExecuteAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
         => RunExternalHooksAsync(AevatarAgentHookStage.AfterToolExecute, context, cancellationToken);
 
+    public Task BeforeEventHandlerAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
+        => RunExternalHooksAsync(AevatarAgentHookStage.BeforeEventHandler, context, cancellationToken);
+
+    public Task AfterEventHandlerAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
+        => RunExternalHooksAsync(AevatarAgentHookStage.AfterEventHandler, context, cancellationToken);
+
     public Task OnErrorAsync(AevatarAgentHookContext context, Exception exception, CancellationToken cancellationToken)
         => RunExternalHooksAsync(AevatarAgentHookStage.OnError, context, cancellationToken, exception);
 
@@ -222,6 +228,21 @@ public sealed class ExternalProcessHook : IAevatarAgentHook
                 ["error"] = context.ToolResult.ErrorMessage,
                 ["content"] = TrimToMax(context.ToolResult.Content ?? string.Empty, _options.MaxToolResultChars),
                 ["duration_ms"] = context.ToolResult.Duration
+            };
+        }
+
+        if (!string.IsNullOrWhiteSpace(context.EventHandlerName) ||
+            !string.IsNullOrWhiteSpace(context.EventType))
+        {
+            payload["event_handler"] = new Dictionary<string, object?>
+            {
+                ["name"] = context.EventHandlerName,
+                ["type"] = context.EventHandlerType,
+                ["event_id"] = context.EventId,
+                ["event_type"] = context.EventType,
+                ["duration_ms"] = context.EventHandlerDuration?.TotalMilliseconds,
+                ["error_type"] = context.EventHandlerException?.GetType().FullName,
+                ["error"] = context.EventHandlerException?.Message
             };
         }
 

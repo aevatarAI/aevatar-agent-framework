@@ -123,6 +123,27 @@ public sealed class ExecutionTraceProgressHook : IAevatarAgentHook
             cancellationToken);
     }
 
+    public Task BeforeEventHandlerAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
+    {
+        return EmitEventHandlerAsync(
+            context,
+            ExecutionTraceEventPhase.EventHandlerStart,
+            ExecutionTraceEventStatus.Running,
+            cancellationToken);
+    }
+
+    public Task AfterEventHandlerAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
+    {
+        var status = context.EventHandlerException == null
+            ? ExecutionTraceEventStatus.Completed
+            : ExecutionTraceEventStatus.Failed;
+        return EmitEventHandlerAsync(
+            context,
+            ExecutionTraceEventPhase.EventHandlerEnd,
+            status,
+            cancellationToken);
+    }
+
     public Task OnErrorAsync(AevatarAgentHookContext context, Exception exception, CancellationToken cancellationToken)
     {
         return EmitErrorAsync(context, exception, cancellationToken);
@@ -210,6 +231,52 @@ public sealed class ExecutionTraceProgressHook : IAevatarAgentHook
         {
             evt.Fields[ExecutionTraceEventFields.DurationMs] =
                 ExecutionTraceEventFieldValue.FromLong((long)context.ToolResult.Duration.ToTimeSpan().TotalMilliseconds);
+        }
+
+        return PublishBestEffortAsync(evt, cancellationToken);
+    }
+
+    private Task EmitEventHandlerAsync(
+        AevatarAgentHookContext context,
+        string phase,
+        string status,
+        CancellationToken cancellationToken)
+    {
+        var evt = CreateBaseEvent(context, phase, status, null);
+        var handlerName = !string.IsNullOrWhiteSpace(context.EventHandlerName)
+            ? context.EventHandlerName
+            : (context.EventType ?? "handler");
+        evt.NodeId = $"handler:{handlerName}";
+        evt.Message = $"{phase}:{handlerName}";
+
+        if (!string.IsNullOrWhiteSpace(context.EventType))
+        {
+            evt.Fields[ExecutionTraceEventFields.EventType] =
+                ExecutionTraceEventFieldValue.FromString(context.EventType);
+        }
+
+        if (!string.IsNullOrWhiteSpace(context.EventHandlerName))
+        {
+            evt.Fields[ExecutionTraceEventFields.HandlerName] =
+                ExecutionTraceEventFieldValue.FromString(context.EventHandlerName);
+        }
+
+        if (!string.IsNullOrWhiteSpace(context.EventHandlerType))
+        {
+            evt.Fields[ExecutionTraceEventFields.HandlerType] =
+                ExecutionTraceEventFieldValue.FromString(context.EventHandlerType);
+        }
+
+        if (context.EventHandlerDuration.HasValue)
+        {
+            evt.Fields[ExecutionTraceEventFields.DurationMs] =
+                ExecutionTraceEventFieldValue.FromLong((long)context.EventHandlerDuration.Value.TotalMilliseconds);
+        }
+
+        if (context.EventHandlerException != null)
+        {
+            evt.Fields[ExecutionTraceEventFields.Error] =
+                ExecutionTraceEventFieldValue.FromString(Trim(context.EventHandlerException.Message, 400));
         }
 
         return PublishBestEffortAsync(evt, cancellationToken);

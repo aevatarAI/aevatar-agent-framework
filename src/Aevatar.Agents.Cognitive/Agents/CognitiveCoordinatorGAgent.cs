@@ -351,81 +351,30 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
 
     private CognitiveStepExecutor BuildStepExecutor()
     {
-        var stepModules = SnapshotStepModules();
-        Func<StepDefinition, string?, string?, Task<PrimitiveResult>> executeLlmCall =
-            (step, prompt, system) => ExecuteStepWithModules(
-                stepModules,
-                step,
-                prompt,
-                system,
-                ExecuteLlmCallDirectAsync);
-
-        Func<StepDefinition, Task<PrimitiveResult>> executeConditional = step =>
-            ExecuteStepWithModules(stepModules, step, ExecuteConditionalAsync);
-        Func<StepDefinition, Task<PrimitiveResult>> executeFanOut = step =>
-            ExecuteStepWithModules(stepModules, step, ExecuteFanOutAsync);
-        Func<StepDefinition, Task<PrimitiveResult>> executeParallel = step =>
-            ExecuteStepWithModules(stepModules, step, ExecuteParallelAsync);
-        Func<StepDefinition, Task<PrimitiveResult>> executeVote = step =>
-            ExecuteStepWithModules(stepModules, step, ExecuteVoteAsync);
-        Func<StepDefinition, Task<PrimitiveResult>> executeWorkflowCall = step =>
-            ExecuteStepWithModules(stepModules, step, ExecuteWorkflowCallAsync);
-        Func<StepDefinition, Task<PrimitiveResult>> executeCheckpoint = step =>
-            ExecuteStepWithModules(stepModules, step, ExecuteCheckpointAsync);
-        Func<StepDefinition, Task<PrimitiveResult>> executeAssign = step =>
-            ExecuteStepWithModules(stepModules, step, ExecuteAssignAsync);
-        Func<StepDefinition, Task<PrimitiveResult>> executeTransform = step =>
-            ExecuteStepWithModules(stepModules, step, ExecuteTransformAsync);
-        Func<StepDefinition, Task<PrimitiveResult>> executeRetrieveFacts = step =>
-            ExecuteStepWithModules(stepModules, step, ExecuteRetrieveFactsAsync);
-        Func<StepDefinition, Task<PrimitiveResult>> executeWorkspaceReadFile = step =>
-            ExecuteStepWithModules(stepModules, step, ExecuteWorkspaceReadFileAsync);
-        Func<StepDefinition, Task<PrimitiveResult>> executeWorkspaceCodeSearch = step =>
-            ExecuteStepWithModules(stepModules, step, ExecuteWorkspaceCodeSearchAsync);
-        Func<StepDefinition, Task<PrimitiveResult>> executeWorkspaceApplyPatch = step =>
-            ExecuteStepWithModules(stepModules, step, ExecuteWorkspaceApplyPatchAsync);
-        Func<StepDefinition, Task<PrimitiveResult>> executeSandboxCommand = step =>
-            ExecuteStepWithModules(stepModules, step, ExecuteSandboxCommandAsync);
-
-        return new CognitiveStepExecutor(
-            logger: Logger,
-            templateEngine: _templateEngine,
-            workflowVariables: _workflowVariables,
-            executeLlmCall: executeLlmCall,
-            executeConditional: executeConditional,
-            executeFanOut: executeFanOut,
-            executeParallel: executeParallel,
-            executeVote: executeVote,
-            executeWorkflowCall: executeWorkflowCall,
-            executeCheckpoint: executeCheckpoint,
-            executeAssign: executeAssign,
-            executeTransform: executeTransform,
-            executeRetrieveFacts: executeRetrieveFacts,
-            executeWorkspaceReadFile: executeWorkspaceReadFile,
-            executeWorkspaceCodeSearch: executeWorkspaceCodeSearch,
-            executeWorkspaceApplyPatch: executeWorkspaceApplyPatch,
-            executeSandboxCommand: executeSandboxCommand,
-            emitStart: (step, userPrompt, systemPrompt) =>
-                EmitStepEvent(step, StepStatus.Running,
-                    userPrompt: userPrompt,
-                    systemPrompt: systemPrompt),
-            emitCompleted: (step, result) =>
-                EmitStepEvent(step,
-                    result.Success ? StepStatus.Completed : StepStatus.Failed,
-                    result.Success ? null : result.Error,
-                    progress: 1.0f,
-                    systemPrompt: result.SystemPrompt,
-                    userPrompt: result.UserPrompt,
-                    assistantResponse: result.AssistantResponse,
-                    winnerProposalId: result.WinnerProposalId,
-                    winnerHash: result.WinnerHash,
-                    winnerVotes: result.WinnerVotes,
-                    winnerRunnerUpVotes: result.WinnerRunnerUpVotes,
-                    winnerClusterCount: result.WinnerClusterCount,
-                    winnerSemantic: result.WinnerSemantic,
-                    winnerIsConsensus: result.WinnerIsConsensus),
-            emitError: (step, ex) => EmitStepEvent(step, StepStatus.Failed, ex.Message));
+        return CognitiveStepExecutorFactory.CreateForCoordinator(this, SnapshotStepModules());
     }
+
+    internal void EmitStepStart(StepDefinition step, string? userPrompt, string? systemPrompt)
+        => EmitStepEvent(step, StepStatus.Running, userPrompt: userPrompt, systemPrompt: systemPrompt);
+
+    internal void EmitStepCompleted(StepDefinition step, PrimitiveResult result)
+        => EmitStepEvent(step,
+            result.Success ? StepStatus.Completed : StepStatus.Failed,
+            result.Success ? null : result.Error,
+            progress: 1.0f,
+            systemPrompt: result.SystemPrompt,
+            userPrompt: result.UserPrompt,
+            assistantResponse: result.AssistantResponse,
+            winnerProposalId: result.WinnerProposalId,
+            winnerHash: result.WinnerHash,
+            winnerVotes: result.WinnerVotes,
+            winnerRunnerUpVotes: result.WinnerRunnerUpVotes,
+            winnerClusterCount: result.WinnerClusterCount,
+            winnerSemantic: result.WinnerSemantic,
+            winnerIsConsensus: result.WinnerIsConsensus);
+
+    internal void EmitStepError(StepDefinition step, Exception ex)
+        => EmitStepEvent(step, StepStatus.Failed, ex.Message);
 
     private ICognitiveStepModule[] SnapshotStepModules()
     {
@@ -443,39 +392,9 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
         return list.ToArray();
     }
 
-    private Task<PrimitiveResult> ExecuteStepWithModules(
-        ICognitiveStepModule[] modules,
-        StepDefinition step,
-        Func<StepDefinition, Task<PrimitiveResult>> fallback)
-    {
-        foreach (var module in modules)
-        {
-            if (!module.CanHandle(step))
-                continue;
-
-            return module.ExecuteAsync(this, step, null, null, CancellationToken.None);
-        }
-
-        return fallback(step);
-    }
-
-    private Task<PrimitiveResult> ExecuteStepWithModules(
-        ICognitiveStepModule[] modules,
-        StepDefinition step,
-        string? preRenderedPrompt,
-        string? preRenderedSystem,
-        Func<StepDefinition, string?, string?, Task<PrimitiveResult>> fallback)
-    {
-        foreach (var module in modules)
-        {
-            if (!module.CanHandle(step))
-                continue;
-
-            return module.ExecuteAsync(this, step, preRenderedPrompt, preRenderedSystem, CancellationToken.None);
-        }
-
-        return fallback(step, preRenderedPrompt, preRenderedSystem);
-    }
+    internal ILogger CoordinatorLogger => Logger;
+    internal TemplateEngine CoordinatorTemplateEngine => _templateEngine;
+    internal Dictionary<string, object> WorkflowVariables => _workflowVariables;
 
     private void AddStats(int tokensUsed, int llmCalls)
     {

@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Aevatar.Workshop</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="app-header">
+        <div class="brand">
+          <div class="brand-icon">A</div>
+          <div class="brand-text">
+            <div class="brand-title">AEVATAR WORKSHOP</div>
+            <div class="brand-subtitle">Agent Capability Playground</div>
+          </div>
+        </div>
+        <div class="status-pill" id="status">connecting…</div>
+      </header>
+      <nav class="top-nav" id="top-nav">
+        <button class="nav-button active" data-view="sessions">Sessions</button>
+        <button class="nav-button" data-view="roles">Role & Hierarchy</button>
+        <button class="nav-button" data-view="tools">Tools & YAML</button>
+        <button class="nav-button" data-view="workflow">Workflow</button>
+      </nav>
+
+      <section class="view app-body view-sessions active" data-view="sessions">
+        <aside class="sidebar">
+          <div class="sidebar-section">
+            <div class="section-title">Sessions</div>
+            <div class="session-actions">
+              <select id="agent-mode" class="select">
+                <option value="role" selected>RoleAIGAgent (YAML modules)</option>
+                <option value="workshop">WorkshopAIGAgent (method handlers)</option>
+              </select>
+              <button id="new-session" class="btn btn-primary">New Session</button>
+            </div>
+            <div class="current-session">Current: <span id="current-session">-</span></div>
+            <div class="session-list" id="session-list"></div>
+          </div>
+          <div class="sidebar-section sidebar-footer">
+            <a class="btn btn-primary" href="/config.html">Config</a>
+          </div>
+        </aside>
+
+        <main class="main">
+          <div class="tabs">
+            <button class="tab-button active" data-tab="chat">Chat</button>
+            <button class="tab-button" data-tab="history">History</button>
+            <button class="tab-button" data-tab="memory">Memory</button>
+            <button class="tab-button" data-tab="handlers">Handlers</button>
+          </div>
+
+          <section class="tab-panel active" id="tab-chat">
+            <div class="panel-grid">
+              <div class="panel card">
+                <div class="panel-title">Chat</div>
+                <div class="messages" id="messages"></div>
+                <div class="chat-toolbar">
+                  <div class="inline-form">
+                    <label class="inline-label" for="stream-chunk-every">Stream batch</label>
+                    <input id="stream-chunk-every" class="input input-sm" type="number" min="1" max="64" value="1" />
+                    <span class="inline-hint">tokens per chunk</span>
+                  </div>
+                </div>
+                <form class="composer" id="composer">
+                  <textarea id="input" rows="2" placeholder="Type a message…"></textarea>
+                  <button type="submit" class="btn btn-primary">Send</button>
+                </form>
+              </div>
+              <div class="panel card">
+                <div class="panel-title">AG-UI Timeline</div>
+                <div class="events" id="events"></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="tab-panel" id="tab-history">
+            <div class="panel card">
+              <div class="panel-title">State History</div>
+              <div class="panel-subtitle">Layer1: State.History</div>
+              <div class="history-list" id="history-list"></div>
+            </div>
+            <div class="panel card">
+              <div class="panel-title">History Summary</div>
+              <div class="panel-subtitle">Layer2: Context[history_summary]</div>
+              <pre class="code-block" id="history-summary">-</pre>
+              <div class="panel-title">Context Keys</div>
+              <div class="tag-list" id="context-keys"></div>
+            </div>
+          </section>
+
+          <section class="tab-panel" id="tab-memory">
+            <div class="panel card">
+              <div class="panel-title">Agent Memory</div>
+              <div class="panel-subtitle" id="agent-memory-id">-</div>
+              <div class="memory-list" id="memory-agent"></div>
+            </div>
+            <div class="panel card">
+              <div class="panel-title">Session Memory</div>
+              <div class="panel-subtitle" id="session-memory-id">-</div>
+              <div class="memory-list" id="memory-session"></div>
+            </div>
+          </section>
+
+          <section class="tab-panel" id="tab-handlers">
+            <div class="panel card">
+              <div class="panel-title">Event Handlers (Reflection)</div>
+              <div class="handlers-list" id="handlers-list"></div>
+            </div>
+            <div class="panel card">
+              <div class="panel-title">YAML Event Modules</div>
+              <div class="modules-list" id="modules-list"></div>
+              <div class="ping-section">
+                <div class="panel-title">Ping / Pong</div>
+                <div class="inline-form ping-form">
+                  <input id="ping-input" class="input" placeholder="Ping content" />
+                  <button id="ping-button" class="btn btn-outline" type="button">Send Ping</button>
+                </div>
+                <div class="event-log" id="ping-log"></div>
+              </div>
+            </div>
+          </section>
+        </main>
+      </section>
+
+      <section class="view view-roles" data-view="roles">
+        <div class="panel-grid role-grid">
+          <div class="panel card">
+            <div class="panel-title">Role YAML</div>
+            <div class="inline-form">
+              <select id="role-select" class="select"></select>
+              <button id="role-refresh" class="btn btn-outline" type="button">Refresh</button>
+            </div>
+            <textarea id="role-yaml" class="code-editor" rows="16"></textarea>
+            <div class="inline-form">
+              <label class="inline-label role-check">
+                <input type="checkbox" id="role-link-root" checked />
+                Link to Sisyphus
+              </label>
+              <button id="role-yaml-save" class="btn btn-primary" type="button">Save YAML</button>
+              <button id="role-instantiate" class="btn btn-outline" type="button">Instantiate</button>
+            </div>
+            <div class="panel-subtitle" id="role-yaml-status"></div>
+            <div class="role-list" id="role-list"></div>
+          </div>
+          <div class="panel card">
+            <div class="panel-title">Group Canvas</div>
+            <div class="panel-subtitle">Click nodes in order: Parent → Child. Click empty space to reset.</div>
+            <div class="inline-form selection-row">
+              <div class="selection-pill" id="role-parent-label">Parent: -</div>
+              <div class="selection-pill" id="role-child-label">Child: -</div>
+              <button id="role-link" class="btn btn-primary" type="button" disabled>Link</button>
+              <button id="role-unlink" class="btn btn-outline" type="button" disabled>Unlink</button>
+            </div>
+            <div id="role-graph" class="graph-canvas"></div>
+          </div>
+        </div>
+        <div class="panel card role-chat-panel">
+          <div class="panel-title">Sisyphus Chat</div>
+          <div class="messages" id="role-messages"></div>
+          <div class="chat-toolbar">
+            <div class="inline-form">
+              <label class="inline-label" for="role-stream-chunk-every">Stream batch</label>
+              <input id="role-stream-chunk-every" class="input input-sm" type="number" min="1" max="64" value="1" />
+              <span class="inline-hint">tokens per chunk</span>
+            </div>
+          </div>
+          <form class="composer" id="role-composer">
+            <textarea id="role-input" rows="2" placeholder="Talk to Sisyphus…"></textarea>
+            <button type="submit" class="btn btn-primary">Send</button>
+          </form>
+        </div>
+        <div class="panel card delegation-panel">
+          <div class="panel-title">Delegation Log</div>
+          <div class="events" id="delegation-log"></div>
+        </div>
+      </section>
+
+      <section class="view view-tools" data-view="tools">
+        <div class="panel-grid tools-grid">
+          <div class="panel card">
+            <div class="panel-title">Capabilities Toggles</div>
+            <div class="panel-subtitle">Requires active session</div>
+            <div class="settings-grid" id="settings-grid">
+              <label><input type="checkbox" id="toggle-history" /> Enable History</label>
+              <label><input type="checkbox" id="toggle-compaction" /> Enable Compaction</label>
+              <label><input type="checkbox" id="toggle-memory" /> MemoryStore Append</label>
+              <label><input type="checkbox" id="toggle-session-memory" /> Session Memory Append</label>
+              <label><input type="checkbox" id="toggle-vector" /> Vector Index Append</label>
+              <label><input type="checkbox" id="toggle-mcp" /> MCP Enabled</label>
+              <label><input type="checkbox" id="toggle-skills" /> AgentSkills Enabled</label>
+              <label><input type="checkbox" id="toggle-dangerous" /> Allow Dangerous Tools</label>
+              <label><input type="checkbox" id="toggle-internal" /> Allow Internal Tools</label>
+            </div>
+            <button id="settings-save" class="btn btn-primary" type="button">Apply Settings</button>
+            <div class="settings-status" id="settings-status"></div>
+          </div>
+          <div class="panel card">
+            <div class="panel-title">Agent YAML Builder</div>
+            <div class="yaml-layout">
+              <div class="yaml-column">
+                <div class="yaml-section">
+                  <div class="section-title">LLM Providers</div>
+                  <div class="inline-form">
+                    <select id="provider-select" class="select"></select>
+                    <button id="provider-default" class="btn btn-outline" type="button">Set Default</button>
+                  </div>
+                  <div class="inline-form">
+                    <input id="provider-api-key" class="input" type="password" placeholder="API key" />
+                    <button id="provider-save" class="btn btn-primary" type="button">Save Key</button>
+                    <button id="provider-clear" class="btn btn-outline" type="button">Clear</button>
+                  </div>
+                  <div class="panel-subtitle" id="provider-status"></div>
+                </div>
+
+                <div class="yaml-section">
+                  <div class="section-title">MCP Servers</div>
+                  <div id="mcp-list" class="tool-list"></div>
+                </div>
+
+                <div class="yaml-section">
+                  <div class="section-title">Tool Catalog</div>
+                  <div class="tool-toolbar">
+                    <input id="tool-search" class="input" placeholder="Search tools" />
+                    <div class="tool-filters" id="tool-filters">
+                      <button class="btn btn-outline is-active" data-filter="all" type="button">All</button>
+                      <button class="btn btn-outline" data-filter="MCP" type="button">MCP</button>
+                      <button class="btn btn-outline" data-filter="Skills" type="button">Skills</button>
+                      <button class="btn btn-outline" data-filter="DotNetFile" type="button">DotNet</button>
+                      <button class="btn btn-outline" data-filter="Core" type="button">Core</button>
+                    </div>
+                    <button id="tool-refresh" class="btn btn-outline" type="button">Refresh</button>
+                  </div>
+                  <div id="tool-list" class="tool-list"></div>
+                </div>
+
+                <div class="yaml-section">
+                  <div class="section-title">DotNet File Tools</div>
+                  <div id="dotnet-list" class="tool-list"></div>
+                </div>
+
+                <div class="yaml-section">
+                  <div class="section-title">Selected Tools (drag here)</div>
+                  <div id="selected-tools" class="tool-dropzone"></div>
+                </div>
+              </div>
+
+              <div class="yaml-column">
+                <textarea id="agent-yaml" class="code-editor" rows="18"></textarea>
+                <div class="inline-form">
+                  <button id="agent-yaml-save" class="btn btn-primary" type="button">Save & Chat</button>
+                  <button id="agent-yaml-load" class="btn btn-outline" type="button">Load Role YAML</button>
+                  <input id="agent-yaml-role" class="input" placeholder="role id" />
+                </div>
+                <div class="panel-subtitle" id="agent-yaml-status"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view view-workflow" data-view="workflow">
+        <div class="panel-grid">
+          <div class="panel card">
+            <div class="panel-title">Workflow YAML → Cognitive Mesh</div>
+            <textarea id="workflow-yaml" class="code-editor" rows="14"></textarea>
+            <div class="inline-form">
+              <input id="workflow-name" class="input" placeholder="workflow name" />
+              <button id="workflow-run" class="btn btn-primary" type="button">Load Workflow</button>
+            </div>
+            <div class="panel-subtitle" id="workflow-status"></div>
+          </div>
+          <div class="panel card">
+            <div class="panel-title">Workflow Graph</div>
+            <div id="workflow-graph" class="graph-canvas"></div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <script src="app-core.js"></script>
+    <script src="app-graph.js"></script>
+    <script src="app-roles.js"></script>
+    <script src="app-tools.js"></script>
+    <script src="app-sessions.js"></script>
+    <script src="app-workflow.js"></script>
+    <script src="app-nav.js"></script>
+    <script src="app-init.js"></script>
+  </body>
+</html>

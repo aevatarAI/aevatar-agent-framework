@@ -88,6 +88,7 @@ AI Agent 的依赖注入由 `AIGAgentFactory` 统一负责：
 - `docs/aigagentbase/README.md`：AIGAgentBase 专区入口（全量指南 + YAML policy + Review）
 - `docs/aigagentbase/YAML_TOOL_POLICY.md`：YAML 工具策略与审计 hook
 - `docs/HOOKS_HARNESS.md`：Hook/Harness 机制（生命周期、默认 hooks、禁用/扩展方式）
+- `docs/EVENT_MODULES.md`：IEventModule 装配与路由（RoleAIGAgent）
 
 ## Global Agent YAML（跨应用：~/.aevatar/agents/*.yaml）
 

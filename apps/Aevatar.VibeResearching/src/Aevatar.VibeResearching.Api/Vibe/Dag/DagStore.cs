@@ -94,11 +94,14 @@ public sealed class DagStore
         {
             EnsureDagDirs(ws);
             await EnsureHydratedAsync(ws, ct);
-            return await BuildSnapshotFromGraphAsync(ws.DagId, ct);
+            var snapshot = await BuildSnapshotFromGraphAsync(ws.DagId, ct);
+            _logger.LogInformation("[DagStore] LoadSnapshotAsync completed: dagId={DagId}, nodes={NodeCount}, edges={EdgeCount}",
+                ws.DagId, snapshot.Nodes.Count, snapshot.Edges.Count);
+            return snapshot;
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Failed to load dag snapshot (best-effort).");
+            _logger.LogWarning(ex, "[DagStore] Failed to load dag snapshot: dagId={DagId}", ws.DagId);
             return new SraDagSnapshot { SessionId = ws.DagId, UpdatedAt = Timestamp.FromDateTime(DateTime.UtcNow) };
         }
     }
@@ -633,6 +636,7 @@ public sealed class DagStore
     private async Task<SraDagSnapshot> BuildSnapshotFromGraphAsync(string dagId, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
+        _logger.LogInformation("[DagStore] BuildSnapshotFromGraphAsync starting: dagId={DagId}", dagId);
         var client = _graphFactory.CreateClient(dagId);
 
         // For global DAG, get ALL nodes across ALL sessions (preserving original sessionId)
@@ -777,6 +781,9 @@ public sealed class DagStore
             SessionId = dagId,
             UpdatedAt = Timestamp.FromDateTime(DateTime.SpecifyKind(updatedAt.UtcDateTime, DateTimeKind.Utc))
         };
+        
+        _logger.LogInformation("[DagStore] BuildSnapshotFromGraphAsync processing: dagId={DagId}, nodeListCount={NodeListCount}, edgeListCount={EdgeListCount}, any={Any}",
+            dagId, nodeList.Count, edgeList.Count, any);
 
         foreach (var n in nodeList.OrderBy(x => x.Type).ThenBy(x => x.Id, StringComparer.Ordinal))
         {

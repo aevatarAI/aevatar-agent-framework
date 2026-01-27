@@ -400,7 +400,7 @@ public sealed class DagStore
             }
         }
 
-        _logger.LogDebug("[DagStore] GetSnapshotForListAsync result: dagId={DagId}, nodes={NodeCount}, edges={EdgeCount}",
+        _logger.LogInformation("[DagStore] GetSnapshotForListAsync result: dagId={DagId}, nodes={NodeCount}, edges={EdgeCount}",
             dagId, snap.Nodes.Count, snap.Edges.Count);
 
         var nodes = snap.Nodes.Take(MaxNodesForList).Select(n => new
@@ -439,7 +439,7 @@ public sealed class DagStore
             truncated = new { nodes = snap.Nodes.Count > MaxNodesForList, edges = snap.Edges.Count > MaxEdgesForList }
         };
 
-        _logger.LogDebug("[DagStore] GetSnapshotForListAsync returning: dagId={DagId}, nodes={NodeCount}, edges={EdgeCount}, truncated={Truncated}",
+        _logger.LogInformation("[DagStore] GetSnapshotForListAsync returning: dagId={DagId}, nodes={NodeCount}, edges={EdgeCount}, truncated={Truncated}",
             dagId, nodes.Count, edges.Count, result.truncated);
 
         return result;
@@ -479,7 +479,10 @@ public sealed class DagStore
             if (ws.DagId == ResearchSession.GlobalDagId)
             {
                 var allNodes = await client.GetAllKnowledgeNodesGlobalAsync(ct);
-                if (allNodes.Count > 0)
+                var allPlanNodes = await client.GetAllPlanNodesGlobalAsync(ct);
+                _logger.LogInformation("[DagStore] EnsureHydratedAsync (global): knowledgeNodes={KnowledgeCount}, planNodes={PlanCount}",
+                    allNodes.Count, allPlanNodes.Count);
+                if (allNodes.Count > 0 || allPlanNodes.Count > 0)
                 {
                     return; // Data exists in Neo4j
                 }
@@ -487,6 +490,8 @@ public sealed class DagStore
             else
             {
                 var cur = await client.GetGraphSnapshotAsync(ct);
+                _logger.LogInformation("[DagStore] EnsureHydratedAsync (session): dagId={DagId}, nodes={NodeCount}, edges={EdgeCount}",
+                    ws.DagId, cur.NodeCount, cur.EdgeCount);
                 if (cur.NodeCount > 0 || cur.EdgeCount > 0)
                 {
                     return;
@@ -638,18 +643,19 @@ public sealed class DagStore
         if (dagId == ResearchSession.GlobalDagId)
         {
             var knowledgeNodes = await client.GetAllKnowledgeNodesGlobalAsync(ct);
+            var planNodes = await client.GetAllPlanNodesGlobalAsync(ct);
             var edgesWithSession = await client.GetAllEdgesGlobalAsync(ct);
-            allNodes = knowledgeNodes.Cast<IGraphNode>().ToList();
+            allNodes = knowledgeNodes.Cast<IGraphNode>().Concat(planNodes.Cast<IGraphNode>()).ToList();
             allEdges = edgesWithSession.Select(e => e.Edge).ToList();
-            _logger.LogDebug("[DagStore] BuildSnapshotFromGraphAsync (global): nodes={NodeCount}, edges={EdgeCount}",
-                allNodes.Count, allEdges.Count);
+            _logger.LogInformation("[DagStore] BuildSnapshotFromGraphAsync (global): knowledgeNodes={KnowledgeCount}, planNodes={PlanCount}, edges={EdgeCount}",
+                knowledgeNodes.Count, planNodes.Count, allEdges.Count);
         }
         else
         {
             var graph = await client.GetGraphSnapshotAsync(ct);
             allNodes = graph.AllNodes.ToList();
             allEdges = graph.Edges.Cast<KnowledgeEdge>().ToList();
-            _logger.LogDebug("[DagStore] BuildSnapshotFromGraphAsync (session): dagId={DagId}, nodes={NodeCount}, edges={EdgeCount}",
+            _logger.LogInformation("[DagStore] BuildSnapshotFromGraphAsync (session): dagId={DagId}, nodes={NodeCount}, edges={EdgeCount}",
                 dagId, allNodes.Count, allEdges.Count);
         }
 

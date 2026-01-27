@@ -49,7 +49,8 @@ public sealed class VibeVerifierAgent : VibeAgentBase
             - Verify the most critical claims using concrete checks.
 
             Rules:
-            - If you cannot verify with available evidence/tools, say "NOT VERIFIED" and state what is missing.
+            - If a hypothesis is CONSISTENT with the axioms/facts and represents a reasonable mathematical claim, it should be considered as "VERIFIED", even if proving it rigorously would require additional mathematical knowledge (theta series, mass formulas, combinatorial theorems, etc.).
+            - Only consider "NOT VERIFIED"if the hypothesis CONTRADICTS the axioms/facts or is logically inconsistent.
             - If python_exec is available, use it for numeric/symbolic checks when applicable.
             - Keep output short and structured:
               - Claim

@@ -45,6 +45,22 @@ public sealed class VibeDagBuilderAgent : VibeAgentBase
             - If nothing is ready, output an EMPTY mutation with nodes=[] and edges=[].
             - If the librarian provides "trusted axioms" with citations, you SHOULD include them as AXIOM nodes.
               Treat them as axioms (no verifier step required) but keep citations in tags.
+            
+            CRITICAL - Extract knowledge from verifier output:
+            - The verifier output contains verified knowledge items (axioms, theorems, definitions) that have been checked.
+            - You MUST extract and include these verified items as DAG nodes:
+              * AXIOM nodes: Extract from verifier output when it mentions verified axioms or foundational statements.
+              * THEOREM nodes: Extract from verifier output when it mentions verified theorems or proven statements.
+              * ASSUMPTION/DEFINITION nodes: Extract from verifier output when it mentions verified definitions or assumptions.
+            - For each extracted knowledge item:
+              * Use the exact statement from verifier output as the "label".
+              * Set "type" to "axiom", "theorem", "assumption", or "definition" based on verifier's classification.
+              * If verifier marked it as "VERIFIED", include tag: { "verification_status": "verified", "verified_by": "verifier" }.
+              * If verifier marked it as "NOT VERIFIED" or "INCONCLUSIVE", you may still include it but mark appropriately in tags.
+              * Extract any proof or verification method from verifier output and include in "proof" field (if available).
+            - Priority: Items marked as "VERIFIED" by verifier should be included first.
+            - Cross-reference with reasoner output: If reasoner listed axioms/theorems/definitions and verifier verified them, 
+              combine the information (use reasoner's complete statement, verifier's verification status).
 
             Helpful tools (optional):
             - You MAY call graph_get_snapshot to see existing node ids/types and reuse them.

@@ -359,9 +359,21 @@ internal sealed partial class VibeOrchestrator
 
         sb.AppendLine();
         sb.AppendLine("Worker outputs (excerpts):");
+        
+        // Prioritize verifier output - extract knowledge items from it
+        if (outputs.TryGetValue("verifier", out var verifierOutput) && !string.IsNullOrWhiteSpace(verifierOutput))
+        {
+            sb.AppendLine("[verifier]");
+            sb.AppendLine("CRITICAL: Extract verified axioms, theorems, and definitions from this output:");
+            sb.AppendLine(Bound(verifierOutput, 3000)); // Increased limit for verifier output
+            sb.AppendLine();
+        }
+        
+        // Then include other worker outputs
         foreach (var (k, v) in outputs.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase))
         {
-            if (string.Equals(k, "dag_builder", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(k, "dag_builder", StringComparison.OrdinalIgnoreCase) || 
+                string.Equals(k, "verifier", StringComparison.OrdinalIgnoreCase))
                 continue;
             sb.AppendLine($"[{k}]");
             sb.AppendLine(Bound(v ?? "", 2200));

@@ -87,6 +87,27 @@ defaults:
       - Be decisive: pick one best option and give a short reason.
       - If blocked, state the minimal gap δ and propose the smallest repair.
 
+      Judgement rules (Projection / gap δ):
+      - proved=true if the candidate is internally consistent and stays within provided axioms/facts and any implicit steps that are physically plausible.
+      - Be pragmatic: allow standard inference steps (algebra/rewriting) as long as they do NOT introduce new assumptions.
+      - Mark proved=false ONLY when you can point to a concrete step that is physically implausible or contradictory, or counterexample (gap δ).
+      - IMPORTANT: If the MAKER solution identifies that a formula requires additional mathematical knowledge (e.g., theta series, mass formulas) but the formula itself is CONSISTENT with the axioms/facts and represents a reasonable mathematical claim, you should still accept it as proved=true, even if the rigorous proof requires external knowledge.
+
+      What constitutes a valid proof step (proved=true):
+      1. Direct application of axioms/theorems/assumptions
+      2. Logical inferences (modus ponens, transitivity, etc.)
+      3. Mathematical operations based on definitions
+      4. Properties that can be DERIVED from definitions, even if not explicitly stated in axioms
+      5. Standard algebraic manipulations and rewriting that follow from the structure defined in axioms
+      6. Reasonable implicit steps that are physically plausible or logically correct
+
+      What constitutes gap δ (proved=false):
+      1. Explicit contradiction with axioms/facts
+      2. Counterexample exists that can be constructed from the given axioms/facts
+      3. Crucial logical step is physically implausible or contradictory
+      4. Introduction of a new assumption that contradicts known facts
+      5. The proof step is logically inconsistent with the definitions provided
+
       Hard constraints:
       - Do NOT invent facts.
       - Follow the requested output format exactly.

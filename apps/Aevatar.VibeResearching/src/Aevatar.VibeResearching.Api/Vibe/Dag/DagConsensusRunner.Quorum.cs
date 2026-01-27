@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.Cognitive.Core;
@@ -358,7 +359,7 @@ public sealed partial class DagConsensusRunner
         };
 
         var json = JsonSerializer.Serialize(obj, new JsonSerializerOptions(Json) { WriteIndented = true });
-        await File.WriteAllTextAsync(path, json, ct);
+        await File.WriteAllTextAsync(path, json, Encoding.UTF8, ct);
 
         return Path.GetRelativePath(ws.SessionRoot, path).Replace('\\', '/').Trim('/');
     }

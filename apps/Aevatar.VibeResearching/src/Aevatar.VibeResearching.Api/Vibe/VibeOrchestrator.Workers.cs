@@ -481,7 +481,8 @@ internal sealed partial class VibeOrchestrator
 
     private sealed record MultiStageVerificationResult(
         string Summary,
-        bool OverallPass
+        bool OverallPass,
+        AgentPromptRecord? PromptRecord
     );
 
     private async Task<MultiStageVerificationResult> RunMultiStageVerifierAsync(
@@ -493,7 +494,7 @@ internal sealed partial class VibeOrchestrator
     {
         // TODO: Implement full multi-stage verification (Scout + Prover phases)
         // For now, delegate to single-pass verification as a fallback
-        var (output, _) = await RunVerifierAsync(ctx, dag, reasonerOutput, providerName, ct);
+        var (output, promptRecord) = await RunVerifierAsync(ctx, dag, reasonerOutput, providerName, ct);
         
         // Simple heuristic: check if output contains verification success indicators
         var overallPass = output.Contains("VERIFIED", StringComparison.OrdinalIgnoreCase) ||
@@ -503,7 +504,8 @@ internal sealed partial class VibeOrchestrator
 
         return new MultiStageVerificationResult(
             Summary: output,
-            OverallPass: overallPass
+            OverallPass: overallPass,
+            PromptRecord: promptRecord
         );
     }
 

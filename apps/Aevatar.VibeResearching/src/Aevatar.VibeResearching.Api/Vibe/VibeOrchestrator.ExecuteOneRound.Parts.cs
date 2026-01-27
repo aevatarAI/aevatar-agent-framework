@@ -653,6 +653,10 @@ internal sealed partial class VibeOrchestrator
 
                         // Store verification pass/fail status for downstream use
                         outputs["verifier_passed"] = multiStageResult.OverallPass.ToString();
+                        
+                        // Save verifier prompt record
+                        if (multiStageResult.PromptRecord != null)
+                            promptRecords[agent] = multiStageResult.PromptRecord;
                     }
                     else
                     {

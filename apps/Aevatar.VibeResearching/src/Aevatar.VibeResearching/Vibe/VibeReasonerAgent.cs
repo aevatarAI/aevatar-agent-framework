@@ -47,7 +47,8 @@ public sealed class VibeReasonerAgent : VibeAgentBase
             - Ground every non-trivial claim in either:
               (a) a material id like [material:...], or
               (b) clearly marked as a hypothesis.
-            - If the materials do not support a claim, say so and ask for missing evidence.
+            - If a claim is CONSISTENT with the axioms/facts, it should be accepted, even if proving it rigorously would require additional mathematical knowledge (theta series, mass formulas, combinatorial theorems, etc.).
+            - Only reject it and ask for missing evidence if the claim CONTRADICTS the axioms/facts or is logically inconsistent.
             - When computation is needed, use python_exec (if available) to verify.
             - Keep reasoning structured and concise; output should be readable in Markdown.
             """;

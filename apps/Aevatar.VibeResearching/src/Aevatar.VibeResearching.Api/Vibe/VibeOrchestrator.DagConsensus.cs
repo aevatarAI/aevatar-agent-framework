@@ -43,13 +43,36 @@ internal sealed partial class VibeOrchestrator
         // Pass currentDag to validate motivatedByPlanNodeId references against existing milestones.
         // Pass activeMilestoneId as default for knowledge nodes without motivatedByPlanNodeId.
         var candidateText = outputs.TryGetValue("dag_builder", out var x) ? x : string.Empty;
+        
+        // Debug logging
+        _host.Logger.LogInformation("[DagConsensus] dag_builder output length: {Length}, hasValue: {HasValue}", 
+            candidateText.Length, outputs.TryGetValue("dag_builder", out _));
+        if (candidateText.Length > 0)
+        {
+            _host.Logger.LogDebug("[DagConsensus] dag_builder output preview: {Preview}", 
+                candidateText.Length > 500 ? candidateText[..500] + "..." : candidateText);
+        }
+        
         var candidate = TryParseDagBuilderCandidate(session.Id, candidateText, currentDag, activeMilestoneId);
 
         if (candidate == null)
         {
+            _host.Logger.LogWarning("[DagConsensus] Failed to parse dag_builder output. Output length: {Length}", candidateText.Length);
             EmitSection(emit, "### DAG Apply (no verification)\n");
             emit("_No DAG candidate produced._\n\n");
             return new DagRoundResult(false, false, null, null, null, [], null);
+        }
+        
+        _host.Logger.LogInformation("[DagConsensus] Parsed candidate: nodes={NodeCount}, edges={EdgeCount}", 
+            candidate.UpsertNodes.Count, candidate.UpsertEdges.Count);
+        
+        // EMPTY mutation means "no change" (do not stage / do not block).
+        if (candidate.UpsertNodes.Count == 0 && candidate.UpsertEdges.Count == 0)
+        {
+            _host.Logger.LogWarning("[DagConsensus] Parsed candidate is empty (no nodes or edges)");
+            EmitSection(emit, "### DAG Apply (no verification)\n");
+            emit("_No DAG changes proposed._\n\n");
+            return new DagRoundResult(false, false, candidate, null, null, [], null);
         }
 
         // EMPTY mutation means "no change" (do not stage / do not block).

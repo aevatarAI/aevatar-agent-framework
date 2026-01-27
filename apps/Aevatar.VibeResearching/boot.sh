@@ -136,9 +136,27 @@ if [[ "${KILL_BEFORE}" -eq 1 ]]; then
   [[ "${RUN_FRONTEND}" -eq 1 ]] && kill_port "${FRONTEND_PORT}"
 fi
 
+# ============================================================
+#  Neo4j Configuration (required for DAG graph)
+# ============================================================
+export NEO4J_URI="${NEO4J_URI:-bolt://localhost:7687}"
+export NEO4J_USERNAME="${NEO4J_USERNAME:-neo4j}"
+export NEO4J_PASSWORD="${NEO4J_PASSWORD:-subfyz-naqmug-8Gemga}"  # ⚠️ 请替换为你的实际密码
+
+# Java Environment (required for Neo4j)
+# Use ${JAVA_HOME:-} to safely check if variable is unset (works with set -u)
+if [[ -z "${JAVA_HOME:-}" ]]; then
+  JAVA_HOME_CANDIDATE="$(brew --prefix openjdk@21)/libexec/openjdk.jdk/Contents/Home" 2>/dev/null || true
+  if [[ -n "${JAVA_HOME_CANDIDATE:-}" ]] && [[ -d "$JAVA_HOME_CANDIDATE" ]]; then
+    export JAVA_HOME="$JAVA_HOME_CANDIDATE"
+    export PATH="$JAVA_HOME/bin:$PATH"
+  fi
+fi
+
 # Start backend
 if [[ "${RUN_BACKEND}" -eq 1 ]]; then
   echo "Starting backend (ASPNETCORE_URLS=http://localhost:${BACKEND_PORT})"
+  echo "Neo4j: ${NEO4J_URI} (user: ${NEO4J_USERNAME})"
   (
     cd "$BACKEND_DIR"
     ASPNETCORE_URLS="http://localhost:${BACKEND_PORT}" \

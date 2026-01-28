@@ -257,10 +257,14 @@ public sealed partial class DagConsensusRunner
             - Keep text bounded: label <= 200 chars; proof <= 2000 chars; long proof should be summarized.
 
             Validation approach:
-            1. FIRST, perform technical validation:
-            - Check for ID conflicts, cycles, invalid references
-            - Verify nodeCount/edgeCount matches
-            - If technical issues found, set redFlags and proved=false
+            1. FIRST, perform technical validation (BE LENIENT):
+            - Check for ID conflicts and cycles (hard blockers)
+            - Allow edges referencing nodes not in current mutation if they exist in the DAG (external references are OK)
+            - Allow non-standard edge types (e.g., "motivated_by", "derived_from") if they have clear semantic meaning
+            - Accept "Unknown" node type as equivalent to "unknown" (both are valid)
+            - Allow reversed edge directions if they represent valid relationships (e.g., "motivated_by" can go from theorem to definition)
+            - Only set redFlags for CRITICAL issues: actual contradictions, cycles, or malformed data
+            - If only minor issues found (non-standard types, external references), normalize them instead of red-flagging
 
             2. THEN, perform logical validation using proof-based reasoning:
             - proved=true if mutation is internally consistent and stays within provided graph constraints
@@ -269,14 +273,21 @@ public sealed partial class DagConsensusRunner
             - IMPORTANT: If mutation requires additional domain knowledge but is CONSISTENT with the graph, still accept as proved=true
 
             3. Decision logic:
-            - If proved=false OR technical issues: redFlags non-empty, nodes/edges empty
-            - If proved=true AND no technical issues: populate nodes/edges, redFlags empty
+            - If proved=false OR CRITICAL technical issues (cycles, contradictions): redFlags non-empty, nodes/edges empty
+            - If proved=true AND only minor issues: normalize nodes/edges (fix types, standardize edge types), redFlags empty
             - Include gapDescription when proved=false to explain the specific violation
             
+            Normalization rules (apply before validation):
+            - Convert "Unknown" node type to "unknown"
+            - Convert non-standard edge types to "depends_on" if semantically equivalent, or keep if justified (e.g., "motivated_by" is acceptable)
+            - Keep edges referencing external nodes (they may exist in the DAG)
+            - Accept reversed edge directions if they represent valid relationships
+            
             Task:
-            1) Check the candidate mutation against the current DAG stats.
-            2) Normalize node/edge fields and remove obvious duplicates.
-            3) If any parsing/consistency issue exists, red-flag with clear reasons.
+            1) Normalize node/edge fields (apply normalization rules above).
+            2) Check the candidate mutation against the current DAG stats.
+            3) Only red-flag CRITICAL issues: actual contradictions, cycles, or malformed data.
+            4) For minor issues (non-standard types, external references), normalize and accept.
 
             CandidateMutationSummary:
             """ + JsonSerializer.Serialize(candidateSummary, Json) + """
@@ -450,6 +461,16 @@ public sealed partial class DagConsensusRunner
             },
             extractedJson,
             parsed,
+            rejectionReason = parsed?.RejectionReason,
+            validationOutcome = parsed?.ValidationOutcome == null
+                ? null
+                : new
+                {
+                    proved = parsed.ValidationOutcome.Proved,
+                    confidence = parsed.ValidationOutcome.Confidence,
+                    gapDescription = parsed.ValidationOutcome.GapDescription,
+                    acceptedWithCaveats = parsed.ValidationOutcome.AcceptedWithCaveats
+                },
             rawOutput = raw
         };
 
@@ -552,6 +573,16 @@ public sealed partial class DagConsensusRunner
         public List<NodeJson>? Nodes { get; init; }
         public List<EdgeJson>? Edges { get; init; }
         public List<string>? RedFlags { get; init; }
+        public string? RejectionReason { get; init; }
+        public ValidationOutcomeJson? ValidationOutcome { get; init; }
+    }
+
+    private sealed class ValidationOutcomeJson
+    {
+        public bool? Proved { get; init; }
+        public double? Confidence { get; init; }
+        public string? GapDescription { get; init; }
+        public bool? AcceptedWithCaveats { get; init; }
     }
 
     private sealed class NodeJson

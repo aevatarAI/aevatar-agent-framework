@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Shield } from 'lucide-react';
+import { useNavigate, Link } from 'react-router-dom';
+import { Shield, User, Users, Key, LogOut, Settings, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getReviewAgentStatus } from '@/lib/axiom-client';
 import { ReviewAgentDashboard } from './review-agent';
+import { Avatar } from '@/components/ui/avatar';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel } from '@/components/ui/dropdown-menu';
+import { useAuthStore, useIsAdmin } from '@/store/auth-store';
 
 // Lightweight status polling for header indicator
 function useReviewAgentStatusIndicator() {
@@ -36,6 +39,15 @@ const Header: React.FC = () => {
   const navigate = useNavigate();
   const [isReviewAgentOpen, setIsReviewAgentOpen] = useState(false);
   const isReviewAgentWorking = useReviewAgentStatusIndicator();
+  
+  // Auth state
+  const { user, isAuthenticated, logout } = useAuthStore();
+  const isAdmin = useIsAdmin();
+  
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
 
   return (
     <>
@@ -59,8 +71,9 @@ const Header: React.FC = () => {
           </div>
         </button>
 
-        {/* Right side - Review Agent button */}
-        <div className="flex items-center gap-2">
+        {/* Right side - Review Agent button + User Menu */}
+        <div className="flex items-center gap-3">
+          {/* Review Agent Button */}
           <button
             onClick={() => setIsReviewAgentOpen(true)}
             className={cn(
@@ -87,6 +100,88 @@ const Header: React.FC = () => {
               </span>
             )}
           </button>
+
+          {/* User Menu */}
+          {isAuthenticated && user ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-surface-elevated transition-colors">
+                  <Avatar
+                    name={`${user.name} ${user.surname}`}
+                    src={user.avatarUrl}
+                    size="sm"
+                  />
+                  <div className="hidden sm:flex flex-col items-start">
+                    <span className="text-sm font-medium text-text-primary">
+                      {user.name} {user.surname}
+                    </span>
+                    <span className="text-[10px] text-text-muted">
+                      {isAdmin ? 'Administrator' : 'Member'}
+                    </span>
+                  </div>
+                  <ChevronDown className="w-4 h-4 text-text-muted" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                {/* Admin Section */}
+                {isAdmin && (
+                  <>
+                    <DropdownMenuLabel className="text-neon-gold">
+                      Administration
+                    </DropdownMenuLabel>
+                    <DropdownMenuItem
+                      onClick={() => navigate('/admin/users')}
+                      icon={<Users className="w-4 h-4" />}
+                    >
+                      Users
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => navigate('/admin/roles')}
+                      icon={<Shield className="w-4 h-4" />}
+                    >
+                      Roles
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => navigate('/admin/permissions')}
+                      icon={<Key className="w-4 h-4" />}
+                    >
+                      Permissions
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
+
+                {/* Account Section */}
+                <DropdownMenuItem
+                  onClick={() => navigate('/account/profile')}
+                  icon={<User className="w-4 h-4" />}
+                >
+                  My Account
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => navigate('/account/password')}
+                  icon={<Settings className="w-4 h-4" />}
+                >
+                  Settings
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={handleLogout}
+                  destructive
+                  icon={<LogOut className="w-4 h-4" />}
+                >
+                  Sign Out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <Link
+              to="/login"
+              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-neon-cyan text-bg-base text-sm font-semibold hover:bg-neon-sky transition-colors"
+            >
+              Sign In
+            </Link>
+          )}
         </div>
       </header>
 

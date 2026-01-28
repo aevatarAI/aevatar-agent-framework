@@ -6,18 +6,99 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import './index.css'
+
+// Pages
 import LandingPage from './pages/landing'
 import App from './App'
+
+// Auth Pages
+import {
+  LoginPage,
+  RegisterPage,
+  ForgotPasswordPage,
+  ResetPasswordPage,
+  EmailConfirmationPage,
+  AccountLockedPage,
+  OAuthCallbackPage,
+} from './pages/auth'
+
+// Admin Pages
+import { UsersPage, RolesPage, PermissionsPage } from './pages/admin'
+
+// Account Page
+import AccountPage from './pages/account'
+
+// Error Pages
+import AccessDeniedPage from './pages/errors/access-denied'
+
+// Route Guards
+import { ProtectedRoute, AdminRoute } from './components/guards'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
       <Routes>
-        {/* Landing Page - Default Route */}
+        {/* Public Routes */}
         <Route path="/" element={<LandingPage />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/email-confirmation" element={<EmailConfirmationPage />} />
+        <Route path="/account-locked" element={<AccountLockedPage />} />
         
-        {/* Research App - Main Application */}
-        <Route path="/app" element={<App />} />
+        {/* OAuth Callback Routes */}
+        <Route path="/auth/callback/github" element={<OAuthCallbackPage />} />
+        <Route path="/auth/callback/google" element={<OAuthCallbackPage />} />
+        
+        {/* Protected Routes */}
+        <Route
+          path="/app"
+          element={
+            <ProtectedRoute>
+              <App />
+            </ProtectedRoute>
+          }
+        />
+        
+        {/* Admin Routes */}
+        <Route
+          path="/admin/users"
+          element={
+            <AdminRoute>
+              <UsersPage />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/admin/roles"
+          element={
+            <AdminRoute>
+              <RolesPage />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/admin/permissions"
+          element={
+            <AdminRoute>
+              <PermissionsPage />
+            </AdminRoute>
+          }
+        />
+        
+        {/* Account Routes */}
+        <Route
+          path="/account/*"
+          element={
+            <ProtectedRoute>
+              <AccountPage />
+            </ProtectedRoute>
+          }
+        />
+        
+        {/* Error Routes */}
+        <Route path="/403" element={<AccessDeniedPage />} />
       </Routes>
     </BrowserRouter>
   </StrictMode>,

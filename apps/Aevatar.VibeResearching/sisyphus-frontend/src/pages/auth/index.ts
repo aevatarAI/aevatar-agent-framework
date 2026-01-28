@@ -1,0 +1,7 @@
+export { default as LoginPage } from "./login"
+export { default as RegisterPage } from "./register"
+export { default as ForgotPasswordPage } from "./forgot-password"
+export { default as ResetPasswordPage } from "./reset-password"
+export { default as EmailConfirmationPage } from "./email-confirmation"
+export { default as AccountLockedPage } from "./account-locked"
+export { default as OAuthCallbackPage } from "./oauth-callback"

@@ -1,0 +1,8 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background Circle -->
+  <circle cx="32" cy="32" r="32" fill="#0a0f14"/>
+  <!-- Outer Ring -->
+  <circle cx="32" cy="32" r="22" stroke="#22d3ee" stroke-width="3" fill="none"/>
+  <!-- Inner Circle -->
+  <circle cx="32" cy="32" r="11" fill="#22d3ee"/>
+</svg>

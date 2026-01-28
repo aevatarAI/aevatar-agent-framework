@@ -252,11 +252,27 @@ public sealed partial class DagConsensusRunner
 
             Requirements:
             - Output STRICT JSON ONLY (no markdown, no code fences).
-            - If the candidate is invalid/unsafe/incoherent, set non-empty redFlags and keep nodes/edges empty.
             - Do not invent node ids that are not necessary; prefer reusing existing ids when possible.
             - Edge semantics: dependency -> dependent (from -> to). Use type "depends_on" unless a better typed edge is justified.
             - Keep text bounded: label <= 200 chars; proof <= 2000 chars; long proof should be summarized.
 
+            Validation approach:
+            1. FIRST, perform technical validation:
+            - Check for ID conflicts, cycles, invalid references
+            - Verify nodeCount/edgeCount matches
+            - If technical issues found, set redFlags and proved=false
+
+            2. THEN, perform logical validation using proof-based reasoning:
+            - proved=true if mutation is internally consistent and stays within provided graph constraints
+            - Allow standard inference steps (transitivity, inheritance) without new assumptions
+            - Mark proved=false ONLY when you can point to concrete contradiction or physical implausibility
+            - IMPORTANT: If mutation requires additional domain knowledge but is CONSISTENT with the graph, still accept as proved=true
+
+            3. Decision logic:
+            - If proved=false OR technical issues: redFlags non-empty, nodes/edges empty
+            - If proved=true AND no technical issues: populate nodes/edges, redFlags empty
+            - Include gapDescription when proved=false to explain the specific violation
+            
             Task:
             1) Check the candidate mutation against the current DAG stats.
             2) Normalize node/edge fields and remove obvious duplicates.
@@ -274,7 +290,14 @@ public sealed partial class DagConsensusRunner
               "author": "string",
               "nodes": [{"id":"string","type":"axiom|theorem|assumption|hypothesis|unknown","label":"string","proof":"string","tags":{"k":"v"}}],
               "edges": [{"from":"string","to":"string","type":"depends_on"}],
-              "redFlags": ["string"]
+              "redFlags": ["string"],
+              "rejectionReason": "string",
+              "validationOutcome": {
+                "proved": boolean,
+                "confidence": 0~1,
+                "gapDescription": "string",
+                "acceptedWithCaveats": boolean
+              }
             }
             """;
     }

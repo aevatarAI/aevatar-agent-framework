@@ -69,6 +69,7 @@ internal interface IKnowledgeGraphStore
     Task AddEdgeAsync(KnowledgeEdge edge, string sessionId, CancellationToken cancellationToken);
     Task<IReadOnlyList<KnowledgeEdge>> GetAllEdgesAsync(string sessionId, CancellationToken cancellationToken);
     Task<IReadOnlyList<string>> GetDependenciesAsync(string sessionId, string nodeId, CancellationToken cancellationToken);
+    Task<IReadOnlyList<string>> GetDependenciesGlobalAsync(string nodeId, CancellationToken cancellationToken);
     Task RemoveEdgesForNodeAsync(string sessionId, string nodeId, CancellationToken cancellationToken);
 
     // ========== Cross-Session Operations ==========

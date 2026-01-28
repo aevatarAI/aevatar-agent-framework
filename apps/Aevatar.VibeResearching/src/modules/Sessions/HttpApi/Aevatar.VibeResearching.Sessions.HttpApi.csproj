@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Aevatar.VibeResearching.Sessions</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Volo.Abp.AspNetCore.Mvc" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Application.Contracts/Aevatar.VibeResearching.Sessions.Application.Contracts.csproj" />
+    <ProjectReference Include="../../../../../../src/Aevatar.Agents.AGUI/Aevatar.Agents.AGUI.csproj" />
+    <ProjectReference Include="..\MongoDB\Aevatar.VibeResearching.Sessions.MongoDB.csproj" />
+    <ProjectReference Include="..\Domain\Aevatar.VibeResearching.Sessions.Domain.csproj" />
+    <ProjectReference Include="..\..\Infrastructure\Domain\Aevatar.VibeResearching.Infrastructure.Domain.csproj" />
+    <ProjectReference Include="..\..\Knowledge\Domain\Aevatar.VibeResearching.Knowledge.Domain.csproj" />
+    <ProjectReference Include="..\..\Agents\Domain\Aevatar.VibeResearching.Agents.Domain.csproj" />
+  </ItemGroup>
+</Project>

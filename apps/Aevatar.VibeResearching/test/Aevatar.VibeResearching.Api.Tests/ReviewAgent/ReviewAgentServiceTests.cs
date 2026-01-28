@@ -3,8 +3,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 using Shouldly;
-using VibeResearching.Vibe.ReviewAgent;
-using VibeResearching.Vibe.Tools;
+using Aevatar.VibeResearching.Agents.ReviewAgent;
+using Aevatar.VibeResearching.Agents.Tools;
 
 namespace VibeResearching.Api.Tests.ReviewAgent;
 

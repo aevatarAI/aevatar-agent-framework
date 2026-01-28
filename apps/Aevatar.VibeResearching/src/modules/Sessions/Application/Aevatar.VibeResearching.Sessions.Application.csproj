@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Aevatar.VibeResearching.Sessions</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Volo.Abp.Ddd.Application" />
+    <PackageReference Include="Volo.Abp.AutoMapper" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Aevatar.VibeResearching.Sessions.Domain.csproj" />
+    <ProjectReference Include="../Application.Contracts/Aevatar.VibeResearching.Sessions.Application.Contracts.csproj" />
+    <ProjectReference Include="../MongoDB/Aevatar.VibeResearching.Sessions.MongoDB.csproj" />
+    <ProjectReference Include="../../Agents/Domain/Aevatar.VibeResearching.Agents.Domain.csproj" />
+    <ProjectReference Include="../../Infrastructure/Domain/Aevatar.VibeResearching.Infrastructure.Domain.csproj" />
+    <ProjectReference Include="../../../../../../src/Aevatar.Agents.AI/Aevatar.Agents.AI.csproj" />
+    <ProjectReference Include="../../../../../../src/Aevatar.Agents.AI.Abstractions/Aevatar.Agents.AI.Abstractions.csproj" />
+    <ProjectReference Include="../../../../../../src/Aevatar.Agents.AGUI/Aevatar.Agents.AGUI.csproj" />
+    <ProjectReference Include="../../../../../../src/Aevatar.Agents.Cognitive.Streaming/Aevatar.Agents.Cognitive.Streaming.csproj" />
+    <ProjectReference Include="../../../../../../src/Aevatar.Agents.Abstractions/Aevatar.Agents.Abstractions.csproj" />
+    <ProjectReference Include="../../../../../../src/Aevatar.Agents.Core/Aevatar.Agents.Core.csproj" />
+  </ItemGroup>
+</Project>

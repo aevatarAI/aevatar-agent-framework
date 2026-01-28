@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using NSubstitute;
-using VibeResearching.Vibe.Pivot;
+using Aevatar.VibeResearching.Agents.Pivot;
 using Shouldly;
 
 namespace VibeResearching.Api.Tests.Vibe.Pivot;
@@ -159,6 +159,6 @@ public sealed class PivotMetricsTests : IDisposable
     public void MeterName_IsCorrect()
     {
         // Assert
-        PivotMetrics.MeterName.ShouldBe("VibeResearching.Pivot");
+        PivotMetrics.MeterName.ShouldBe("Aevatar.VibeResearching.Agents.Pivot");
     }
 }

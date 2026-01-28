@@ -1,5 +1,5 @@
 using Aevatar.Agents.Core.Runtime;
-using VibeResearching.Api.Sessions;
+using Aevatar.VibeResearching.Sessions.Services;
 using Shouldly;
 
 namespace VibeResearching.Tests;

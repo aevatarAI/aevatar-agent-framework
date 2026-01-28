@@ -51,7 +51,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BACKEND_DIR="$SCRIPT_DIR/src/Aevatar.VibeResearching.Api"
+BACKEND_DIR="$SCRIPT_DIR/src/host/HttpApi.Host"
 FRONTEND_DIR="$SCRIPT_DIR/sisyphus-frontend"
 
 kill_port() {

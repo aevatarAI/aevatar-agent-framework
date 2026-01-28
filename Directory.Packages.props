@@ -35,6 +35,7 @@
     <!-- ASP.NET Core - .NET 10 -->
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.0" />
     <PackageVersion Include="Microsoft.AspNetCore.StaticFiles" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.AspNetCore.Http.Features" Version="5.0.17" />
     <!-- Orleans - Latest stable -->
     <PackageVersion Include="Microsoft.Orleans.Client" Version="9.2.1" />
     <PackageVersion Include="Microsoft.Orleans.Core" Version="9.2.1" />
@@ -102,7 +103,11 @@
     <PackageVersion Include="log4net" Version="2.0.17" />
     <!-- ABP Framework - Using version 10.0.1 -->
     <PackageVersion Include="Volo.Abp.Core" Version="10.0.1" />
+    <PackageVersion Include="Volo.Abp.Ddd.Domain.Shared" Version="10.0.1" />
     <PackageVersion Include="Volo.Abp.Ddd.Domain" Version="10.0.1" />
+    <PackageVersion Include="Volo.Abp.Ddd.Application.Contracts" Version="10.0.1" />
+    <PackageVersion Include="Volo.Abp.Ddd.Application" Version="10.0.1" />
+    <PackageVersion Include="Volo.Abp.MongoDB" Version="10.0.1" />
     <PackageVersion Include="Volo.Abp.AutoMapper" Version="10.0.1" />
     <PackageVersion Include="Volo.Abp.Autofac" Version="10.0.1" />
     <PackageVersion Include="Volo.Abp.Data" Version="10.0.1" />
@@ -143,6 +148,8 @@
     <PackageVersion Include="Volo.Abp.AuditLogging.Domain.Shared" Version="10.0.1" />
     <PackageVersion Include="Volo.Abp.AuditLogging.MongoDB" Version="10.0.1" />
     <PackageVersion Include="Volo.Abp.Authorization" Version="10.0.1" />
+    <PackageVersion Include="Volo.Abp.Authorization.Abstractions" Version="10.0.1" />
+    <PackageVersion Include="Volo.Abp.Validation" Version="10.0.1" />
     <PackageVersion Include="Volo.Abp.BackgroundJobs.Abstractions" Version="10.0.1" />
     <PackageVersion Include="Volo.Abp.BackgroundJobs.Domain" Version="10.0.1" />
     <PackageVersion Include="Volo.Abp.BackgroundJobs.Domain.Shared" Version="10.0.1" />

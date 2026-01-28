@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Aevatar.VibeResearching.Knowledge</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Volo.Abp.AspNetCore.Mvc" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Application.Contracts/Aevatar.VibeResearching.Knowledge.Application.Contracts.csproj" />
+    <ProjectReference Include="../Domain/Aevatar.VibeResearching.Knowledge.Domain.csproj" />
+    <ProjectReference Include="../../../../../../src/Aevatar.Agents.Knowledge.Graph/Aevatar.Agents.Knowledge.Graph.csproj" />
+    <ProjectReference Include="../../Agents/Domain/Aevatar.VibeResearching.Agents.Domain.csproj" />
+  </ItemGroup>
+</Project>

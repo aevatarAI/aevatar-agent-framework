@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Aevatar.VibeResearching.Knowledge.Neo4j</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Volo.Abp.MongoDB" />
+    <PackageReference Include="Neo4j.Driver" />
+    <PackageReference Include="Microsoft.AspNetCore.Http.Features" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" />
+    <PackageReference Include="Microsoft.Extensions.Logging" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+    <PackageReference Include="Google.Protobuf" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Aevatar.VibeResearching.Knowledge.Domain.csproj" />
+    <ProjectReference Include="../../Infrastructure/Domain/Aevatar.VibeResearching.Infrastructure.Domain.csproj" />
+    <ProjectReference Include="../../Agents/Domain/Aevatar.VibeResearching.Agents.Domain.csproj" />
+    <ProjectReference Include="../../Agents/Domain.Shared/Aevatar.VibeResearching.Agents.Domain.Shared.csproj" />
+    <ProjectReference Include="../../../../../../src/Aevatar.Agents.Cognitive.Core/Aevatar.Agents.Cognitive.Core.csproj" />
+    <ProjectReference Include="../../../../../../src/Aevatar.Agents.AI/Aevatar.Agents.AI.csproj" />
+  </ItemGroup>
+</Project>

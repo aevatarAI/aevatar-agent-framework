@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Aevatar.VibeResearching.Infrastructure</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Volo.Abp.Ddd.Domain" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain.Shared/Aevatar.VibeResearching.Infrastructure.Domain.Shared.csproj" />
+    <ProjectReference Include="../../Agents/Domain.Shared/Aevatar.VibeResearching.Agents.Domain.Shared.csproj" />
+    <ProjectReference Include="../../Sessions/Domain.Shared/Aevatar.VibeResearching.Sessions.Domain.Shared.csproj" />
+  </ItemGroup>
+</Project>

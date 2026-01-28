@@ -1,6 +1,6 @@
 using Aevatar.Agents.AI.Core.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
-using VibeResearching.Api.Vibe.Mesh;
+using Aevatar.VibeResearching.Agents.Mesh.Services;
 using Shouldly;
 
 namespace VibeResearching.Tests;

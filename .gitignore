@@ -513,6 +513,7 @@ scripts/.pids/
 
 # Scientific Research Assistant runtime workspace (safe: anchored)
 /apps/Aevatar.VibeResearching/workspace/
+/apps/Aevatar.VibeResearching/src/workspace/
 /apps/Aevatar.VibeResearching/trace/
 /apps/Aevatar.VibeResearching/traces/
 /apps/Aevatar.VibeResearching/memory/

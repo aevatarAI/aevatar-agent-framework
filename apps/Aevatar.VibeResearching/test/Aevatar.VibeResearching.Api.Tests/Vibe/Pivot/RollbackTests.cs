@@ -3,9 +3,9 @@ using Aevatar.Agents.Knowledge.Graph.Models;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using NSubstitute;
-using VibeResearching.Vibe.Pivot;
-using VibeResearching.Vibe.Pivot.Messages;
-using VibeResearching.Vibe.Pivot.Models;
+using Aevatar.VibeResearching.Agents.Pivot;
+using Aevatar.VibeResearching.Agents.Pivot.Messages;
+using Aevatar.VibeResearching.Agents.Pivot.Models;
 using Shouldly;
 
 namespace VibeResearching.Api.Tests.Vibe.Pivot;

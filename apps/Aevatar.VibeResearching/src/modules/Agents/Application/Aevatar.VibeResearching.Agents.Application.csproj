@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Aevatar.VibeResearching.Agents</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Volo.Abp.Ddd.Application" />
+    <PackageReference Include="Volo.Abp.AutoMapper" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Aevatar.VibeResearching.Agents.Domain.csproj" />
+    <ProjectReference Include="../Application.Contracts/Aevatar.VibeResearching.Agents.Application.Contracts.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
-using VibeResearching.Vibe.ReviewAgent;
-using Aevatar.VibeResearching.Api.ReviewAgent.Events;
+using Aevatar.VibeResearching.Agents.MongoDB.ReviewAgent;
+using Aevatar.VibeResearching.Agents.ReviewAgent;
 
 namespace VibeResearching.Api.Tests.ReviewAgent;
 
@@ -154,6 +154,7 @@ public sealed class ReviewAgentEventPublisherTests
         await _publisher.PublishNodeProgressAsync(
             "node-123",
             "Test Node",
+            null,
             5, 10, 2,
             ReviewResult.Passed);
 

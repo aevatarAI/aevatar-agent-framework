@@ -408,6 +408,19 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
         };
     }
 
+    private async Task<GraphSnapshot> GetGlobalGraphSnapshotAsync(CancellationToken cancellationToken)
+    {
+        var knowledgeNodes = await _store.GetAllKnowledgeNodesGlobalAsync(cancellationToken);
+        var globalEdges = await _store.GetAllEdgesGlobalAsync(cancellationToken);
+
+        return new GraphSnapshot
+        {
+            SessionId = "global",
+            KnowledgeNodes = knowledgeNodes.OrderBy(n => n.NodeType).ThenBy(n => n.Id).ToList(),
+            Edges = globalEdges.Select(e => e.Edge).OrderBy(e => e.FromId).ThenBy(e => e.ToId).ToList()
+        };
+    }
+
     [Obsolete("Use GetGraphSnapshotAsync instead. This method will be removed in a future version.")]
     public async Task<KnowledgeSnapshot> GetKnowledgeSnapshotAsync(CancellationToken cancellationToken = default)
     {
@@ -423,8 +436,9 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
 
     private async Task<KnowledgeChain> GetKnowledgeChainAsync(string nodeId, CancellationToken cancellationToken = default)
     {
-        var targetNode = await _store.GetKnowledgeNodeAsync(SessionId, nodeId, cancellationToken);
-        if (targetNode == null)
+        // Knowledge nodes may belong to any session — use cross-session lookup
+        var targetGraphNode = await _store.GetNodeAsync(SessionId, nodeId, cancellationToken);
+        if (targetGraphNode is not KnowledgeNode targetNode)
         {
             throw new NodeNotFoundException(nodeId);
         }
@@ -443,11 +457,12 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
             {
                 if (!visited.Add(id)) continue;
 
-                var node = await _store.GetKnowledgeNodeAsync(SessionId, id, cancellationToken);
-                if (node != null)
+                // Cross-session lookup for knowledge nodes
+                var graphNode = await _store.GetNodeAsync(SessionId, id, cancellationToken);
+                if (graphNode is KnowledgeNode kn)
                 {
-                    levelNodes.Add(node);
-                    chain.Add(node);
+                    levelNodes.Add(kn);
+                    chain.Add(kn);
                 }
             }
 
@@ -460,11 +475,11 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
                 });
             }
 
-            // Get next level (dependencies of current level)
+            // Get next level (dependencies of current level) — global to follow cross-session edges
             var nextLevel = new List<string>();
             foreach (var id in currentLevel)
             {
-                var deps = await _store.GetDependenciesAsync(SessionId, id, cancellationToken);
+                var deps = await _store.GetDependenciesGlobalAsync(id, cancellationToken);
                 foreach (var dep in deps)
                 {
                     if (!visited.Contains(dep))
@@ -1267,7 +1282,10 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
             throw new NodeNotFoundException(nodeId);
         }
 
-        var snapshot = await GetKnowledgeSnapshotAsync(cancellationToken);
+        // Knowledge nodes are global — use global snapshot so cross-session derivation chains resolve
+        var snapshot = node is KnowledgeNode
+            ? await GetGlobalGraphSnapshotAsync(cancellationToken)
+            : await GetGraphSnapshotAsync(cancellationToken);
         var explanationService = new NodeExplanationService();
 
         return node switch
@@ -1368,7 +1386,8 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
 
     public async Task<DagSummary> GenerateFullDagSummaryAsync(CancellationToken cancellationToken = default)
     {
-        var snapshot = await GetKnowledgeSnapshotAsync(cancellationToken);
+        // DAG summary needs all knowledge nodes across sessions
+        var snapshot = await GetGlobalGraphSnapshotAsync(cancellationToken);
 
         var summaryService = new SummaryGenerationService();
         return await summaryService.GenerateFullDagSummaryAsync(snapshot, cancellationToken);

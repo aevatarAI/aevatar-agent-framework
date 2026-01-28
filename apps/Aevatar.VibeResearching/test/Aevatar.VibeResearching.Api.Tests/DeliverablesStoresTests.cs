@@ -1,22 +1,22 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
-using VibeResearching.Api.Vibe.Brief;
-using VibeResearching.Api.Vibe.Delivery;
-using VibeResearching.Api.Workspace;
-using VibeResearching.Contracts.Collab;
+using Aevatar.VibeResearching.Infrastructure;
+using Aevatar.VibeResearching.Infrastructure.MongoDB.Workspace;
+using Aevatar.VibeResearching.Infrastructure.MongoDB.Delivery;
+using Aevatar.VibeResearching.Agents.Contracts.Collab;
 
 namespace VibeResearching.Api.Tests;
 
 public sealed class DeliverablesStoresTests
 {
     [Fact]
-    public async Task BriefStore_SaveAndLoad_WritesBriefJson_AndBoundsFields()
+    public async Task BriefRepository_SaveAndLoad_WritesBriefJson_AndBoundsFields()
     {
         using var env = TestEnv.Create();
 
         var workspace = new WorkspaceService(env.Host, NullLogger<WorkspaceService>.Instance);
-        var brief = new BriefStore(workspace, NullLogger<BriefStore>.Instance);
+        var brief = new BriefRepository(workspace, NullLogger<BriefRepository>.Instance);
 
         var sessionId = "briefsession1";
         var ws = workspace.EnsureSessionWorkspace(sessionId);
@@ -53,12 +53,12 @@ public sealed class DeliverablesStoresTests
     }
 
     [Fact]
-    public async Task DeliveryCenterStore_SaveAndLoad_WritesAllFiles_AndUiSnapshot()
+    public async Task DeliveryCenterRepository_SaveAndLoad_WritesAllFiles_AndUiSnapshot()
     {
         using var env = TestEnv.Create();
 
         var workspace = new WorkspaceService(env.Host, NullLogger<WorkspaceService>.Instance);
-        var store = new DeliveryCenterStore(workspace, NullLogger<DeliveryCenterStore>.Instance);
+        var store = new DeliveryCenterRepository(workspace, NullLogger<DeliveryCenterRepository>.Instance);
 
         var sessionId = "deliverysession1";
         var ws = workspace.EnsureSessionWorkspace(sessionId);

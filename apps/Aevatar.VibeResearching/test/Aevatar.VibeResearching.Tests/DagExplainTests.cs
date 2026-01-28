@@ -1,5 +1,5 @@
-using VibeResearching.Api.Vibe.Dag;
-using VibeResearching.Contracts.Collab;
+using Aevatar.VibeResearching.Knowledge.Neo4j.Services;
+using Aevatar.VibeResearching.Agents.Contracts.Collab;
 using Shouldly;
 
 namespace VibeResearching.Tests;
@@ -14,7 +14,7 @@ public sealed class DagExplainTests
         snap.Nodes.Add(new SraDagNode { Id = "B", Type = SraDagNodeType.Theorem, Label = "B" });
         snap.Edges.Add(new SraDagEdge { FromId = "A", ToId = "B", Type = "depends_on" });
 
-        var ex = DagExplain.Explain(snap, "B");
+        var ex = DagExplainService.Explain(snap, "B");
 
         ex.HasCycle.ShouldBeFalse();
         ex.Provable.ShouldBeTrue();
@@ -31,7 +31,7 @@ public sealed class DagExplainTests
         snap.Nodes.Add(new SraDagNode { Id = "T1", Type = SraDagNodeType.Theorem, Label = "Theorem" });
         snap.Edges.Add(new SraDagEdge { FromId = "H1", ToId = "T1", Type = "depends_on" });
 
-        var ex = DagExplain.Explain(snap, "T1");
+        var ex = DagExplainService.Explain(snap, "T1");
 
         ex.HasCycle.ShouldBeFalse();
         ex.Provable.ShouldBeFalse();
@@ -47,7 +47,7 @@ public sealed class DagExplainTests
         snap.Edges.Add(new SraDagEdge { FromId = "A", ToId = "B", Type = "depends_on" });
         snap.Edges.Add(new SraDagEdge { FromId = "B", ToId = "A", Type = "depends_on" });
 
-        var ex = DagExplain.Explain(snap, "B");
+        var ex = DagExplainService.Explain(snap, "B");
         ex.HasCycle.ShouldBeTrue();
         ex.Provable.ShouldBeFalse();
     }

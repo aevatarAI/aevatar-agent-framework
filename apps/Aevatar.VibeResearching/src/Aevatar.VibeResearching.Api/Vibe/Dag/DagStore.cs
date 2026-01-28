@@ -144,7 +144,19 @@ public sealed class DagStore
 
                 var label = (n.Label ?? string.Empty).Trim();
                 var proof = (n.Proof ?? string.Empty).Trim();
-                var baseDetail = string.IsNullOrWhiteSpace(label) ? proof : label;
+                // Build detailedDescription: combine label and proof for complete content
+                var sb = new StringBuilder();
+                if (!string.IsNullOrWhiteSpace(label))
+                {
+                    sb.AppendLine(label);
+                }
+                if (!string.IsNullOrWhiteSpace(proof))
+                {
+                    if (sb.Length > 0) sb.AppendLine(); // Add separator if label exists
+                    sb.AppendLine(proof);
+                }
+                // If both label and proof are empty, use id as fallback
+                var baseDetail = sb.Length > 0 ? sb.ToString().Trim() : id;
                 var detail = AppendTags(baseDetail, n.Tags);
 
                 try
@@ -188,8 +200,8 @@ public sealed class DagStore
                             nodeId: id,
                             nodeType: MapDagNodeType(n.Type),
                             owner: string.IsNullOrWhiteSpace(n.Owner) ? localOwner : n.Owner.Trim(),
-                            coreDescription: label,
-                            detailedDescription: detail,
+                            coreDescription: string.IsNullOrWhiteSpace(label) ? id : label,
+                            detailedDescription: string.IsNullOrWhiteSpace(detail) ? id : detail,
                             proof: string.IsNullOrWhiteSpace(proof) ? null : proof,
                             resourceFolderPath: null,
                             cancellationToken: ct);
@@ -236,12 +248,13 @@ public sealed class DagStore
                     }
                     else
                     {
+                        // Create placeholder node with descriptive text
                         await client.UpsertNodeAsync(
                             nodeId: id,
                             nodeType: KnowledgeNodeType.Generic,
                             owner: localOwner,
-                            coreDescription: id,
-                            detailedDescription: id,
+                            coreDescription: $"Placeholder: {id}",
+                            detailedDescription: $"This is a placeholder node referenced by edges but not yet defined. Node ID: {id}",
                             proof: null,
                             resourceFolderPath: null,
                             cancellationToken: ct);

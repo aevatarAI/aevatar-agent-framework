@@ -229,6 +229,47 @@ public sealed partial class DagConsensusRunner
     private static string BuildTaskPrompt(ConsensusInput input)
     {
         // Keep prompt compact; maker already decomposes internally.
+        
+        // Extract all node IDs referenced by edges (from and to)
+        var referencedNodeIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var e in input.Candidate.UpsertEdges)
+        {
+            if (!string.IsNullOrWhiteSpace(e.FromId))
+                referencedNodeIds.Add(e.FromId.Trim());
+            if (!string.IsNullOrWhiteSpace(e.ToId))
+                referencedNodeIds.Add(e.ToId.Trim());
+        }
+        
+        // Find all plan_ nodes that are referenced but not in candidate nodes
+        var candidateNodeIds = new HashSet<string>(
+            input.Candidate.UpsertNodes.Select(n => n.Id),
+            StringComparer.OrdinalIgnoreCase);
+        
+        var referencedPlanNodes = new List<object>();
+        foreach (var nodeId in referencedNodeIds)
+        {
+            // Check if it's a plan_ node and not in candidate nodes
+            if (nodeId.StartsWith("plan_", StringComparison.OrdinalIgnoreCase) &&
+                !candidateNodeIds.Contains(nodeId))
+            {
+                // Find the node in Current snapshot
+                var existingNode = input.Current.Nodes.FirstOrDefault(n => 
+                    string.Equals(n.Id, nodeId, StringComparison.OrdinalIgnoreCase));
+                
+                if (existingNode != null)
+                {
+                    referencedPlanNodes.Add(new
+                    {
+                        id = existingNode.Id,
+                        type = existingNode.Type.ToString(),
+                        kind = existingNode.Kind.ToString(),
+                        label = existingNode.Label,
+                        proof = existingNode.Proof
+                    });
+                }
+            }
+        }
+        
         var candidateSummary = new
         {
             mutationId = input.Candidate.MutationId,
@@ -236,7 +277,8 @@ public sealed partial class DagConsensusRunner
             nodeCount = input.Candidate.UpsertNodes.Count,
             edgeCount = input.Candidate.UpsertEdges.Count,
             nodes = input.Candidate.UpsertNodes.Select(n => new { id = n.Id, type = n.Type.ToString(), label = n.Label }).Take(30).ToList(),
-            edges = input.Candidate.UpsertEdges.Select(e => new { from = e.FromId, to = e.ToId, type = e.Type }).Take(60).ToList()
+            edges = input.Candidate.UpsertEdges.Select(e => new { from = e.FromId, to = e.ToId, type = e.Type }).Take(60).ToList(),
+            referencedPlanNodes = referencedPlanNodes  // Include referenced plan nodes that exist in DAG
         };
 
         var currentStats = new
@@ -262,9 +304,14 @@ public sealed partial class DagConsensusRunner
             - Allow edges referencing nodes not in current mutation if they exist in the DAG (external references are OK)
             - Allow non-standard edge types (e.g., "motivated_by", "derived_from") if they have clear semantic meaning
             - Accept "Unknown" node type as equivalent to "unknown" (both are valid)
-            - Allow reversed edge directions if they represent valid relationships (e.g., "motivated_by" can go from theorem to definition)
+            - Edge direction semantics depend on edge type:
+              * For "depends_on": typically definition -> theorem (definition established before theorem)
+              * For "motivated_by": can be theorem -> definition (theorem motivates the definition)
+              * For "derived_from": can be theorem -> definition (theorem derived from definition)
+              * For other semantic types: direction should match the semantic meaning
+            - DO NOT red-flag reversed edge directions unless there is an actual logical contradiction
             - Only set redFlags for CRITICAL issues: actual contradictions, cycles, or malformed data
-            - If only minor issues found (non-standard types, external references), normalize them instead of red-flagging
+            - If only minor issues found (non-standard types, external references, reversed directions with valid semantics), normalize them instead of red-flagging
 
             2. THEN, perform logical validation using proof-based reasoning:
             - proved=true if mutation is internally consistent and stays within provided graph constraints
@@ -281,13 +328,24 @@ public sealed partial class DagConsensusRunner
             - Convert "Unknown" node type to "unknown"
             - Convert non-standard edge types to "depends_on" if semantically equivalent, or keep if justified (e.g., "motivated_by" is acceptable)
             - Keep edges referencing external nodes (they may exist in the DAG)
-            - Accept reversed edge directions if they represent valid relationships
+            - Edge direction normalization:
+              * If edge type is "depends_on" and direction is theorem -> definition, consider reversing ONLY if it's clearly wrong
+              * If edge type is "motivated_by", "derived_from", or other semantic types, accept any direction that matches the semantic meaning
+              * DO NOT automatically reverse edges - only normalize if there's a clear semantic mismatch
+            - Accept reversed edge directions if they represent valid relationships (e.g., "motivated_by" can go from theorem to definition)
+            
+            IMPORTANT - Referenced Plan Nodes:
+            - The candidate mutation may reference plan_ nodes (research milestones) that are not included in the candidate's nodes array.
+            - These plan_ nodes are listed in "referencedPlanNodes" below - they EXIST in the current DAG and can be safely referenced.
+            - DO NOT red-flag edges that reference these plan_ nodes - they are valid external references.
+            - When outputting the mutation, you may include these plan_ nodes in your output's nodes array if needed, or leave them out (they already exist in the DAG).
             
             Task:
             1) Normalize node/edge fields (apply normalization rules above).
             2) Check the candidate mutation against the current DAG stats.
             3) Only red-flag CRITICAL issues: actual contradictions, cycles, or malformed data.
             4) For minor issues (non-standard types, external references), normalize and accept.
+            5) Remember: edges referencing plan_ nodes listed in "referencedPlanNodes" are VALID and should NOT be red-flagged.
 
             CandidateMutationSummary:
             """ + JsonSerializer.Serialize(candidateSummary, Json) + """

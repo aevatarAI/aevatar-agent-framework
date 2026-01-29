@@ -308,11 +308,17 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
     /// </summary>
     private ChatOptions BuildChatOptions(AevatarLLMRequest request)
     {
+        var temperature = request.Settings?.Temperature ?? _config.Temperature;
+        
         var options = new ChatOptions
         {
             MaxOutputTokens = request.Settings?.MaxTokens ?? _config.MaxTokens,
-            ModelId = _config.Model
+            ModelId = _config.Model,
+            Temperature = temperature > 0 ? (float)temperature : null
         };
+
+        _logger.LogDebug("[MEAI] BuildChatOptions: MaxOutputTokens={MaxTokens}, Temperature={Temp}, Model={Model}",
+            options.MaxOutputTokens, options.Temperature, options.ModelId);
 
         if (request.Functions is { Count: > 0 })
         {
@@ -637,8 +643,16 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
         var messages = BuildChatMessages(request);
         var options = BuildChatOptions(request);
 
+        _logger.LogDebug("[MEAI-STREAM] Built messages ({Count}) and options, calling GetStreamingResponseAsync...", messages.Count);
+        _logger.LogDebug("[MEAI-STREAM] Starting GetStreamingResponseAsync iteration...");
+        var updateIndex = 0;
+
+        _logger.LogDebug("[MEAI-STREAM] About to enter await foreach loop (this log confirms we're at the enumeration point)");
         await foreach (var chatUpdate in _chatClient.GetStreamingResponseAsync(messages, options, cancellationToken))
         {
+            updateIndex++;
+            _logger.LogDebug("[MEAI-STREAM] Received update #{Index}, Type={Type}",
+                updateIndex, chatUpdate?.GetType().Name ?? "null");
             // ------------------------------------------------------------
             //  Streaming + tools (IMPORTANT)
             //
@@ -653,6 +667,7 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
             var functionCall = TryExtractStreamingFunctionCall(chatUpdate);
             if (functionCall != null)
             {
+                _logger.LogDebug("[MEAI-STREAM] Function call detected: {Name}", functionCall.Name);
                 yield return new AevatarLLMToken
                 {
                     AevatarFunctionCall = functionCall,
@@ -664,6 +679,7 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
             }
 
             var chunk = ExtractStreamingText(chatUpdate);
+            _logger.LogDebug("[MEAI-STREAM] ExtractStreamingText -> '{ChunkLen}' chars", chunk?.Length ?? 0);
             if (string.IsNullOrEmpty(chunk))
             {
                 continue;
@@ -693,6 +709,9 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
                 IsComplete = false
             };
         }
+
+        _logger.LogDebug("[MEAI-STREAM] Loop finished, received {Total} updates, yielded {Chunks} chunks",
+            updateIndex, chunkIndex);
 
         sw.Stop();
         LLMTelemetry.CompleteStreaming(activity, chunkIndex, totalTokens, sw.ElapsedMilliseconds);

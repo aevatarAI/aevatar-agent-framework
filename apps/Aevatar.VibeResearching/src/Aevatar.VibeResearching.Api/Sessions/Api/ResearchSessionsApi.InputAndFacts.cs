@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using VibeResearching.Api;
 using VibeResearching.Api.Facts;
 using VibeResearching.Api.Materials;
+using VibeResearching.Api.Vibe;
 using VibeResearching.Api.Workspace;
 using VibeResearching.Contracts.Collab;
 
@@ -38,6 +39,19 @@ internal static partial class ResearchSessionsApi
 
                 if (!string.IsNullOrWhiteSpace(interruptedRunId))
                 {
+                    // Record interruption context for the new run to process
+                    session.RecordInterruption(new InterruptionContext
+                    {
+                        InterruptedRunId = interruptedRunId,
+                        NewUserMessage = input.Message ?? string.Empty,
+                        InterruptedAt = DateTimeOffset.UtcNow,
+                        Reason = "new_input",
+                        // 从 Workspace.Vibe 读取进度信息
+                        TotalMilestones = session.Workspace.Vibe.TotalMilestones,
+                        CompletedMilestones = session.Workspace.Vibe.CompletedMilestones,
+                        InterruptedAtMilestoneIndex = session.Workspace.Vibe.CurrentMilestoneIndex
+                    });
+
                     // Tell UI immediately (even if the old run was still queued on RunLock).
                     session.Events.Publish(new CustomEvent
                     {
@@ -49,6 +63,19 @@ internal static partial class ResearchSessionsApi
                             oldRunId = interruptedRunId,
                             newRunId = runId,
                             reason = "new_input"
+                        }
+                    });
+
+                    // Immediate feedback: acknowledge the user's input
+                    session.Events.Publish(new CustomEvent
+                    {
+                        Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                        Name = "aevatar.scientific.system_reply",
+                        Value = new
+                        {
+                            sessionId = session.Id,
+                            messageType = "acknowledgment",
+                            content = "Got it! Analyzing your request..."
                         }
                     });
                 }

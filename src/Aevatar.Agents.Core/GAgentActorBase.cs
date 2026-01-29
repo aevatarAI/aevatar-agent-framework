@@ -496,6 +496,16 @@ public abstract class GAgentActorBase : IGAgentActor, IActorHierarchyOperations
             await Agent.HandleEventAsync(envelope, ct);
             Logger.LogDebug("ProcessEventAsync: HandleEventAsync completed for event {EventId}", envelope.Id);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // ============================================================
+            // 中文 + ASCII:
+            // - run 被取消时允许“静默退出”
+            // - 避免把协作式取消当成错误
+            // ============================================================
+            Logger.LogDebug("Event {EventId} canceled for agent {AgentId}", envelope.Id, Id);
+            return;
+        }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error handling event {EventId} in agent {AgentId}",

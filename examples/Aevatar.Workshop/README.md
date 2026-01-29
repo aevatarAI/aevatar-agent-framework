@@ -38,7 +38,7 @@ dotnet run --project examples/Aevatar.Workshop/Aevatar.Workshop.csproj
 
 ## UI 导航
 
-- **Sessions**：传统 Session 聊天 + History/Memory/Handlers。
+- **Sessions**：Workflow Session 聊天 + History/Memory/Handlers。
 - **Role & Hierarchy**：Sisyphus 统一入口 + YAML 角色实例化 + 层级编排。
 - **Tools & YAML**：工具能力开关 + YAML Builder。
 - **Workflow**：Cognitive Mesh DAG。
@@ -53,7 +53,7 @@ dotnet run --project examples/Aevatar.Workshop/Aevatar.Workshop.csproj
 ## YAML Agent Builder
 
 - 输入符合 `AgentYamlConfig` 的 YAML（`id` 必填）。
-- 点击 **Save & Chat** 会写入 `~/.aevatar/agents/{id}.yaml` 并创建会话。
+- 点击 **Save & Chat** 会写入 `~/.aevatar/agents/{id}.yaml` 并创建 Workflow Session。
 - 会话使用 `RoleAIGAgent` + `IEventModule` 装配，可在 **Handlers** 面板查看模块列表。
 
 ## Workflow YAML (Cognitive Mesh)
@@ -72,5 +72,6 @@ dotnet run --project examples/Aevatar.Workshop/Aevatar.Workshop.csproj
 
 - 本 Demo 不绑定 `:5000` 端口。
 - YAML 与 MemoryStore 均为 **best‑effort**，不影响主流程。
+- Session 清理可通过 `Aevatar.Workshop:SessionIdleTimeoutMinutes` 与 `SessionCleanupIntervalSeconds` 调整。
 - 架构说明见：`docs/ARCHITECTURE.md`。
 

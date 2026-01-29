@@ -13,6 +13,7 @@ AG-UI protocol integration (standard events + snapshot-first SSE) for building w
 
 ## Public API highlights
 - `AgUiEvent`
+- `AgUiSseWriter`
 - `RunStartedEvent`
 - `RunFinishedEvent`
 - `RunErrorEvent`

@@ -49,6 +49,7 @@
                   GrpcServices="None"
                   AdditionalImportDirs="..\Aevatar.Agents.Abstractions" />
         <Protobuf Include="Tool\tool_messages.proto" GrpcServices="None" />
+        <Protobuf Include="Tool\tool_evolution.proto" GrpcServices="None" />
     </ItemGroup>
 
     <ItemGroup>

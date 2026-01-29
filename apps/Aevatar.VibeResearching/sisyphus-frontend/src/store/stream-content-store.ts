@@ -6,8 +6,8 @@ import { create } from "zustand"
 //  Purpose: Isolate high-frequency streaming updates from the main store
 //  to prevent cascading re-renders across the entire component tree.
 //  
-//  This store uses flushSync for immediate updates, but since components
-//  subscribe to specific workerIds, updates only affect relevant components.
+//  React 18 automatic batching handles updates efficiently without flushSync.
+//  Components subscribe to specific workerIds, so updates only affect relevant parts.
 // ============================================================================
 
 // ─────────────────────────────────────────────────────────────

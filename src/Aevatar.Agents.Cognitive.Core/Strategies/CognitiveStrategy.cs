@@ -184,11 +184,56 @@ public sealed class CognitiveStrategy : IReasoningStrategy
             }
             
             // Initialize AI Agent (set LLM Provider)
-            var providerName = options.ProviderName ?? AevatarAgentsConstants.DefaultProviderName;
-            await coordinator.InitializeAsync(providerName, cancellationToken: ct);
+            // IMPORTANT: Build config directly from IConfiguration to pick up runtime-configured providers.
+            // The factory-based approach (via name-based InitializeAsync) uses IOptions<T> which is a
+            // startup-time snapshot and won't see providers configured after the app starts (e.g., via UI/API).
+            // Handle "default" as a special name - resolve to actual default provider from configuration
+            var providerName = options.ProviderName;
+            if (string.IsNullOrWhiteSpace(providerName) ||
+                string.Equals(providerName, "default", StringComparison.OrdinalIgnoreCase))
+            {
+                // Try to get actual default provider name from configuration
+                providerName = _configuration["LLMProviders:Default"];
+                if (string.IsNullOrWhiteSpace(providerName))
+                    providerName = AevatarAgentsConstants.DefaultProviderName;
+            }
+
+            // Try to build config directly from IConfiguration (handles runtime-configured providers)
+            var providerConfig = BuildProviderConfigFromConfiguration(providerName);
+            if (providerConfig != null && !string.IsNullOrWhiteSpace(providerConfig.ApiKey))
+            {
+                _logger.LogDebug("Using config-based initialization for provider '{ProviderName}'", providerName);
+                await coordinator.InitializeAsync(providerConfig, cancellationToken: ct);
+            }
+            else if (_llmFactory.HasProvider(providerName))
+            {
+                // Fallback to factory-based initialization only if factory has this provider
+                _logger.LogDebug("Using factory-based initialization for provider '{ProviderName}'", providerName);
+                await coordinator.InitializeAsync(providerName, cancellationToken: ct);
+            }
+            else
+            {
+                // No config and no factory provider - give clear error
+                var availableInConfig = _configuration.GetSection("LLMProviders:Providers").GetChildren().Select(c => c.Key).ToList();
+                var availableInFactory = _llmFactory.GetAvailableProviderNames();
+                _logger.LogError(
+                    "Provider '{ProviderName}' not found. Config providers: [{ConfigProviders}], Factory providers: [{FactoryProviders}]",
+                    providerName,
+                    string.Join(", ", availableInConfig),
+                    string.Join(", ", availableInFactory));
+                return ReasoningResult.Failed(
+                    $"LLM provider '{providerName}' not configured. Please configure it in Settings → LLM Providers. " +
+                    $"Available in config: [{string.Join(", ", availableInConfig)}]",
+                    DateTime.UtcNow - startTime);
+            }
             
             // Configure Coordinator
             coordinator.SetActorManager(_actorManager);
+
+            if (options.CognitiveToolEvolution != null)
+            {
+                coordinator.ToolEvolutionOptions = options.CognitiveToolEvolution;
+            }
 
             // ============================================================
             //  Chat history (State.History + compaction summary)
@@ -972,5 +1017,56 @@ public sealed class CognitiveStrategy : IReasoningStrategy
         {
             return output.ToString() ?? "";
         }
+    }
+
+    /// <summary>
+    /// Build LLMProviderConfig directly from IConfiguration.
+    /// This ensures we get the latest configuration, including providers configured at runtime
+    /// (via secrets/UI) rather than relying on startup-time IOptions snapshot.
+    /// </summary>
+    private LLMProviderConfig? BuildProviderConfigFromConfiguration(string providerName)
+    {
+        if (string.IsNullOrWhiteSpace(providerName))
+            return null;
+
+        var providersSection = _configuration.GetSection($"LLMProviders:Providers:{providerName}");
+        if (!providersSection.Exists())
+        {
+            _logger.LogWarning("Provider '{ProviderName}' not found in configuration", providerName);
+            return null;
+        }
+
+        // Read configuration values
+        var providerType = providersSection["ProviderType"] ?? providerName;
+        var apiKey = providersSection["ApiKey"];
+        var model = providersSection["Model"];
+        var endpoint = providersSection["Endpoint"];
+        var deploymentName = providersSection["DeploymentName"];
+
+        // Build config with default values, then override with parsed values
+        var config = new LLMProviderConfig
+        {
+            Name = providerName,
+            ProviderType = providerType,
+            ApiKey = apiKey,
+            Model = model,
+            Endpoint = endpoint,
+            DeploymentName = deploymentName
+        };
+
+        // Parse optional numeric/boolean values and override defaults if present
+        if (double.TryParse(providersSection["Temperature"], out var temp))
+            config.Temperature = temp;
+
+        if (int.TryParse(providersSection["MaxTokens"], out var max))
+            config.MaxTokens = max;
+
+        if (int.TryParse(providersSection["TimeoutMilliseconds"], out var timeout))
+            config.TimeoutMilliseconds = timeout;
+
+        if (bool.TryParse(providersSection["EnableStreaming"], out var streaming))
+            config.EnableStreaming = streaming;
+
+        return config;
     }
 }

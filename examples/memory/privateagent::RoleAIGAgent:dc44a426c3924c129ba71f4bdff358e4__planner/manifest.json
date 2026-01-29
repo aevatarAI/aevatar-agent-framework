@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "memoryId": "privateagent::RoleAIGAgent:dc44a426c3924c129ba71f4bdff358e4__planner",
+  "scopeType": "PrivateAgent",
+  "scopeId": "RoleAIGAgent:dc44a426c3924c129ba71f4bdff358e4__planner",
+  "entryCount": 4,
+  "latestAtUtc": "2026-01-29T06:55:45.114478+00:00",
+  "files": {
+    "entriesBinary": "entries.pb",
+    "manifest": "manifest.json"
+  }
+}

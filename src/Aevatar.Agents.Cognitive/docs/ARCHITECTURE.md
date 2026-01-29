@@ -12,6 +12,7 @@ Aevatar.Agents.Cognitive/
 │   ├── CognitiveCoordinatorGAgent.Vote.cs                # vote consensus (semantic clustering + red-flag)
 │   ├── CognitiveCoordinatorGAgent.StepEvents.cs          # step events for UI/observability
 │   ├── CognitiveCoordinatorGAgent.Parameters.cs          # output parsing + parameter helpers + red-flag config
+│   ├── CognitiveCoordinatorGAgent.Tools.cs               # tool_call/tool_evolve/tool_validate
 │   └── (removed) CognitiveWorkerGAgent.cs                # Worker removed; RoleAIGAgent handles step requests
 │   └── Shared/
 │       └── CognitiveAIGAgentBase.cs                      # Shared: stateless LLM request + step history metadata
@@ -68,7 +69,7 @@ Aevatar.Agents.Cognitive/
 
 - RoleAIGAgent 作为执行体（YAML 角色驱动）
 - `CognitiveStepExecutionHandler` 处理 `ExecuteStepRequestEvent`
-- 执行 LLM 调用（复用 `AIGAgentBase.ChatAsync/ChatStreamAsync`，支持流式）
+- 执行 LLM 调用或 tool_call（复用 `AIGAgentBase.ChatAsync/ChatStreamAsync` 与 `ExecuteToolForWorkflowAsync`）
 - 向上报告执行结果
 
 ### 2.1 CognitiveAIGAgentBase（Shared）

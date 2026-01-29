@@ -28,16 +28,21 @@ function setView(view) {
     section.classList.toggle('active', section.dataset.view === view);
   });
 
-  if (view === 'roles') {
-    connectRoleSse();
+  if (view === 'role') {
     refreshRoleWorkspace();
-  } else if (roleState.sse) {
-    roleState.sse.close();
-    roleState.sse = null;
+    connectRoleChatSse(roleState.activeRole);
+    refreshRoleToolsPanel();
+  } else if (roleState.chatSse) {
+    roleState.chatSse.close();
+    roleState.chatSse = null;
   }
 
-  if (view === 'tools') {
-    refreshAgentYamlPanel();
+  if (view === 'hierarchy') {
+    refreshHierarchyWorkspace();
+    connectHierarchySse();
+  } else if (roleState.hierarchySse) {
+    roleState.hierarchySse.close();
+    roleState.hierarchySse = null;
   }
 }
 

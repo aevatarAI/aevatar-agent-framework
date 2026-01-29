@@ -23,12 +23,12 @@
   负责工作流生命周期、步骤调度、变量表、失败处理、递归控制、步骤事件。
 
 - `RoleAIGAgent` + `CognitiveStepExecutionHandler`  
-  执行 `llm_call`（并行 role worker，避免阻塞 Coordinator）。
+  执行 `llm_call` / `tool_call` / `tool_validate`（并行 role worker，避免阻塞 Coordinator）。
 
 - `Shared/CognitiveAIGAgentBase`  
   统一 LLM 请求形态与 history 策略（禁用自动压缩，总是只发当前 prompt）。
 
-**边界**：Role Worker **只负责 `llm_call`**，不会执行 workspace/sandbox 原语；Coordinator 执行所有确定性步骤。
+**边界**：Role Worker 负责 `llm_call`/`tool_call`/`tool_validate`，不会执行 workspace/sandbox 原语；Coordinator 执行所有确定性步骤。
 
 #### 2.1.1 Coordinator 拆分文件与职责
 
@@ -195,6 +195,9 @@ output:
 - `assign`：`from`
 - `transform`：`ops`
 - `retrieve_facts`：`query/source/text_field/id_field/top_k/mode`
+- `tool_call`：`tool/args/output/strict_parse`
+- `tool_validate`：`tool/validation_args`
+- `tool_evolve`：`generator/candidates/policy/max_candidates/tool_storage_dir/use_vote/validation_args`
 - `workspace_read_file`：`path/max_chars`
 - `workspace_code_search`：`pattern/glob/file_type/max_results/context_lines/max_total_chars`
 - `workspace_apply_patch`：`patch/patches`
@@ -208,13 +211,16 @@ output:
 |---|---|---|---|
 | `llm_call` | Coordinator/Worker | 单次 LLM 调用 | 可配置 `output/max_length/timeout/idle_timeout/strict_parse` |
 | `conditional` | Coordinator | 条件分支 | condition 使用模板表达式 |
-| `fan_out` / `parallel` | Coordinator+Workers | 并行 LLM | Worker 仅执行 `llm_call` |
+| `fan_out` / `parallel` | Coordinator+Workers | 并行执行 | Worker 执行 `llm_call` / `tool_call` / `tool_validate` |
 | `vote` | Coordinator | 共识投票 | 语义聚类需 embedding generator |
 | `workflow_call` | Coordinator | 递归/子流程 | 受 `max_depth` 限制 |
 | `checkpoint` | Coordinator | 变量快照 | 仅用于 observability |
 | `assign` | Coordinator | 变量投影 | 支持 dotted path |
 | `transform` | Coordinator | 0-token 聚合 | 见 `docs/PRIMITIVES.md` |
 | `retrieve_facts` | Coordinator | 0-token 检索 | 默认 lexical |
+| `tool_call` | Coordinator/Worker | 工具调用 | 受 ToolEvolutionOptions.EnableToolCalls 控制 |
+| `tool_validate` | Coordinator/Worker | 工具验证 | 使用 `validation_args` |
+| `tool_evolve` | Coordinator | 工具演化 | 受 ToolEvolutionOptions.EnableToolEvolutionSteps 控制 |
 | `workspace_read_file` | Coordinator | 安全读文件 | 受 `WorkspacePathGuard` 限制 |
 | `workspace_code_search` | Coordinator | 搜索 | 限制 max_results / context_lines |
 | `workspace_apply_patch` | Coordinator | 受限 patch | 只允许 create/replace/span |

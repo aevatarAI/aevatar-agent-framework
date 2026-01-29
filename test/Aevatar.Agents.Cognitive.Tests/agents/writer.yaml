@@ -1,0 +1,8 @@
+id: "writer"
+name: "Writer Agent"
+version: "1.0"
+provider: "test-provider"
+model: "test-model"
+temperature: 0.3
+system_prompt: |
+  Writer agent: synthesize inputs into a concise brief.

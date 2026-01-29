@@ -29,5 +29,9 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+    
+    <ItemGroup>
+        <InternalsVisibleTo Include="Aevatar.Agents.Cognitive.Tests" />
+    </ItemGroup>
 
 </Project>

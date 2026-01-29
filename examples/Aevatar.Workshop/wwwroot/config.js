@@ -134,7 +134,13 @@ function renderProviderDetail() {
     <div class="provider-grid">
       <div class="provider-row"><span>Model</span><span>${escapeHtml(provider.model || '-')}</span></div>
       <div class="provider-row"><span>Endpoint</span><span>${escapeHtml(provider.endpoint || '-')}</span></div>
-      <div class="provider-row"><span>Streaming</span><span>${provider.enableStreaming ? 'enabled' : 'disabled'}</span></div>
+      <div class="provider-row"><span>Streaming</span><span>${
+        provider.enableStreaming === true
+          ? 'enabled'
+          : provider.enableStreaming === false
+            ? 'disabled'
+            : 'auto'
+      }</span></div>
     </div>
 
     <div class="provider-section">

@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
@@ -48,7 +49,9 @@ public sealed class CognitiveStepExecutionHandler : IStepExecutionHandler
             }
         }
 
-        if (!string.Equals(request.StepType, "llm_call", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(request.StepType, "llm_call", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(request.StepType, "tool_call", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(request.StepType, "tool_validate", StringComparison.OrdinalIgnoreCase))
         {
             var unsupported = new StepCompletedEventProto
             {
@@ -66,7 +69,14 @@ public sealed class CognitiveStepExecutionHandler : IStepExecutionHandler
         PrimitiveResult result;
         try
         {
-            result = await ExecuteLlmCallAsync(agent, request, ct);
+            if (string.Equals(request.StepType, "llm_call", StringComparison.OrdinalIgnoreCase))
+            {
+                result = await ExecuteLlmCallAsync(agent, request, ct);
+            }
+            else
+            {
+                result = await ExecuteToolCallAsync(agent, request, ct);
+            }
         }
         catch (Exception ex)
         {
@@ -285,6 +295,131 @@ public sealed class CognitiveStepExecutionHandler : IStepExecutionHandler
             UserPrompt = prompt,
             AssistantResponse = finalContent
         };
+    }
+
+    private async Task<PrimitiveResult> ExecuteToolCallAsync(
+        AIGAgentBase agent,
+        ExecuteStepRequestEvent request,
+        CancellationToken ct)
+    {
+        if (!agent.ToolEvolutionOptions.EnableToolCalls)
+            return new PrimitiveResult { Success = false, Error = "tool_call is disabled by ToolEvolutionOptions" };
+
+        var parameters = ConvertFromProtoMap(request.Parameters);
+        var variables = ConvertFromProtoMap(request.Variables);
+
+        var toolName = parameters.GetValueOrDefault("tool")?.ToString()
+                       ?? parameters.GetValueOrDefault("tool_name")?.ToString()
+                       ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(toolName))
+        {
+            return new PrimitiveResult { Success = false, Error = "tool_call requires 'tool' parameter" };
+        }
+
+        var argsObj = parameters.GetValueOrDefault("args") ?? parameters.GetValueOrDefault("validation_args");
+        var args = ResolveToolArguments(argsObj, variables);
+
+        var sessionId = TryGetSessionId(variables);
+        var result = await agent.ExecuteToolForWorkflowAsync(toolName, args, sessionId, ct);
+        if (!result.IsSuccess)
+        {
+            return new PrimitiveResult { Success = false, Error = result.ErrorMessage ?? "tool_call failed" };
+        }
+
+        return new PrimitiveResult
+        {
+            Success = true,
+            Value = result.Content ?? string.Empty,
+            AssistantResponse = result.Content ?? string.Empty,
+            TokensUsed = 0,
+            LlmCalls = 0
+        };
+    }
+
+    private static string? TryGetSessionId(Dictionary<string, object> variables)
+    {
+        if (variables.TryGetValue(ChatRequest.SessionIdKey, out var raw) && raw != null)
+            return raw.ToString();
+        if (variables.TryGetValue(ChatRequest.SessionIdKeyCamel, out var camel) && camel != null)
+            return camel.ToString();
+        return null;
+    }
+
+    private Dictionary<string, object> ResolveToolArguments(object? argsObj, Dictionary<string, object> variables)
+    {
+        if (argsObj == null)
+            return new Dictionary<string, object>();
+
+        if (argsObj is Dictionary<string, object> dict)
+            return RenderArgs(dict, variables);
+
+        if (argsObj is Dictionary<string, object?> dictNullable)
+        {
+            var mapped = dictNullable.ToDictionary(k => k.Key, v => v.Value);
+            return RenderArgs(mapped, variables);
+        }
+
+        if (argsObj is JsonElement element)
+        {
+            var raw = element.GetRawText();
+            return ParseArgsJson(raw);
+        }
+
+        if (argsObj is string text)
+        {
+            var rendered = _templateEngine.Render(text, variables);
+            return ParseArgsJson(rendered);
+        }
+
+        return new Dictionary<string, object> { ["input"] = argsObj };
+    }
+
+    private Dictionary<string, object> RenderArgs(
+        Dictionary<string, object?> args,
+        Dictionary<string, object> variables)
+    {
+        var result = new Dictionary<string, object>(args.Count, StringComparer.Ordinal);
+        foreach (var (key, value) in args)
+        {
+            result[key] = RenderArgValue(value, variables);
+        }
+        return result;
+    }
+
+    private object RenderArgValue(object? value, Dictionary<string, object> variables)
+    {
+        if (value == null)
+            return string.Empty;
+
+        if (value is string s)
+            return _templateEngine.Render(s, variables);
+
+        if (value is Dictionary<string, object?> dict)
+            return RenderArgs(dict, variables);
+
+        if (value is IEnumerable<object?> list)
+            return list.Select(v => RenderArgValue(v, variables)).ToList();
+
+        return value;
+    }
+
+    private static Dictionary<string, object> ParseArgsJson(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return new Dictionary<string, object>();
+
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<Dictionary<string, object>>(text);
+            if (parsed != null)
+                return parsed;
+        }
+        catch
+        {
+            // best-effort
+        }
+
+        return new Dictionary<string, object> { ["input"] = text };
     }
 
     private sealed record AgentOverride(

@@ -49,6 +49,11 @@ public sealed class VibeState
     public string LastRunId { get; set; } = string.Empty;
     public string LastGoal { get; set; } = string.Empty;
     public List<string> Steps { get; set; } = new();
+
+    // Milestone progress tracking (for interruption context and UI progress display)
+    public int CurrentMilestoneIndex { get; set; }
+    public int TotalMilestones { get; set; }
+    public int CompletedMilestones { get; set; }
 }
 
 public sealed class MaterialMeta

@@ -284,6 +284,13 @@ public partial class CognitiveCoordinatorGAgent
                 }
                 else
                 {
+                    if (ToolEvolutionOptions.AutoTriggerOnParseFailure)
+                    {
+                        SetToolEvolutionTrigger(
+                            reason: "llm-parse-failed",
+                            step: eventStep,
+                            toolName: null);
+                    }
                     return PrimitiveResult.Fail("redflag-parse-null");
                 }
             }

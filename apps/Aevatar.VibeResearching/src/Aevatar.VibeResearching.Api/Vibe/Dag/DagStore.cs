@@ -788,6 +788,7 @@ public sealed class DagStore
             PlanNodeStatus.Pending => SraDagPlanStatus.Pending,
             PlanNodeStatus.Active => SraDagPlanStatus.Active,
             PlanNodeStatus.Completed => SraDagPlanStatus.Completed,
+            PlanNodeStatus.Cancelled => SraDagPlanStatus.Cancelled,
             _ => SraDagPlanStatus.Unspecified
         };
 

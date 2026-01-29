@@ -101,9 +101,21 @@ public sealed class AevatarAgentHookPipeline
         if (_hooks.Count == 0)
             return;
 
+        // Early exit if already cancelled - avoid throwing during cleanup stages
+        if (cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogTrace("Hook stage skipped (cancelled). Stage={Stage} AgentId={AgentId}", stage, context.AgentId);
+            return;
+        }
+
         foreach (var hook in _hooks)
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            // Check cancellation but don't throw - allow graceful exit
+            if (cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogTrace("Hook iteration stopped (cancelled). Stage={Stage} Hook={Hook}", stage, hook.Name);
+                break;
+            }
 
             var sw = Stopwatch.StartNew();
             try
@@ -112,7 +124,9 @@ public sealed class AevatarAgentHookPipeline
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                throw;
+                // Graceful exit on cancellation - don't rethrow, just stop processing
+                _logger.LogTrace("Hook cancelled. Hook={Hook} Stage={Stage}", hook.Name, stage);
+                break;
             }
             catch (Exception ex)
             {

@@ -215,6 +215,26 @@ public class WorkflowParser
         if (!string.IsNullOrEmpty(yaml.Mode))
             parameters["mode"] = yaml.Mode;
 
+        // tool_call / tool_evolve / tool_validate
+        if (!string.IsNullOrEmpty(yaml.Tool))
+            parameters["tool"] = yaml.Tool;
+        if (yaml.Args != null)
+            parameters["args"] = NormalizeYamlValue(yaml.Args);
+        if (!string.IsNullOrEmpty(yaml.Language))
+            parameters["language"] = yaml.Language;
+        if (yaml.Candidates != null)
+            parameters["candidates"] = NormalizeYamlValue(yaml.Candidates);
+        if (yaml.Policy != null)
+            parameters["policy"] = NormalizeYamlValue(yaml.Policy);
+        if (yaml.ValidationArgs != null)
+            parameters["validation_args"] = NormalizeYamlValue(yaml.ValidationArgs);
+        if (yaml.MaxCandidates != null)
+            parameters["max_candidates"] = NormalizeYamlValue(yaml.MaxCandidates);
+        if (!string.IsNullOrEmpty(yaml.ToolStorageDir))
+            parameters["tool_storage_dir"] = yaml.ToolStorageDir;
+        if (yaml.UseVote != null)
+            parameters["use_vote"] = yaml.UseVote;
+
         // --------------------------------------------------------
         // ralph-loop primitives (workspace + verifier)
         // --------------------------------------------------------
@@ -436,6 +456,16 @@ internal class YamlStepDefinition
     public object? TopK { get; set; }        // int or "{{var}}"
     public string? Mode { get; set; }        // "lexical" (default) | "embedding" (future)
 
+    // tool_call / tool_evolve / tool_validate fields
+    public string? Tool { get; set; }        // tool name
+    public string? Language { get; set; }    // tool candidate language
+    public object? Candidates { get; set; }  // precomputed candidates
+    public object? Policy { get; set; }      // evolution policy
+    public object? ValidationArgs { get; set; } // tool validation args
+    public object? MaxCandidates { get; set; }  // max_candidates
+    public string? ToolStorageDir { get; set; } // tool_storage_dir
+    public bool? UseVote { get; set; }       // use_vote for candidate selection
+
     // ------------------------------------------------------------
     //  ralph-loop primitives (deterministic workspace + verifier)
     //
@@ -459,7 +489,7 @@ internal class YamlStepDefinition
     public object? Patch { get; set; }       // patch (string or structured)
     public object? Patches { get; set; }     // patches (array or structured)
 
-    // sandbox_command
+    // sandbox_command / tool_call args
     public string? Command { get; set; }     // command
     public object? Args { get; set; }        // args (array or template)
     public string? WorkingDir { get; set; }  // working_dir

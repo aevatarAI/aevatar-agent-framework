@@ -58,9 +58,12 @@ public class LLMProviderConfig
     public int TimeoutMilliseconds { get; set; } = 600_000;
 
     /// <summary>
-    /// Whether to enable streaming response
+    /// Whether to enable streaming response.
+    /// - null: auto (follow provider capability)
+    /// - true: force streaming
+    /// - false: disable streaming
     /// </summary>
-    public bool EnableStreaming { get; set; } = false;
+    public bool? EnableStreaming { get; set; }
 
     /// <summary>
     /// Provider-specific settings

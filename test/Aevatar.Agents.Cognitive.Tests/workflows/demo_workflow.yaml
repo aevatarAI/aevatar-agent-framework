@@ -1,0 +1,10 @@
+name: demo_workflow
+description: "Demo workflow for YAML loading tests"
+steps:
+  - id: greet
+    type: llm_call
+    prompt: "Say hello"
+    output: text
+    store: response
+output:
+  result: "{{response}}"

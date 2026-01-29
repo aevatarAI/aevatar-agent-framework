@@ -1,6 +1,7 @@
 import React, { memo, useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import { useSisyphusStore, type SessionStatusStep, type SessionRunningTool } from '@/store/sisyphus-store'
+import { useDagInteractions } from '@/hooks/use-dag-interactions'
 
 // ============================================================
 //  Workflow Steps - Shows step execution order and status
@@ -125,6 +126,7 @@ const StepItem: React.FC<{
 
 const WorkflowSteps: React.FC<WorkflowStepsProps> = ({ className, maxSteps = 10 }) => {
   const sessionStatus = useSisyphusStore((s) => s.sessionStatus)
+  const { dagStats } = useDagInteractions()
   
   const { stepsToShow, runningSteps, doneSteps, runningToolsByStep } = useMemo(() => {
     if (!sessionStatus) {
@@ -189,6 +191,14 @@ const WorkflowSteps: React.FC<WorkflowStepsProps> = ({ className, maxSteps = 10 
         <div className="text-[10px] font-mono text-text-muted">
           <span className="text-neon-cyan">{runningSteps.size}</span> running · 
           <span className="text-neon-green ml-1">{doneSteps.size}</span> done
+          {dagStats.totalCount > 0 && (
+            <>
+              {' · '}
+              <span className="text-blue-400">P:{dagStats.planCount}</span>
+              {' '}
+              <span className="text-green-400">K:{dagStats.knowledgeCount}</span>
+            </>
+          )}
         </div>
       </div>
       

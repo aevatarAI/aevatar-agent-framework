@@ -74,7 +74,12 @@ public abstract class CognitiveAIGAgentBase<TCustomState> : AIGAgentBase<TCustom
             return;
 
         _sessionId = sessionId.Trim();
-        State.Context[ChatRequest.SessionIdKey] = _sessionId;
+        
+        // NOTE: Do NOT modify State.Context here to avoid Event Sourcing conflicts.
+        // When Event Sourcing is active (Version > 0), direct State modification is not allowed.
+        // The _sessionId field is sufficient - ApplySessionContext() uses it directly,
+        // and OnActivateAsync() can restore it from State.Context if needed.
+        // This fixes: "Direct State modification is not allowed when Event Sourcing is active (Version > 0)"
 
         EnableSessionMemoryStoreAppend = enableSessionMemory;
         EnableMemoryStoreAppend = enableAgentMemory;

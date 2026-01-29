@@ -1,8 +1,8 @@
 import { useEffect, useRef, useCallback } from "react"
 import { flushSync } from "react-dom"
-import { useSisyphusStore } from "@/store/sisyphus-store"
+import { useSisyphusStore, type SessionStatus } from "@/store/sisyphus-store"
 import { useStreamContentStore } from "@/store/stream-content-store"
-import { createAxiomEventStream, getToolsSnapshot, getDagSnapshot } from "@/lib/axiom-client"
+import { createAxiomEventStream, getToolsSnapshot, getDagSnapshot, getSessionStatus } from "@/lib/axiom-client"
 import type { EventStream } from "@aevatar/kit-protocol"
 import { parseMessageId } from "@aevatar/kit-protocol"
 import type { ToolOutput, NodeKind } from "@/types"
@@ -211,13 +211,41 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     })
 
     // Run Started
-    stream.on("RUN_STARTED", (event) => {
+    stream.on("RUN_STARTED", async (event) => {
       markConnected()
       addRawEvent(event)
       
       // Extract runId from event
       const runId = (event as { runId?: string }).runId || `run-${Date.now()}`
       setCurrentRun(runId)
+      
+      // Immediately refresh session status to show new run's steps
+      // This ensures status box updates when a new research round starts
+      // Fixes issue where status box shows old round's steps while DAG shows new nodes
+      if (sessionId) {
+        try {
+          const status = await getSessionStatus(sessionId)
+          if (status) {
+            const { setSessionStatus } = useSisyphusStore.getState()
+            const sessionStatus: SessionStatus = {
+              runId: status.runId,
+              updatedAt: status.updatedAt,
+              steps: {
+                order: status.steps.order,
+                map: status.steps.map,
+                running: status.steps.running,
+                done: status.steps.done,
+              },
+              agents: status.agents,
+              runningTools: status.runningTools,
+            }
+            setSessionStatus(sessionStatus)
+            console.debug("[AxiomStream] Status refreshed immediately on run start")
+          }
+        } catch (err) {
+          console.debug("[AxiomStream] Failed to refresh status on run start:", err)
+        }
+      }
       
       addMessage({
         role: "agent",

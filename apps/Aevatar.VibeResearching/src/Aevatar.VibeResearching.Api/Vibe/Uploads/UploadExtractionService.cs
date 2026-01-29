@@ -80,10 +80,43 @@ public sealed class UploadExtractionService
                 };
             }
 
+            // Step 2.5: Validate extracted content quality
+            var content = textResult.Content?.Trim() ?? "";
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                _logger.LogWarning("Extracted content is empty for {FileName}", fileName);
+                return new ExtractionResult
+                {
+                    Success = false,
+                    ErrorMessage = "File content could not be extracted or is empty",
+                    FilePath = savedPath,
+                    FileName = fileName
+                };
+            }
+
+            // Check if content is an error message (from PDF extraction failure)
+            if (content.StartsWith("[PDF content could not be extracted", StringComparison.OrdinalIgnoreCase) ||
+                content.StartsWith("[Error", StringComparison.OrdinalIgnoreCase) ||
+                content.Length < 50)  // Too short to be meaningful
+            {
+                _logger.LogWarning("Extracted content is invalid or too short for {FileName}: {ContentPreview}", 
+                    fileName, content.Length > 100 ? content[..100] : content);
+                return new ExtractionResult
+                {
+                    Success = false,
+                    ErrorMessage = "File content could not be extracted or is invalid. The file may be corrupted, image-based, or encrypted.",
+                    FilePath = savedPath,
+                    FileName = fileName
+                };
+            }
+
             // Step 3: Use LLM to extract knowledge points
+            _logger.LogInformation("Extracting knowledge points from {FileName}, content length: {Length} characters", 
+                fileName, content.Length);
+            
             var knowledgePoints = await ExtractKnowledgePointsWithLlmAsync(
                 sessionId,
-                textResult.Content!,
+                content,
                 fileName,
                 providerName,
                 maxKnowledgePoints,
@@ -91,14 +124,16 @@ public sealed class UploadExtractionService
 
             if (knowledgePoints.Count == 0)
             {
-                _logger.LogWarning("No knowledge points extracted from {FileName}", fileName);
+                _logger.LogWarning(
+                    "No knowledge points extracted from {FileName}. Possible reasons: 1) LLM failed to extract, 2) JSON parsing failed, 3) All points filtered as low-quality, 4) Document content is not suitable for knowledge extraction. Content preview: {ContentPreview}",
+                    fileName, content.Length > 200 ? content[..200] : content);
                 return new ExtractionResult
                 {
                     Success = true,
                     FilePath = savedPath,
                     FileName = fileName,
                     ExtractedNodes = [],
-                    Message = "File processed but no distinct knowledge points were identified."
+                    Message = "File processed but no distinct knowledge points were identified. This may happen if: 1) The document content is not suitable for knowledge extraction, 2) The LLM failed to parse the content, 3) All extracted points were filtered as low-quality. Please check the document content and try again."
                 };
             }
 
@@ -161,12 +196,24 @@ public sealed class UploadExtractionService
             var response = await agent.ChatAsync(request, ct);
             var responseText = response?.Content ?? "";
 
+            if (string.IsNullOrWhiteSpace(responseText))
+            {
+                _logger.LogWarning("LLM returned empty response for {FileName}", fileName);
+                return [];
+            }
+
+            _logger.LogDebug("LLM response length: {Length} characters for {FileName}", responseText.Length, fileName);
+            if (responseText.Length > 500)
+            {
+                _logger.LogDebug("LLM response preview: {Preview}", responseText[..500]);
+            }
+
             // Parse JSON from response
             return ParseKnowledgePoints(responseText, maxPoints);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "LLM extraction failed for {FileName}", fileName);
+            _logger.LogError(ex, "LLM extraction failed for {FileName}: {Error}", fileName, ex.Message);
             return [];
         }
     }
@@ -239,7 +286,8 @@ public sealed class UploadExtractionService
             var jsonStart = responseText.IndexOf('[');
             if (jsonStart < 0)
             {
-                _logger.LogWarning("No JSON array start found in LLM response");
+                _logger.LogWarning("No JSON array start found in LLM response. Response preview: {Preview}", 
+                    responseText.Length > 500 ? responseText[..500] : responseText);
                 return [];
             }
 
@@ -268,9 +316,37 @@ public sealed class UploadExtractionService
 
             _logger.LogInformation("Successfully parsed {Count} knowledge points", points.Count);
 
-            // If maxPoints <= 0, return all points (unlimited)
+            // Filter out low-quality knowledge points
+            var validPoints = points.Where(p =>
+                !string.IsNullOrWhiteSpace(p.Title) &&
+                !string.IsNullOrWhiteSpace(p.Content) &&
+                p.Content.Length >= 20 &&  // Minimum content length
+                !p.Title.Contains("Error", StringComparison.OrdinalIgnoreCase) &&
+                !p.Title.Contains("Failed", StringComparison.OrdinalIgnoreCase) &&
+                !p.Content.Contains("[PDF content could not be extracted", StringComparison.OrdinalIgnoreCase) &&
+                !p.Content.Contains("[Error", StringComparison.OrdinalIgnoreCase)
+            ).ToList();
+
+            if (validPoints.Count == 0)
+            {
+                _logger.LogWarning(
+                    "All {TotalCount} extracted knowledge points were filtered out as low-quality. Original points: {OriginalPoints}",
+                    points.Count,
+                    points.Count > 0 
+                        ? string.Join("; ", points.Take(5).Select(p => $"Title: {p.Title}, ContentLength: {p.Content?.Length ?? 0}"))
+                        : "none");
+                return [];
+            }
+
+            if (validPoints.Count < points.Count)
+            {
+                _logger.LogInformation("Filtered {FilteredCount} low-quality knowledge points, keeping {ValidCount} valid points",
+                    points.Count - validPoints.Count, validPoints.Count);
+            }
+
+            // If maxPoints <= 0, return all valid points (unlimited)
             // Otherwise, limit to maxPoints
-            return maxPoints > 0 ? points.Take(maxPoints).ToList() : points;
+            return maxPoints > 0 ? validPoints.Take(maxPoints).ToList() : validPoints;
         }
         catch (JsonException ex)
         {
@@ -420,6 +496,24 @@ public sealed class UploadExtractionService
 
         foreach (var point in knowledgePoints)
         {
+            // Skip invalid knowledge points (defensive check)
+            if (string.IsNullOrWhiteSpace(point.Title) ||
+                string.IsNullOrWhiteSpace(point.Content) ||
+                point.Content.Length < 20)
+            {
+                _logger.LogDebug("Skipping invalid knowledge point: Title={Title}, ContentLength={Length}",
+                    point.Title, point.Content?.Length ?? 0);
+                continue;
+            }
+
+            // Skip if content appears to be an error message (defensive check)
+            if (point.Content.Contains("[PDF content could not be extracted", StringComparison.OrdinalIgnoreCase) ||
+                point.Content.Contains("[Error", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogDebug("Skipping knowledge point with error message content: {Title}", point.Title);
+                continue;
+            }
+
             var nodeId = $"upload_{now:yyyyMMddHHmmss}_{Guid.NewGuid():N}"[..32];
 
             try

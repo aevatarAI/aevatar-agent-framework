@@ -112,17 +112,54 @@ public sealed class FileTextParser
     {
         // Simple PDF text extraction using basic parsing
         // For production, consider using a proper PDF library like PdfPig or iTextSharp
+        // 
+        // LIMITATIONS:
+        // - Only works with simple, uncompressed PDFs
+        // - Does not support encrypted PDFs
+        // - Does not support image-based PDFs (scanned documents)
+        // - May fail with large files (> 5MB) or complex formats
+        // - Non-ASCII characters may be lost due to ASCII encoding
+        
         await using var stream = file.OpenReadStream();
+        
+        // Check file size - warn for large files
+        var fileSize = stream.Length;
+        if (fileSize > 5 * 1024 * 1024) // 5MB
+        {
+            _logger.LogWarning("PDF file is large ({Size} bytes) - simple extraction may fail or be slow for {FileName}", 
+                fileSize, file.FileName);
+        }
+        
         using var ms = new MemoryStream();
         await stream.CopyToAsync(ms, ct);
         var bytes = ms.ToArray();
+
+        // Validate PDF header
+        if (bytes.Length < 8)
+        {
+            _logger.LogError("PDF file too small or invalid: {FileName}, size: {Size} bytes", file.FileName, bytes.Length);
+            throw new InvalidOperationException("Invalid PDF file: file is too small or corrupted");
+        }
+
+        var header = Encoding.ASCII.GetString(bytes, 0, Math.Min(8, bytes.Length));
+        if (!header.StartsWith("%PDF", StringComparison.Ordinal))
+        {
+            _logger.LogError("Invalid PDF header for {FileName}: {Header}", file.FileName, header);
+            throw new InvalidOperationException("Invalid PDF file format: missing PDF header");
+        }
 
         var text = ExtractTextFromPdfBytes(bytes, maxChars);
 
         if (string.IsNullOrWhiteSpace(text))
         {
-            _logger.LogWarning("PDF text extraction returned empty content for {FileName}", file.FileName);
-            return "[PDF content could not be extracted. The file may be image-based or encrypted.]";
+            var errorMsg = fileSize > 5 * 1024 * 1024
+                ? "PDF file is too large for simple text extraction. The file may also be image-based, encrypted, or use unsupported compression. Please use a professional PDF library or split the file."
+                : "PDF content could not be extracted. Possible reasons: 1) Image-based PDF (scanned document), 2) Encrypted PDF, 3) Unsupported compression format (FlateDecode, LZWDecode, etc.), 4) Complex font encoding, 5) Corrupted file.";
+            
+            _logger.LogWarning("PDF text extraction returned empty content for {FileName}. File size: {Size} bytes. {Error}", 
+                file.FileName, fileSize, errorMsg);
+            
+            throw new InvalidOperationException(errorMsg);
         }
 
         return text;

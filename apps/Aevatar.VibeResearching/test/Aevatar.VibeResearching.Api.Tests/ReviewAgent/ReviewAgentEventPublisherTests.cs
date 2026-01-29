@@ -154,8 +154,11 @@ public sealed class ReviewAgentEventPublisherTests
         await _publisher.PublishNodeProgressAsync(
             "node-123",
             "Test Node",
-            5, 10, 2,
-            ReviewResult.Passed);
+            explainContent: null,
+            nodesReviewed: 5,
+            nodesPending: 10,
+            nodesDeactivated: 2,
+            result: ReviewResult.Passed);
 
         // Assert
         receivedEvent.ShouldNotBeNull();

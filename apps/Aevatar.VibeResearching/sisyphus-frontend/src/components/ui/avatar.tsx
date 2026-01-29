@@ -2,7 +2,7 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 
 // ============================================================
-//  Avatar Component - With Initials Fallback
+//  Avatar Component - With Initials Fallback & Dynamic Colors
 // ============================================================
 
 export interface AvatarProps {
@@ -20,6 +20,28 @@ const sizeClasses = {
   xl: "h-16 w-16 text-lg",
 }
 
+// Color palette for avatar backgrounds (cyberpunk theme)
+const avatarColors = [
+  { bg: "bg-neon-cyan/20", border: "border-neon-cyan/30", text: "text-neon-cyan" },
+  { bg: "bg-neon-purple/20", border: "border-neon-purple/30", text: "text-neon-purple" },
+  { bg: "bg-neon-pink/20", border: "border-neon-pink/30", text: "text-neon-pink" },
+  { bg: "bg-neon-gold/20", border: "border-neon-gold/30", text: "text-neon-gold" },
+  { bg: "bg-neon-green/20", border: "border-neon-green/30", text: "text-neon-green" },
+  { bg: "bg-neon-sky/20", border: "border-neon-sky/30", text: "text-neon-sky" },
+  { bg: "bg-neon-orange/20", border: "border-neon-orange/30", text: "text-neon-orange" },
+]
+
+const getColorIndex = (name?: string): number => {
+  if (!name) return 0
+  // Simple hash function to get consistent color for same name
+  let hash = 0
+  for (let i = 0; i < name.length; i++) {
+    hash = ((hash << 5) - hash) + name.charCodeAt(i)
+    hash = hash & hash // Convert to 32bit integer
+  }
+  return Math.abs(hash) % avatarColors.length
+}
+
 const getInitials = (name?: string): string => {
   if (!name) return "?"
   const parts = name.trim().split(/\s+/)
@@ -34,20 +56,22 @@ const Avatar = React.forwardRef<HTMLDivElement, AvatarProps>(
     const [imageError, setImageError] = React.useState(false)
 
     const showFallback = !src || imageError
+    const colorScheme = avatarColors[getColorIndex(name)]
 
     return (
       <div
         ref={ref}
         className={cn(
           "relative flex shrink-0 overflow-hidden rounded-full",
-          "bg-neon-cyan/20 border border-neon-cyan/30",
+          showFallback ? [colorScheme.bg, colorScheme.border] : "bg-bg-elevated border-border-subtle",
+          "border",
           sizeClasses[size],
           className
         )}
       >
         {showFallback ? (
-          <div className="flex h-full w-full items-center justify-center bg-neon-cyan/20">
-            <span className="font-display font-semibold text-neon-cyan">
+          <div className={cn("flex h-full w-full items-center justify-center", colorScheme.bg)}>
+            <span className={cn("font-display font-semibold", colorScheme.text)}>
               {getInitials(name)}
             </span>
           </div>

@@ -4,7 +4,7 @@ import { ArrowLeft, CheckCircle } from "lucide-react"
 import { AuthLayout } from "@/components/auth"
 import { Button } from "@/components/ui/button"
 import { PasswordInput } from "@/components/ui/input"
-import { mockResetPassword } from "@/lib/mock/auth"
+import { abpResetPassword } from "@/lib/abp"
 
 // ============================================================
 //  Reset Password Page - Set New Password
@@ -13,7 +13,8 @@ import { mockResetPassword } from "@/lib/mock/auth"
 export default function ResetPasswordPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const token = searchParams.get("token") || "mock-token"
+  const token = searchParams.get("resetToken") || ""
+  const userId = searchParams.get("userId") || ""
   
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
@@ -41,7 +42,7 @@ export default function ResetPasswordPage() {
     setIsLoading(true)
 
     try {
-      const result = await mockResetPassword(token, password)
+      const result = await abpResetPassword(userId, token, password)
       
       if (result.success) {
         setIsSuccess(true)

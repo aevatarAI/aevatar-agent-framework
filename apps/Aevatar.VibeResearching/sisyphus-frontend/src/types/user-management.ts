@@ -69,12 +69,20 @@ export interface UpdateRoleInput {
 }
 
 // === Permission Types ===
+export interface PermissionGrantSource {
+  providerName: PermissionProviderName
+  providerKey: string
+}
+
 export interface Permission {
   name: string
   displayName: string
   parentName?: string
   isGranted: boolean
   allowedProviders: PermissionProviderName[]
+  // Source of permission grants (from roles, user direct, etc.)
+  // Used to show inherited permissions in User Permissions view
+  grantedProviders?: PermissionGrantSource[]
 }
 
 export interface PermissionGroup {

@@ -3,7 +3,7 @@ import { Link, useLocation } from "react-router-dom"
 import { Mail, RefreshCw } from "lucide-react"
 import { AuthLayout } from "@/components/auth"
 import { Button } from "@/components/ui/button"
-import { mockResendVerification } from "@/lib/mock/auth"
+import { abpResendVerification } from "@/lib/abp"
 
 // ============================================================
 //  Email Confirmation Page - Verify Email Address
@@ -21,7 +21,7 @@ export default function EmailConfirmationPage() {
     setResendSuccess(false)
 
     try {
-      const result = await mockResendVerification(email)
+      const result = await abpResendVerification(email)
       if (result.success) {
         setResendSuccess(true)
       }

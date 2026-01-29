@@ -8,8 +8,7 @@ import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@
 import { Avatar } from "@/components/ui/avatar"
 import { Badge, StatusDot } from "@/components/ui/badge"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
-import { getUsers, getUserStats, createUser, updateUser, deleteUser, setUserPassword } from "@/lib/mock/users"
-import { getRoles } from "@/lib/mock/roles"
+import { getUsers, getUserStats, createUser, updateUser, deleteUser, setUserPassword, getRoles } from "@/lib/abp"
 import type { User, CreateUserInput, UpdateUserInput } from "@/types/user-management"
 
 // ============================================================
@@ -119,12 +118,9 @@ export default function UsersPage() {
         {/* Total Users */}
         <div className="rounded-xl bg-surface border border-border-subtle p-4 space-y-1.5">
           <p className="text-[11px] font-mono text-text-dimmed">Total Users</p>
-          <div className="flex items-center gap-2">
-            <span className="text-2xl font-mono font-semibold text-text-primary">
-              {stats.total.toLocaleString()}
-            </span>
-            <span className="text-[11px] font-mono text-neon-green">+12%</span>
-          </div>
+          <span className="text-2xl font-mono font-semibold text-text-primary">
+            {stats.total.toLocaleString()}
+          </span>
         </div>
 
         {/* Active Now */}
@@ -236,12 +232,19 @@ export default function UsersPage() {
 
                 {/* USER - Avatar + Name */}
                 <TableCell>
-                  <div className="flex items-center gap-2.5">
-                    <Avatar name={`${user.name} ${user.surname}`} size="sm" />
-                    <span className="text-sm text-text-primary">
-                      {user.name} {user.surname}
-                    </span>
-                  </div>
+                  {(() => {
+                    // Build display name with fallbacks
+                    const fullName = [user.name, user.surname].filter(Boolean).join(' ').trim()
+                    const displayName = fullName || user.userName || user.email.split('@')[0]
+                    return (
+                      <div className="flex items-center gap-2.5">
+                        <Avatar name={displayName} size="sm" />
+                        <span className="text-sm text-text-primary">
+                          {displayName}
+                        </span>
+                      </div>
+                    )
+                  })()}
                 </TableCell>
 
                 {/* EMAIL */}
@@ -251,17 +254,21 @@ export default function UsersPage() {
 
                 {/* ROLE - Single badge */}
                 <TableCell>
-                  <Badge
-                    variant={
-                      user.roles.includes("admin")
-                        ? "gold"
-                        : user.roles.includes("member")
-                        ? "cyan"
-                        : "default"
-                    }
-                  >
-                    {user.roles[0]}
-                  </Badge>
+                  {user.roles.length > 0 ? (
+                    <Badge
+                      variant={
+                        user.roles.includes("admin")
+                          ? "gold"
+                          : user.roles.includes("member")
+                          ? "cyan"
+                          : "default"
+                      }
+                    >
+                      {user.roles[0]}
+                    </Badge>
+                  ) : (
+                    <span className="text-xs text-text-dimmed">—</span>
+                  )}
                 </TableCell>
 
                 {/* STATUS */}

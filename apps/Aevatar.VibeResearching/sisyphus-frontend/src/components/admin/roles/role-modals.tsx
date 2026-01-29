@@ -465,8 +465,9 @@ export const RolePermissionsModal: React.FC<RolePermissionsModalProps> = ({
   }
 
   // Filter permissions by allowedProviders for Roles ("R")
+  // NOTE: Empty allowedProviders array means permission is allowed for ALL provider types
   const filterByProvider = (perms: typeof allPermissions) =>
-    perms.filter(p => p.allowedProviders.includes("R"))
+    perms.filter(p => p.allowedProviders.length === 0 || p.allowedProviders.includes("R"))
 
   // Count granted permissions (only those allowed for Roles)
   const allowedPermissionNames = new Set(filterByProvider(allPermissions).map(p => p.name))

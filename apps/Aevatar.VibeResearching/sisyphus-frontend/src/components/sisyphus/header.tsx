@@ -107,13 +107,13 @@ const Header: React.FC = () => {
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-surface-elevated transition-colors">
                   <Avatar
-                    name={`${user.name} ${user.surname}`}
+                    name={user.name || user.userName}
                     src={user.avatarUrl}
                     size="sm"
                   />
                   <div className="hidden sm:flex flex-col items-start">
                     <span className="text-sm font-medium text-text-primary">
-                      {user.name} {user.surname}
+                      {user.name || user.userName}{user.surname ? ` ${user.surname}` : ''}
                     </span>
                     <span className="text-[10px] text-text-muted">
                       {isAdmin ? 'Administrator' : 'Member'}

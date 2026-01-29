@@ -5,7 +5,7 @@
 import { apiLogger } from '../logger'
 
 // === API Base URL ===
-export const API_BASE = import.meta.env.VITE_AXIOM_API_BASE || ''
+export const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
 
 // === Cache Types ===
 

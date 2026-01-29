@@ -202,11 +202,32 @@ export async function getPermissions(
   const key = `${providerName}:${providerKey}`
   const granted = grantedPermissions[key] || new Set()
 
+  // Build grantedProviders for each permission (simulate inheritance)
+  const buildGrantedProviders = (permName: string) => {
+    const providers: Array<{ providerName: PermissionProviderName; providerKey: string }> = []
+    
+    // Check current provider
+    if (granted.has(permName)) {
+      providers.push({ providerName, providerKey })
+    }
+    
+    // For user permissions, also check role permissions (simulate inheritance)
+    if (providerName === 'U') {
+      const adminRoleKey = 'R:admin'
+      if (grantedPermissions[adminRoleKey]?.has(permName)) {
+        providers.push({ providerName: 'R', providerKey: 'admin' })
+      }
+    }
+    
+    return providers
+  }
+
   return mockPermissionGroups.map(group => ({
     ...group,
     permissions: group.permissions.map(perm => ({
       ...perm,
       isGranted: granted.has(perm.name),
+      grantedProviders: buildGrantedProviders(perm.name),
     })),
   }))
 }
@@ -246,10 +267,11 @@ export async function grantAllPermissions(
 
   const key = `${providerName}:${providerKey}`
   // Only grant permissions allowed for this provider type
+  // NOTE: Empty allowedProviders array means permission is allowed for ALL provider types
   grantedPermissions[key] = new Set(
     mockPermissionGroups.flatMap(g => 
       g.permissions
-        .filter(p => p.allowedProviders.includes(providerName))
+        .filter(p => p.allowedProviders.length === 0 || p.allowedProviders.includes(providerName))
         .map(p => p.name)
     )
   )

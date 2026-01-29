@@ -4,7 +4,7 @@ import { ArrowLeft, Mail } from "lucide-react"
 import { AuthLayout } from "@/components/auth"
 import { Button } from "@/components/ui/button"
 import { EmailInput } from "@/components/ui/input"
-import { mockForgotPassword } from "@/lib/mock/auth"
+import { abpForgotPassword } from "@/lib/abp"
 
 // ============================================================
 //  Forgot Password Page - Request Password Reset
@@ -22,7 +22,7 @@ export default function ForgotPasswordPage() {
     setIsLoading(true)
 
     try {
-      const result = await mockForgotPassword(email)
+      const result = await abpForgotPassword(email)
       
       if (result.success) {
         setIsSubmitted(true)

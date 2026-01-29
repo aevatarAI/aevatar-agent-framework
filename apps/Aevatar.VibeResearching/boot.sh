@@ -5,20 +5,26 @@ set -euo pipefail
 #  Vibe Researching - Boot Script (Backend + Frontend)
 #
 #  DEFAULT PORTS:
-#  - Backend:  5678
-#  - Frontend: 5173 (Vite dev server)
+#  - Backend:  5678  (HTTP, VibeResearching API with ABP Identity)
+#  - Frontend: 5173  (Vite dev server)
 #
 #  USAGE:
-#    ./boot.sh
-#    BACKEND_PORT=5679 ./boot.sh
-#    FRONTEND_PORT=5174 ./boot.sh
-#    ./boot.sh --no-kill
-#    ./boot.sh --backend-only
-#    ./boot.sh --frontend-only
+#    ./boot.sh                    # Start backend + frontend
+#    ./boot.sh --backend-only     # Start only backend
+#    ./boot.sh --frontend-only    # Start only frontend
+#    ./boot.sh --no-kill          # Don't kill existing processes
 # ============================================================
 
 BACKEND_PORT="${BACKEND_PORT:-5678}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
+
+# MongoDB (required for ABP Identity)
+MONGODB_CONNECTION_STRING="${MONGODB_CONNECTION_STRING:-mongodb://localhost:27017}"
+
+# Neo4j (optional, for knowledge graph)
+NEO4J_URI="${NEO4J_URI:-bolt://localhost:7687}"
+NEO4J_USERNAME="${NEO4J_USERNAME:-neo4j}"
+NEO4J_PASSWORD="${NEO4J_PASSWORD:-}"
 
 KILL_BEFORE=1
 RUN_BACKEND=1
@@ -29,14 +35,26 @@ usage() {
 Usage: ./boot.sh [OPTIONS]
 
 Environment:
-  BACKEND_PORT    Backend port (default: 5678)
-  FRONTEND_PORT   Frontend (Vite) port (default: 5173)
+  BACKEND_PORT                Backend port (default: 5678)
+  FRONTEND_PORT               Frontend (Vite) port (default: 5173)
+  MONGODB_CONNECTION_STRING   MongoDB URI (default: mongodb://localhost:27017)
+  NEO4J_URI                   Neo4j bolt URI (default: bolt://localhost:7687)
+  NEO4J_USERNAME              Neo4j username (default: neo4j)
+  NEO4J_PASSWORD              Neo4j password (required for Neo4j features)
 
 Options:
-  --no-kill        Do not kill listeners on ports before starting
-  --backend-only   Only start the backend
-  --frontend-only  Only start the frontend
-  -h, --help       Show this help
+  --backend-only     Only start the backend
+  --frontend-only    Only start the frontend
+  --no-kill          Do not kill listeners on ports before starting
+  -h, --help         Show this help
+
+Examples:
+  ./boot.sh                    # Backend (5678) + Frontend (5173)
+  ./boot.sh --backend-only     # Only Backend (5678)
+  ./boot.sh --frontend-only    # Only Frontend (5173)
+
+  # With custom MongoDB:
+  MONGODB_CONNECTION_STRING="mongodb://user:pass@host:27017" ./boot.sh
 EOF
 }
 
@@ -136,11 +154,17 @@ if [[ "${KILL_BEFORE}" -eq 1 ]]; then
   [[ "${RUN_FRONTEND}" -eq 1 ]] && kill_port "${FRONTEND_PORT}"
 fi
 
-# Start backend
+# ============================================================
+# Start Backend (VibeResearching HttpApi.Host with ABP Identity)
+# ============================================================
 if [[ "${RUN_BACKEND}" -eq 1 ]]; then
-  echo "Starting backend (ASPNETCORE_URLS=http://localhost:${BACKEND_PORT})"
+  echo "Starting backend (http://localhost:${BACKEND_PORT})"
   (
     cd "$BACKEND_DIR"
+    export MONGODB_CONNECTION_STRING="${MONGODB_CONNECTION_STRING}"
+    export NEO4J_URI="${NEO4J_URI}"
+    export NEO4J_USERNAME="${NEO4J_USERNAME}"
+    export NEO4J_PASSWORD="${NEO4J_PASSWORD}"
     ASPNETCORE_URLS="http://localhost:${BACKEND_PORT}" \
       dotnet run --no-launch-profile
   ) &
@@ -150,9 +174,10 @@ if [[ "${RUN_BACKEND}" -eq 1 ]]; then
   wait_for_http_ok "http://localhost:${BACKEND_PORT}/health" 30
 fi
 
-# Start frontend
+# ============================================================
+# Start Frontend (Vite)
+# ============================================================
 if [[ "${RUN_FRONTEND}" -eq 1 ]]; then
-  # Check if npm is available
   if ! command -v npm >/dev/null 2>&1; then
     echo "ERROR: npm command not found." >&2
     echo "Please install Node.js and npm first:" >&2
@@ -162,15 +187,18 @@ if [[ "${RUN_FRONTEND}" -eq 1 ]]; then
     echo "Skipping frontend startup. Use --backend-only to suppress this message." >&2
     RUN_FRONTEND=0
   else
-    echo "Starting frontend (Vite :${FRONTEND_PORT})"
+    echo "Starting frontend (http://localhost:${FRONTEND_PORT})"
     (
       cd "$FRONTEND_DIR"
-      export VITE_API_BASE_URL="http://localhost:${BACKEND_PORT}"
+      # NOTE: VITE_API_BASE_URL is intentionally NOT set here.
+      # Empty value makes frontend use Vite proxy (/api/* -> backend),
+      # which correctly handles cookies for authentication.
+      # BACKEND_PORT is used by vite.config.ts to configure proxy target.
       export BACKEND_PORT="${BACKEND_PORT}"
       export PORT="${FRONTEND_PORT}"
 
       if [[ ! -d "node_modules" ]]; then
-        echo "node_modules not found; running npm install..."
+        echo "Frontend: Installing npm dependencies..."
         npm install
       fi
 
@@ -180,10 +208,15 @@ if [[ "${RUN_FRONTEND}" -eq 1 ]]; then
   fi
 fi
 
+# ============================================================
+# Summary
+# ============================================================
 echo ""
-[[ "${RUN_BACKEND}" -eq 1 ]] && echo "Backend : http://localhost:${BACKEND_PORT}"
-[[ "${RUN_FRONTEND}" -eq 1 ]] && echo "Frontend: http://localhost:${FRONTEND_PORT}"
-echo "Press Ctrl+C to stop."
+echo "============================================================"
+[[ "${RUN_BACKEND}" -eq 1 ]] && echo "  Backend  : http://localhost:${BACKEND_PORT}"
+[[ "${RUN_FRONTEND}" -eq 1 ]] && echo "  Frontend : http://localhost:${FRONTEND_PORT}"
+echo "============================================================"
+echo "  Press Ctrl+C to stop."
 echo ""
 
 # Monitor loop: stop if any running process exits

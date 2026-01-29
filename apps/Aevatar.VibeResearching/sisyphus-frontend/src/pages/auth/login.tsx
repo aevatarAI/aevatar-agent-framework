@@ -1,22 +1,29 @@
 import React, { useState, useEffect } from "react"
 import { Link, useNavigate } from "react-router-dom"
-import { LogIn, Loader2 } from "lucide-react"
+import { LogIn, Loader2, User } from "lucide-react"
 import { AuthLayout, SocialLoginButtons } from "@/components/auth"
 import { Button } from "@/components/ui/button"
-import { EmailInput, PasswordInput } from "@/components/ui/input"
+import { Input, PasswordInput } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
-import { mockLogin, mockSocialLogin, getDemoCredentials } from "@/lib/mock/auth"
+import { abpLogin, type AuthResponse } from "@/lib/abp"
+
+// Demo credentials for testing (remove in production)
+const getDemoCredentials = () => ({
+  admin: { email: "admin", password: "1q2w3E*" },  // ABP default
+  user: { email: "user@sisyphus.ai", password: "User@123" },
+})
 import { useAuthStore } from "@/store/auth-store"
 import {
   isGoogleConfigured,
   isGitHubConfigured,
   signInWithGoogle,
   initiateGitHubLogin,
-  mockGitHubLogin,
-  oauthConfig,
 } from "@/lib/oauth"
 import type { OAuthUser } from "@/lib/oauth"
+
+// OAuth feature flag - set VITE_ENABLE_OAUTH=false to disable
+const OAUTH_ENABLED = import.meta.env.VITE_ENABLE_OAUTH !== 'false'
 
 // ============================================================
 //  Login Page - Email/Password + OAuth Social Login
@@ -54,7 +61,7 @@ export default function LoginPage() {
     setIsLoading(true)
 
     try {
-      const result = await mockLogin({ email, password, rememberMe })
+      const result: AuthResponse = await abpLogin({ email, password, rememberMe })
       
       if (result.success && result.user) {
         login(result.user)
@@ -93,16 +100,6 @@ export default function LoginPage() {
         if (result.success && result.user) {
           login(convertOAuthUser(result.user))
           navigate("/app")
-        } else if (result.error && oauthConfig.features.enableMockAuth) {
-          // One Tap failed, fallback to mock in dev mode
-          console.info('[OAuth] One Tap failed, using mock login in dev mode')
-          const mockResult = await mockSocialLogin("google")
-          if (mockResult.success && mockResult.user) {
-            login(mockResult.user)
-            navigate("/app")
-          } else {
-            setError(mockResult.error || "Google login failed")
-          }
         } else {
           // Show user-friendly message
           const friendlyError = result.error?.includes('unavailable') || result.error?.includes('skipped')
@@ -111,14 +108,8 @@ export default function LoginPage() {
           setError(friendlyError)
         }
       } else {
-        // Fallback to mock when not configured
-        const result = await mockSocialLogin("google")
-        if (result.success && result.user) {
-          login(result.user)
-          navigate("/app")
-        } else {
-          setError(result.error || "Google login failed")
-        }
+        // Google OAuth not configured
+        setError("Google OAuth not configured. Please use email/password login.")
       }
     } catch {
       setError("An unexpected error occurred. Please try again.")
@@ -135,24 +126,8 @@ export default function LoginPage() {
       setIsLoading(true)
       initiateGitHubLogin()
       // Page will redirect, no need to handle response here
-    } else if (oauthConfig.features.enableMockAuth) {
-      // Fallback to mock
-      setIsLoading(true)
-      try {
-        const result = await mockGitHubLogin()
-        if (result.success && result.user) {
-          login(convertOAuthUser(result.user))
-          navigate("/app")
-        } else {
-          setError(result.error || "GitHub login failed")
-        }
-      } catch {
-        setError("An unexpected error occurred. Please try again.")
-      } finally {
-        setIsLoading(false)
-      }
     } else {
-      setError("GitHub OAuth not configured")
+      setError("GitHub OAuth not configured. Please use email/password login.")
     }
   }
 
@@ -175,21 +150,23 @@ export default function LoginPage() {
           </div>
         )}
 
-        {/* OAuth Status (dev info) */}
-        {oauthStatus && import.meta.env.DEV && (
+        {/* OAuth Status (dev info) - Only show when OAuth enabled */}
+        {OAUTH_ENABLED && oauthStatus && import.meta.env.DEV && (
           <div className="p-2 rounded-lg bg-neon-cyan/10 border border-neon-cyan/30 text-neon-cyan text-xs text-center">
             {oauthStatus}
           </div>
         )}
 
-        {/* Email Field */}
+        {/* Username/Email Field */}
         <div className="space-y-2">
           <label htmlFor="email" className="text-sm font-medium text-text-secondary">
-            Email
+            Username or Email
           </label>
-          <EmailInput
+          <Input
             id="email"
-            placeholder="Enter your email"
+            type="text"
+            icon={User}
+            placeholder="Enter username or email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
@@ -246,12 +223,14 @@ export default function LoginPage() {
           {isLoading ? "Signing in..." : "Sign In"}
         </Button>
 
-        {/* Social Login */}
-        <SocialLoginButtons
-          onGoogleLogin={handleGoogleLogin}
-          onGithubLogin={handleGithubLogin}
-          isLoading={isLoading}
-        />
+        {/* Social Login - Controlled by VITE_ENABLE_OAUTH */}
+        {OAUTH_ENABLED && (
+          <SocialLoginButtons
+            onGoogleLogin={handleGoogleLogin}
+            onGithubLogin={handleGithubLogin}
+            isLoading={isLoading}
+          />
+        )}
 
         {/* Register Link */}
         <p className="text-center text-sm text-text-muted">

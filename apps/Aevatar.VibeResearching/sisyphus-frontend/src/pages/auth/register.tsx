@@ -6,8 +6,11 @@ import { Button } from "@/components/ui/button"
 import { Input, EmailInput, PasswordInput } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
-import { mockRegister, mockSocialLogin } from "@/lib/mock/auth"
+import { abpRegister, type AuthResponse } from "@/lib/abp"
 import { useAuthStore } from "@/store/auth-store"
+
+// OAuth feature flag - set VITE_ENABLE_OAUTH=false to disable
+const OAUTH_ENABLED = import.meta.env.VITE_ENABLE_OAUTH !== 'false'
 
 // ============================================================
 //  Register Page - Create New Account
@@ -56,7 +59,7 @@ export default function RegisterPage() {
       const firstName = nameParts[0] || ""
       const lastName = nameParts.slice(1).join(" ") || ""
 
-      const result = await mockRegister({
+      const result: AuthResponse = await abpRegister({
         userName: formData.email.split("@")[0],
         email: formData.email,
         password: formData.password,
@@ -77,24 +80,10 @@ export default function RegisterPage() {
     }
   }
 
-  const handleSocialLogin = async (provider: "google" | "github") => {
-    setError("")
-    setIsLoading(true)
-
-    try {
-      const result = await mockSocialLogin(provider)
-      
-      if (result.success && result.user) {
-        login(result.user)
-        navigate("/app")
-      } else {
-        setError(result.error || "Social login failed")
-      }
-    } catch (err) {
-      setError("An unexpected error occurred. Please try again.")
-    } finally {
-      setIsLoading(false)
-    }
+  const handleSocialLogin = async (_provider: "google" | "github") => {
+    // TODO: Implement ABP external login flow
+    // ABP external login requires server-side OAuth flow
+    setError("Social login is not yet configured. Please use email registration.")
   }
 
   return (
@@ -208,12 +197,14 @@ export default function RegisterPage() {
           {isLoading ? "Creating account..." : "Create Account"}
         </Button>
 
-        {/* Social Login */}
-        <SocialLoginButtons
-          onGoogleLogin={() => handleSocialLogin("google")}
-          onGithubLogin={() => handleSocialLogin("github")}
-          isLoading={isLoading}
-        />
+        {/* Social Login - Controlled by VITE_ENABLE_OAUTH */}
+        {OAUTH_ENABLED && (
+          <SocialLoginButtons
+            onGoogleLogin={() => handleSocialLogin("google")}
+            onGithubLogin={() => handleSocialLogin("github")}
+            isLoading={isLoading}
+          />
+        )}
 
         {/* Login Link */}
         <p className="text-center text-sm text-text-muted">

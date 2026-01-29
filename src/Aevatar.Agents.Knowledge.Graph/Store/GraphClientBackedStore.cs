@@ -45,6 +45,12 @@ internal sealed class GraphClientBackedStore : IKnowledgeGraphStore
     private const string PropCancelledByPivotId = "cancelledByPivotId";
     private const string PropDirectionContext = "directionContext";
 
+    // Review Agent properties
+    private const string PropLastReviewedAt = "lastReviewedAt";
+    private const string PropIsActivated = "isActivated";
+    private const string PropDeactivatedReason = "deactivatedReason";
+    private const string PropDeactivatedTimestamp = "deactivatedTimestamp";
+
     // PlanNode-specific properties
     private const string PropPlanStatus = "planStatus";
     private const string PropProgressText = "progressText";
@@ -179,6 +185,18 @@ internal sealed class GraphClientBackedStore : IKnowledgeGraphStore
         if (node.DirectionContext != null)
             properties[PropDirectionContext] = new StringValue(node.DirectionContext);
 
+        // Review Agent fields
+        if (node.LastReviewedAt.HasValue)
+            properties[PropLastReviewedAt] = new StringValue(node.LastReviewedAt.Value.ToString("O"));
+
+        properties[PropIsActivated] = new StringValue(node.IsActivated.ToString());
+
+        if (node.DeactivatedReason != null)
+            properties[PropDeactivatedReason] = new StringValue(node.DeactivatedReason);
+
+        if (node.DeactivatedTimestamp.HasValue)
+            properties[PropDeactivatedTimestamp] = new StringValue(node.DeactivatedTimestamp.Value.ToString("O"));
+
         await _graphClient.WriteAsync(KnowledgeNodeGraphType, properties);
     }
 
@@ -256,6 +274,13 @@ internal sealed class GraphClientBackedStore : IKnowledgeGraphStore
         var cancelledByPivotId = GetStringProp(props, PropCancelledByPivotId, null);
         var directionContext = GetStringProp(props, PropDirectionContext, null);
 
+        // Review Agent fields
+        var lastReviewedAt = GetNullableDateTimeOffsetProp(props, PropLastReviewedAt);
+        var isActivatedStr = GetStringProp(props, PropIsActivated, "True");
+        var isActivated = bool.TryParse(isActivatedStr, out var ia) ? ia : true;
+        var deactivatedReason = GetStringProp(props, PropDeactivatedReason, null);
+        var deactivatedTimestamp = GetNullableDateTimeOffsetProp(props, PropDeactivatedTimestamp);
+
         return new KnowledgeNode
         {
             Id = nodeId,
@@ -275,7 +300,12 @@ internal sealed class GraphClientBackedStore : IKnowledgeGraphStore
             PivotStatus = pivotStatus,
             CancelledAt = cancelledAt,
             CancelledByPivotId = cancelledByPivotId,
-            DirectionContext = directionContext
+            DirectionContext = directionContext,
+            // Review Agent fields
+            LastReviewedAt = lastReviewedAt,
+            IsActivated = isActivated,
+            DeactivatedReason = deactivatedReason,
+            DeactivatedTimestamp = deactivatedTimestamp
         };
     }
 

@@ -67,7 +67,8 @@ public static partial class LlmSecretsApi
         string Category,
         string Description,
         bool Recommended,
-        int ConfiguredInstancesCount);
+        int ConfiguredInstancesCount,
+        bool ApiKeyConfigured);
 
     private sealed record ProviderInstanceItem(
         string Name,

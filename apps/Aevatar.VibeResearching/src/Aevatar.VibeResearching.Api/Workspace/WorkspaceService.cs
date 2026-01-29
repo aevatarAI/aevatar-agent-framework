@@ -161,7 +161,18 @@ public sealed class WorkspaceService
 
     private string ResolveSystemRoot()
     {
-        // contentRoot: apps/Aevatar.VibeResearching/src/VibeResearching.Api
+        // Docker/Production: use VIBE_WORKSPACE_ROOT env var if set
+        // This allows containerized deployments to specify workspace location
+        var envRoot = Environment.GetEnvironmentVariable("VIBE_WORKSPACE_ROOT");
+        if (!string.IsNullOrWhiteSpace(envRoot))
+        {
+            var resolved = Path.GetFullPath(envRoot.Trim());
+            Directory.CreateDirectory(resolved); // Ensure it exists
+            return resolved;
+        }
+
+        // Local development: contentRoot is apps/Aevatar.VibeResearching/src/VibeResearching.Api
+        // Go up two levels to get project root
         var contentRoot = _env.ContentRootPath;
         return Path.GetFullPath(Path.Combine(contentRoot, "..", ".."));
     }

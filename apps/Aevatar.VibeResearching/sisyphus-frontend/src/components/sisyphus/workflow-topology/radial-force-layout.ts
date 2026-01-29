@@ -270,7 +270,6 @@ function assignComponentRegions(
   // Single component: center it
   if (componentCount === 1) {
     const [compId, nodes] = Array.from(componentGroups.entries())[0]
-    const maxLevel = Math.max(1, ...nodes.map(n => n.level || 1))
     regions.set(compId, {
       id: compId,
       nodeIds: new Set(nodes.map(n => n.id)),
@@ -297,9 +296,6 @@ function assignComponentRegions(
   const canvasCenterX = width / 2
   const canvasCenterY = height / 2
   const maxDimension = Math.min(width, height)
-
-  // Calculate total "weight" for proportional spacing
-  const totalSize = sortedComponents.reduce((sum, c) => sum + Math.sqrt(c.size), 0)
 
   // Arrange components in concentric rings
   // Large component(s) in center, smaller ones around

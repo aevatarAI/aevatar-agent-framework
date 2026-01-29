@@ -25,7 +25,7 @@ public static partial class LlmSecretsApi
             HttpContext http) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             var providers = ProviderCatalog.BuildProviderTypes(secrets);
             return Results.Json(new { ok = true, providers });
@@ -37,7 +37,7 @@ public static partial class LlmSecretsApi
             HttpContext http) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             var instances = ProviderCatalog.BuildInstances(secrets);
             return Results.Json(new { ok = true, instances });
@@ -52,7 +52,7 @@ public static partial class LlmSecretsApi
             HttpContext http) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             secrets.TryGet("LLMProviders:Embeddings:ProviderType", out var providerType);
             secrets.TryGet("LLMProviders:Embeddings:Model", out var model);
@@ -87,7 +87,7 @@ public static partial class LlmSecretsApi
             HttpContext http) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             if (!secrets.TryGet("LLMProviders:Embeddings:ApiKey", out var value) || string.IsNullOrWhiteSpace(value))
             {
@@ -127,7 +127,7 @@ public static partial class LlmSecretsApi
             HttpContext http) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             if (req.Enabled.HasValue)
             {
@@ -155,7 +155,7 @@ public static partial class LlmSecretsApi
             HttpContext http) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             var removed = new Dictionary<string, bool>
             {
@@ -175,7 +175,7 @@ public static partial class LlmSecretsApi
             HttpContext http) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             EnsureDefaultProviderKeyBestEffort(secrets, preferredProvider: null);
             var effective = ResolveEffectiveDefaultProviderName(secrets);
@@ -188,7 +188,7 @@ public static partial class LlmSecretsApi
             HttpContext http) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             var name = (req.ProviderName ?? string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(name))
@@ -208,7 +208,7 @@ public static partial class LlmSecretsApi
             HttpContext http) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             var resolved = LlmProviderResolver.Resolve(secrets, providerName);
             return Results.Json(new { ok = true, provider = resolved.Public });
@@ -222,7 +222,7 @@ public static partial class LlmSecretsApi
             CancellationToken ct) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             var resolved = LlmProviderResolver.Resolve(secrets, providerName);
             var result = await LlmSecretsProbe.TestAsync(resolved, ct);
@@ -238,7 +238,7 @@ public static partial class LlmSecretsApi
             CancellationToken ct) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             var resolved = LlmProviderResolver.Resolve(secrets, providerName);
             var result = await LlmSecretsProbe.FetchModelsAsync(resolved, limit ?? 200, ct);
@@ -253,7 +253,7 @@ public static partial class LlmSecretsApi
             HttpContext http) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             var name = (providerName ?? string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(name))
@@ -296,13 +296,14 @@ public static partial class LlmSecretsApi
         });
 
         // Legacy: set API key for a specific instance name
+        // Also ensures ProviderType, Endpoint, and Model are set from profile defaults if missing.
         app.MapPost("/api/llm/api-key", (
             SetLlmApiKeyRequest req,
             IAevatarUserSecretsStore secrets,
             HttpContext http) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             var providerName = (req.ProviderName ?? "").Trim();
             if (string.IsNullOrWhiteSpace(providerName))
@@ -314,6 +315,33 @@ public static partial class LlmSecretsApi
 
             var keyPath = $"LLMProviders:Providers:{providerName}:ApiKey";
             secrets.Set(keyPath, apiKey);
+
+            // Ensure ProviderType, Endpoint, and Model are set from profile defaults if not already configured.
+            // This fixes the issue where only API key is saved but endpoint/model use wrong defaults.
+            var providerType = providerName;
+            if (ProviderProfiles.TryInferProviderTypeFromInstanceName(providerName, out var inferred))
+                providerType = inferred;
+
+            var profile = ProviderProfiles.Get(providerType);
+
+            var providerTypePath = $"LLMProviders:Providers:{providerName}:ProviderType";
+            if (!secrets.TryGet(providerTypePath, out var existingPt) || string.IsNullOrWhiteSpace(existingPt))
+                secrets.Set(providerTypePath, providerType);
+
+            var endpointPath = $"LLMProviders:Providers:{providerName}:Endpoint";
+            if (!secrets.TryGet(endpointPath, out var existingEp) || string.IsNullOrWhiteSpace(existingEp))
+            {
+                if (!string.IsNullOrWhiteSpace(profile.DefaultEndpoint))
+                    secrets.Set(endpointPath, profile.DefaultEndpoint);
+            }
+
+            var modelPath = $"LLMProviders:Providers:{providerName}:Model";
+            if (!secrets.TryGet(modelPath, out var existingModel) || string.IsNullOrWhiteSpace(existingModel))
+            {
+                if (!string.IsNullOrWhiteSpace(profile.DefaultModel))
+                    secrets.Set(modelPath, profile.DefaultModel);
+            }
+
             EnsureDefaultProviderKeyBestEffort(secrets, providerName);
 
             return Results.Json(new { ok = true, providerName, keyPath });
@@ -326,7 +354,7 @@ public static partial class LlmSecretsApi
             HttpContext http) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             var name = (req.ProviderName ?? string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(name))
@@ -393,7 +421,7 @@ public static partial class LlmSecretsApi
             HttpContext http) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             var name = (providerName ?? string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(name))
@@ -412,7 +440,7 @@ public static partial class LlmSecretsApi
             HttpContext http) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             var key = (req.Key ?? "").Trim();
             if (string.IsNullOrWhiteSpace(key))
@@ -432,7 +460,7 @@ public static partial class LlmSecretsApi
             HttpContext http) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             var key = (req.Key ?? "").Trim();
             if (string.IsNullOrWhiteSpace(key))
@@ -453,7 +481,7 @@ public static partial class LlmSecretsApi
             CancellationToken ct) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             var providerType = (req.ProviderType ?? string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(providerType))
@@ -502,7 +530,7 @@ public static partial class LlmSecretsApi
             CancellationToken ct) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             var providerType = (req.ProviderType ?? string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(providerType))
@@ -559,7 +587,7 @@ public static partial class LlmSecretsApi
             HttpContext http) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             var name = (providerName ?? string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(name))
@@ -619,7 +647,7 @@ public static partial class LlmSecretsApi
         app.MapGet("/api/trash/api-keys", (IAevatarUserSecretsStore secrets, HttpContext http) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             var all = secrets.GetAll();
             var list = new List<TrashedApiKeyListItem>(capacity: 16);
@@ -678,7 +706,7 @@ public static partial class LlmSecretsApi
             HttpContext http) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             var name = (providerName ?? string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(name))
@@ -705,7 +733,7 @@ public static partial class LlmSecretsApi
             HttpContext http) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             var name = (providerName ?? string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(name))
@@ -757,6 +785,11 @@ public static partial class LlmSecretsApi
 
     private static bool IsLocal(HttpContext ctx)
     {
+        // Allow disabling local check for trusted Docker environments
+        var allowRemote = Environment.GetEnvironmentVariable("ALLOW_REMOTE_LLM_API");
+        if (string.Equals(allowRemote, "true", StringComparison.OrdinalIgnoreCase))
+            return true;
+
         var ip = ctx.Connection.RemoteIpAddress;
         return ip == null || System.Net.IPAddress.IsLoopback(ip);
     }

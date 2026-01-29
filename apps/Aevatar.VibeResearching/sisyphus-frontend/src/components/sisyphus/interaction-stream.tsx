@@ -1,12 +1,15 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback, memo } from 'react';
+import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { useSisyphusStore, type AgentMessage } from '@/store/sisyphus-store';
-import { useStreamContentStore, selectAgentStream, type AgentStreamState } from '@/store/stream-content-store';
+import { useSisyphusStore } from '@/store/sisyphus-store';
+import { useStreamContentStore, selectAgentStream } from '@/store/stream-content-store';
 import { cn } from '@/lib/utils';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogCloseButton } from '@/components/ui/dialog';
 import Composer from './composer';
 import ToolOutputDisplay from './tool-output-display';
+import AgentTimeline from './agent-timeline';
+import WorkflowSteps from './workflow-steps';
 import type { ChatMessage, ToolOutput } from '@/types';
 
 // ============================================================
@@ -102,9 +105,328 @@ const AgentChipWithStream: React.FC<{ agentName: string; onClick: () => void }> 
   );
 });
 
+// ============================================================
+//  Agent Dashboard Drawer - Slides in from right
+// ============================================================
+interface AgentDashboardDrawerProps {
+  open: boolean;
+  onClose: () => void;
+  agentNames: string[];
+}
+
+const AgentDashboardDrawer: React.FC<AgentDashboardDrawerProps> = memo(({ open, onClose, agentNames }) => {
+  // Prevent body scroll when drawer is open
+  useEffect(() => {
+    if (open) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [open]);
+
+  if (!open) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-50">
+      {/* Backdrop */}
+      <div 
+        className="absolute inset-0 bg-bg-base/60 backdrop-blur-sm animate-in fade-in duration-200"
+        onClick={onClose}
+      />
+      
+      {/* Drawer Panel */}
+      <div className={cn(
+        "absolute top-0 right-0 h-full w-full max-w-2xl",
+        "bg-bg-surface/95 backdrop-blur-md border-l border-border-default",
+        "shadow-2xl shadow-black/20",
+        "animate-in slide-in-from-right duration-300",
+        "flex flex-col"
+      )}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border-default">
+          <div className="flex items-center gap-3">
+            <div className="size-9 rounded-lg bg-neon-gold/20 flex items-center justify-center">
+              <svg className="size-5 text-neon-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-base font-display font-semibold text-neon-gold tracking-wide">Agent Dashboard</h2>
+              <p className="text-[10px] text-text-muted">Multi-agent work visualization</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="size-8 rounded-lg flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-surface-elevated transition-colors"
+          >
+            <svg className="size-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          {/* Status Overview - Timeline and Steps side by side on larger screens */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <AgentTimeline agentNames={agentNames} />
+            <WorkflowSteps />
+          </div>
+          
+          {/* Agent Cards */}
+          <div className="space-y-3">
+            <h3 className="text-xs font-display font-medium text-text-muted tracking-wider">AGENT OUTPUTS</h3>
+            <div className="grid grid-cols-1 gap-3">
+              {agentNames.map((name) => (
+                <DrawerAgentCard key={name} agentName={name} />
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+});
+
+// Compact agent card for the drawer
+const DrawerAgentCard: React.FC<{ agentName: string }> = memo(({ agentName }) => {
+  const [collapsed, setCollapsed] = useState(true);
+  const streamData = useStreamContentStore(selectAgentStream(agentName));
+  const llmStatus = useSisyphusStore((s) => s.agentLlmStatus[agentName]);
+  
+  const content = streamData?.content || '';
+  const isStreaming = streamData?.isStreaming || false;
+  const isFinal = streamData?.isFinal || false;
+  const tokenCount = streamData?.tokenCount || 0;
+  const stepName = streamData?.stepName;
+  
+  const isRequesting = llmStatus?.phase === 'llm.request';
+  const llmModel = llmStatus?.model;
+  
+  const preview = useMemo(() => {
+    const text = content.replace(/\s+/g, ' ').trim();
+    if (text.length <= 150) return text;
+    return text.slice(0, 150) + '…';
+  }, [content]);
+  
+  const hasContent = Boolean(content);
+
+  return (
+    <div className={cn(
+      "rounded-lg border overflow-hidden transition-all",
+      isStreaming 
+        ? "border-neon-cyan bg-neon-cyan/5" 
+        : isFinal
+          ? "border-neon-green/50 bg-neon-green/5"
+          : hasContent 
+            ? "border-border-default bg-bg-surface" 
+            : "border-border-subtle bg-bg-surface/60"
+    )}>
+      {/* Header */}
+      <div
+        className={cn(
+          "px-3 py-2 flex items-center justify-between gap-2 cursor-pointer",
+          isStreaming ? "bg-neon-cyan/10" : isFinal ? "bg-neon-green/10" : "bg-surface-elevated/30"
+        )}
+        onClick={() => hasContent && setCollapsed(!collapsed)}
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <div className={cn(
+            "size-6 rounded flex items-center justify-center text-[10px] font-bold flex-shrink-0",
+            isStreaming ? "bg-neon-cyan/20 text-neon-cyan" : isFinal ? "bg-neon-green/20 text-neon-green" : "bg-surface-elevated text-text-muted"
+          )}>
+            {agentName.charAt(0).toUpperCase()}
+          </div>
+          <span className={cn(
+            "text-xs font-semibold capitalize truncate",
+            isStreaming ? "text-neon-cyan" : isFinal ? "text-neon-green" : "text-text-primary"
+          )}>
+            {agentName.replace(/_/g, ' ')}
+          </span>
+          {isStreaming && (
+            <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-neon-cyan text-bg-base font-bold animate-pulse flex-shrink-0">LIVE</span>
+          )}
+          {isRequesting && (
+            <span className="text-[8px] px-1.5 py-0.5 rounded bg-neon-gold/20 text-neon-gold font-mono flex-shrink-0">
+              LLM {llmModel ? `· ${llmModel}` : ''}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <span className="text-[9px] text-text-muted font-mono tabular-nums">{tokenCount} tok</span>
+          {stepName && <span className="text-[9px] text-text-dimmed truncate max-w-[80px]">{stepName}</span>}
+          {hasContent && (
+            <svg className={cn("size-3 text-text-muted transition-transform", !collapsed && "rotate-180")} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          )}
+        </div>
+      </div>
+      
+      {/* Content */}
+      {!collapsed && hasContent && (
+        <div className="px-3 py-2 border-t border-border-subtle max-h-48 overflow-y-auto">
+          <p className="text-[11px] text-text-secondary leading-relaxed whitespace-pre-wrap">
+            {content}
+            {isStreaming && <span className="text-neon-cyan animate-pulse">▌</span>}
+          </p>
+        </div>
+      )}
+      
+      {/* Preview when collapsed */}
+      {collapsed && preview && (
+        <div className="px-3 py-1.5 border-t border-border-subtle">
+          <p className="text-[10px] text-text-muted truncate">
+            {preview}
+            {isStreaming && <span className="text-neon-cyan animate-pulse">▌</span>}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+});
+
+// Inline expanded agent detail card (shown below chips when selected)
+const AgentExpandedCard: React.FC<{ agentName: string; onClose: () => void }> = memo(({ agentName, onClose }) => {
+  const streamData = useStreamContentStore(selectAgentStream(agentName));
+  const llmStatus = useSisyphusStore((s) => s.agentLlmStatus[agentName]);
+  const sessionStatus = useSisyphusStore((s) => s.sessionStatus);
+  
+  const runningTools = useMemo(() => {
+    if (!sessionStatus) return [];
+    return sessionStatus.runningTools.filter(
+      (t) => t.targetAgent.toLowerCase() === agentName.toLowerCase()
+    );
+  }, [sessionStatus, agentName]);
+  
+  const agentStatusFromApi = useMemo(() => {
+    if (!sessionStatus) return null;
+    return sessionStatus.agents.find(
+      (a) => a.agent.toLowerCase() === agentName.toLowerCase()
+    ) || null;
+  }, [sessionStatus, agentName]);
+
+  const content = streamData?.content || '';
+  const isStreaming = streamData?.isStreaming || false;
+  const isFinal = streamData?.isFinal || false;
+  const tokenCount = streamData?.tokenCount || 0;
+  const stepName = streamData?.stepName || agentStatusFromApi?.stepName;
+  
+  const isRequesting = llmStatus?.phase === 'llm.request';
+  const llmModel = llmStatus?.model;
+  
+  // Format LLM duration
+  const llmDuration = useMemo(() => {
+    if (!isRequesting || !llmStatus?.timestamp) return "";
+    const diffSec = Math.floor((Date.now() - llmStatus.timestamp) / 1000);
+    return diffSec < 1 ? "<1s" : `${diffSec}s`;
+  }, [isRequesting, llmStatus?.timestamp]);
+  
+  const preview = useMemo(() => {
+    const text = content.replace(/\s+/g, ' ').trim();
+    if (text.length <= 200) return text;
+    return text.slice(0, 200) + '…';
+  }, [content]);
+
+  return (
+    <div className={cn(
+      "mt-2 rounded-lg border overflow-hidden animate-in slide-in-from-top-2 duration-200",
+      isStreaming 
+        ? "border-neon-cyan bg-neon-cyan/5" 
+        : isFinal
+          ? "border-neon-green/50 bg-neon-green/5"
+          : "border-border-default bg-bg-surface"
+    )}>
+      {/* Header */}
+      <div className={cn(
+        "px-3 py-2 flex items-center justify-between gap-2",
+        isStreaming ? "bg-neon-cyan/10" : isFinal ? "bg-neon-green/10" : "bg-surface-elevated/50"
+      )}>
+        <div className="flex items-center gap-2 min-w-0">
+          <div className={cn(
+            "size-6 rounded flex items-center justify-center text-[10px] font-bold flex-shrink-0",
+            isStreaming ? "bg-neon-cyan/20 text-neon-cyan" : isFinal ? "bg-neon-green/20 text-neon-green" : "bg-surface-elevated text-text-muted"
+          )}>
+            {agentName.charAt(0).toUpperCase()}
+          </div>
+          <span className={cn(
+            "text-xs font-semibold capitalize truncate",
+            isStreaming ? "text-neon-cyan" : isFinal ? "text-neon-green" : "text-text-primary"
+          )}>
+            {agentName.replace(/_/g, ' ')}
+          </span>
+          {isStreaming && (
+            <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-neon-cyan text-bg-base font-bold animate-pulse flex-shrink-0">LIVE</span>
+          )}
+        </div>
+        <button
+          onClick={onClose}
+          className="size-5 rounded flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-surface-elevated transition-colors flex-shrink-0"
+        >
+          <svg className="size-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      
+      {/* Status Row */}
+      <div className="px-3 py-1.5 flex items-center gap-2 text-[9px] text-text-muted border-b border-border-subtle">
+        <span className="font-mono tabular-nums">{tokenCount} tok</span>
+        {stepName && (
+          <>
+            <span className="text-border-subtle">·</span>
+            <span className="truncate">{stepName}</span>
+          </>
+        )}
+      </div>
+      
+      {/* Activity Status */}
+      {(isRequesting || runningTools.length > 0) && (
+        <div className="px-3 py-1.5 space-y-1 border-b border-border-subtle bg-bg-elevated/30">
+          {isRequesting && (
+            <div className="flex items-center gap-2 text-[9px] text-neon-gold">
+              <svg className="size-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              <span className="font-mono">LLM: {llmModel || 'requesting'}</span>
+              {llmDuration && <span className="font-mono tabular-nums ml-auto">{llmDuration}</span>}
+            </div>
+          )}
+          {runningTools.map((tool) => (
+            <div key={tool.toolCallId} className="flex items-center gap-2 text-[9px] text-neon-purple">
+              <svg className="size-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              <span className="font-mono truncate">{tool.toolName}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      
+      {/* Content Preview */}
+      <div className="px-3 py-2 max-h-32 overflow-y-auto">
+        {preview ? (
+          <p className="text-[11px] text-text-secondary leading-relaxed">
+            {preview}
+            {isStreaming && <span className="text-neon-cyan animate-pulse">▌</span>}
+          </p>
+        ) : (
+          <p className="text-[10px] text-text-dimmed italic">Waiting for output…</p>
+        )}
+      </div>
+    </div>
+  );
+});
+
 const AgentsPanel: React.FC<AgentsPanelProps> = memo(({ agentNames, isVibeMode, hasActiveRun }) => {
-  const [showModal, setShowModal] = useState(false);
-  const [selectedAgentName, setSelectedAgentName] = useState<string | null>(null);
+  const [showDrawer, setShowDrawer] = useState(false);
+  const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   
   // Get streaming count from isolated store
   const streamingCount = useStreamContentStore((s) => 
@@ -115,12 +437,8 @@ const AgentsPanel: React.FC<AgentsPanelProps> = memo(({ agentNames, isVibeMode, 
   if (!isVibeMode || !hasActiveRun || agentNames.length === 0) return null;
 
   const handleChipClick = (agentName: string) => {
-    setSelectedAgentName(agentName);
-    setShowModal(true);
-  };
-
-  const handleBack = () => {
-    setSelectedAgentName(null);
+    // Toggle: if same agent clicked, collapse; else expand new one
+    setExpandedAgent(prev => prev === agentName ? null : agentName);
   };
 
   return (
@@ -137,10 +455,27 @@ const AgentsPanel: React.FC<AgentsPanelProps> = memo(({ agentNames, isVibeMode, 
           </span>
         </div>
         <button
-          onClick={() => { setSelectedAgentName(null); setShowModal(true); }}
-          className="text-[9px] px-2 py-0.5 rounded border border-border-subtle text-text-muted hover:text-neon-gold hover:border-neon-gold/40 transition-colors"
+          onClick={() => setShowDrawer(true)}
+          className={cn(
+            "group relative text-[10px] font-medium px-3 py-1.5 rounded-lg transition-all duration-300 flex items-center gap-1.5",
+            "bg-gradient-to-r from-neon-gold/20 to-neon-gold/10",
+            "border border-neon-gold/50 text-neon-gold",
+            "hover:from-neon-gold/30 hover:to-neon-gold/20 hover:border-neon-gold hover:shadow-glow-gold",
+            "active:scale-95"
+          )}
         >
-          VIEW ALL
+          {/* Pulse indicator */}
+          <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-neon-gold animate-ping opacity-75" />
+          <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-neon-gold" />
+          
+          {/* Icon */}
+          <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
+          </svg>
+          <span>Dashboard</span>
+          <svg className="size-3 transition-transform group-hover:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
         </button>
       </div>
 
@@ -154,21 +489,27 @@ const AgentsPanel: React.FC<AgentsPanelProps> = memo(({ agentNames, isVibeMode, 
           />
         ))}
       </div>
+      
+      {/* Inline Expanded Agent Card */}
+      {expandedAgent && (
+        <AgentExpandedCard 
+          agentName={expandedAgent} 
+          onClose={() => setExpandedAgent(null)} 
+        />
+      )}
 
-      {/* Agent Detail Modal - uses isolated stream store internally */}
-      <Dialog open={showModal} onOpenChange={setShowModal}>
-        {selectedAgentName ? (
-          <AgentDetailModalWithStream agentName={selectedAgentName} onBack={handleBack} />
-        ) : (
-          <AllAgentsModalWithStream agentNames={agentNames} onSelectAgent={setSelectedAgentName} />
-        )}
-      </Dialog>
+      {/* Full Dashboard Drawer */}
+      <AgentDashboardDrawer 
+        open={showDrawer} 
+        onClose={() => setShowDrawer(false)}
+        agentNames={agentNames}
+      />
     </div>
   );
 });
 
-// Agent detail modal using isolated stream store
-const AgentDetailModalWithStream: React.FC<{ agentName: string; onBack: () => void }> = ({ agentName, onBack }) => {
+// Agent detail modal using isolated stream store (reserved for future use)
+export const AgentDetailModalWithStream: React.FC<{ agentName: string; onBack: () => void }> = ({ agentName, onBack }) => {
   const streamData = useStreamContentStore(selectAgentStream(agentName));
   
   if (!streamData) return null;
@@ -252,8 +593,8 @@ const AgentDetailModalWithStream: React.FC<{ agentName: string; onBack: () => vo
   );
 };
 
-// All agents modal using isolated stream store
-const AllAgentsModalWithStream: React.FC<{ 
+// All agents modal using isolated stream store (reserved for future use)
+export const AllAgentsModalWithStream: React.FC<{ 
   agentNames: string[]; 
   onSelectAgent: (name: string) => void;
 }> = ({ agentNames, onSelectAgent }) => {
@@ -345,9 +686,38 @@ interface MessageBubbleProps {
   formatTime: (timestamp: number) => string;
 }
 
+// System message bubble for interruption responses
+const SystemMessageBubble: React.FC<{ message: ChatMessage; formatTime: (timestamp: number) => string }> = memo(({ message, formatTime }) => {
+  return (
+    <div className="mx-auto max-w-xl animate-fade-in">
+      <div className="rounded-lg border border-neon-violet/30 bg-neon-violet/10 px-4 py-3">
+        <div className="flex items-center gap-2 mb-2">
+          <div className="size-5 rounded flex items-center justify-center bg-neon-violet/20">
+            <svg className="w-3 h-3 text-neon-violet" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <span className="text-[10px] font-mono text-neon-violet tracking-wider">SYSTEM</span>
+          <span className="text-[9px] text-text-dimmed font-mono tabular-nums ml-auto">
+            {formatTime(message.timestamp)}
+          </span>
+        </div>
+        <p className="text-sm text-text-primary leading-relaxed">{message.content}</p>
+      </div>
+    </div>
+  );
+});
+
 const MessageBubble: React.FC<MessageBubbleProps> = ({ message, index, formatTime }) => {
   const [collapsed, setCollapsed] = useState(false);
   const isAgent = message.role === 'agent';
+  const isSystem = message.role === 'system';
+
+  // Render system messages with special bubble
+  if (isSystem) {
+    return <SystemMessageBubble message={message} formatTime={formatTime} />;
+  }
+
   const extMessage = message as ChatMessage & { toolOutputs?: ToolOutput[] };
   const hasToolOutputs = Array.isArray(extMessage.toolOutputs) && extMessage.toolOutputs.length > 0;
 
@@ -674,7 +1044,6 @@ const InteractionStream: React.FC<InteractionStreamProps> = ({ sessionId }) => {
   const inputMode = useSisyphusStore((s) => s.inputMode);
   const currentRunId = useSisyphusStore((s) => s.currentRunId);
   const agentRoster = useSisyphusStore((s) => s.agentRoster);
-  const agentProviders = useSisyphusStore((s) => s.agentProviders);
 
   // Use isolated stream store for detecting if RA has content
   const raStreamData = useStreamContentStore(selectAgentStream('research_assistant'));
@@ -740,29 +1109,29 @@ const InteractionStream: React.FC<InteractionStreamProps> = ({ sessionId }) => {
       {/* Header */}
       <div className="flex items-center justify-between mb-5 relative z-10">
         <div className="flex items-center gap-4">
-          <div className="size-10 rounded-lg bg-neon-cyan flex items-center justify-center shadow-glow-cyan">
+          <div className="size-10 rounded-lg bg-neon-cyan shadow-glow-cyan flex items-center justify-center">
             <svg className="size-5 text-bg-base" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
             </svg>
           </div>
           <div>
-            <h2 className="font-display text-sm font-semibold text-neon-cyan tracking-wider text-balance">Interaction Stream</h2>
+            <h2 className="font-display text-sm font-semibold text-neon-cyan tracking-wider text-balance">
+              Interaction Stream
+            </h2>
             <p className="text-xs text-text-muted text-pretty">Research dialogue with Sisyphus</p>
           </div>
         </div>
         
-        <div className="flex items-center gap-3">
-          <span className={cn(
-            "badge flex items-center gap-2",
-            isSending ? "badge-gold" : isConnected ? "badge-green" : "badge-rose"
-          )}>
-            <div className={cn(
-              "w-1.5 h-1.5 rounded-full animate-pulse",
-              isSending ? "bg-neon-gold" : isConnected ? "bg-neon-green" : "bg-neon-rose"
-            )} />
-            {isSending ? 'Sending' : isConnected ? 'Active' : 'Offline'}
-          </span>
-        </div>
+        <span className={cn(
+          "badge flex items-center gap-2",
+          isSending ? "badge-gold" : isConnected ? "badge-green" : "badge-rose"
+        )}>
+          <div className={cn(
+            "w-1.5 h-1.5 rounded-full animate-pulse",
+            isSending ? "bg-neon-gold" : isConnected ? "bg-neon-green" : "bg-neon-rose"
+          )} />
+          {isSending ? 'Sending' : isConnected ? 'Active' : 'Offline'}
+        </span>
       </div>
 
       {/* Content Area */}
@@ -793,28 +1162,28 @@ const InteractionStream: React.FC<InteractionStreamProps> = ({ sessionId }) => {
           </>
         )}
 
-            {/* Research Brief */}
-            {researchBrief && (
-              <div className="card bg-surface-elevated/50 backdrop-blur-sm border-neon-purple/30 p-5 animate-fade-in cyber-corners">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-8 h-8 rounded-lg bg-neon-purple/20 flex items-center justify-center">
-                    <svg className="w-4 h-4 text-neon-purple" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                  </div>
-                  <span className="font-display text-[10px] font-medium text-neon-purple tracking-[0.2em] uppercase">Research Brief</span>
-                </div>
-                
-                <h3 className="text-base font-semibold text-text-primary mb-3">{researchBrief.title}</h3>
-                <p className="text-sm text-text-secondary mb-4 leading-relaxed">{researchBrief.summary}</p>
-                
-                <div className="flex items-center gap-3 flex-wrap">
-                  {researchBrief.keywords.map((keyword, i) => (
-                    <span key={i} className="badge badge-purple text-[10px]">{keyword}</span>
-                  ))}
-                </div>
+        {/* Research Brief */}
+        {researchBrief && (
+          <div className="card bg-surface-elevated/50 backdrop-blur-sm border-neon-purple/30 p-5 animate-fade-in cyber-corners">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-8 h-8 rounded-lg bg-neon-purple/20 flex items-center justify-center">
+                <svg className="w-4 h-4 text-neon-purple" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
               </div>
-            )}
+              <span className="font-display text-[10px] font-medium text-neon-purple tracking-[0.2em] uppercase">Research Brief</span>
+            </div>
+            
+            <h3 className="text-base font-semibold text-text-primary mb-3">{researchBrief.title}</h3>
+            <p className="text-sm text-text-secondary mb-4 leading-relaxed">{researchBrief.summary}</p>
+            
+            <div className="flex items-center gap-3 flex-wrap">
+              {researchBrief.keywords.map((keyword, i) => (
+                <span key={i} className="badge badge-purple text-[10px]">{keyword}</span>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Typing Indicator */}
         {isConnected && isSending && (
@@ -832,7 +1201,7 @@ const InteractionStream: React.FC<InteractionStreamProps> = ({ sessionId }) => {
         <div ref={scrollEndRef} className="h-px" />
       </div>
 
-      {/* Agents Panel (horizontal chips) - uses isolated stream store */}
+      {/* Agents Panel (horizontal chips with inline expand + drawer) */}
       <AgentsPanel 
         agentNames={otherAgentNames}
         isVibeMode={isVibeMode}

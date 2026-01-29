@@ -5,6 +5,7 @@ using Aevatar.Agents.Cognitive.Streaming;
 using Aevatar.Agents.Core.Runtime;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
+using VibeResearching.Api.Vibe;
 using VibeResearching.Contracts.Sessions;
 
 namespace VibeResearching.Api.Sessions;
@@ -452,6 +453,51 @@ public sealed class ResearchSession(string id, DateTimeOffset? createdAt = null)
                 _messageIndex[messageId] = _messages.Count;
                 _messages.Add(new AgUiMessage { Id = messageId, Role = role, Content = delta });
             }
+        }
+    }
+
+    // ------------------------------------------------------------
+    // Interruption context (for direction change handling)
+    //
+    // 中文说明：
+    // - 当用户发送新消息中断当前 run 时，记录中断上下文
+    // - 新 run 可以读取并处理此上下文以执行方向变更等操作
+    // ------------------------------------------------------------
+    private readonly object _interruptionLock = new();
+    private InterruptionContext? _lastInterruption;
+
+    /// <summary>
+    /// Records an interruption context for the new run to process.
+    /// </summary>
+    internal void RecordInterruption(InterruptionContext ctx)
+    {
+        lock (_interruptionLock)
+        {
+            _lastInterruption = ctx;
+        }
+    }
+
+    /// <summary>
+    /// Gets the last interruption context without consuming it.
+    /// </summary>
+    internal InterruptionContext? GetLastInterruption()
+    {
+        lock (_interruptionLock)
+        {
+            return _lastInterruption;
+        }
+    }
+
+    /// <summary>
+    /// Consumes and returns the last interruption context (clears it after reading).
+    /// </summary>
+    internal InterruptionContext? ConsumeLastInterruption()
+    {
+        lock (_interruptionLock)
+        {
+            var ctx = _lastInterruption;
+            _lastInterruption = null;
+            return ctx;
         }
     }
 }

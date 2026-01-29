@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from "react"
-import { flushSync } from "react-dom"
+// PERFORMANCE FIX: Removed flushSync - React 18 automatic batching handles updates efficiently
+// flushSync was blocking main thread on every token during LLM streaming
 import { useSisyphusStore } from "@/store/sisyphus-store"
 import { useStreamContentStore } from "@/store/stream-content-store"
 import { createAxiomEventStream, getToolsSnapshot, getDagSnapshot } from "@/lib/axiom-client"
@@ -69,12 +70,12 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     clearAllStreams,
   } = useStreamContentStore.getState()
 
-  // Handle worker streaming content - use flushSync with ISOLATED store
+  // Handle worker streaming content - using ISOLATED store
+  // PERFORMANCE FIX: Removed flushSync - React 18 batching handles updates
   // Only components subscribed to this specific workerId will re-render
   const appendWorkerStream = useCallback((workerId: string, delta: string) => {
-    flushSync(() => {
-      appendWorkerContent(workerId, delta)
-    })
+    // Direct store update - React 18 will batch efficiently
+    appendWorkerContent(workerId, delta)
     
     // Also ensure worker exists in main store (without streaming content)
     const state = useSisyphusStore.getState()
@@ -288,16 +289,16 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
       const parsed = parseMessageId(event.messageId)
       appendWorkerStream(parsed.workerId, event.delta)
 
-      // Also update agent message - use ISOLATED store for immediate render
+      // Also update agent message - use ISOLATED store
+      // PERFORMANCE FIX: Removed flushSync - React 18 batching handles updates
       // Only components subscribed to this specific agent will re-render
       const parts = event.messageId.split(":")
       if (parts.length >= 4) {
         const agent = parts[2]
         if (agent && agent !== "user" && !agent.startsWith("worker")) {
           const agentName = agent === "assistant" ? "research_assistant" : agent
-          flushSync(() => {
-            appendAgentContent(agentName, event.delta)
-          })
+          // Direct store update - React 18 will batch efficiently
+          appendAgentContent(agentName, event.delta)
         }
       }
     })

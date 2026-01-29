@@ -8,7 +8,7 @@
 async function loadWorkflowYaml() {
   const yaml = el.workflowYaml.value.trim();
   if (!yaml) return;
-  const name = el.workflowName.value || 'workshop_mesh';
+  const name = el.workflowName.value || 'workspace_mesh';
   const data = await fetchJson('/api/workflow/yaml', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

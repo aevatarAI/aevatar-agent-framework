@@ -5,46 +5,42 @@ package aevatar.sessions;
 option csharp_namespace = "Aevatar.Agents.Sessions";
 
 import "google/protobuf/timestamp.proto";
-import "google/protobuf/struct.proto";
-
 import "ai_abstractions_messages.proto";
-import "memory.proto";
 import "execution_trace.proto";
-import "cognitive_messages.proto";
+import "memory.proto";
 
 // ============================================================
-//  Session Contracts (Cognitive Workflow)
+//  Session Contracts (Workflow YAML → Role Agents)
 // ============================================================
+
+message SessionRole {
+  // Node id inside workflow YAML.
+  string node_id = 1;
+  // Role name resolved from node.type or params.role.
+  string role = 2;
+  // Actor id (normalized), may be empty before lazy load.
+  string agent_id = 3;
+  // Whether the agent actor has been created/initialized.
+  bool loaded = 4;
+}
 
 message SessionState {
   string session_id = 1;
+  // Input identifier, could be a file path or workflow name.
   string workflow_name = 2;
-  string provider_name = 3;
-  int32 worker_count = 4;
-
-  string coordinator_id = 5;
-  repeated string worker_ids = 6;
-  repeated string agent_ids = 7;
-
-  string execution_id = 8;
-  aevatar.agents.cognitive.ExecutionStatus status = 9;
+  // Resolved workflow file path (if found).
+  string workflow_path = 3;
 
   google.protobuf.Timestamp created_at = 10;
   google.protobuf.Timestamp updated_at = 11;
 
   map<string, string> tags = 12;
+  repeated SessionRole roles = 13;
 }
 
 message StartSessionRequest {
   string session_id = 1;
   string workflow_name = 2;
-  string provider_name = 3;
-  int32 worker_count = 4;
-  map<string, google.protobuf.Value> variables = 5;
-
-  // History / memory toggles (best-effort)
-  bool enable_agent_memory = 6;
-  bool enable_session_memory = 7;
 }
 
 message StartSessionResponse {
@@ -53,9 +49,8 @@ message StartSessionResponse {
 
 message SessionAgentsResponse {
   string session_id = 1;
-  string coordinator_id = 2;
-  repeated string worker_ids = 3;
-  repeated string agent_ids = 4;
+  repeated SessionRole roles = 2;
+  repeated string agent_ids = 3;
 }
 
 message SessionAgentStateBundle {

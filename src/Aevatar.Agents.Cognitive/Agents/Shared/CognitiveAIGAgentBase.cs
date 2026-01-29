@@ -66,6 +66,12 @@ public abstract class CognitiveAIGAgentBase<TCustomState> : RoleAIGAgent<TCustom
     // ============================================================
     protected override Task RegisterToolsAsync(CancellationToken cancellationToken = default)
     {
+        if (ToolEvolutionOptions.EnableToolCalls)
+        {
+            // Explicit opt-in: enable base tool registration when evolution/tool_call is enabled.
+            return base.RegisterToolsAsync(cancellationToken);
+        }
+
         // Do NOT register built-in tools for Cognitive agents by default.
         return Task.CompletedTask;
     }

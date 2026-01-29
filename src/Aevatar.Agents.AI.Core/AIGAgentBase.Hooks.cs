@@ -6,6 +6,7 @@ using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core.Hooks;
 using Aevatar.Agents.AI.Core.Hooks.BuiltIn;
 using Aevatar.Agents.AI.Tool.Abstractions;
+using Aevatar.Agents.AI.Tool.Evolution;
 using Aevatar.Agents.AI.Core.Utils;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
@@ -37,12 +38,31 @@ public abstract partial class AIGAgentBase
     /// NOTE: Populated in later tasks (BuiltIn hooks).
     /// </summary>
     protected virtual IEnumerable<IAevatarAgentHook> CreateBuiltInHooks()
-        => new IAevatarAgentHook[]
+    {
+        var hooks = new List<IAevatarAgentHook>
         {
             new ExecutionTraceProgressHook((evt, ct) => PublishAsync(evt, EventDirection.Down, ct), Logger),
             new ToolOutputTruncationHook(),
             new ContextBudgetMonitorHook(Logger)
         };
+
+        if (ToolEvolutionOptions.Enabled && ToolEvolutionOptions.EnableFeedbackHooks)
+        {
+            hooks.Add(new ToolExecutionHistoryHook(
+                ToolEvolutionOptions,
+                publishEvent: (evt, ct) => PublishAsync(evt, EventDirection.Down, ct),
+                appendMemory: AppendToolFeedbackMemoryAsync,
+                logger: Logger));
+
+            hooks.Add(new ToolMetricsHook(
+                ToolEvolutionOptions,
+                ToolMetricsStore,
+                publishSnapshot: (snapshot, ct) => PublishAsync(snapshot, EventDirection.Down, ct),
+                logger: Logger));
+        }
+
+        return hooks;
+    }
 
     // ------------------------------------------------------------
     // Explicit injection (type-safe, best-effort)
@@ -456,8 +476,21 @@ public abstract partial class AIGAgentBase
 
         var result = await ExecuteAllowedToolAsync(toolName, args, executionContext, llmRequest, cancellationToken);
         ctx.ToolResult = result;
+        CopyToolMetadata(executionContext, ctx);
 
         await pipeline.RunAfterToolExecuteAsync(ctx, cancellationToken);
         return result;
+    }
+
+    private static void CopyToolMetadata(ToolExecutionContext executionContext, AevatarAgentHookContext context)
+    {
+        if (executionContext.Metadata.Count == 0)
+            return;
+
+        foreach (var (key, value) in executionContext.Metadata)
+        {
+            if (value == null) continue;
+            context.Metadata[key] = value;
+        }
     }
 }

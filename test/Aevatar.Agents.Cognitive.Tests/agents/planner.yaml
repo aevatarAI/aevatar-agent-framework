@@ -1,0 +1,8 @@
+id: "planner"
+name: "Planner Agent"
+version: "1.0"
+provider: "test-provider"
+model: "test-model"
+temperature: 0.2
+system_prompt: |
+  Planner agent: focus on structure and actionable steps.

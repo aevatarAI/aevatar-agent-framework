@@ -55,7 +55,7 @@ public abstract partial class AIGAgentBase
     /// <summary>
     /// Event-driven chat entry (for YAML/role-based agents).
     /// </summary>
-    [EventHandler]
+    [EventHandler(AllowSelfHandling = true)]
     protected virtual async Task HandleChatRequestEvent(ChatRequestEvent evt)
     {
         if (evt == null)
@@ -467,11 +467,16 @@ public abstract partial class AIGAgentBase
             llmRequest = await PrepareChatStreamAsync(request, cancellationToken);
 
             // Stream from LLM (with Hook/Harness stages; best-effort)
+            Logger.LogDebug("[ChatStreamAsync] Getting async enumerator from GenerateLLMStreamWithHooksAsync...");
             enumerator = GenerateLLMStreamWithHooksAsync(request.RequestId, llmRequest, cancellationToken)
                 .GetAsyncEnumerator(cancellationToken);
+            Logger.LogDebug("[ChatStreamAsync] Got enumerator, entering streaming loop...");
 
+            var loopIteration = 0;
             while (true)
             {
+                loopIteration++;
+                Logger.LogDebug("[ChatStreamAsync] Loop iteration {Iter}, calling MoveNextAsync...", loopIteration);
                 cancellationToken.ThrowIfCancellationRequested();
 
                 AevatarLLMToken? token;
@@ -492,8 +497,13 @@ public abstract partial class AIGAgentBase
                     throw;
                 }
 
-                if (token == null)
-                    break;
+            if (token == null)
+            {
+                Logger.LogDebug("[ChatStreamAsync] Token is null, breaking loop");
+                break;
+            }
+            Logger.LogDebug("[ChatStreamAsync] Got token: Content={ContentLen}chars, FunctionCall={HasFunc}, IsComplete={IsComplete}",
+                token.Content?.Length ?? 0, token.AevatarFunctionCall != null, token.IsComplete);
 
                 // Streaming + tools:
                 // - If the model returns a function call mid-stream, execute tools non-streaming and
@@ -743,6 +753,12 @@ public abstract partial class AIGAgentBase
     {
         if (!_isInitialized)
             return false;
+
+        if (ActiveProviderConfig?.EnableStreaming == false)
+            return false;
+
+        if (ActiveProviderConfig?.EnableStreaming == true)
+            return true;
 
         var modelInfo = await LLMProvider.GetModelInfoAsync(cancellationToken);
         return modelInfo.SupportsStreaming;

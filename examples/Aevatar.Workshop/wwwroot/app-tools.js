@@ -283,8 +283,10 @@ async function loadMcpServers() {
 }
 
 async function loadToolCatalog() {
-  if (!state.currentSessionId || !el.toolList) return;
-  const data = await fetchJson(`/api/tools/catalog?sessionId=${encodeURIComponent(state.currentSessionId)}`);
+  if (!el.toolList) return;
+  const role = roleState.activeRole || el.roleSelect?.value || '';
+  if (!role) return;
+  const data = await fetchJson(`/api/roles/${encodeURIComponent(role)}/tools/catalog`);
   state.tools = data.tools || [];
   renderToolCatalog();
 }
@@ -297,11 +299,12 @@ async function loadDotNetFiles() {
 }
 
 async function registerDotNetTool(filePath) {
-  if (!state.currentSessionId) return null;
-  const data = await fetchJson('/api/tools/dotnet/register', {
+  const role = roleState.activeRole || el.roleSelect?.value || '';
+  if (!role) return null;
+  const data = await fetchJson(`/api/roles/${encodeURIComponent(role)}/tools/dotnet/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sessionId: state.currentSessionId, filePath }),
+    body: JSON.stringify({ filePath }),
   });
   await loadToolCatalog();
   return data.tool || null;
@@ -322,13 +325,16 @@ function renderToolCatalog() {
   renderToolList(list);
 }
 
-function refreshAgentYamlPanel() {
+function refreshRoleToolsPanel() {
   if (!el.providerSelect) return;
   loadProviders();
   loadMcpServers();
   loadToolCatalog();
   loadDotNetFiles();
   syncSelectedToolsFromYaml();
+  syncProviderFromYaml();
+  syncRoleSkillsFromYaml();
+  syncRoleModulesFromYaml();
 }
 
 function updateProviderStatus() {
@@ -363,8 +369,145 @@ async function saveAgentYaml() {
     body: JSON.stringify({ yaml, createSession: true }),
   });
   el.agentYamlStatus.textContent = `Saved ${data.role}`;
+  await fetchWorkflows();
   await fetchSessions();
   if (data.sessionId) {
     selectSession(data.sessionId);
   }
+}
+
+function renderRoleSkills() {
+  if (!el.roleSkillList) return;
+  el.roleSkillList.innerHTML = '';
+  const items = Array.from(roleState.selectedSkills.values()).sort((a, b) => a.localeCompare(b));
+  if (items.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'panel-subtitle';
+    empty.textContent = 'No skills pinned yet.';
+    el.roleSkillList.appendChild(empty);
+    return;
+  }
+  items.forEach((name) => {
+    const pill = document.createElement('div');
+    pill.className = 'tool-pill';
+    pill.innerHTML = `<span>${escapeHtml(name)}</span>`;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.textContent = '×';
+    remove.addEventListener('click', () => {
+      roleState.selectedSkills.delete(name);
+      el.agentYaml.value = updateYamlList(el.agentYaml.value, 'skills', Array.from(roleState.selectedSkills));
+      renderRoleSkills();
+    });
+    pill.appendChild(remove);
+    el.roleSkillList.appendChild(pill);
+  });
+}
+
+function syncRoleSkillsFromYaml() {
+  if (!el.agentYaml) return;
+  const list = parseYamlList(el.agentYaml.value, 'skills');
+  roleState.selectedSkills = new Set(list);
+  renderRoleSkills();
+}
+
+function addRoleSkill(name) {
+  if (!name) return;
+  roleState.selectedSkills.add(name);
+  el.agentYaml.value = updateYamlList(el.agentYaml.value, 'skills', Array.from(roleState.selectedSkills));
+  renderRoleSkills();
+}
+
+function parseYamlExtensionsScalar(yaml, key) {
+  const lines = (yaml || '').replace(/\r/g, '').split('\n');
+  const extIndex = lines.findIndex((line) => line.trim().startsWith('extensions:'));
+  if (extIndex < 0) return '';
+  const extIndent = lines[extIndex].match(/^\s*/)[0].length;
+  for (let i = extIndex + 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    const indent = line.match(/^\s*/)[0].length;
+    if (line.trim().length === 0) continue;
+    if (indent <= extIndent) break;
+    if (line.trim().startsWith(`${key}:`)) {
+      const raw = line.split(':').slice(1).join(':').trim();
+      return raw.replace(/^["']|["']$/g, '');
+    }
+  }
+  return '';
+}
+
+function updateYamlExtensionsScalar(yaml, key, value) {
+  const lines = (yaml || '').replace(/\r/g, '').split('\n');
+  let extIndex = lines.findIndex((line) => line.trim().startsWith('extensions:'));
+  if (extIndex < 0) {
+    lines.push('extensions:');
+    extIndex = lines.length - 1;
+  }
+  const extIndent = lines[extIndex].match(/^\s*/)[0].length;
+  let insertAt = extIndex + 1;
+  let updated = false;
+  for (let i = extIndex + 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    const indent = line.match(/^\s*/)[0].length;
+    if (line.trim().length === 0) continue;
+    if (indent <= extIndent) {
+      insertAt = i;
+      break;
+    }
+    if (line.trim().startsWith(`${key}:`)) {
+      lines[i] = `${' '.repeat(extIndent + 2)}${key}: "${value}"`;
+      updated = true;
+      break;
+    }
+    insertAt = i + 1;
+  }
+  if (!updated) {
+    lines.splice(insertAt, 0, `${' '.repeat(extIndent + 2)}${key}: "${value}"`);
+  }
+  return lines.join('\n').trimEnd();
+}
+
+function renderRoleModules() {
+  if (!el.roleModuleList) return;
+  el.roleModuleList.innerHTML = '';
+  const items = Array.from(roleState.selectedModules.values()).sort((a, b) => a.localeCompare(b));
+  if (items.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'panel-subtitle';
+    empty.textContent = 'No event modules selected.';
+    el.roleModuleList.appendChild(empty);
+    return;
+  }
+  items.forEach((name) => {
+    const pill = document.createElement('div');
+    pill.className = 'tool-pill';
+    pill.innerHTML = `<span>${escapeHtml(name)}</span>`;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.textContent = '×';
+    remove.addEventListener('click', () => {
+      roleState.selectedModules.delete(name);
+      const value = Array.from(roleState.selectedModules).join(', ');
+      el.agentYaml.value = updateYamlExtensionsScalar(el.agentYaml.value, 'event_modules', value);
+      renderRoleModules();
+    });
+    pill.appendChild(remove);
+    el.roleModuleList.appendChild(pill);
+  });
+}
+
+function syncRoleModulesFromYaml() {
+  if (!el.agentYaml) return;
+  const raw = parseYamlExtensionsScalar(el.agentYaml.value, 'event_modules');
+  const list = raw.split(',').map((item) => item.trim()).filter(Boolean);
+  roleState.selectedModules = new Set(list);
+  renderRoleModules();
+}
+
+function addRoleModule(name) {
+  if (!name) return;
+  roleState.selectedModules.add(name);
+  const value = Array.from(roleState.selectedModules).join(', ');
+  el.agentYaml.value = updateYamlExtensionsScalar(el.agentYaml.value, 'event_modules', value);
+  renderRoleModules();
 }

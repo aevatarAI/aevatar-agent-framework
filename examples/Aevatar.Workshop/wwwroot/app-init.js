@@ -6,6 +6,9 @@
 // ============================================================
 
 el.newSession.addEventListener('click', () => createSession());
+if (el.workflowRefresh) {
+  el.workflowRefresh.addEventListener('click', () => fetchWorkflows());
+}
 
 el.composer.addEventListener('submit', (e) => {
   e.preventDefault();
@@ -40,12 +43,20 @@ el.pingButton.addEventListener('click', async () => {
   el.pingLog.prepend(line);
 });
 
-el.settingsSave.addEventListener('click', () => applySettings());
+if (el.settingsSave) {
+  el.settingsSave.addEventListener('click', () => applySettings());
+}
 
-el.agentYamlSave.addEventListener('click', () => saveAgentYaml());
-el.agentYamlLoad.addEventListener('click', () => loadAgentYaml(el.agentYamlRole.value));
+if (el.agentYamlSave) {
+  el.agentYamlSave.addEventListener('click', () => saveAgentYaml());
+}
+if (el.agentYamlLoad) {
+  el.agentYamlLoad.addEventListener('click', () => loadAgentYaml(el.agentYamlRole.value));
+}
 
-el.workflowRun.addEventListener('click', () => loadWorkflowYaml());
+if (el.workflowRun) {
+  el.workflowRun.addEventListener('click', () => loadWorkflowYaml());
+}
 
 if (el.roleRefresh) {
   el.roleRefresh.addEventListener('click', () => refreshRoleWorkspace());
@@ -53,7 +64,7 @@ if (el.roleRefresh) {
 if (el.roleSelect) {
   el.roleSelect.addEventListener('change', () => {
     const role = el.roleSelect.value;
-    if (role) loadRoleYaml(role);
+    if (role) setActiveRole(role);
   });
 }
 if (el.roleYamlSave) {
@@ -91,9 +102,57 @@ if (el.roleInput) {
   });
 }
 
+if (el.roleChatToggle) {
+  el.roleChatToggle.addEventListener('click', () => toggleRoleChatDrawer());
+}
+
+if (el.roleSkillAdd) {
+  el.roleSkillAdd.addEventListener('click', () => {
+    const value = el.roleSkillInput?.value?.trim() || '';
+    if (!value) return;
+    el.roleSkillInput.value = '';
+    addRoleSkill(value);
+  });
+}
+
+if (el.roleSkillInput) {
+  el.roleSkillInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const value = el.roleSkillInput.value.trim();
+      if (!value) return;
+      el.roleSkillInput.value = '';
+      addRoleSkill(value);
+    }
+  });
+}
+
+if (el.roleModuleAdd) {
+  el.roleModuleAdd.addEventListener('click', () => {
+    const value = el.roleModuleInput?.value?.trim() || '';
+    if (!value) return;
+    el.roleModuleInput.value = '';
+    addRoleModule(value);
+  });
+}
+
+if (el.roleModuleInput) {
+  el.roleModuleInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const value = el.roleModuleInput.value.trim();
+      if (!value) return;
+      el.roleModuleInput.value = '';
+      addRoleModule(value);
+    }
+  });
+}
+
 el.agentYaml.addEventListener('input', debounce(() => {
   syncSelectedToolsFromYaml();
   syncProviderFromYaml();
+  syncRoleSkillsFromYaml();
+  syncRoleModulesFromYaml();
 }, 300));
 
 if (el.providerSelect) {
@@ -169,14 +228,14 @@ if (el.roleStreamChunkEvery) {
 
 (async () => {
   setStatus('loading…');
+  updateInputState(); // Initial state - input disabled until SSE connected
+  await fetchWorkflows();
   await fetchSessions();
   el.workflowYaml.value = sampleWorkflowYaml;
-  el.agentYaml.value = sampleAgentYaml;
-  el.agentYamlRole.value = 'workshop_default';
-  refreshAgentYamlPanel();
   if (state.sessions.length > 0) {
     selectSession(state.sessions[0].sessionId);
   } else {
     setStatus('ready');
+    updateInputState(); // Keep input disabled when no session
   }
 })();

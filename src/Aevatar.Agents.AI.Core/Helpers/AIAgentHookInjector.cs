@@ -1,5 +1,6 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI.Core.Hooks;
+using Aevatar.Agents.AI.Tool.Evolution;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -28,6 +29,10 @@ public static class AIAgentHookInjector
             var options = serviceProvider.GetService<IOptions<AevatarAgentHookOptions>>()?.Value
                           ?? serviceProvider.GetService<AevatarAgentHookOptions>();
             aiAgent.InjectHookOptions(options);
+
+            var evolution = serviceProvider.GetService<IOptions<ToolEvolutionOptions>>()?.Value
+                            ?? serviceProvider.GetService<ToolEvolutionOptions>();
+            aiAgent.InjectToolEvolutionOptions(evolution);
 
             var hooks = serviceProvider.GetServices<IAevatarAgentHook>();
             aiAgent.InjectAdditionalHooks(hooks);

@@ -1,0 +1,45 @@
+name: complex_multi_agent
+description: "Complex multi-agent flow for AGUI tests"
+inputs:
+  - name: topic
+    type: string
+    default: "Edge AI launch"
+  - name: tasks
+    type: list
+    default:
+      - role: "researcher"
+        prompt: "Gather 3 facts about {{topic}}."
+      - role: "critic"
+        prompt: "List 2 risks about {{topic}}."
+      - role: "planner"
+        prompt: "Create a 3-step plan for {{topic}}."
+steps:
+  - id: kickoff
+    type: llm_call
+    agent: "planner"
+    prompt: "Define the goal for {{topic}} in one sentence."
+    output: text
+    store: goal
+  - id: gather
+    type: fan_out
+    for_each: tasks
+    step:
+      id: gather_task
+      type: llm_call
+      agent: "{{item.role}}"
+      prompt: "{{item.prompt}}"
+      output: text
+    store: insights
+    reduce: collect
+  - id: synthesize
+    type: llm_call
+    agent: "writer"
+    prompt: |
+      Build a short brief for {{topic}}.
+      Goal: {{goal}}
+      Insights: {{insights | json}}
+    output: text
+    store: brief
+output:
+  brief: "{{brief}}"
+  insights: "{{insights}}"

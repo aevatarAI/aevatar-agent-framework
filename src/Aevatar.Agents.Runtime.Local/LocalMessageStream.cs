@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Threading.Channels;
 using Aevatar.Agents.Abstractions;
 using Google.Protobuf;
+using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.Runtime.Local;
 
@@ -14,8 +15,20 @@ public class LocalMessageStream : IMessageStream
     private readonly Channel<EventEnvelope> _channel;
     private readonly ConcurrentDictionary<Guid, LocalMessageStreamSubscription> _subscriptions = new();
     private readonly CancellationTokenSource _cts = new();
+    private static readonly ILogger? _staticLogger;
 
     public string StreamId { get; }
+
+    static LocalMessageStream()
+    {
+        // Best-effort static logger initialization
+        try
+        {
+            _staticLogger = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Debug))
+                .CreateLogger<LocalMessageStream>();
+        }
+        catch { /* ignore */ }
+    }
 
     public LocalMessageStream(string streamId, int capacity = 1000)
     {
@@ -83,10 +96,16 @@ public class LocalMessageStream : IMessageStream
         else
         {
             // Only subscribe to specific type events (filtered by Payload type URL)
-            var expectedTypeUrl = $"type.googleapis.com/{typeof(T).FullName}";
+            var expectedTypeName = typeof(T).Name;
             envelopeHandler = async env =>
             {
-                if (env.Payload != null && env.Payload.TypeUrl.Contains(typeof(T).Name))
+                var actualTypeUrl = env.Payload?.TypeUrl ?? "(null)";
+                var matches = env.Payload != null && actualTypeUrl.Contains(expectedTypeName, StringComparison.OrdinalIgnoreCase);
+                
+                _staticLogger?.LogDebug("[LocalMessageStream] StreamId={StreamId} checking envelope: Expected={Expected}, Actual={Actual}, Matches={Matches}",
+                    StreamId, expectedTypeName, actualTypeUrl, matches);
+
+                if (env.Payload != null && matches)
                 {
                     try
                     {
@@ -98,6 +117,7 @@ public class LocalMessageStream : IMessageStream
                         if (unpackMethod != null)
                         {
                             var message = (T)unpackMethod.Invoke(env.Payload, null)!;
+                            _staticLogger?.LogDebug("[LocalMessageStream] Unpack successful for {TypeName}", expectedTypeName);
                             if (filter != null && !filter(message))
                             {
                                 return;
@@ -105,8 +125,9 @@ public class LocalMessageStream : IMessageStream
                             await handler(message);
                         }
                     }
-                    catch (Exception)
+                    catch (Exception ex)
                     {
+                        _staticLogger?.LogDebug(ex, "[LocalMessageStream] Unpack failed for {TypeName}", expectedTypeName);
                         // Ignore type mismatch events
                     }
                 }
@@ -130,23 +151,23 @@ public class LocalMessageStream : IMessageStream
     {
         await foreach (var envelope in _channel.Reader.ReadAllAsync(_cts.Token))
         {
+            var activeCount = _subscriptions.Values.Count(s => s.IsActive);
+            _staticLogger?.LogDebug("[LocalMessageStream] StreamId={StreamId} dispatching EventId={EventId} TypeUrl={TypeUrl} to {Count} active subs",
+                StreamId, envelope.Id, envelope.Payload?.TypeUrl ?? "(null)", activeCount);
+
             // Dispatch to all active subscribers.
-            //
-            // 中文说明：
-            // - 之前这里用 Task.Run 强制线程池并发，会制造额外调度开销，也更容易引入“同一 Actor 被并发回调”的错觉。
-            // - 正确姿势：直接生成 async task 并 WhenAll；是否串行/并发由订阅者自身的 mailbox gate 决定（例如 LocalGAgentActor）。
             var tasks = _subscriptions.Values
                 .Where(sub => sub.IsActive)
                 .Select(async subscription =>
+                {
+                    try
                     {
-                        try
-                        {
-                            await subscription.HandleMessageAsync(envelope);
-                        }
-                        catch (Exception)
-                        {
-                            // Ignore subscriber errors, don't affect other subscribers
-                        }
+                        await subscription.HandleMessageAsync(envelope);
+                    }
+                    catch (Exception)
+                    {
+                        // Ignore subscriber errors
+                    }
                 });
 
             await Task.WhenAll(tasks);

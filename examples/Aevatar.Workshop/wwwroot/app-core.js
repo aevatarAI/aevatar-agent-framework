@@ -11,10 +11,11 @@ const state = {
   currentSessionId: null,
   currentView: 'sessions',
   sse: null,
+  sseConnected: false,
   messageMap: new Map(),
-  streamBuffer: new Map(),
-  streamFlushHandle: null,
   autoScroll: true,
+  workflows: [],
+  defaultWorkflow: '',
   providers: [],
   defaultProvider: '',
   tools: [],
@@ -40,13 +41,16 @@ const roleState = {
   instances: [],
   edges: [],
   rootRole: 'sisyphus',
-  sse: null,
+  activeRole: '',
+  chatSse: null,
+  hierarchySse: null,
   messageMap: new Map(),
-  streamBuffer: new Map(),
-  streamFlushHandle: null,
   autoScroll: true,
   selectedParent: '',
   selectedChild: '',
+  selectedSkills: new Set(),
+  selectedModules: new Set(),
+  drawerOpen: false,
   graph: {
     stage: null,
     scale: 1,
@@ -59,17 +63,24 @@ const roleState = {
   },
 };
 
+const roleYamlEl = document.getElementById('role-yaml');
+const agentYamlEl = document.getElementById('agent-yaml') || roleYamlEl;
+const agentYamlStatusEl = document.getElementById('agent-yaml-status')
+  || document.getElementById('role-yaml-status');
+
 const el = {
   status: document.getElementById('status'),
   sessionList: document.getElementById('session-list'),
   currentSession: document.getElementById('current-session'),
   newSession: document.getElementById('new-session'),
-  agentMode: document.getElementById('agent-mode'),
+  workflowSelect: document.getElementById('workflow-select'),
+  workflowRefresh: document.getElementById('workflow-refresh'),
   messages: document.getElementById('messages'),
   composer: document.getElementById('composer'),
   input: document.getElementById('input'),
   streamChunkEvery: document.getElementById('stream-chunk-every'),
   events: document.getElementById('events'),
+  backendLog: document.getElementById('backend-log'),
   historyList: document.getElementById('history-list'),
   historySummary: document.getElementById('history-summary'),
   contextKeys: document.getElementById('context-keys'),
@@ -93,11 +104,11 @@ const el = {
   toggleInternal: document.getElementById('toggle-internal'),
   settingsSave: document.getElementById('settings-save'),
   settingsStatus: document.getElementById('settings-status'),
-  agentYaml: document.getElementById('agent-yaml'),
+  agentYaml: agentYamlEl,
   agentYamlSave: document.getElementById('agent-yaml-save'),
   agentYamlLoad: document.getElementById('agent-yaml-load'),
   agentYamlRole: document.getElementById('agent-yaml-role'),
-  agentYamlStatus: document.getElementById('agent-yaml-status'),
+  agentYamlStatus: agentYamlStatusEl,
   workflowYaml: document.getElementById('workflow-yaml'),
   workflowName: document.getElementById('workflow-name'),
   workflowRun: document.getElementById('workflow-run'),
@@ -121,27 +132,37 @@ const el = {
   navButtons: document.querySelectorAll('.nav-button'),
   roleSelect: document.getElementById('role-select'),
   roleRefresh: document.getElementById('role-refresh'),
-  roleYaml: document.getElementById('role-yaml'),
+  roleYaml: roleYamlEl,
   roleYamlSave: document.getElementById('role-yaml-save'),
   roleInstantiate: document.getElementById('role-instantiate'),
   roleLinkRoot: document.getElementById('role-link-root'),
   roleYamlStatus: document.getElementById('role-yaml-status'),
+  roleInstanceStatus: document.getElementById('role-instance-status'),
   roleList: document.getElementById('role-list'),
   roleParentLabel: document.getElementById('role-parent-label'),
   roleChildLabel: document.getElementById('role-child-label'),
   roleLink: document.getElementById('role-link'),
   roleUnlink: document.getElementById('role-unlink'),
   roleGraph: document.getElementById('role-graph'),
+  roleChatDrawer: document.getElementById('role-chat-drawer'),
+  roleChatToggle: document.getElementById('role-chat-toggle'),
+  roleChatRole: document.getElementById('role-chat-role'),
   roleMessages: document.getElementById('role-messages'),
   roleComposer: document.getElementById('role-composer'),
   roleInput: document.getElementById('role-input'),
   roleStreamChunkEvery: document.getElementById('role-stream-chunk-every'),
   delegationLog: document.getElementById('delegation-log'),
+  roleSkillInput: document.getElementById('role-skill-input'),
+  roleSkillAdd: document.getElementById('role-skill-add'),
+  roleSkillList: document.getElementById('role-skill-list'),
+  roleModuleInput: document.getElementById('role-module-input'),
+  roleModuleAdd: document.getElementById('role-module-add'),
+  roleModuleList: document.getElementById('role-module-list'),
 };
 
 const sampleWorkflowYaml = `dsl_version: "0.1"
 goal:
-  name: "Workshop Demo Workflow"
+  name: "Workspace Demo Workflow"
   success_metric: "balanced plan with critiques"
 strategy: cot
 budget:
@@ -149,13 +170,13 @@ budget:
   token_limit: 4000
 nodes:
   - id: planner
-    type: workshop_default
+    type: sisyphus
   - id: critic
-    type: workshop_default
+    type: sisyphus
   - id: synthesizer
-    type: workshop_default
+    type: sisyphus
   - id: verifier
-    type: workshop_default
+    type: sisyphus
 edges:
   - from: planner
     to: critic
@@ -171,22 +192,22 @@ constraints:
     value: 3
 `;
 
-const sampleAgentYaml = `id: "workshop_custom"
-name: "Workshop Custom Agent"
+const sampleAgentYaml = `id: "workspace_custom"
+name: "Workspace Custom Agent"
 version: "1.0"
 provider: "default"
 tools: []
 system_prompt: |
-  You are a focused assistant for Aevatar.Workshop.
+  You are a focused assistant for Aevatar.Workspaces.
 extensions:
-  event_modules: "workshop_chat_trace, workshop_ping"
+  event_modules: "workspace_chat_trace, workspace_ping"
   event_routes: |
     - when: event.type == "aevatar.agents.ai.core.ChatRequestEvent"
-      to: workshop_chat_trace
+      to: workspace_chat_trace
     - when: event.type == "aevatar.agents.ai.core.ChatResponseEvent"
-      to: workshop_chat_trace
-    - when: event.type == "aevatar.workshop.WorkshopPingEvent"
-      to: workshop_ping
+      to: workspace_chat_trace
+    - when: event.type == "aevatar.workspaces.WorkspacePingEvent"
+      to: workspace_ping
 `;
 
 function setStatus(text, kind = 'info') {
@@ -431,10 +452,19 @@ function renderMessage(item, finalize = false) {
     item.content.classList.add('markdown');
     item.content.classList.remove('streaming');
     item.content.innerHTML = renderMarkdown(item.text);
+    item.renderedLength = item.text?.length || 0;
   } else {
+    // 中文 + ASCII: 增量更新，避免每个 chunk 重绘整段文本。
     item.content.classList.add('streaming');
     item.content.classList.remove('markdown');
-    item.content.textContent = item.text;
+    const text = item.text || '';
+    const prev = item.renderedLength || 0;
+    if (prev === 0 || prev > text.length) {
+      item.content.textContent = text;
+    } else if (text.length > prev) {
+      item.content.append(text.slice(prev));
+    }
+    item.renderedLength = text.length;
   }
 }
 

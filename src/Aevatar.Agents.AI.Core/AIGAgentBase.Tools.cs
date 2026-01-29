@@ -81,7 +81,16 @@ public abstract partial class AIGAgentBase
     protected virtual IAevatarToolManager CreateToolManager()
     {
         var logger = new LoggerAdapter<AevatarToolManager>(Logger);
-        return new AevatarToolManager(logger);
+        var manager = new AevatarToolManager(logger);
+
+        var registry = CreateToolEvolutionRegistry(manager);
+        if (registry != null)
+        {
+            manager.EvolutionRegistry = registry;
+            _toolEvolutionRegistry = registry;
+        }
+
+        return manager;
     }
 
     /// <summary>
@@ -113,14 +122,14 @@ public abstract partial class AIGAgentBase
                 MemoryVectorIndex),
             cancellationToken: cancellationToken);
 
-        // Built-in: web search (third-party provider; best-effort + opt-in via config/DI)
-        await RegisterWebSearchToolBestEffortAsync(cancellationToken);
-
-        // Agent Skills (agentskills.io) - gated by EnableAgentSkills (enabled by default in this repo)
-        await RegisterAgentSkillsToolsAsync(cancellationToken);
-
-        // MCP servers (Cursor-style config: MCP:mcpServers) - best-effort
-        await RegisterMcpServersFromConfigurationBestEffortAsync(isRetry: false, cancellationToken);
+        // Built-in: web search + Agent Skills + MCP servers
+        // 中文 + ASCII:
+        // - 这些是 best-effort + 可能 I/O / network-heavy
+        // - 并行初始化以降低首轮耗时
+        var webSearchTask = RegisterWebSearchToolBestEffortAsync(cancellationToken);
+        var skillsTask = RegisterAgentSkillsToolsAsync(cancellationToken);
+        var mcpTask = RegisterMcpServersFromConfigurationBestEffortAsync(isRetry: false, cancellationToken);
+        await Task.WhenAll(webSearchTask, skillsTask, mcpTask);
     }
 
     /// <summary>
@@ -277,6 +286,17 @@ public abstract partial class AIGAgentBase
         ILogger? logger = null,
         CancellationToken cancellationToken = default)
     {
+        await RegisterToolDefinitionAsync(tool, logger, cancellationToken);
+    }
+
+    /// <summary>
+    /// Register a tool and return its definition (for evolution registry).
+    /// </summary>
+    protected async Task<ToolDefinition> RegisterToolDefinitionAsync(
+        IAevatarTool tool,
+        ILogger? logger = null,
+        CancellationToken cancellationToken = default)
+    {
         ArgumentNullException.ThrowIfNull(tool);
 
         EnsureToolManagerInitialized();
@@ -286,6 +306,7 @@ public abstract partial class AIGAgentBase
         await ToolManager.RegisterToolAsync(toolDefinition, cancellationToken);
 
         await RefreshToolCachesAsync(cancellationToken);
+        return toolDefinition;
     }
 
     private ToolContext BuildToolRegistrationContext()
@@ -541,6 +562,36 @@ public abstract partial class AIGAgentBase
         return result;
     }
 
+    /// <summary>
+    /// Execute a tool directly (workflow step), without LLM tool loop.
+    /// </summary>
+    public async Task<ToolExecutionResult> ExecuteToolForWorkflowAsync(
+        string toolName,
+        Dictionary<string, object> parameters,
+        string? sessionId = null,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureToolManagerInitialized();
+        await InitializeToolsAsync(cancellationToken);
+
+        var sid = string.IsNullOrWhiteSpace(sessionId) ? Id.ToString() : sessionId.Trim();
+        var executionContext = BuildToolExecutionContext(sid, cancellationToken);
+
+        var llmRequest = new AevatarLLMRequest
+        {
+            UserPrompt = string.Empty,
+            Messages = new List<AevatarChatMessage>(),
+            Settings = new AevatarLLMSettings()
+        };
+
+        return await ExecuteAllowedToolWithHooksAsync(
+            toolName,
+            parameters,
+            executionContext,
+            llmRequest,
+            cancellationToken);
+    }
+
     private static string NormalizeProgressMessage(string? msg, int maxChars = 2000)
     {
         var text = (msg ?? string.Empty).Replace("\r", "").Trim();
@@ -579,11 +630,11 @@ public abstract partial class AIGAgentBase
             sb.AppendLine("- If you need details from earlier conversation, call 'search_memory' before answering.");
         }
 
-        if (visibleTools.Any(t => string.Equals(t.Name, "skills_list", StringComparison.OrdinalIgnoreCase)) &&
+        if (visibleTools.Any(t => string.Equals(t.Name, "find_helpful_skills", StringComparison.OrdinalIgnoreCase)) &&
             visibleTools.Any(t => string.Equals(t.Name, "skills_load", StringComparison.OrdinalIgnoreCase)))
         {
             sb.AppendLine(
-                "- If you need a procedural/domain skill, call 'skills_list' then 'skills_load' before acting.");
+                "- Skills: call 'find_helpful_skills' with the user task, then 'skills_load' only the top 1-2 candidates. Do NOT load all skills.");
         }
 
         return sb.ToString().TrimEnd();

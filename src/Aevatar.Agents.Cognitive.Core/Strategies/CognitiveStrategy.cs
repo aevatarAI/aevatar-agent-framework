@@ -190,6 +190,11 @@ public sealed class CognitiveStrategy : IReasoningStrategy
             // Configure Coordinator
             coordinator.SetActorManager(_actorManager);
 
+            if (options.CognitiveToolEvolution != null)
+            {
+                coordinator.ToolEvolutionOptions = options.CognitiveToolEvolution;
+            }
+
             // ============================================================
             //  Chat history (State.History + compaction summary)
             //

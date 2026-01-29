@@ -1,4 +1,5 @@
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.AI.Tool.Evolution;
 
 namespace Aevatar.Agents.Cognitive.Core;
 
@@ -180,6 +181,11 @@ public sealed record ReasoningOptions
     /// Cognitive: Worker 数量（并行执行的 Worker Agent 数）。
     /// </summary>
     public int? CognitiveWorkerCount { get; init; }
+
+    /// <summary>
+    /// Cognitive: Tool evolution options (opt-in).
+    /// </summary>
+    public ToolEvolutionOptions? CognitiveToolEvolution { get; init; }
 
     /// <summary>
     /// Cognitive: 共识阈值 K（投票时领先票数需超过 K）。

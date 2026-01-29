@@ -627,9 +627,22 @@ public abstract class GAgentBase : IGAgent
         object? payload,
         CancellationToken ct)
     {
+        // Skip hook execution if already cancelled
+        if (ct.IsCancellationRequested)
+        {
+            Logger.LogTrace("Skipping event handler start hook (cancelled). Handler={Handler} EventId={EventId}",
+                handler.Method.Name, envelope.Id);
+            return;
+        }
+
         try
         {
             await OnEventHandlerStartAsync(envelope, handler, payload, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            Logger.LogTrace("Event handler start hook cancelled. Handler={Handler} EventId={EventId}",
+                handler.Method.Name, envelope.Id);
         }
         catch (Exception ex)
         {
@@ -647,9 +660,23 @@ public abstract class GAgentBase : IGAgent
         Exception? exception,
         CancellationToken ct)
     {
+        // Skip hook execution if already cancelled - avoid noisy OperationCanceledException logs
+        if (ct.IsCancellationRequested)
+        {
+            Logger.LogTrace("Skipping event handler end hook (cancelled). Handler={Handler} EventId={EventId}",
+                handler.Method.Name, envelope.Id);
+            return;
+        }
+
         try
         {
             await OnEventHandlerEndAsync(envelope, handler, payload, duration, exception, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Expected during graceful cancellation - log at trace level
+            Logger.LogTrace("Event handler end hook cancelled. Handler={Handler} EventId={EventId}",
+                handler.Method.Name, envelope.Id);
         }
         catch (Exception ex)
         {

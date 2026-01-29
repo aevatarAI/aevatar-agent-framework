@@ -83,7 +83,7 @@ public static class AgentYamlConfigApplier
         if (!string.IsNullOrWhiteSpace(yaml.SystemPrompt))
         {
             var pinned = yaml.Skills is { Count: > 0 }
-                ? $"\n\nPinned skills (recommended to load early via skills_load):\n- {string.Join("\n- ", yaml.Skills.Select(s => (s ?? string.Empty).Trim()).Where(s => s.Length > 0))}"
+                ? $"\n\nPinned skills (search first via find_helpful_skills; load only what you need):\n- {string.Join("\n- ", yaml.Skills.Select(s => (s ?? string.Empty).Trim()).Where(s => s.Length > 0))}"
                 : string.Empty;
 
             agent.SystemPrompt = $"{roleLine}\n\n{yaml.SystemPrompt.Trim()}{pinned}";

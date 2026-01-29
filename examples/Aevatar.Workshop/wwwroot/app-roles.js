@@ -6,17 +6,15 @@
 //  - YAML 编辑 + 实例化 + 层级编排 + 群组聊天
 // ============================================================
 
-function resetRoleStreams() {
+function resetRoleChat() {
   roleState.messageMap.clear();
-  roleState.streamBuffer.clear();
-  if (roleState.streamFlushHandle) {
-    cancelAnimationFrame(roleState.streamFlushHandle);
-    roleState.streamFlushHandle = null;
-  }
   roleState.autoScroll = true;
   if (el.roleMessages) {
     el.roleMessages.innerHTML = '';
   }
+}
+
+function resetDelegationLog() {
   if (el.delegationLog) {
     el.delegationLog.innerHTML = '';
   }
@@ -90,23 +88,44 @@ function bindRoleGraphSelection() {
   });
 }
 
-function connectRoleSse() {
-  if (roleState.sse) {
-    roleState.sse.close();
-    roleState.sse = null;
+function connectRoleChatSse(role) {
+  if (roleState.chatSse) {
+    roleState.chatSse.close();
+    roleState.chatSse = null;
   }
-  resetRoleStreams();
-  const es = new EventSource('/api/roles/agui/events');
-  roleState.sse = es;
+  resetRoleChat();
+  updateRoleChatTitle(role);
+  if (!role) return;
+  const url = `/api/roles/${encodeURIComponent(role)}/agui/events`;
+  roleState.chatSse = createAgUiStream(url, {
+    onMessage: (evt) => {
+      try {
+        const payload = JSON.parse(evt.data);
+        handleRoleAgUiEvent(payload);
+      } catch (err) {
+        console.warn('Bad role SSE payload', err);
+      }
+    },
+  });
+}
 
-  es.onmessage = (evt) => {
-    try {
-      const payload = JSON.parse(evt.data);
-      handleRoleAgUiEvent(payload);
-    } catch (err) {
-      console.warn('Bad role SSE payload', err);
-    }
-  };
+function connectHierarchySse() {
+  if (roleState.hierarchySse) {
+    roleState.hierarchySse.close();
+    roleState.hierarchySse = null;
+  }
+  resetDelegationLog();
+  const url = '/api/roles/agui/events';
+  roleState.hierarchySse = createAgUiStream(url, {
+    onMessage: (evt) => {
+      try {
+        const payload = JSON.parse(evt.data);
+        handleHierarchyAgUiEvent(payload);
+      } catch (err) {
+        console.warn('Bad hierarchy SSE payload', err);
+      }
+    },
+  });
 }
 
 function ensureRoleMessage(id, role) {
@@ -123,7 +142,7 @@ function ensureRoleMessage(id, role) {
   node.dataset.id = id;
   node.innerHTML = '<div class="content"></div>';
   const content = node.querySelector('.content');
-  const entry = { node, content, text: '', role };
+  const entry = { node, content, text: '', role, renderedLength: 0 };
   roleState.messageMap.set(id, entry);
   if (el.roleMessages) {
     el.roleMessages.appendChild(node);
@@ -135,41 +154,10 @@ function appendRoleDeltaImmediate(messageId, role, delta) {
   const existing = ensureRoleMessage(messageId, role);
   existing.text += delta;
   renderMessage(existing, false);
-}
-
-function flushRoleStreamBuffer() {
-  roleState.streamFlushHandle = null;
-  if (roleState.streamBuffer.size === 0) return;
-  const shouldScroll = roleState.autoScroll;
-  const pending = Array.from(roleState.streamBuffer.entries());
-  roleState.streamBuffer.clear();
-  pending.forEach(([messageId, entry]) => {
-    if (!entry.delta) return;
-    appendRoleDeltaImmediate(messageId, entry.role, entry.delta);
-  });
-  if (shouldScroll) scrollMessagesToBottom(el.roleMessages);
-}
-
-function scheduleRoleStreamFlush() {
-  if (roleState.streamFlushHandle) return;
-  roleState.streamFlushHandle = requestAnimationFrame(flushRoleStreamBuffer);
-}
-
-function enqueueRoleDelta(messageId, role, delta) {
-  if (!delta) return;
-  const entry = roleState.streamBuffer.get(messageId) || { delta: '', role };
-  entry.delta += delta;
-  if (role) entry.role = role;
-  roleState.streamBuffer.set(messageId, entry);
-  scheduleRoleStreamFlush();
+  if (roleState.autoScroll) scrollMessagesToBottom(el.roleMessages);
 }
 
 function finalizeRoleMessage(messageId) {
-  const entry = roleState.streamBuffer.get(messageId);
-  if (entry && entry.delta) {
-    appendRoleDeltaImmediate(messageId, entry.role, entry.delta);
-    roleState.streamBuffer.delete(messageId);
-  }
   const existing = roleState.messageMap.get(messageId);
   if (!existing) return;
   renderMessage(existing, true);
@@ -177,7 +165,6 @@ function finalizeRoleMessage(messageId) {
 
 function renderRoleMessagesSnapshot(messages) {
   roleState.messageMap.clear();
-  roleState.streamBuffer.clear();
   if (el.roleMessages) {
     el.roleMessages.innerHTML = '';
   }
@@ -205,7 +192,7 @@ function handleRoleAgUiEvent(evt) {
 
   if (evt.type === 'TEXT_MESSAGE_CONTENT') {
     const existing = roleState.messageMap.get(evt.messageId);
-    enqueueRoleDelta(evt.messageId, existing?.role || 'assistant', evt.delta || '');
+    appendRoleDeltaImmediate(evt.messageId, existing?.role || 'assistant', evt.delta || '');
     return;
   }
 
@@ -213,10 +200,12 @@ function handleRoleAgUiEvent(evt) {
     finalizeRoleMessage(evt.messageId);
     return;
   }
+}
 
-  if (evt.type === 'CUSTOM' && evt.name === 'WORKSHOP_DELEGATION') {
+function handleHierarchyAgUiEvent(evt) {
+  if (!evt || !evt.type) return;
+  if (evt.type === 'CUSTOM' && (evt.name === 'WORKSPACE_DELEGATION' || evt.name === 'WORKSHOP_DELEGATION')) {
     appendDelegationLog(evt);
-    return;
   }
 }
 
@@ -255,11 +244,22 @@ async function refreshRoleWorkspace() {
   roleState.instances = data.instances || [];
   renderRoleList();
   updateRoleSelects();
-  await refreshRoleGraph();
-  if (roleState.roles.length > 0 && el.roleSelect && !el.roleSelect.value) {
-    el.roleSelect.value = roleState.roles[0];
-    loadRoleYaml(roleState.roles[0]);
+
+  const hasActive = roleState.activeRole && roleState.roles.includes(roleState.activeRole);
+  if (!hasActive) {
+    const fallback = roleState.roles[0] || roleState.rootRole;
+    if (fallback) {
+      await setActiveRole(fallback);
+    }
+  } else {
+    updateRoleInstanceStatus();
   }
+  refreshRoleToolsPanel();
+}
+
+async function refreshHierarchyWorkspace() {
+  await ensureSisyphusInstance();
+  await refreshRoleGraph();
 }
 
 async function refreshRoleGraph() {
@@ -347,6 +347,73 @@ function updateRoleSelects() {
     opt.textContent = role;
     el.roleSelect.appendChild(opt);
   });
+  if (roleState.activeRole) {
+    el.roleSelect.value = roleState.activeRole;
+  }
+}
+
+function updateRoleChatTitle(role) {
+  if (!el.roleChatRole) return;
+  el.roleChatRole.textContent = role ? `Role: ${role}` : 'Role: -';
+}
+
+function updateRoleInstanceStatus() {
+  if (!el.roleInstanceStatus) return;
+  const role = roleState.activeRole;
+  if (!role) {
+    el.roleInstanceStatus.textContent = 'Instance: -';
+    return;
+  }
+  const instance = roleState.instances.find((item) => item.role === role);
+  if (!instance) {
+    el.roleInstanceStatus.textContent = `Instance: ${role} (not created)`;
+    return;
+  }
+  const created = instance.createdAt ? new Date(instance.createdAt).toLocaleString() : 'unknown';
+  el.roleInstanceStatus.textContent = `Instance: ${role} · ${created}`;
+}
+
+async function ensureRoleInstance(role) {
+  const payload = {
+    role,
+    linkToRoot: el.roleLinkRoot ? el.roleLinkRoot.checked : true,
+    setAsRoot: role === roleState.rootRole,
+  };
+  const snapshot = await fetchJson('/api/roles/instances', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const next = roleState.instances.filter((item) => item.role !== snapshot.role);
+  next.push(snapshot);
+  roleState.instances = next;
+  renderRoleList();
+  updateRoleInstanceStatus();
+}
+
+async function setActiveRole(role) {
+  const key = (role || '').trim();
+  if (!key) return;
+  roleState.activeRole = key;
+  if (el.roleSelect) el.roleSelect.value = key;
+  updateRoleChatTitle(key);
+  await loadRoleYaml(key);
+  syncSelectedToolsFromYaml();
+  syncProviderFromYaml();
+  syncRoleSkillsFromYaml();
+  syncRoleModulesFromYaml();
+  await ensureRoleInstance(key);
+  refreshRoleToolsPanel();
+  resetRoleChat();
+  connectRoleChatSse(key);
+  renderRoleList();
+}
+
+function toggleRoleChatDrawer() {
+  if (!el.roleChatDrawer || !el.roleChatToggle) return;
+  roleState.drawerOpen = !roleState.drawerOpen;
+  el.roleChatDrawer.classList.toggle('is-collapsed', !roleState.drawerOpen);
+  el.roleChatToggle.textContent = roleState.drawerOpen ? '▶' : '◀';
 }
 
 function renderRoleList() {
@@ -357,6 +424,7 @@ function renderRoleList() {
     const item = document.createElement('div');
     item.className = 'role-item';
     if (active.has(role)) item.classList.add('active');
+    if (role === roleState.activeRole) item.classList.add('is-selected');
     const rootTag = role === roleState.rootRole ? ' · root' : '';
     const status = active.has(role) ? 'active' : 'yaml';
     const label = document.createElement('div');
@@ -364,7 +432,7 @@ function renderRoleList() {
     label.addEventListener('click', () => {
       if (el.roleSelect) {
         el.roleSelect.value = role;
-        loadRoleYaml(role);
+        setActiveRole(role);
       }
     });
 
@@ -407,23 +475,37 @@ async function saveRoleYaml() {
   if (el.roleYamlStatus) {
     el.roleYamlStatus.textContent = `Saved ${data.role}`;
   }
-  await refreshRoleWorkspace();
+  if (data.role) {
+    await rebuildRoleInstance(data.role);
+  } else {
+    await refreshRoleWorkspace();
+  }
 }
 
 async function instantiateRole() {
   if (!el.roleSelect) return;
   const role = el.roleSelect.value;
   if (!role) return;
-  await fetchJson('/api/roles/instances', {
+  await setActiveRole(role);
+}
+
+async function rebuildRoleInstance(role) {
+  const key = (role || '').trim();
+  if (!key) return;
+  await fetchJson('/api/roles/instances/rebuild', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      role,
+      role: key,
       linkToRoot: el.roleLinkRoot ? el.roleLinkRoot.checked : true,
-      setAsRoot: role === roleState.rootRole,
+      setAsRoot: key === roleState.rootRole,
     }),
   });
+  roleState.activeRole = key;
+  resetRoleChat();
+  connectRoleChatSse(key);
   await refreshRoleWorkspace();
+  refreshRoleToolsPanel();
 }
 
 async function removeRoleInstance(role) {
@@ -467,6 +549,8 @@ async function unlinkRoles() {
 
 async function sendRoleMessage(message) {
   if (!message) return;
+  const role = roleState.activeRole;
+  if (!role) return;
   const streamChunkEveryN = getRoleStreamChunkEveryN();
   const requestId = `role:${Date.now()}`;
   const payload = {
@@ -479,7 +563,7 @@ async function sendRoleMessage(message) {
     timestamp: new Date().toISOString(),
     streamChunkEveryN,
   };
-  await fetchJson('/api/roles/chat', {
+  await fetchJson(`/api/roles/${encodeURIComponent(role)}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

@@ -1,0 +1,8 @@
+id: "researcher"
+name: "Researcher Agent"
+version: "1.0"
+provider: "test-provider"
+model: "test-model"
+temperature: 0.1
+system_prompt: |
+  Researcher agent: gather concrete facts and cite sources when possible.

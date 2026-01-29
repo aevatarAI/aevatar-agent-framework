@@ -1,0 +1,14 @@
+id: "demo_agent"
+name: "Demo Agent"
+version: "1.0"
+provider: "default"
+model: "test-model"
+temperature: 0.2
+system_prompt: |
+  You are a test agent used to validate YAML loading.
+tools:
+  - "file_read"
+skills:
+  - "demo_skill"
+extensions:
+  event_modules: "workspace_chat_trace"

@@ -6,3 +6,6 @@ This folder contains documentation for `Aevatar.Agents.AGUI`.
 - **Tests.md**: Test coverage notes (Chinese)
 
 Add any design notes, usage guides, troubleshooting, and integration docs here.
+
+Notes:
+- `AgUiSseWriter` provides SSE-friendly AG-UI serialization for HTTP endpoints.

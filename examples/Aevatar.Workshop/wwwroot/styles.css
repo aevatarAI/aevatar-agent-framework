@@ -340,13 +340,70 @@ body {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 
-.role-grid {
+.role-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  min-height: 520px;
+  align-items: stretch;
+}
+
+.role-main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+}
+
+.role-definition-grid {
+  grid-template-columns: minmax(320px, 480px) 1fr;
+  min-height: 420px;
+}
+
+.hierarchy-grid {
   grid-template-columns: minmax(320px, 420px) 1fr;
   min-height: 420px;
 }
 
-.role-chat-panel {
-  margin-top: 16px;
+.role-chat-drawer {
+  position: relative;
+  width: 360px;
+  min-width: 280px;
+  transition: width 0.2s ease, padding 0.2s ease;
+  overflow: hidden;
+}
+
+.role-chat-drawer .drawer-toggle {
+  position: absolute;
+  top: 18px;
+  left: -16px;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid var(--border-default);
+  background: var(--bg-elevated);
+  color: var(--neon-cyan);
+  cursor: pointer;
+  box-shadow: var(--glow-cyan);
+}
+
+.role-chat-drawer .drawer-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+}
+
+.role-chat-drawer.is-collapsed {
+  width: 36px;
+  min-width: 36px;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.role-chat-drawer.is-collapsed .drawer-content {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .role-list {
@@ -372,6 +429,11 @@ body {
 .role-item.active {
   border-color: rgba(125, 211, 252, 0.5);
   box-shadow: var(--glow-cyan);
+}
+
+.role-item.is-selected {
+  border-color: rgba(252, 211, 77, 0.6);
+  box-shadow: var(--glow-gold);
 }
 
 .role-check {
@@ -633,6 +695,39 @@ body {
   margin: 8px 0 12px;
 }
 
+.backend-status {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.backend-log {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  background: rgba(15, 23, 42, 0.55);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.backend-log-item {
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--border-subtle);
+  white-space: pre-wrap;
+}
+
+.backend-log-item:last-child {
+  border-bottom: none;
+}
+
+.backend-log-item.error {
+  color: var(--neon-red);
+}
+
 .inline-label {
   font-size: 11px;
   text-transform: uppercase;
@@ -731,12 +826,14 @@ textarea, .input, .select {
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-default);
   background: rgba(36, 40, 48, 0.6);
+  font-size: 12px;
 }
 
 .event summary.type {
   cursor: pointer;
   color: var(--neon-cyan);
   font-weight: 600;
+  font-size: 12px;
   outline: none;
 }
 
@@ -749,7 +846,7 @@ textarea, .input, .select {
   margin-top: 6px;
   white-space: pre-wrap;
   font-family: "JetBrains Mono", monospace;
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .event-item, .memory-item, .handler-item, .module-item {
@@ -790,6 +887,10 @@ textarea, .input, .select {
   grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
   gap: 16px;
   margin-top: 8px;
+}
+
+.yaml-layout.single-column {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .yaml-column {

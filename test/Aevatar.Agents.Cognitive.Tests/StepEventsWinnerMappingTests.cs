@@ -4,6 +4,7 @@ using Aevatar.Agents.Cognitive.Agents;
 using Aevatar.Agents.Cognitive.Messages;
 using Google.Protobuf.WellKnownTypes;
 using Shouldly;
+using Xunit;
 
 namespace Aevatar.Agents.Cognitive.Tests;
 
@@ -37,7 +38,9 @@ public sealed class StepEventsWinnerMappingTests
 
         method.ShouldNotBeNull();
 
-        var trace = (ExecutionTraceEvent)method!.Invoke(null, new object?[] { stepEvent, stepEvent.Message })!;
+        var trace = (ExecutionTraceEvent)method!.Invoke(
+            null,
+            new object?[] { stepEvent, stepEvent.Message, "session_1", "coordinator_1" })!;
 
         trace.Fields[ExecutionTraceEventMakerFields.WinnerProposalId].StringValue.ShouldBe("decompose.gen[1]");
         trace.Fields[ExecutionTraceEventMakerFields.WinnerHash].StringValue.ShouldBe("ABCDEF1234567890");

@@ -115,6 +115,12 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
 
     protected override async Task RegisterToolsAsync(CancellationToken cancellationToken = default)
     {
+        if (ToolEvolutionOptions.EnableToolCalls)
+        {
+            await base.RegisterToolsAsync(cancellationToken);
+            return;
+        }
+
         if (!EnableSkillTools)
             return;
 
@@ -288,6 +294,8 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
                             EnableSessionMemoryStoreAppend,
                             EnableMemoryStoreAppend);
                     }
+
+                    worker.ToolEvolutionOptions = ToolEvolutionOptions;
 
                     worker.SetStepExecutionHandler(_stepExecutionHandler);
 

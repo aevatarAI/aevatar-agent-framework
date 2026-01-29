@@ -2,6 +2,7 @@ using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI.Core.Helpers;
 using Aevatar.Agents.AI.Core.Hooks;
 using Aevatar.Agents.AI.Core.ToolPacks;
+using Aevatar.Agents.AI.Tool.Evolution;
 using Aevatar.Agents.Core;
 using Aevatar.Agents.Core.Helpers;
 using Microsoft.Extensions.DependencyInjection;
@@ -93,6 +94,10 @@ public class AIGAgentFactory : IGAgentFactory
 
                 var hooks = _serviceProvider.GetServices<IAevatarAgentHook>();
                 aiAgent.InjectAdditionalHooks(hooks);
+
+                var evolution = _serviceProvider.GetService<IOptions<ToolEvolutionOptions>>()?.Value
+                                ?? _serviceProvider.GetService<ToolEvolutionOptions>();
+                aiAgent.InjectToolEvolutionOptions(evolution);
             }
             catch
             {

@@ -1,7 +1,10 @@
 # Session → Workflow 最短路径（Cognitive + Sessions）
 
-目标：梳理 `Aevatar.Agents.Sessions` 通过 Session 打开 Workflow YAML，
-以及 `Aevatar.Agents.Cognitive` 执行 Workflow YAML，并在 `llm_call` 中按 `agent` 读取 Agent YAML 的最短代码路径。
+注意：`Aevatar.Agents.Sessions` 已改为 **Workflow YAML → Roles** 的加载入口，
+不再通过 Cognitive Coordinator 执行。本文保留为 **Cognitive 工作流执行路径** 的说明。
+
+目标：梳理 `Aevatar.Agents.Cognitive` 执行 Workflow YAML，
+以及在 `llm_call` 中按 `agent` 读取 Agent YAML 的最短代码路径。
 
 ---
 

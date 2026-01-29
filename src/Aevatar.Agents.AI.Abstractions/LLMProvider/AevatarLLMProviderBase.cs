@@ -118,6 +118,7 @@ public abstract class AevatarLLMProviderBase : IAevatarLLMProvider
         try
         {
             // Retry & circuit breaker only for "TTFT / first token"
+            Logger?.LogDebug("[GenerateStreamAsync] Starting policy execution for TTFT...");
             firstToken = await ExecuteWithPolicyAsync(
                 async ct =>
                 {
@@ -129,12 +130,16 @@ public abstract class AevatarLLMProviderBase : IAevatarLLMProvider
                         // Link to external cancellation, but enforce TTFT timeout via CancelAfter
                         localCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                         localCts.CancelAfter(policy.CallTimeout);
+                        Logger?.LogDebug("[GenerateStreamAsync] TTFT timeout set to {Timeout}ms", policy.CallTimeout.TotalMilliseconds);
 
+                        Logger?.LogDebug("[GenerateStreamAsync] Creating enumerator from GenerateStreamCoreAsync...");
                         localEnumerator = GenerateStreamCoreAsync(request, localCts.Token)
                             .GetAsyncEnumerator(localCts.Token);
 
+                        Logger?.LogDebug("[GenerateStreamAsync] Calling MoveNextAsync for first token...");
                         if (!await localEnumerator.MoveNextAsync())
                         {
+                            Logger?.LogDebug("[GenerateStreamAsync] Empty stream, no first token");
                             // Empty stream
                             await localEnumerator.DisposeAsync();
                             localEnumerator = null;
@@ -144,9 +149,11 @@ public abstract class AevatarLLMProviderBase : IAevatarLLMProvider
                         }
 
                         // First token received — stop the TTFT timer, keep external cancellation alive
+                        Logger?.LogDebug("[GenerateStreamAsync] First token received, stopping TTFT timer");
                         localCts.CancelAfter(System.Threading.Timeout.InfiniteTimeSpan);
 
                         var token = localEnumerator.Current;
+                        Logger?.LogDebug("[GenerateStreamAsync] First token content length: {Len}", token?.Content?.Length ?? 0);
 
                         // Hand over ownership to outer scope
                         enumerator = localEnumerator;

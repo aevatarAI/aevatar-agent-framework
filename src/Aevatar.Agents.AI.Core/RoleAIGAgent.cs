@@ -1,4 +1,6 @@
+using System.Text;
 using Aevatar.Agents.Abstractions.Attributes;
+using Aevatar.Agents.AI.Core.Messages;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
@@ -119,6 +121,164 @@ public abstract class RoleAIGAgent<TCustomState> : AIGAgentBase<TCustomState>
     public IReadOnlyList<IEventModule> GetEventModules()
     {
         return SnapshotModules();
+    }
+
+    [EventHandler]
+    protected override async Task HandleChatRequestEvent(ChatRequestEvent evt)
+    {
+        if (evt == null)
+            return;
+
+        var requestId = string.IsNullOrWhiteSpace(evt.RequestId)
+            ? Guid.NewGuid().ToString("N")
+            : evt.RequestId;
+
+        var request = new ChatRequest
+        {
+            RequestId = requestId,
+            Message = evt.Message ?? string.Empty
+        };
+
+        if (!string.IsNullOrWhiteSpace(evt.UserId))
+        {
+            request.Context["user_id"] = evt.UserId.Trim();
+        }
+
+        if (evt.Context != null)
+        {
+            foreach (var (key, value) in evt.Context)
+            {
+                if (!string.IsNullOrWhiteSpace(key))
+                {
+                    request.Context[key] = value ?? string.Empty;
+                }
+            }
+        }
+
+        if (evt.MaxTokens > 0)
+        {
+            request.MaxTokens = evt.MaxTokens;
+        }
+
+        if (evt.Temperature > 0)
+        {
+            request.Temperature = evt.Temperature;
+        }
+
+        bool supportsStreaming;
+        try
+        {
+            supportsStreaming = await SupportsStreamingAsync(CancellationToken.None);
+            Logger.LogInformation("[RoleAIGAgent] SupportsStreamingAsync returned {Streaming} for request {RequestId}", 
+                supportsStreaming, requestId);
+        }
+        catch (Exception ex)
+        {
+            // Best-effort: default to streaming path if provider probe fails.
+            Logger.LogWarning(ex, "[RoleAIGAgent] SupportsStreamingAsync failed, defaulting to streaming=true");
+            supportsStreaming = true;
+        }
+
+        if (!supportsStreaming)
+        {
+            Logger.LogInformation("[RoleAIGAgent] Using NON-streaming path for request {RequestId}", requestId);
+            var response = await ChatAsync(request, CancellationToken.None);
+            await PublishAsync(new ChatResponseEvent
+            {
+                RequestId = requestId,
+                Content = response.Content ?? string.Empty,
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+            });
+            return;
+        }
+
+        // 检测 StreamingContext - 如果有外部 sink，直接发送到那里（绕过 LocalMessageStream）
+        StreamingContext.TryGet(requestId, out var sink);
+        var useSink = sink != null;
+
+        var chunkEvery = evt.StreamChunkEveryN > 0 ? evt.StreamChunkEveryN : 1;
+        chunkEvery = Math.Clamp(chunkEvery, 1, 128);
+
+        Logger.LogInformation("[RoleAIGAgent] Using STREAMING path for request {RequestId}, chunkEvery={ChunkEvery}, useSink={UseSink}", 
+            requestId, chunkEvery, useSink);
+
+        var buffer = new StringBuilder();
+        var pending = new StringBuilder();
+        var rawCount = 0;
+        var chunkIndex = 0;
+
+        await foreach (var chunk in ChatStreamAsync(request, CancellationToken.None))
+        {
+            if (string.IsNullOrEmpty(chunk))
+                continue;
+
+            buffer.Append(chunk);
+            pending.Append(chunk);
+            rawCount++;
+
+            if (rawCount % chunkEvery != 0)
+                continue;
+
+            chunkIndex++;
+            var content = pending.ToString();
+
+            if (useSink)
+            {
+                // 直接发送到外部 sink（绕过 LocalMessageStream）
+                sink!.EmitChunk(requestId, content);
+            }
+            else
+            {
+                // 传统路径：通过 PublishAsync 发送
+                await PublishAsync(new ChatStreamChunkEvent
+                {
+                    RequestId = requestId,
+                    Content = content,
+                    ChunkIndex = chunkIndex,
+                    Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+                });
+            }
+            pending.Clear();
+        }
+
+        // 发送剩余内容
+        if (pending.Length > 0)
+        {
+            chunkIndex++;
+            var content = pending.ToString();
+
+            if (useSink)
+            {
+                sink!.EmitChunk(requestId, content);
+            }
+            else
+            {
+                await PublishAsync(new ChatStreamChunkEvent
+                {
+                    RequestId = requestId,
+                    Content = content,
+                    ChunkIndex = chunkIndex,
+                    Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+                });
+            }
+        }
+
+        // 发送结束事件
+        if (useSink)
+        {
+            sink!.EmitEnd(requestId, buffer.ToString());
+        }
+        else
+        {
+            Logger.LogInformation("[RoleAIGAgent] Publishing ChatResponseEvent, totalChunks={Chunks}, totalLen={Len}", 
+                chunkIndex, buffer.Length);
+            await PublishAsync(new ChatResponseEvent
+            {
+                RequestId = requestId,
+                Content = buffer.ToString(),
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+            });
+        }
     }
 
     [AllEventHandler]

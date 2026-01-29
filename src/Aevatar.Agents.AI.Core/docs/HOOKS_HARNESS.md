@@ -48,6 +48,15 @@
 - **ContextBudgetMonitorHook**（`BeforeLLMRequest`，warn-only）
   - 作用：按字符/消息数做预算告警，只发信号/打标/日志，不做自动压缩
 
+### Tool Evolution Hooks（需显式开启）
+
+当 `ToolEvolutionOptions.Enabled=true` 时，内置 hooks 额外启用：
+
+- **ToolExecutionHistoryHook**（`AfterToolExecute`）
+  - 作用：记录二值反馈（success/fail、耗时、错误码）并可发布 `ToolExecutionFeedback`
+- **ToolMetricsHook**（`AfterToolExecute`）
+  - 作用：聚合工具指标并按阈值发布 `ToolMetricsSnapshot`
+
 ## 如何禁用某个 Hook（DisabledHooks）
 
 配置对象：`AevatarAgentHookOptions`（`src/Aevatar.Agents.AI.Core/Hooks/AevatarAgentHookOptions.cs`）

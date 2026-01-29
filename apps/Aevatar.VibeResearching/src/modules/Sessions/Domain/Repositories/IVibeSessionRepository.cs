@@ -26,4 +26,9 @@ public interface IVibeSessionRepository
     /// Lists all session records.
     /// </summary>
     Task<IReadOnlyList<VibeSessionRecord>> ListAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Deletes a session record by session ID.
+    /// </summary>
+    Task DeleteAsync(string sessionId, CancellationToken ct = default);
 }

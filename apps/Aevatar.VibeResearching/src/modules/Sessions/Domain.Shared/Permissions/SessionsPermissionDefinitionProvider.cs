@@ -21,6 +21,9 @@ public class SessionsPermissionDefinitionProvider : PermissionDefinitionProvider
         sessions.AddChild(SessionsPermissions.Sessions.Admin, L("Permission:Sessions.Admin"));
         sessions.AddChild(SessionsPermissions.Sessions.View, L("Permission:Sessions.View"));
         sessions.AddChild(SessionsPermissions.Sessions.ListAll, L("Permission:Sessions.ListAll"));
+        sessions.AddChild(SessionsPermissions.Sessions.Pause, L("Permission:Sessions.Pause"));
+        sessions.AddChild(SessionsPermissions.Sessions.Resume, L("Permission:Sessions.Resume"));
+        sessions.AddChild(SessionsPermissions.Sessions.Terminate, L("Permission:Sessions.Terminate"));
     }
 
     private static LocalizableString L(string name)

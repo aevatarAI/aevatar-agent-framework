@@ -86,7 +86,8 @@ public static class PivotEndpoints
                 });
             })
             .WithName("RollbackPivot")
-            .WithTags("Pivot");
+            .WithTags("Pivot")
+            .RequireAuthorization();
     }
 
     /// <summary>
@@ -153,7 +154,8 @@ public static class PivotEndpoints
                 });
             })
             .WithName("RollbackToMostRecentPivot")
-            .WithTags("Pivot");
+            .WithTags("Pivot")
+            .RequireAuthorization();
     }
 
     /// <summary>
@@ -203,7 +205,8 @@ public static class PivotEndpoints
                 });
             })
             .WithName("GetPivotSnapshots")
-            .WithTags("Pivot");
+            .WithTags("Pivot")
+            .AllowAnonymous();
     }
 
     private static async Task<bool> ParsePreserveNewCompletedAsync(HttpContext context)

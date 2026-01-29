@@ -14,6 +14,13 @@ import "google/protobuf/timestamp.proto";
 //  - Restore sessions after process restart when a DB is connected.
 // ============================================================
 
+enum SessionStatus {
+  SESSION_STATUS_UNSPECIFIED = 0;
+  SESSION_STATUS_ACTIVE = 1;
+  SESSION_STATUS_PAUSED = 2;
+  SESSION_STATUS_ARCHIVED = 3;
+}
+
 message VibeSessionRecord {
   string session_id = 1;
   string provider_name = 2;
@@ -23,6 +30,10 @@ message VibeSessionRecord {
   string coordinator_id = 6;
   repeated string worker_ids = 7;
   repeated string agent_ids = 8;
+  string owner_id = 9; // user ID of the session creator (empty => legacy/anonymous)
+  SessionStatus status = 10;
+  google.protobuf.Timestamp paused_at = 11;
+  google.protobuf.Timestamp archived_at = 12;
 }
 
 message VibeSessionIndex {

@@ -67,6 +67,8 @@ internal sealed class MongoVibeSessionRepository : IVibeSessionRepository
                 record.DagId = existing.DagId;
             if (string.IsNullOrWhiteSpace(record.CoordinatorId))
                 record.CoordinatorId = existing.CoordinatorId;
+            if (string.IsNullOrWhiteSpace(record.OwnerId))
+                record.OwnerId = existing.OwnerId;
 
             VibeSessionStoreHelpers.MergeList(record.AgentIds, existing.AgentIds);
             VibeSessionStoreHelpers.MergeList(record.WorkerIds, existing.WorkerIds);
@@ -103,6 +105,35 @@ internal sealed class MongoVibeSessionRepository : IVibeSessionRepository
         return index.Sessions.ToList();
     }
 
+    public async Task DeleteAsync(string sessionId, CancellationToken ct = default)
+    {
+        sessionId = VibeSessionStoreHelpers.NormalizeSessionId(sessionId);
+        if (sessionId.Length == 0)
+            return;
+
+        // Delete from record store
+        await _recordStore.DeleteAsync(sessionId, ct);
+
+        // Remove from index
+        await _indexLock.WaitAsync(ct);
+        try
+        {
+            var index = await LoadIndexAsync(ct);
+            var existing = index.Sessions
+                .FirstOrDefault(s => string.Equals(s.SessionId, sessionId, StringComparison.Ordinal));
+
+            if (existing != null)
+            {
+                index.Sessions.Remove(existing);
+                await SaveIndexAsync(index, ct);
+            }
+        }
+        finally
+        {
+            _indexLock.Release();
+        }
+    }
+
     private async Task<VibeSessionIndex> LoadIndexAsync(CancellationToken ct)
     {
         var loaded = await _indexStore.LoadAsync(IndexKey, ct);
@@ -132,6 +163,7 @@ internal sealed class MongoVibeSessionRepository : IVibeSessionRepository
                 existing.ProviderName = record.ProviderName;
                 existing.DagId = record.DagId;
                 existing.CoordinatorId = record.CoordinatorId;
+                existing.OwnerId = record.OwnerId;
                 VibeSessionStoreHelpers.MergeList(existing.AgentIds, record.AgentIds);
                 VibeSessionStoreHelpers.MergeList(existing.WorkerIds, record.WorkerIds);
                 existing.CreatedAt = record.CreatedAt;

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Volo.Abp.AspNetCore.Mvc;
 
@@ -8,6 +9,7 @@ namespace Aevatar.VibeResearching.Knowledge;
 /// </summary>
 [ApiController]
 [Route("api/dag")]
+[AllowAnonymous]
 public class GlobalDagController : AbpControllerBase
 {
     private readonly IDagStore _dagStore;

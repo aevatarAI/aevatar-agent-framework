@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Volo.Abp.AspNetCore.Mvc;
 using Aevatar.VibeResearching.Agents.Contracts.Collab;
@@ -9,6 +10,7 @@ namespace Aevatar.VibeResearching.Infrastructure.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/sessions/{sessionId}")]
+[Authorize]
 public class DeliveryController : AbpControllerBase
 {
     private readonly IDeliveryAppService _deliveryAppService;
@@ -23,6 +25,7 @@ public class DeliveryController : AbpControllerBase
     /// GET /api/sessions/{sessionId}/deliverables
     /// </summary>
     [HttpGet("deliverables")]
+    [AllowAnonymous]
     public async Task<IActionResult> GetDeliverablesAsync(
         [FromRoute] string sessionId,
         CancellationToken ct = default)
@@ -44,6 +47,7 @@ public class DeliveryController : AbpControllerBase
     /// GET /api/sessions/{sessionId}/brief
     /// </summary>
     [HttpGet("brief")]
+    [AllowAnonymous]
     public async Task<IActionResult> GetBriefAsync(
         [FromRoute] string sessionId,
         CancellationToken ct = default)
@@ -57,6 +61,7 @@ public class DeliveryController : AbpControllerBase
     /// GET /api/sessions/{sessionId}/delivery
     /// </summary>
     [HttpGet("delivery")]
+    [AllowAnonymous]
     public async Task<IActionResult> GetDeliveryAsync(
         [FromRoute] string sessionId,
         CancellationToken ct = default)
@@ -70,6 +75,7 @@ public class DeliveryController : AbpControllerBase
     /// GET /api/sessions/{sessionId}/goals
     /// </summary>
     [HttpGet("goals")]
+    [AllowAnonymous]
     public async Task<IActionResult> GetGoalsAsync(
         [FromRoute] string sessionId,
         CancellationToken ct = default)
@@ -97,6 +103,7 @@ public class DeliveryController : AbpControllerBase
     /// GET /api/sessions/{sessionId}/conclusion-cards
     /// </summary>
     [HttpGet("conclusion-cards")]
+    [AllowAnonymous]
     public async Task<IActionResult> GetConclusionCardsAsync(
         [FromRoute] string sessionId,
         CancellationToken ct = default)
@@ -110,6 +117,7 @@ public class DeliveryController : AbpControllerBase
     /// GET /api/sessions/{sessionId}/evidence-table
     /// </summary>
     [HttpGet("evidence-table")]
+    [AllowAnonymous]
     public async Task<IActionResult> GetEvidenceTableAsync(
         [FromRoute] string sessionId,
         CancellationToken ct = default)
@@ -123,6 +131,7 @@ public class DeliveryController : AbpControllerBase
     /// GET /api/sessions/{sessionId}/next-tasks
     /// </summary>
     [HttpGet("next-tasks")]
+    [AllowAnonymous]
     public async Task<IActionResult> GetNextTasksAsync(
         [FromRoute] string sessionId,
         CancellationToken ct = default)

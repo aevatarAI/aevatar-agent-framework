@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Volo.Abp.AspNetCore.Mvc.AntiForgery;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Core.Configuration;
 using Aevatar.Agents.AI.DependencyInjection;
@@ -30,10 +31,36 @@ using Aevatar.VibeResearching.Infrastructure.MongoDB;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Volo.Abp;
+using Volo.Abp.Account;
+using Volo.Abp.Account.Web;
 using Volo.Abp.AspNetCore.Mvc;
+using Volo.Abp.AuditLogging.MongoDB;
 using Volo.Abp.Autofac;
+using Volo.Abp.BlobStoring;
+using Volo.Abp.BlobStoring.Database;
+using Volo.Abp.BlobStoring.Database.MongoDB;
+using Volo.Abp.Identity;
+using Volo.Abp.Identity.AspNetCore;
+using Volo.Abp.Identity.MongoDB;
 using Volo.Abp.Modularity;
+using Volo.Abp.ObjectExtending;
+using Volo.Abp.ObjectExtending.Modularity;
+using Volo.Abp.OpenIddict;
+using Volo.Abp.OpenIddict.MongoDB;
+using Volo.Abp.PermissionManagement;
+using Volo.Abp.PermissionManagement.HttpApi;
+using Volo.Abp.PermissionManagement.Identity;
+using Volo.Abp.PermissionManagement.MongoDB;
+using Volo.Abp.PermissionManagement.OpenIddict;
+using Volo.Abp.SettingManagement;
+using Volo.Abp.SettingManagement.MongoDB;
+using Volo.Abp.Threading;
+using MongoDB.Driver;
+using Volo.Abp.Data;
+using Aevatar.VibeResearching.HttpApi.Host.Blobs;
 
 namespace Aevatar.VibeResearching.HttpApi.Host;
 
@@ -45,6 +72,38 @@ namespace Aevatar.VibeResearching.HttpApi.Host;
     // ABP Infrastructure
     typeof(AbpAutofacModule),
     typeof(AbpAspNetCoreMvcModule),
+
+    // ABP Identity & Account
+    typeof(AbpAccountApplicationModule),
+    typeof(AbpAccountHttpApiModule),
+    typeof(AbpAccountWebOpenIddictModule),
+    typeof(AbpIdentityApplicationModule),
+    typeof(AbpIdentityHttpApiModule),
+    typeof(AbpIdentityMongoDbModule),
+    typeof(AbpIdentityAspNetCoreModule),
+
+    // ABP OpenIddict
+    typeof(AbpOpenIddictAspNetCoreModule),
+    typeof(AbpOpenIddictMongoDbModule),
+
+    // ABP Permission Management
+    typeof(AbpPermissionManagementApplicationModule),
+    typeof(AbpPermissionManagementHttpApiModule),
+    typeof(AbpPermissionManagementMongoDbModule),
+    typeof(AbpPermissionManagementDomainIdentityModule),
+    typeof(AbpPermissionManagementDomainOpenIddictModule),
+
+    // ABP Setting Management
+    typeof(AbpSettingManagementApplicationModule),
+    typeof(AbpSettingManagementHttpApiModule),
+    typeof(AbpSettingManagementMongoDbModule),
+
+    // ABP BlobStoring (Avatar)
+    typeof(BlobStoringDatabaseDomainModule),
+    typeof(BlobStoringDatabaseMongoDbModule),
+
+    // ABP Audit Logging
+    typeof(AbpAuditLoggingMongoDbModule),
 
     // Sessions Module
     typeof(VibeSessionsHttpApiModule),
@@ -68,11 +127,78 @@ namespace Aevatar.VibeResearching.HttpApi.Host;
 )]
 public class VibeResearchingHttpApiHostModule : AbpModule
 {
+    public override void PreConfigureServices(ServiceConfigurationContext context)
+    {
+        PreConfigure<OpenIddictBuilder>(builder =>
+        {
+            builder.AddValidation(options =>
+            {
+                options.AddAudiences("VibeResearching");
+                options.UseLocalServer();
+                options.UseAspNetCore();
+            });
+        });
+
+        // Configure token lifetimes per spec Section 4.3
+        PreConfigure<OpenIddictServerBuilder>(builder =>
+        {
+            builder.SetAccessTokenLifetime(TimeSpan.FromHours(1));
+            builder.SetRefreshTokenLifetime(TimeSpan.FromDays(14));
+
+            // Allow HTTP only when explicitly configured (for local development)
+            // Production should NOT set this, enforcing HTTPS by default
+            var disableHttps = context.Services.GetConfiguration().GetValue<bool>("OpenIddict:DisableHttpsRequirement");
+            if (disableHttps)
+            {
+                builder.UseAspNetCore().DisableTransportSecurityRequirement();
+            }
+        });
+    }
+
     public override void ConfigureServices(ServiceConfigurationContext context)
     {
         var services = context.Services;
         var configuration = services.GetConfiguration();
         var hostEnvironment = services.GetHostingEnvironment();
+
+        // ==========================================
+        // OpenIddict Configuration
+        // ==========================================
+        Configure<AbpOpenIddictAspNetCoreOptions>(options =>
+        {
+            options.AddDevelopmentEncryptionAndSigningCertificate = true;
+        });
+
+        Configure<AbpAntiForgeryOptions>(options =>
+        {
+            options.AutoValidate = false;
+        });
+
+        // ==========================================
+        // User Profile Extension (DisplayName, Bio)
+        // ==========================================
+        ObjectExtensionManager.Instance.Modules()
+            .ConfigureIdentity(identity =>
+            {
+                identity.ConfigureUser(user =>
+                {
+                    user.AddOrUpdateProperty<string>("DisplayName",
+                        property => { property.DefaultValue = ""; });
+                    user.AddOrUpdateProperty<string>("Bio",
+                        property => { property.DefaultValue = ""; });
+                });
+            });
+
+        // ==========================================
+        // BlobStoring (Avatar Upload)
+        // ==========================================
+        Configure<AbpBlobStoringOptions>(options =>
+        {
+            options.Containers.Configure<UserProfilePhotoContainer>(container =>
+            {
+                container.UseDatabase();
+            });
+        });
 
         // ==========================================
         // Configuration Options (host-level)
@@ -161,6 +287,25 @@ public class VibeResearchingHttpApiHostModule : AbpModule
 
         if (useMongo)
         {
+            // Configure ABP default connection string for all ABP MongoDB modules
+            // (Identity, OpenIddict, PermissionManagement, SettingManagement, BlobStoring, AuditLogging).
+            // ABP modules resolve their MongoDB connection via AbpDbConnectionOptions, not the
+            // custom MongoDB:ConnectionString key. We must bridge the two.
+            var abpConnString = mongoConn!;
+            var mongoUrl = new MongoUrl(abpConnString);
+            if (string.IsNullOrEmpty(mongoUrl.DatabaseName))
+            {
+                // Connection string has no database component — append it so ABP modules
+                // know which database to use (e.g. mongodb+srv://...host/aevatar?params).
+                var builder = new MongoUrlBuilder(abpConnString) { DatabaseName = mongoDb };
+                abpConnString = builder.ToString();
+            }
+
+            Configure<AbpDbConnectionOptions>(options =>
+            {
+                options.ConnectionStrings.Default = abpConnString;
+            });
+
             services.AddAevatarMongoDB(mongoConn!, mongoDb);
             services.AddAevatarAgentSystem(options =>
             {
@@ -237,12 +382,14 @@ public class VibeResearchingHttpApiHostModule : AbpModule
         // Enable CORS (must be before routing/endpoints)
         app.UseCors();
 
-        // Map health check
         app.UseRouting();
+        app.UseAuthentication();
+        app.UseAbpOpenIddictValidation();
+        app.UseAuthorization();
         app.UseConfiguredEndpoints(endpoints =>
         {
             endpoints.MapControllers();
-            endpoints.MapGet("/health", () => Results.Text("ok"));
+            endpoints.MapGet("/health", () => Results.Text("ok")).AllowAnonymous();
         });
     }
 
@@ -262,5 +409,26 @@ public class VibeResearchingHttpApiHostModule : AbpModule
         }
 
         await base.OnPreApplicationInitializationAsync(context);
+    }
+
+    public override async Task OnPostApplicationInitializationAsync(ApplicationInitializationContext context)
+    {
+        // Run ABP data seeder to pre-create MongoDB collections and seed roles/permissions/OpenIddict client.
+        // This prevents transaction conflicts when collections don't exist yet.
+        try
+        {
+            var services = context.GetApplicationBuilder().ApplicationServices;
+            var dataSeeder = services.GetRequiredService<IDataSeeder>();
+            await dataSeeder.SeedAsync();
+        }
+        catch (Exception ex)
+        {
+            var logger = context.GetApplicationBuilder().ApplicationServices
+                .GetRequiredService<ILoggerFactory>()
+                .CreateLogger<VibeResearchingHttpApiHostModule>();
+            logger.LogWarning(ex, "Data seed failed (best-effort). Collections may need manual creation.");
+        }
+
+        await base.OnPostApplicationInitializationAsync(context);
     }
 }

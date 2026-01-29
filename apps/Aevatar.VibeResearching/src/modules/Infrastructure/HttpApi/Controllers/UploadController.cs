@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Volo.Abp.AspNetCore.Mvc;
@@ -9,6 +10,7 @@ namespace Aevatar.VibeResearching.Infrastructure.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/sessions/{sessionId}")]
+[Authorize]
 public class UploadController : AbpControllerBase
 {
     private readonly IWorkspaceAppService _workspaceAppService;

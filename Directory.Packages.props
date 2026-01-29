@@ -125,6 +125,7 @@
     <PackageVersion Include="Volo.Abp.Account.HttpApi" Version="10.0.1" />
     <PackageVersion Include="Volo.Abp.Account.HttpApi.Client" Version="10.0.1" />
     <PackageVersion Include="Volo.Abp.Identity.Application" Version="10.0.1" />
+    <PackageVersion Include="Volo.Abp.Identity.AspNetCore" Version="10.0.1" />
     <PackageVersion Include="Volo.Abp.Identity.HttpApi" Version="10.0.1" />
     <PackageVersion Include="Volo.Abp.Identity.Web" Version="10.0.1" />
     <PackageVersion Include="Volo.Abp.PermissionManagement.Application" Version="10.0.1" />

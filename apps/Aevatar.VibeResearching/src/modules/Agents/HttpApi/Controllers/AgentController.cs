@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Volo.Abp.AspNetCore.Mvc;
 using Aevatar.VibeResearching.Agents.Application.Contracts.DTOs;
@@ -10,6 +11,7 @@ namespace Aevatar.VibeResearching.Agents.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/sessions/{sessionId}")]
+[Authorize]
 public class AgentController : AbpControllerBase
 {
     private readonly IAgentAppService _agentAppService;
@@ -24,6 +26,7 @@ public class AgentController : AbpControllerBase
     /// GET /api/sessions/{sessionId}/agent-providers
     /// </summary>
     [HttpGet("agent-providers")]
+    [AllowAnonymous]
     public async Task<IActionResult> GetProvidersAsync(
         [FromRoute] string sessionId,
         CancellationToken ct = default)

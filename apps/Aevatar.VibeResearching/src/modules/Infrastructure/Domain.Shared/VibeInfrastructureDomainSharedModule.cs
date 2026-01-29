@@ -1,6 +1,8 @@
+using Aevatar.VibeResearching.Infrastructure.Localization;
 using Aevatar.VibeResearching.Sessions;
 using Volo.Abp.Authorization;
 using Volo.Abp.Domain;
+using Volo.Abp.Localization;
 using Volo.Abp.Modularity;
 using Volo.Abp.VirtualFileSystem;
 
@@ -18,6 +20,13 @@ public class VibeInfrastructureDomainSharedModule : AbpModule
         Configure<AbpVirtualFileSystemOptions>(options =>
         {
             options.FileSets.AddEmbedded<VibeInfrastructureDomainSharedModule>();
+        });
+
+        Configure<AbpLocalizationOptions>(options =>
+        {
+            options.Resources
+                .Add<PlatformResource>("en")
+                .AddVirtualJson("/Localization");
         });
     }
 }

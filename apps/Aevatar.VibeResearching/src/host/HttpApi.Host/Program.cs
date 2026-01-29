@@ -79,6 +79,13 @@ app.MapPivotEndpoints();            // from Agents.HttpApi (pivot rollback/snaps
 app.MapReviewAgentEndpoints();      // from Agents.HttpApi (review agent status/trigger/events)
 
 // ==========================================
+// Auth & Profile Endpoints
+// ==========================================
+app.MapAuthEndpoints();             // GET /api/account/my-permissions
+app.MapProfileEndpoints();          // GET/PUT /api/account/my-profile, POST /api/account/change-password
+app.MapProfilePictureEndpoints();   // PUT/GET/DELETE /api/account/profile-picture
+
+// ==========================================
 // Host-Specific Minimal API Endpoints
 // ==========================================
 
@@ -89,22 +96,22 @@ app.MapGet("/api/workflows", (IWorkflowRegistry workflows) =>
         .OrderBy(x => x, StringComparer.Ordinal)
         .ToList();
     return Results.Json(list);
-});
+}).AllowAnonymous();
 
 // Manual sync (no restart)
 app.MapPost("/api/skills/sync", async (SkillPacksSyncService sync, CancellationToken ct) =>
 {
     var result = await sync.TryEnsureSyncedAsync(SkillPackSyncMode.Manual, ct);
     return Results.Json(result);
-});
+}).RequireAuthorization();
 
 // Live status for frontend polling
 app.MapGet("/api/skills/sync/status", (SkillPacksSyncProgress progress) =>
 {
     return Results.Json(progress.GetSnapshot());
-});
+}).AllowAnonymous();
 
-// System info endpoint
+// System info endpoint (public)
 app.MapGet("/api/info", (IOptionsMonitor<LLMProvidersConfig> llm, IConfiguration cfg, Aevatar.Agents.Core.Secrets.IAevatarUserSecretsStore secrets) =>
 {
     var cur = llm.CurrentValue;
@@ -179,7 +186,7 @@ app.MapGet("/api/info", (IOptionsMonitor<LLMProvidersConfig> llm, IConfiguration
                 .ToList()
         }
     });
-});
+}).AllowAnonymous();
 
 // LLM Diagnostics (local-only, best-effort)
 app.MapGet("/api/llm/test", async (

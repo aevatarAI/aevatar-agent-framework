@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Volo.Abp.AspNetCore.Mvc;
 using Aevatar.VibeResearching.Agents.Contracts.Collab;
@@ -9,6 +10,7 @@ namespace Aevatar.VibeResearching.Infrastructure.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/sessions/{sessionId}/compute")]
+[Authorize]
 public class ComputeController : AbpControllerBase
 {
     private readonly IComputeAppService _computeAppService;
@@ -37,6 +39,7 @@ public class ComputeController : AbpControllerBase
     /// GET /api/sessions/{sessionId}/compute/plans/{planId}
     /// </summary>
     [HttpGet("plans/{planId}")]
+    [AllowAnonymous]
     public async Task<IActionResult> GetPlanAsync(
         [FromRoute] string sessionId,
         [FromRoute] string planId,
@@ -51,6 +54,7 @@ public class ComputeController : AbpControllerBase
     /// GET /api/sessions/{sessionId}/compute/jobs/{jobId}/status
     /// </summary>
     [HttpGet("jobs/{jobId}/status")]
+    [AllowAnonymous]
     public async Task<IActionResult> GetJobStatusAsync(
         [FromRoute] string sessionId,
         [FromRoute] string jobId,
@@ -65,6 +69,7 @@ public class ComputeController : AbpControllerBase
     /// GET /api/sessions/{sessionId}/compute/requests
     /// </summary>
     [HttpGet("requests")]
+    [AllowAnonymous]
     public async Task<IActionResult> GetRequestsAsync(
         [FromRoute] string sessionId,
         CancellationToken ct = default)

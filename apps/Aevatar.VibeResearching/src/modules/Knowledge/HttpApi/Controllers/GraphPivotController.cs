@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Volo.Abp.AspNetCore.Mvc;
 using Aevatar.VibeResearching.Agents.Pivot;
@@ -10,6 +11,7 @@ namespace Aevatar.VibeResearching.Knowledge;
 /// </summary>
 [ApiController]
 [Route("api/sessions/{sessionId}/graph")]
+[Authorize]
 public class GraphPivotController : AbpControllerBase
 {
     private readonly IPivotSnapshotManager _pivotSnapshotManager;
@@ -52,6 +54,7 @@ public class GraphPivotController : AbpControllerBase
     /// GET /api/sessions/{sessionId}/graph/pivots
     /// </summary>
     [HttpGet("pivots")]
+    [AllowAnonymous]
     public async Task<IActionResult> GetPivotsAsync(
         [FromRoute] string sessionId,
         CancellationToken ct = default)

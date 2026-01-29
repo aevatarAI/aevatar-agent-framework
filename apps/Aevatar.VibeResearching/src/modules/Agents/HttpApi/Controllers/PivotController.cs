@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Volo.Abp.AspNetCore.Mvc;
 using Aevatar.VibeResearching.Agents.Application.Contracts.Services;
@@ -12,6 +13,7 @@ namespace Aevatar.VibeResearching.Agents.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/sessions/{sessionId}/pivot")]
+[Authorize]
 public class PivotController : AbpControllerBase
 {
     private readonly IPivotAppService _pivotAppService;
@@ -26,6 +28,7 @@ public class PivotController : AbpControllerBase
     /// GET /api/sessions/{sessionId}/pivot/status
     /// </summary>
     [HttpGet("status")]
+    [AllowAnonymous]
     public async Task<IActionResult> GetStatusAsync(
         [FromRoute] string sessionId,
         CancellationToken ct = default)

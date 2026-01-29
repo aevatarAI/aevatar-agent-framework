@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Volo.Abp.AspNetCore.Mvc;
 using Aevatar.VibeResearching.Sessions.Services;
@@ -9,6 +10,7 @@ namespace Aevatar.VibeResearching.Sessions.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/sessions/{sessionId}/agents")]
+[AllowAnonymous]
 public class AgentsController : AbpControllerBase
 {
     private readonly ResearchSessionManager _sessionManager;

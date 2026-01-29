@@ -51,6 +51,39 @@
         <PackageReference Include="Volo.Abp.AspNetCore.Mvc" />
         <PackageReference Include="Volo.Abp.AspNetCore.Serilog" />
 
+        <!-- Identity & Account -->
+        <PackageReference Include="Volo.Abp.Account.Application" />
+        <PackageReference Include="Volo.Abp.Account.HttpApi" />
+        <PackageReference Include="Volo.Abp.Account.Web.OpenIddict" />
+        <PackageReference Include="Volo.Abp.Identity.Application" />
+        <PackageReference Include="Volo.Abp.Identity.AspNetCore" />
+        <PackageReference Include="Volo.Abp.Identity.HttpApi" />
+        <PackageReference Include="Volo.Abp.Identity.MongoDB" />
+
+        <!-- OpenIddict -->
+        <PackageReference Include="Volo.Abp.OpenIddict.AspNetCore" />
+        <PackageReference Include="Volo.Abp.OpenIddict.MongoDB" />
+
+        <!-- Permission Management -->
+        <PackageReference Include="Volo.Abp.PermissionManagement.Application" />
+        <PackageReference Include="Volo.Abp.PermissionManagement.HttpApi" />
+        <PackageReference Include="Volo.Abp.PermissionManagement.MongoDB" />
+        <PackageReference Include="Volo.Abp.PermissionManagement.Domain.Identity" />
+        <PackageReference Include="Volo.Abp.PermissionManagement.Domain.OpenIddict" />
+
+        <!-- Setting Management -->
+        <PackageReference Include="Volo.Abp.SettingManagement.Application" />
+        <PackageReference Include="Volo.Abp.SettingManagement.HttpApi" />
+        <PackageReference Include="Volo.Abp.SettingManagement.MongoDB" />
+
+        <!-- BlobStoring (Avatar) -->
+        <PackageReference Include="Volo.Abp.BlobStoring.Database.Domain" />
+        <PackageReference Include="Volo.Abp.BlobStoring.Database.MongoDB" />
+
+        <!-- Audit Logging -->
+        <PackageReference Include="Volo.Abp.AuditLogging.Domain" />
+        <PackageReference Include="Volo.Abp.AuditLogging.MongoDB" />
+
         <!-- Other packages -->
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
         <PackageReference Include="YamlDotNet" />

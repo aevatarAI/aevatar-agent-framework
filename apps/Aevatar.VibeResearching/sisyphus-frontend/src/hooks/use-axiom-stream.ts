@@ -4,6 +4,7 @@ import { useEffect, useRef, useCallback } from "react"
 import { useSisyphusStore } from "@/store/sisyphus-store"
 import { useStreamContentStore } from "@/store/stream-content-store"
 import { createAxiomEventStream, getToolsSnapshot, getDagSnapshot } from "@/lib/axiom-client"
+import { classifyEvent, parseCustomEvent } from "@/lib/event-classifier"
 import type { EventStream } from "@aevatar/kit-protocol"
 import { parseMessageId } from "@aevatar/kit-protocol"
 import type { ToolOutput, NodeKind } from "@/types"
@@ -37,6 +38,8 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     setAgentProviders,
     updateAgentStatusReport,
     updateAgentLlmStatus,
+    addWorkflowEvent,
+    updateVotingStatus,
   } = useSisyphusStore()
 
   // Tool outputs state (per-message)
@@ -862,6 +865,34 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
       // Clear the active milestone highlight for this session
       const { setActiveMilestoneNodeId } = useSisyphusStore.getState()
       setActiveMilestoneNodeId(null, data.sessionId || sessionId)
+    })
+
+    // === Workflow Execution Events (Event Inspector) ===
+    stream.onCustom("aevatar.workflow.execution_event", (event) => {
+      if (import.meta.env.DEV) {
+        addRawEvent(event)
+      }
+      
+      // Parse and classify the workflow event
+      const workflowEvent = parseCustomEvent(event)
+      if (workflowEvent) {
+        const classified = classifyEvent(workflowEvent)
+        addWorkflowEvent(classified)
+        
+        // Update voting status if vote-related event
+        if (classified.voteInfo) {
+          updateVotingStatus({
+            round: classified.voteInfo.round,
+            maxRounds: classified.voteInfo.maxRounds,
+            k: classified.voteInfo.k,
+            mode: classified.voteInfo.mode,
+            redFlagCount: classified.voteInfo.redFlagCount || 0,
+            clusterCount: classified.voteInfo.clusterCount || 0,
+            consensusReached: classified.raw.fields.winner_is_consensus || false,
+            workers: [], // Workers updated separately
+          })
+        }
+      }
     })
 
     // System Reply - Dynamic user input response from interruption analysis

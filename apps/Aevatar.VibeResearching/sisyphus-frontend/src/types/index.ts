@@ -290,3 +290,191 @@ export interface SkillPackConfig {
   skillsSubDir?: string
   sync?: boolean
 }
+
+// ============================================================
+//  Event Inspector Types - Workflow Event Visualization
+// ============================================================
+
+// === Event Categories ===
+export type EventCategory = 
+  | 'consensus'    // Vote consensus events
+  | 'proposal'     // Proposal generation
+  | 'vote'         // Individual votes
+  | 'tool_call'    // Tool executions
+  | 'red_flag'     // Red-flag validation failures
+  | 'parallel'     // Parallel execution progress
+  | 'llm'          // LLM request/response
+
+// === Workflow Step Event (from backend) ===
+export interface WorkflowStepFields {
+  // Core
+  status?: string
+  progress?: number
+  execution_id?: string
+  workflow_name?: string
+  step_type?: string
+  depth?: number
+  parent_step_id?: string
+  // Voting
+  vote_round?: number
+  vote_max_rounds?: number
+  vote_k?: number
+  vote_current_votes?: number
+  // LLM Conversation
+  system_prompt?: string
+  user_prompt?: string
+  assistant_response?: string
+  // Red-Flag
+  red_flag_reason?: string
+  // Winner Info
+  winner_proposal_id?: string
+  winner_hash?: string
+  winner_votes?: number
+  winner_runner_up_votes?: number
+  winner_semantic?: boolean
+  winner_cluster_count?: number
+  winner_is_consensus?: boolean
+  // Parallel
+  parallel_total?: number
+  parallel_completed?: number
+  parallel_failed?: number
+  // Tool
+  tool_name?: string
+  tool_call_id?: string
+  duration_ms?: number
+  error?: string
+  // Tokens
+  tokens_used?: number
+  llm_calls?: number
+}
+
+export interface WorkflowExecutionEvent {
+  phase: string
+  nodeId: string
+  message: string
+  status: string
+  timestamp: number
+  fields: WorkflowStepFields
+}
+
+// === Classified Event (for UI display) ===
+export interface ClassifiedEvent {
+  id: string
+  timestamp: number
+  category: EventCategory
+  title: string
+  message: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  // Raw data
+  raw: WorkflowExecutionEvent
+  // Optional expanded data
+  voteInfo?: VoteInfo
+  toolInfo?: ToolCallInfo
+  redFlagInfo?: RedFlagInfo
+  llmConversation?: LlmConversation
+}
+
+// === Vote Information ===
+export interface VoteInfo {
+  round: number
+  maxRounds: number
+  k: number
+  currentVotes: number
+  mode: 'semantic' | 'hash'
+  similarityThreshold?: number
+  redFlagCount?: number
+  clusterCount?: number
+}
+
+// === Vote Winner Information ===
+export interface VoteWinnerInfo {
+  proposalId: string
+  hash: string
+  votes: number
+  runnerUpVotes: number
+  mode: 'semantic' | 'hash'
+  isConsensus: boolean
+  clusterCount: number
+}
+
+// === Tool Call Information ===
+export interface ToolCallInfo {
+  toolName: string
+  toolCallId: string
+  status: 'pending' | 'success' | 'error'
+  durationMs?: number
+  error?: string
+}
+
+// === Red Flag Information ===
+export interface RedFlagInfo {
+  reason: string
+  round: number
+  proposalIndex?: number
+}
+
+// === LLM Conversation ===
+export interface LlmConversation {
+  systemPrompt?: string
+  userPrompt?: string
+  assistantResponse?: string
+}
+
+// === Aggregated Events (for timeline grouping) ===
+export interface AggregatedEvent {
+  id: string
+  category: EventCategory
+  count: number
+  firstTimestamp: number
+  lastTimestamp: number
+  events: ClassifiedEvent[]
+  expanded: boolean
+}
+
+// === Flow Graph State ===
+export interface FlowGraphState {
+  visibleLayers: {
+    maker: boolean    // Coordinator + Workers + Vote edges
+    vibe: boolean     // Planner + Reasoner + Librarian
+    tool: boolean     // Tools + Tool edges
+  }
+  detailMode: boolean
+  focusMode: boolean
+  focusedNodeId: string | null
+}
+
+// === Voting Status (for panel display) ===
+export interface VotingStatus {
+  round: number
+  maxRounds: number
+  k: number
+  mode: 'semantic' | 'hash'
+  similarityThreshold?: number
+  redFlagCount: number
+  clusterCount: number
+  workers: WorkerVoteInfo[]
+  consensusReached: boolean
+  winner?: VoteWinnerInfo
+}
+
+export interface WorkerVoteInfo {
+  id: string
+  name: string
+  votes: number
+  color: string
+  isLeader: boolean
+}
+
+// === Event Inspector Store Slice ===
+export interface EventInspectorState {
+  events: ClassifiedEvent[]
+  aggregatedEvents: AggregatedEvent[]
+  activeTab: 'timeline' | 'flow-graph'
+  filter: {
+    categories: EventCategory[]
+    search: string
+    timeRange: [number, number] | null
+  }
+  flowGraph: FlowGraphState
+  votingStatus: VotingStatus | null
+}

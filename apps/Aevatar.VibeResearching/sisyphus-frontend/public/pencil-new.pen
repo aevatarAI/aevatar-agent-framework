@@ -4023,6 +4023,39 @@
                       "type": "frame",
                       "id": "Mxdbj",
                       "name": "tabTimeline",
+                      "gap": 6,
+                      "padding": [
+                        10,
+                        16
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon_font",
+                          "id": "7GLH3",
+                          "name": "tabTimelineIcon",
+                          "width": 14,
+                          "height": 14,
+                          "iconFontName": "list",
+                          "iconFontFamily": "lucide",
+                          "fill": "$--text-muted"
+                        },
+                        {
+                          "type": "text",
+                          "id": "XFCll",
+                          "name": "tabTimelineText",
+                          "fill": "$--text-muted",
+                          "content": "Timeline",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "500"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "JZR8F",
+                      "name": "tabGraph",
                       "fill": "$--bg-surface",
                       "stroke": {
                         "align": "inside",
@@ -4040,56 +4073,23 @@
                       "children": [
                         {
                           "type": "icon_font",
-                          "id": "7GLH3",
-                          "name": "tabTimelineIcon",
-                          "width": 14,
-                          "height": 14,
-                          "iconFontName": "list",
-                          "iconFontFamily": "lucide",
-                          "fill": "$--neon-cyan"
-                        },
-                        {
-                          "type": "text",
-                          "id": "XFCll",
-                          "name": "tabTimelineText",
-                          "fill": "$--neon-cyan",
-                          "content": "Timeline",
-                          "fontFamily": "Inter",
-                          "fontSize": 12,
-                          "fontWeight": "600"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "frame",
-                      "id": "JZR8F",
-                      "name": "tabGraph",
-                      "gap": 6,
-                      "padding": [
-                        10,
-                        16
-                      ],
-                      "alignItems": "center",
-                      "children": [
-                        {
-                          "type": "icon_font",
                           "id": "dAOGu",
                           "name": "tabGraphIcon",
                           "width": 14,
                           "height": 14,
                           "iconFontName": "git-branch",
                           "iconFontFamily": "lucide",
-                          "fill": "$--text-muted"
+                          "fill": "$--neon-cyan"
                         },
                         {
                           "type": "text",
                           "id": "SJqNt",
                           "name": "tabGraphText",
-                          "fill": "$--text-muted",
+                          "fill": "$--neon-cyan",
                           "content": "Flow Graph",
                           "fontFamily": "Inter",
                           "fontSize": 12,
-                          "fontWeight": "500"
+                          "fontWeight": "600"
                         }
                       ]
                     }
@@ -7168,6 +7168,1238 @@
               "fontFamily": "Inter",
               "fontSize": 9,
               "fontWeight": "normal"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "x1dZl",
+      "x": 2000,
+      "y": 2000,
+      "name": "=== RED-FLAG EVENT CARD ===",
+      "width": 550,
+      "height": 40,
+      "fill": "#ef4444",
+      "cornerRadius": 8,
+      "layout": "vertical",
+      "justifyContent": "center",
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "text",
+          "id": "2ocLm",
+          "name": "redFlagLabelText",
+          "fill": "$--bg-base",
+          "content": "RED-FLAG EVENT CARD",
+          "fontFamily": "Inter",
+          "fontSize": 14,
+          "fontWeight": "700"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "gc7ZZ",
+      "x": 2000,
+      "y": 2050,
+      "name": "Red-Flag Event Card",
+      "width": 550,
+      "height": 110,
+      "fill": {
+        "type": "gradient",
+        "gradientType": "linear",
+        "enabled": true,
+        "rotation": 90,
+        "size": {
+          "height": 1
+        },
+        "colors": [
+          {
+            "color": "#ef444412",
+            "position": 0
+          },
+          {
+            "color": "#ef444405",
+            "position": 1
+          }
+        ]
+      },
+      "cornerRadius": 10,
+      "stroke": {
+        "align": "inside",
+        "thickness": 1,
+        "fill": "#ef444440"
+      },
+      "gap": 16,
+      "padding": 16,
+      "children": [
+        {
+          "type": "frame",
+          "id": "i1UcF",
+          "name": "redFlagTime",
+          "width": 64,
+          "layout": "vertical",
+          "gap": 2,
+          "alignItems": "end",
+          "children": [
+            {
+              "type": "text",
+              "id": "S6Xgl",
+              "name": "redFlagTimeText",
+              "fill": "$--text-muted",
+              "content": "14:32:18",
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 11,
+              "fontWeight": "500"
+            },
+            {
+              "type": "text",
+              "id": "glc2P",
+              "name": "redFlagTimeMs",
+              "fill": "$--text-dimmed",
+              "content": ".456",
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 9,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "vz3xU",
+          "name": "redFlagDot",
+          "width": 32,
+          "height": 32,
+          "fill": "#ef4444",
+          "cornerRadius": 16,
+          "effect": {
+            "type": "shadow",
+            "shadowType": "outer",
+            "color": "#ef444460",
+            "blur": 12
+          },
+          "justifyContent": "center",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "icon_font",
+              "id": "NWZm9",
+              "name": "redFlagIcon",
+              "width": 16,
+              "height": 16,
+              "iconFontName": "flag",
+              "iconFontFamily": "lucide",
+              "fill": "$--bg-base"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "1B1a5",
+          "name": "redFlagContent",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 6,
+          "children": [
+            {
+              "type": "frame",
+              "id": "BN5SF",
+              "name": "redFlagHeader",
+              "gap": 8,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "duB4j",
+                  "name": "redFlagBadge",
+                  "fill": "#ef444420",
+                  "cornerRadius": 4,
+                  "padding": [
+                    2,
+                    6
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "cObMN",
+                      "name": "redFlagBadgeText",
+                      "fill": "#ef4444",
+                      "content": "RED FLAG",
+                      "fontFamily": "Inter",
+                      "fontSize": 9,
+                      "fontWeight": "700"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "dcGSN",
+                  "name": "redFlagStepId",
+                  "fill": "$--text-primary",
+                  "content": "vote.gen[3]",
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 12,
+                  "fontWeight": "500"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "exaF8",
+              "name": "redFlagReason",
+              "fill": "$--text-muted",
+              "textGrowth": "fixed-width",
+              "width": 390,
+              "content": "Content too short (< 50 chars): Response lacks sufficient detail",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "fontWeight": "normal"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "LBHtH",
+      "x": 2000,
+      "y": 2200,
+      "name": "=== ENHANCED VOTING PANEL ===",
+      "width": 300,
+      "height": 40,
+      "fill": "$--neon-green",
+      "cornerRadius": 8,
+      "layout": "vertical",
+      "justifyContent": "center",
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "text",
+          "id": "7flGF",
+          "name": "votingPanelLabelText",
+          "fill": "$--bg-base",
+          "content": "ENHANCED VOTING PANEL",
+          "fontFamily": "Inter",
+          "fontSize": 14,
+          "fontWeight": "700"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "heSgj",
+      "x": 2000,
+      "y": 2250,
+      "name": "Enhanced Voting Status Panel",
+      "width": 300,
+      "height": 280,
+      "fill": "$--bg-elevated",
+      "cornerRadius": 12,
+      "stroke": {
+        "align": "inside",
+        "thickness": 1,
+        "fill": "$--border-subtle"
+      },
+      "layout": "vertical",
+      "gap": 12,
+      "padding": 16,
+      "children": [
+        {
+          "type": "frame",
+          "id": "quVAu",
+          "name": "votingPanelHeader",
+          "width": "fill_container",
+          "gap": 8,
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "icon_font",
+              "id": "Bwx7P",
+              "name": "votingPanelIcon",
+              "width": 16,
+              "height": 16,
+              "iconFontName": "vote",
+              "iconFontFamily": "lucide",
+              "fill": "$--neon-green"
+            },
+            {
+              "type": "text",
+              "id": "XJpSl",
+              "name": "votingPanelTitle",
+              "fill": "$--neon-green",
+              "content": "VOTING STATUS",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "fontWeight": "700"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "3xdqU",
+          "name": "votingRoundRow",
+          "width": "fill_container",
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "text",
+              "id": "vKiqR",
+              "name": "votingRoundLabel",
+              "fill": "$--text-muted",
+              "content": "Round",
+              "fontFamily": "Inter",
+              "fontSize": 11,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "text",
+              "id": "zFwS5",
+              "name": "votingRoundValue",
+              "fill": "$--text-primary",
+              "content": "5 / 10",
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "600"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "QG9mQ",
+          "name": "votingKRow",
+          "width": "fill_container",
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "text",
+              "id": "UUf4O",
+              "name": "votingKLabel",
+              "fill": "$--text-muted",
+              "content": "K Value",
+              "fontFamily": "Inter",
+              "fontSize": 11,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "text",
+              "id": "Z9AsX",
+              "name": "votingKValue",
+              "fill": "$--text-primary",
+              "content": "3",
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "600"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "0zENi",
+          "name": "votingModeRow",
+          "width": "fill_container",
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "text",
+              "id": "4ilvg",
+              "name": "votingModeLabel",
+              "fill": "$--text-muted",
+              "content": "Mode",
+              "fontFamily": "Inter",
+              "fontSize": 11,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "SvPF0",
+              "name": "votingModeBadge",
+              "fill": "$--neon-cyan",
+              "cornerRadius": 4,
+              "padding": [
+                2,
+                8
+              ],
+              "children": [
+                {
+                  "type": "text",
+                  "id": "CZjTp",
+                  "name": "votingModeText",
+                  "fill": "$--bg-base",
+                  "content": "Semantic 85%",
+                  "fontFamily": "Inter",
+                  "fontSize": 10,
+                  "fontWeight": "600"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "wougK",
+          "name": "votingRedFlagRow",
+          "width": "fill_container",
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "text",
+              "id": "yQGAp",
+              "name": "votingRedFlagLabel",
+              "fill": "$--text-muted",
+              "content": "Red Flags",
+              "fontFamily": "Inter",
+              "fontSize": 11,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "82jMI",
+              "name": "votingRedFlagBadge",
+              "fill": "#ef444420",
+              "cornerRadius": 4,
+              "gap": 4,
+              "padding": [
+                2,
+                8
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "icon_font",
+                  "id": "0UEho",
+                  "name": "votingRedFlagIcon",
+                  "width": 10,
+                  "height": 10,
+                  "iconFontName": "flag",
+                  "iconFontFamily": "lucide",
+                  "fill": "#ef4444"
+                },
+                {
+                  "type": "text",
+                  "id": "LSlIZ",
+                  "name": "votingRedFlagValue",
+                  "fill": "#ef4444",
+                  "content": "2",
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 10,
+                  "fontWeight": "600"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "qjeAG",
+          "name": "votingDivider",
+          "width": "fill_container",
+          "height": 1,
+          "fill": "$--border-subtle"
+        },
+        {
+          "type": "frame",
+          "id": "Vf1fN",
+          "name": "votingClustersRow",
+          "width": "fill_container",
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "text",
+              "id": "6HsvG",
+              "name": "votingClustersLabel",
+              "fill": "$--text-muted",
+              "content": "Clusters",
+              "fontFamily": "Inter",
+              "fontSize": 11,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "text",
+              "id": "nibqm",
+              "name": "votingClustersValue",
+              "fill": "$--text-primary",
+              "content": "3",
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "600"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "iLHAP",
+          "name": "votingWorker1Row",
+          "width": "fill_container",
+          "gap": 8,
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "EwLmF",
+              "name": "votingWorker1Dot",
+              "width": 8,
+              "height": 8,
+              "fill": "$--neon-green",
+              "cornerRadius": 4
+            },
+            {
+              "type": "text",
+              "id": "4ihcW",
+              "name": "votingWorker1Name",
+              "fill": "$--text-muted",
+              "content": "Worker 1",
+              "fontFamily": "Inter",
+              "fontSize": 11,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "8nZb1",
+              "name": "votingWorker1Bar",
+              "width": 120,
+              "height": 8,
+              "fill": "$--bg-surface",
+              "cornerRadius": 4,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "SEY2H",
+                  "name": "votingWorker1Fill",
+                  "width": 120,
+                  "height": 8,
+                  "fill": "$--neon-green",
+                  "cornerRadius": 4
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "rO11u",
+              "name": "votingWorker1Votes",
+              "fill": "$--neon-green",
+              "content": "3",
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 11,
+              "fontWeight": "600"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "KcfNo",
+          "name": "votingWorker0Row",
+          "width": "fill_container",
+          "gap": 8,
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "LVpdL",
+              "name": "votingWorker0Dot",
+              "width": 8,
+              "height": 8,
+              "fill": "$--neon-gold",
+              "cornerRadius": 4
+            },
+            {
+              "type": "text",
+              "id": "vExOs",
+              "name": "votingWorker0Name",
+              "fill": "$--text-muted",
+              "content": "Worker 0",
+              "fontFamily": "Inter",
+              "fontSize": 11,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "w5Ehk",
+              "name": "votingWorker0Bar",
+              "width": 120,
+              "height": 8,
+              "fill": "$--bg-surface",
+              "cornerRadius": 4,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "aDfu2",
+                  "name": "votingWorker0Fill",
+                  "width": 40,
+                  "height": 8,
+                  "fill": "$--neon-gold",
+                  "cornerRadius": 4
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "keadW",
+              "name": "votingWorker0Votes",
+              "fill": "$--text-muted",
+              "content": "1",
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 11,
+              "fontWeight": "500"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "vUAZQ",
+          "name": "votingConsensusRow",
+          "width": "fill_container",
+          "gap": 6,
+          "padding": [
+            8,
+            0,
+            0,
+            0
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "icon_font",
+              "id": "MOP4a",
+              "name": "votingConsensusIcon",
+              "width": 14,
+              "height": 14,
+              "iconFontName": "check",
+              "iconFontFamily": "lucide",
+              "fill": "$--neon-green"
+            },
+            {
+              "type": "text",
+              "id": "Vh90j",
+              "name": "votingConsensusText",
+              "fill": "$--neon-green",
+              "content": "Consensus Reached (3 clusters)",
+              "fontFamily": "Inter",
+              "fontSize": 11,
+              "fontWeight": "500"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "kummr",
+      "x": 2350,
+      "y": 2200,
+      "name": "=== LLM CONVERSATION EXPAND ===",
+      "width": 450,
+      "height": 40,
+      "fill": "$--neon-purple",
+      "cornerRadius": 8,
+      "layout": "vertical",
+      "justifyContent": "center",
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "text",
+          "id": "3b9l8",
+          "name": "llmDialogLabelText",
+          "fill": "$--bg-base",
+          "content": "LLM CONVERSATION EXPAND",
+          "fontFamily": "Inter",
+          "fontSize": 14,
+          "fontWeight": "700"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "GLiD1",
+      "x": 2350,
+      "y": 2250,
+      "name": "LLM Conversation Expanded",
+      "width": 450,
+      "height": 320,
+      "fill": "$--bg-elevated",
+      "cornerRadius": 12,
+      "stroke": {
+        "align": "inside",
+        "thickness": 1,
+        "fill": "$--border-subtle"
+      },
+      "layout": "vertical",
+      "gap": 12,
+      "padding": 16,
+      "children": [
+        {
+          "type": "frame",
+          "id": "mT8MM",
+          "name": "llmDialogHeader",
+          "width": "fill_container",
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "KVe1W",
+              "name": "llmDialogHeaderLeft",
+              "gap": 8,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "icon_font",
+                  "id": "Nx1Hi",
+                  "name": "llmDialogIcon",
+                  "width": 14,
+                  "height": 14,
+                  "iconFontName": "message-square",
+                  "iconFontFamily": "lucide",
+                  "fill": "$--neon-purple"
+                },
+                {
+                  "type": "text",
+                  "id": "CKKLJ",
+                  "name": "llmDialogTitle",
+                  "fill": "$--text-primary",
+                  "content": "LLM Conversation",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "600"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "l0oKd",
+              "name": "llmDialogCopyBtn",
+              "fill": "$--bg-surface",
+              "cornerRadius": 4,
+              "gap": 4,
+              "padding": [
+                4,
+                8
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "icon_font",
+                  "id": "mmQb1",
+                  "name": "llmDialogCopyIcon",
+                  "width": 12,
+                  "height": 12,
+                  "iconFontName": "copy",
+                  "iconFontFamily": "lucide",
+                  "fill": "$--text-muted"
+                },
+                {
+                  "type": "text",
+                  "id": "WRmeo",
+                  "name": "llmDialogCopyText",
+                  "fill": "$--text-muted",
+                  "content": "Copy",
+                  "fontFamily": "Inter",
+                  "fontSize": 10,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "UQ0gO",
+          "name": "llmSystemSection",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 6,
+          "children": [
+            {
+              "type": "frame",
+              "id": "GnMdI",
+              "name": "llmSystemLabel",
+              "gap": 6,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "DmIHd",
+                  "name": "llmSystemBadge",
+                  "fill": "$--bg-surface",
+                  "cornerRadius": 4,
+                  "padding": [
+                    2,
+                    6
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "K7OtJ",
+                      "name": "llmSystemBadgeText",
+                      "fill": "$--text-muted",
+                      "content": "System",
+                      "fontFamily": "Inter",
+                      "fontSize": 9,
+                      "fontWeight": "600"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "krSnV",
+              "name": "llmSystemContent",
+              "width": "fill_container",
+              "fill": "$--bg-surface",
+              "cornerRadius": 8,
+              "padding": 12,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "61e3W",
+                  "name": "llmSystemText",
+                  "fill": "$--text-muted",
+                  "textGrowth": "fixed-width",
+                  "width": 394,
+                  "content": "You are a scientific researcher. Analyze the given theorem and provide a rigorous proof...",
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 11,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "Q0h9j",
+          "name": "llmUserSection",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 6,
+          "children": [
+            {
+              "type": "frame",
+              "id": "inBUo",
+              "name": "llmUserLabel",
+              "gap": 6,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "3yhyR",
+                  "name": "llmUserBadge",
+                  "fill": "$--neon-cyan",
+                  "cornerRadius": 4,
+                  "padding": [
+                    2,
+                    6
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "vu4Tu",
+                      "name": "llmUserBadgeText",
+                      "fill": "$--bg-base",
+                      "content": "User",
+                      "fontFamily": "Inter",
+                      "fontSize": 9,
+                      "fontWeight": "600"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "o4etW",
+              "name": "llmUserContent",
+              "width": "fill_container",
+              "fill": "#00f0ff10",
+              "cornerRadius": 8,
+              "stroke": {
+                "align": "inside",
+                "thickness": 1,
+                "fill": "#00f0ff30"
+              },
+              "padding": 12,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "N6ySk",
+                  "name": "llmUserText",
+                  "fill": "$--text-primary",
+                  "textGrowth": "fixed-width",
+                  "width": 394,
+                  "content": "Prove that if f(x) is continuous on [a,b] and f(a) < 0 < f(b), then there exists c in (a,b) such that f(c) = 0.",
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 11,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "lpolo",
+          "name": "llmAssistantSection",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 6,
+          "children": [
+            {
+              "type": "frame",
+              "id": "7iUK4",
+              "name": "llmAssistantLabel",
+              "gap": 6,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "VSWQr",
+                  "name": "llmAssistantBadge",
+                  "fill": "$--neon-green",
+                  "cornerRadius": 4,
+                  "padding": [
+                    2,
+                    6
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "Ktrn3",
+                      "name": "llmAssistantBadgeText",
+                      "fill": "$--bg-base",
+                      "content": "Assistant",
+                      "fontFamily": "Inter",
+                      "fontSize": 9,
+                      "fontWeight": "600"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "Cndiv",
+              "name": "llmAssistantContent",
+              "width": "fill_container",
+              "fill": "#22c55e10",
+              "cornerRadius": 8,
+              "stroke": {
+                "align": "inside",
+                "thickness": 1,
+                "fill": "#22c55e30"
+              },
+              "padding": 12,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "ZqNyE",
+                  "name": "llmAssistantText",
+                  "fill": "$--text-primary",
+                  "textGrowth": "fixed-width",
+                  "width": 394,
+                  "content": "**Proof (Intermediate Value Theorem):**\n\nLet S = {x ∈ [a,b] : f(x) < 0}. Since f(a) < 0, we have a ∈ S, so S is non-empty...",
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 11,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "4Zvaf",
+      "x": 2600,
+      "y": 2000,
+      "name": "=== VOTE WINNER BADGE ===",
+      "width": 250,
+      "height": 40,
+      "fill": "$--neon-gold",
+      "cornerRadius": 8,
+      "layout": "vertical",
+      "justifyContent": "center",
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "text",
+          "id": "hGflf",
+          "name": "winnerLabelText",
+          "fill": "$--bg-base",
+          "content": "VOTE WINNER BADGE",
+          "fontFamily": "Inter",
+          "fontSize": 14,
+          "fontWeight": "700"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "MooMg",
+      "x": 2600,
+      "y": 2050,
+      "name": "Vote Winner Badge",
+      "width": 250,
+      "height": 180,
+      "fill": "$--bg-elevated",
+      "cornerRadius": 12,
+      "stroke": {
+        "align": "inside",
+        "thickness": 2,
+        "fill": "$--neon-gold"
+      },
+      "effect": {
+        "type": "shadow",
+        "shadowType": "outer",
+        "color": "#ffd70030",
+        "blur": 16
+      },
+      "layout": "vertical",
+      "gap": 10,
+      "padding": 16,
+      "children": [
+        {
+          "type": "frame",
+          "id": "Q2mUq",
+          "name": "winnerHeader",
+          "width": "fill_container",
+          "gap": 8,
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "icon_font",
+              "id": "5kNwQ",
+              "name": "winnerIcon",
+              "width": 18,
+              "height": 18,
+              "iconFontName": "trophy",
+              "iconFontFamily": "lucide",
+              "fill": "$--neon-gold"
+            },
+            {
+              "type": "text",
+              "id": "l1G4N",
+              "name": "winnerTitle",
+              "fill": "$--neon-gold",
+              "content": "WINNER",
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "700"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "KMlZV",
+          "name": "winnerDivider",
+          "width": "fill_container",
+          "height": 1,
+          "fill": "$--border-subtle"
+        },
+        {
+          "type": "frame",
+          "id": "EdaBJ",
+          "name": "winnerProposalRow",
+          "width": "fill_container",
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "text",
+              "id": "XpFYD",
+              "name": "winnerProposalLabel",
+              "fill": "$--text-muted",
+              "content": "Proposal",
+              "fontFamily": "Inter",
+              "fontSize": 10,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "text",
+              "id": "nqLJE",
+              "name": "winnerProposalValue",
+              "fill": "$--text-primary",
+              "content": "vote.gen[5]",
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 10,
+              "fontWeight": "500"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "j38jQ",
+          "name": "winnerHashRow",
+          "width": "fill_container",
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "text",
+              "id": "6XwSX",
+              "name": "winnerHashLabel",
+              "fill": "$--text-muted",
+              "content": "Hash",
+              "fontFamily": "Inter",
+              "fontSize": 10,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "text",
+              "id": "Dddpj",
+              "name": "winnerHashValue",
+              "fill": "$--text-primary",
+              "content": "4A3B7C2D...",
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 10,
+              "fontWeight": "500"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "TixO3",
+          "name": "winnerVotesRow",
+          "width": "fill_container",
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "text",
+              "id": "x5fnY",
+              "name": "winnerVotesLabel",
+              "fill": "$--text-muted",
+              "content": "Votes",
+              "fontFamily": "Inter",
+              "fontSize": 10,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "text",
+              "id": "LTOQi",
+              "name": "winnerVotesValue",
+              "fill": "$--neon-green",
+              "content": "3 vs 1",
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 10,
+              "fontWeight": "600"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "L5uXs",
+          "name": "winnerModeRow",
+          "width": "fill_container",
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "text",
+              "id": "pFjHZ",
+              "name": "winnerModeLabel",
+              "fill": "$--text-muted",
+              "content": "Mode",
+              "fontFamily": "Inter",
+              "fontSize": 10,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "pSbXe",
+              "name": "winnerModeBadge",
+              "fill": "$--neon-cyan",
+              "cornerRadius": 4,
+              "gap": 4,
+              "padding": [
+                2,
+                6
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "icon_font",
+                  "id": "6VDW7",
+                  "name": "winnerModeIcon",
+                  "width": 10,
+                  "height": 10,
+                  "iconFontName": "sparkles",
+                  "iconFontFamily": "lucide",
+                  "fill": "$--bg-base"
+                },
+                {
+                  "type": "text",
+                  "id": "sbtxo",
+                  "name": "winnerModeText",
+                  "fill": "$--bg-base",
+                  "content": "Semantic",
+                  "fontFamily": "Inter",
+                  "fontSize": 9,
+                  "fontWeight": "600"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "KrrrS",
+          "name": "winnerConsensusRow",
+          "width": "fill_container",
+          "justifyContent": "space_between",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "text",
+              "id": "JnWPq",
+              "name": "winnerConsensusLabel",
+              "fill": "$--text-muted",
+              "content": "Consensus",
+              "fontFamily": "Inter",
+              "fontSize": 10,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "gJ12N",
+              "name": "winnerConsensusBadge",
+              "fill": "$--neon-green",
+              "cornerRadius": 4,
+              "gap": 4,
+              "padding": [
+                2,
+                6
+              ],
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "icon_font",
+                  "id": "voKqY",
+                  "name": "winnerConsensusIcon",
+                  "width": 10,
+                  "height": 10,
+                  "iconFontName": "check",
+                  "iconFontFamily": "lucide",
+                  "fill": "$--bg-base"
+                },
+                {
+                  "type": "text",
+                  "id": "rwwiL",
+                  "name": "winnerConsensusText",
+                  "fill": "$--bg-base",
+                  "content": "Reached",
+                  "fontFamily": "Inter",
+                  "fontSize": 9,
+                  "fontWeight": "600"
+                }
+              ]
             }
           ]
         }

@@ -524,18 +524,21 @@ export const useSisyphusStore = create<SisyphusState>((set) => ({
   }),
 
   // === Chat Messages ===
+  // PERFORMANCE: Limit to 200 messages to prevent memory bloat
   messages: [],
   addMessage: (message) =>
-    set((state) => ({
-      messages: [
-        ...state.messages,
-        {
-          ...message,
-          id: crypto.randomUUID(),
-          timestamp: Date.now(),
-        },
-      ],
-    })),
+    set((state) => {
+      const newMessage = {
+        ...message,
+        id: crypto.randomUUID(),
+        timestamp: Date.now(),
+      }
+      // Keep only last 199 messages + new one = 200 max
+      const trimmedMessages = state.messages.length >= 200
+        ? state.messages.slice(-199)
+        : state.messages
+      return { messages: [...trimmedMessages, newMessage] }
+    }),
   clearMessages: () => set({ messages: [] }),
 
   // === Research Brief ===

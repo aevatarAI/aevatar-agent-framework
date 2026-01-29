@@ -53,9 +53,15 @@ public abstract partial class AIGAgentBase
     }
 
     /// <summary>
-    /// Event-driven chat entry (for YAML/role-based agents).
+    /// Event-driven chat entry (事件触发的 chat 入口).
+    /// 
+    /// 处理 ChatRequestEvent，支持两种场景：
+    /// 1. 内部调用（ChatAsync/ChatStreamAsync 发布的事件）- 写入 TCS/Channel
+    /// 2. 外部调用（其他 agent 或 SessionRuntime 发布的事件）- 发布响应事件
+    /// 
+    /// State 修改在此 event handler scope 中进行，保证 Actor Mailbox 语义。
     /// </summary>
-    [EventHandler(AllowSelfHandling = true)]
+    [EventHandler(OnlySelfHandling = true)]
     protected virtual async Task HandleChatRequestEvent(ChatRequestEvent evt)
     {
         if (evt == null)
@@ -101,54 +107,65 @@ public abstract partial class AIGAgentBase
             request.Temperature = evt.Temperature;
         }
 
-        const int DefaultStreamChunkEveryN = 8;
-        var chunkEvery = evt.StreamChunkEveryN > 0 ? evt.StreamChunkEveryN : DefaultStreamChunkEveryN;
-        chunkEvery = Math.Clamp(chunkEvery, 1, 128);
-
-        var buffer = new StringBuilder();
-        var pending = new StringBuilder();
-        var rawChunkCount = 0;
-        var publishedIndex = 0;
-
-        await foreach (var chunk in ChatStreamAsync(request, CancellationToken.None))
+        // Streaming 模式
+        if (evt.StreamChunkEveryN > 0)
         {
-            if (string.IsNullOrEmpty(chunk))
-                continue;
+            // 检查是否有 pending channel（内部调用 via ChatStreamAsync）
+            if (_pendingStreamRequests.TryGetValue(requestId, out var channel))
+            {
+                try
+                {
+                    await foreach (var chunk in ChatStreamAsyncCore(request, CancellationToken.None))
+                    {
+                        if (!string.IsNullOrEmpty(chunk))
+                        {
+                            channel.Writer.TryWrite(chunk);
+                        }
+                    }
+                }
+                finally
+                {
+                    channel.Writer.Complete();
+                }
+                return;
+            }
 
-            buffer.Append(chunk);
-            pending.Append(chunk);
-            rawChunkCount++;
+            // 外部调用：聚合响应后发布（避免 handler 内部再次触发 stream 事件）
+            var buffer = new StringBuilder();
+            await foreach (var chunk in ChatStreamAsyncCore(request, CancellationToken.None))
+            {
+                if (string.IsNullOrEmpty(chunk))
+                    continue;
 
-            if (rawChunkCount % chunkEvery != 0)
-                continue;
+                buffer.Append(chunk);
+            }
 
-            publishedIndex++;
-            await PublishAsync(new ChatStreamChunkEvent
+            // 发布完整响应事件
+            await PublishAsync(new ChatResponseEvent
             {
                 RequestId = requestId,
-                Content = pending.ToString(),
-                ChunkIndex = publishedIndex,
+                Content = buffer.ToString(),
                 Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
             });
-            pending.Clear();
+            return;
         }
 
-        if (pending.Length > 0)
+        // 非 streaming 模式
+        var response = await ChatAsyncCore(request, CancellationToken.None);
+
+        // 检查是否有 pending TCS（内部调用 via ChatAsync）
+        if (_pendingChatRequests.TryRemove(requestId, out var tcs))
         {
-            publishedIndex++;
-            await PublishAsync(new ChatStreamChunkEvent
-            {
-                RequestId = requestId,
-                Content = pending.ToString(),
-                ChunkIndex = publishedIndex,
-                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
-            });
+            tcs.TrySetResult(response);
+            return;
         }
 
+        // 外部调用：发布响应事件
         await PublishAsync(new ChatResponseEvent
         {
             RequestId = requestId,
-            Content = buffer.ToString(),
+            Content = response.Content,
+            TokensUsed = response.Usage?.TotalTokens ?? 0,
             Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
         });
     }
@@ -209,11 +226,76 @@ public abstract partial class AIGAgentBase
 
     /// <summary>
     /// Process a chat request and return a response.
+    /// 
+    /// 通过 event handler 机制处理，确保 State 修改在 event handler scope 内：
+    /// 1. 先创建 TCS 并放入字典
+    /// 2. 发布 ChatRequestEvent（EventDirection.Self）
+    /// 3. HandleChatRequestEvent 处理请求，set result
+    /// 4. 等待 TCS 完成
     /// </summary>
-    /// <param name="request">Chat request</param>
-    /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>Chat response</returns>
     public virtual async Task<ChatResponse> ChatAsync(
+        ChatRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var requestId = request.RequestId;
+        if (string.IsNullOrWhiteSpace(requestId))
+        {
+            requestId = Guid.NewGuid().ToString("N");
+            request.RequestId = requestId;
+        }
+
+        // 1. 先创建 TCS 并放入字典
+        var tcs = new TaskCompletionSource<ChatResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingChatRequests[requestId] = tcs;
+
+        // 注册取消回调
+        await using var ctr = cancellationToken.Register(() =>
+        {
+            if (_pendingChatRequests.TryRemove(requestId, out var pendingTcs))
+            {
+                pendingTcs.TrySetCanceled(cancellationToken);
+            }
+        });
+
+        try
+        {
+            // 2. 发布 ChatRequestEvent（StreamChunkEveryN = 0 表示非 streaming）
+            var evt = new ChatRequestEvent
+            {
+                RequestId = requestId,
+                Message = request.Message ?? string.Empty,
+                MaxTokens = request.MaxTokens,
+                Temperature = request.Temperature,
+                StreamChunkEveryN = 0
+            };
+
+            if (request.Context.Count > 0)
+            {
+                foreach (var (key, value) in request.Context)
+                {
+                    evt.Context[key] = value?.ToString() ?? string.Empty;
+                }
+            }
+
+            await PublishAsync(evt, EventDirection.Self, cancellationToken);
+
+            // 3 & 4. 等待 HandleChatRequestEvent 完成
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
+            return await tcs.Task.WaitAsync(linkedCts.Token);
+        }
+        finally
+        {
+            _pendingChatRequests.TryRemove(requestId, out _);
+        }
+    }
+
+    /// <summary>
+    /// 内部 chat 实现（原 ChatAsync 逻辑）。
+    /// 必须在 event handler scope 中调用（由 HandleChatRequestEvent 调用）。
+    /// </summary>
+    protected virtual async Task<ChatResponse> ChatAsyncCore(
         ChatRequest request,
         CancellationToken cancellationToken = default)
     {
@@ -320,15 +402,6 @@ public abstract partial class AIGAgentBase
                 promptChars: request.Message?.Length ?? 0,
                 responseChars: response.Content?.Length ?? 0);
 
-            // Publish chat response event
-            await PublishAsync(new ChatResponseEvent
-            {
-                RequestId = request.RequestId,
-                Content = response.Content,
-                TokensUsed = response.Usage?.TotalTokens ?? 0,
-                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
-            }, ct: cancellationToken);
-
             // Record the AI decision as an event (Event Sourcing)
             RaiseAIDecision(
                 request.Message ?? string.Empty,
@@ -423,21 +496,75 @@ public abstract partial class AIGAgentBase
         return ChatRequest.Create(message);
     }
 
-    /// <summary>
-    /// Generate a response to a message (convenience method).
-    /// </summary>
-    public virtual Task<ChatResponse> GenerateResponseAsync(
-        string message,
-        CancellationToken cancellationToken = default)
-    {
-        var request = CreateChatRequest(message);
-        return ChatAsync(request, cancellationToken);
-    }
 
     /// <summary>
     /// Generate a streaming response to a chat request.
+    /// 
+    /// 通过 event handler 机制处理，确保 State 修改在 event handler scope 内：
+    /// 1. 先创建 Channel 并放入字典
+    /// 2. 发布 ChatRequestEvent（EventDirection.Self）
+    /// 3. HandleChatRequestEvent 处理请求，写入 Channel
+    /// 4. 从 Channel 读取 chunks
     /// </summary>
     public virtual async IAsyncEnumerable<string> ChatStreamAsync(
+        ChatRequest request,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var requestId = request.RequestId;
+        if (string.IsNullOrWhiteSpace(requestId))
+        {
+            requestId = Guid.NewGuid().ToString("N");
+            request.RequestId = requestId;
+        }
+
+        // 1. 先创建 Channel 并放入字典
+        var channel = System.Threading.Channels.Channel.CreateUnbounded<string>(
+            new System.Threading.Channels.UnboundedChannelOptions
+            {
+                SingleReader = true,
+                SingleWriter = true
+            });
+        _pendingStreamRequests[requestId] = channel;
+
+        try
+        {
+            // 2. 发布 ChatRequestEvent（StreamChunkEveryN > 0 表示 streaming）
+            var evt = new ChatRequestEvent
+            {
+                RequestId = requestId,
+                Message = request.Message ?? string.Empty,
+                MaxTokens = request.MaxTokens,
+                Temperature = request.Temperature,
+                StreamChunkEveryN = 1
+            };
+
+            if (request.Context.Count > 0)
+            {
+                foreach (var (key, value) in request.Context)
+                {
+                    evt.Context[key] = value?.ToString() ?? string.Empty;
+                }
+            }
+
+            await PublishAsync(evt, EventDirection.Self, cancellationToken);
+
+            // 3 & 4. HandleChatRequestEvent 写入 Channel，这里读取
+            await foreach (var chunk in channel.Reader.ReadAllAsync(cancellationToken))
+            {
+                yield return chunk;
+            }
+        }
+        finally
+        {
+            _pendingStreamRequests.TryRemove(requestId, out _);
+        }
+    }
+
+    /// <summary>
+    /// 内部 streaming chat 实现（原 ChatStreamAsync 逻辑）。
+    /// 必须在 event handler scope 中调用（由 HandleChatRequestEvent 调用）。
+    /// </summary>
+    protected virtual async IAsyncEnumerable<string> ChatStreamAsyncCore(
         ChatRequest request,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
@@ -763,4 +890,5 @@ public abstract partial class AIGAgentBase
         var modelInfo = await LLMProvider.GetModelInfoAsync(cancellationToken);
         return modelInfo.SupportsStreaming;
     }
+
 }

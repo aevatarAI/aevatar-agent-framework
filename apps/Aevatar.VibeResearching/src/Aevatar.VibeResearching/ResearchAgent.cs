@@ -1,3 +1,4 @@
+using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.Tool.Abstractions;
@@ -89,4 +90,5 @@ public class ResearchAgent : AIGAgentBase
         await InitializeToolsAsync(ct);
         return await GetRegisteredToolsAsync();
     }
+
 }

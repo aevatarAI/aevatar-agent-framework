@@ -29,7 +29,6 @@ public sealed class SessionAgUiStream : IAsyncDisposable
     private readonly ILogger _logger;
     private readonly Channel<AgUiEvent> _channel;
     private readonly ConcurrentBag<Task<IMessageStreamSubscription>> _subscriptions = new();
-    private readonly ConcurrentDictionary<string, byte> _streamingMessages = new(StringComparer.Ordinal);
     private int _disposed;
 
     public SessionAgUiStream(
@@ -78,64 +77,6 @@ public sealed class SessionAgUiStream : IAsyncDisposable
     {
         _logger.LogDebug("[SessionAgUiStream] Subscribing to agent {AgentId}", agentId);
 
-        // ============================================================
-        //  ChatStreamChunkEvent → 实时 streaming
-        // ============================================================
-        Track(stream.SubscribeAsync<ChatStreamChunkEvent>(evt =>
-        {
-            if (evt == null || string.IsNullOrWhiteSpace(evt.RequestId))
-                return Task.CompletedTask;
-
-            var messageId = BuildMessageId(evt.RequestId);
-            _streamingMessages.TryAdd(messageId, 0);
-
-            Publish(new TextMessageContentEvent
-            {
-                Timestamp = Now(),
-                MessageId = messageId,
-                Delta = evt.Content ?? string.Empty
-            });
-            return Task.CompletedTask;
-        }, null, CancellationToken.None));
-
-        // ============================================================
-        //  ChatResponseEvent → 结束事件 (非流式时发送内容)
-        // ============================================================
-        Track(stream.SubscribeAsync<ChatResponseEvent>(evt =>
-        {
-            if (evt == null || string.IsNullOrWhiteSpace(evt.RequestId))
-                return Task.CompletedTask;
-
-            var messageId = BuildMessageId(evt.RequestId);
-            var content = evt.Content ?? string.Empty;
-            var hadChunks = _streamingMessages.TryRemove(messageId, out _);
-
-            // 只有在没收到 chunks 时才发送完整内容（非流式回退）
-            if (!hadChunks && content.Length > 0)
-            {
-                Publish(new TextMessageContentEvent
-                {
-                    Timestamp = Now(),
-                    MessageId = messageId,
-                    Delta = content
-                });
-            }
-
-            Publish(new TextMessageEndEvent
-            {
-                Timestamp = Now(),
-                MessageId = messageId
-            });
-
-            Publish(new RunFinishedEvent
-            {
-                Timestamp = Now(),
-                ThreadId = _sessionId,
-                RunId = evt.RequestId
-            });
-            return Task.CompletedTask;
-        }, null, CancellationToken.None));
-
         // Tool 事件
         Track(stream.SubscribeAsync<CoreToolCallStartEvent>(evt =>
         {
@@ -160,9 +101,17 @@ public sealed class SessionAgUiStream : IAsyncDisposable
             return Task.CompletedTask;
         }, null, CancellationToken.None));
 
-        // ExecutionTraceEvent
+        // ExecutionTraceEvent - 过滤掉内部 chat handler 事件
         Track(stream.SubscribeAsync<ExecutionTraceEvent>(evt =>
         {
+            // 跳过内部 chat 相关的 handler 事件，这些不应暴露给 UI
+            if (evt.Fields.TryGetValue(ExecutionTraceEventFields.HandlerName, out var handlerField))
+            {
+                var handlerName = handlerField.StringValue ?? string.Empty;
+                if (handlerName.StartsWith("HandleChat", StringComparison.Ordinal))
+                    return Task.CompletedTask;
+            }
+
             var agui = AgUiTraceProjector.Map(evt, new AgUiTraceProjectorOptions
             {
                 ResolveThreadId = _ => _sessionId
@@ -172,9 +121,6 @@ public sealed class SessionAgUiStream : IAsyncDisposable
             return Task.CompletedTask;
         }, null, CancellationToken.None));
     }
-
-    private string BuildMessageId(string requestId)
-        => $"msg:{_sessionId}:assistant:{requestId}";
 
     private static long Now()
         => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -191,7 +137,6 @@ public sealed class SessionAgUiStream : IAsyncDisposable
             return;
 
         _channel.Writer.TryComplete();
-        _streamingMessages.Clear();
 
         foreach (var task in _subscriptions)
         {

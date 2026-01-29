@@ -97,7 +97,9 @@ class Program
                 };
 
                 Console.WriteLine("Thinking...");
+                #pragma warning disable CS0618 // Obsolete warning - TODO: migrate to event-driven
                 var response = await agent.ChatAsync(request);
+                #pragma warning restore CS0618
 
                 Console.ForegroundColor = ConsoleColor.Cyan;
                 Console.WriteLine($"\nAssistant: {response.Content}");

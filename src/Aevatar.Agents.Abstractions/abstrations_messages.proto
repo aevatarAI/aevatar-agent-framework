@@ -38,6 +38,10 @@ enum EventDirection {
 
   // Bidirectional: Send both upward and downward simultaneously
   EVENT_DIRECTION_BOTH = 3;
+
+  // Self: Event is delivered directly to self, bypassing stream broadcast.
+  // Used for triggering self-handling event handlers (e.g., ChatRequestEvent).
+  EVENT_DIRECTION_SELF = 4;
 }
 
 message MessageEnvelope {

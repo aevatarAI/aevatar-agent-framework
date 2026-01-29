@@ -204,6 +204,11 @@ public class EventRouter(
         // Then propagate to other nodes based on direction
         switch (envelope.Direction)
         {
+            case EventDirection.Self:
+                // Self direction: only send to self, no propagation to parent/children
+                // Already sent to self above, nothing more to do
+                break;
+
             case EventDirection.Up:
                 if (_parentId != null) targetCount++;
                 await SendToParentAsync(envelope, ct);

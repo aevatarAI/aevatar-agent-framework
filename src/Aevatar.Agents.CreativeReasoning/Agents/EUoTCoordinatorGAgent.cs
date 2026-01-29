@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Aevatar.Agents.Abstractions.Attributes;
+using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.CreativeReasoning.Core;
 using Aevatar.Agents.CreativeReasoning.Messages;
@@ -125,7 +126,7 @@ public class EUoTCoordinatorGAgent : AIGAgentBase<EUoTCoordinatorState, EUoTCoor
         var analogyPrompt = _analogyStrategy.BuildAnalogyRetrievalPrompt(
             request.Problem, request.DomainHint, CustomConfig.MaxAnalogies);
 
-        var analogyResponse = await GenerateResponseAsync(analogyPrompt);
+        var analogyResponse = await ChatAsync(ChatRequest.Create(analogyPrompt));
         CustomState.TotalLlmCalls++;
         
         var parsedAnalogies = _analogyStrategy.ParseAnalogies(analogyResponse.Content);
@@ -135,7 +136,7 @@ public class EUoTCoordinatorGAgent : AIGAgentBase<EUoTCoordinatorState, EUoTCoor
             var solutionPrompt = _analogyStrategy.BuildSolutionHarvestPrompt(
                 analogy.Description, analogy.Domain, CustomConfig.SolutionsPerAnalogy);
 
-            var solutionResponse = await GenerateResponseAsync(solutionPrompt);
+            var solutionResponse = await ChatAsync(ChatRequest.Create(solutionPrompt));
             CustomState.TotalLlmCalls++;
 
             var parsedSolutions = _analogyStrategy.ParseSolutions(solutionResponse.Content, analogy.Id);
@@ -177,7 +178,7 @@ public class EUoTCoordinatorGAgent : AIGAgentBase<EUoTCoordinatorState, EUoTCoor
                 var prompt = _decompositionStrategy.BuildDecompositionPrompt(
                     solution.Content, analogy.Description);
 
-                var response = await GenerateResponseAsync(prompt);
+                var response = await ChatAsync(ChatRequest.Create(prompt));
                 CustomState.TotalLlmCalls++;
 
                 var thoughts = _decompositionStrategy.ParseThoughts(
@@ -228,7 +229,7 @@ public class EUoTCoordinatorGAgent : AIGAgentBase<EUoTCoordinatorState, EUoTCoor
             existingThoughts,
             CustomConfig.ExplorationDirections);
 
-        var directionsResponse = await GenerateResponseAsync(directionsPrompt);
+        var directionsResponse = await ChatAsync(ChatRequest.Create(directionsPrompt));
         CustomState.TotalLlmCalls++;
 
         var directions = _exploratoryStrategy.ParseExplorationDirections(directionsResponse.Content);
@@ -247,7 +248,7 @@ public class EUoTCoordinatorGAgent : AIGAgentBase<EUoTCoordinatorState, EUoTCoor
                 existingThoughts,
                 CustomConfig.MaxOutsideThoughts / Math.Max(1, directions.Count));
 
-            var discoveryResponse = await GenerateResponseAsync(discoveryPrompt);
+            var discoveryResponse = await ChatAsync(ChatRequest.Create(discoveryPrompt));
             CustomState.TotalLlmCalls++;
 
             var discovered = _exploratoryStrategy.ParseOutsideThoughts(discoveryResponse.Content, direction);
@@ -264,7 +265,7 @@ public class EUoTCoordinatorGAgent : AIGAgentBase<EUoTCoordinatorState, EUoTCoor
                 CustomState.OriginalProblem,
                 existingThoughts);
 
-            var evaluationResponse = await GenerateResponseAsync(evaluationPrompt);
+            var evaluationResponse = await ChatAsync(ChatRequest.Create(evaluationPrompt));
             CustomState.TotalLlmCalls++;
 
             var evaluated = _exploratoryStrategy.ParseEvaluatedOutsideThoughts(evaluationResponse.Content);
@@ -306,7 +307,7 @@ public class EUoTCoordinatorGAgent : AIGAgentBase<EUoTCoordinatorState, EUoTCoor
         var prompt = _hostSelectionStrategy.BuildHostSelectionPrompt(
             CustomState.OriginalProblem, solutionsForSelection);
 
-        var response = await GenerateResponseAsync(prompt);
+        var response = await ChatAsync(ChatRequest.Create(prompt));
         CustomState.TotalLlmCalls++;
 
         var result = _hostSelectionStrategy.ParseHostSelection(response.Content);
@@ -358,7 +359,7 @@ public class EUoTCoordinatorGAgent : AIGAgentBase<EUoTCoordinatorState, EUoTCoor
             var prompt = _donorSelectionStrategy.BuildDonorSelectionPrompt(
                 originalThought, candidateDonors, CustomState.OriginalProblem, CustomConfig.FarDistanceThreshold);
 
-            var response = await GenerateResponseAsync(prompt);
+            var response = await ChatAsync(ChatRequest.Create(prompt));
             CustomState.TotalLlmCalls++;
 
             var result = _donorSelectionStrategy.ParseDonorSelection(response.Content);
@@ -411,7 +412,7 @@ public class EUoTCoordinatorGAgent : AIGAgentBase<EUoTCoordinatorState, EUoTCoor
         var prompt = _synthesisStrategy.BuildSynthesisPrompt(
             hostContent, substitutions, CustomState.OriginalProblem);
 
-        var response = await GenerateResponseAsync(prompt);
+        var response = await ChatAsync(ChatRequest.Create(prompt));
         CustomState.TotalLlmCalls++;
 
         var synthesized = _synthesisStrategy.ParseSynthesizedSolution(response.Content);
@@ -444,7 +445,7 @@ public class EUoTCoordinatorGAgent : AIGAgentBase<EUoTCoordinatorState, EUoTCoor
             // Feasibility
             var feasPrompt = _evaluationStrategy.BuildFeasibilityPrompt(
                 candidate.Content, CustomState.OriginalProblem);
-            var feasResponse = await GenerateResponseAsync(feasPrompt);
+            var feasResponse = await ChatAsync(ChatRequest.Create(feasPrompt));
             CustomState.TotalLlmCalls++;
             var feasibility = _evaluationStrategy.ParseFeasibility(feasResponse.Content);
             
@@ -453,14 +454,14 @@ public class EUoTCoordinatorGAgent : AIGAgentBase<EUoTCoordinatorState, EUoTCoor
             // Utility
             var utilPrompt = _evaluationStrategy.BuildUtilityPrompt(
                 candidate.Content, CustomState.OriginalProblem);
-            var utilResponse = await GenerateResponseAsync(utilPrompt);
+            var utilResponse = await ChatAsync(ChatRequest.Create(utilPrompt));
             CustomState.TotalLlmCalls++;
             var utility = _evaluationStrategy.ParseUtility(utilResponse.Content);
 
             // Novelty
             var novPrompt = _evaluationStrategy.BuildNoveltyPrompt(
                 candidate.Content, CustomState.OriginalProblem, existingSolutions);
-            var novResponse = await GenerateResponseAsync(novPrompt);
+            var novResponse = await ChatAsync(ChatRequest.Create(novPrompt));
             CustomState.TotalLlmCalls++;
             var novelty = _evaluationStrategy.ParseNovelty(novResponse.Content);
 

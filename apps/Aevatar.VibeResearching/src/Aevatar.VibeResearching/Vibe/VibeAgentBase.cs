@@ -65,5 +65,3 @@ public abstract class VibeAgentBase : AIGAgentBase
         return llm;
     }
 }
-
-

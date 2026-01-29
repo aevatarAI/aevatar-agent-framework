@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+using System.Text;
 using Aevatar.Agents.Abstractions.Helpers;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
@@ -58,5 +60,43 @@ public static class MessageExtensions
             Version = version,
             Payload = Any.Pack(payload)
         };
+    }
+
+    /// <summary>
+    /// Batch streaming chunks by count (preserve order).
+    ///
+    /// 中文 + ASCII:
+    /// - chunkEvery <= 1 => 每个 chunk 立刻返回
+    /// - 保持顺序 + 最后 flush
+    /// - 不引入额外线程/任务
+    /// </summary>
+    public static async IAsyncEnumerable<string> BatchByCountAsync(
+        this IAsyncEnumerable<string> source,
+        int chunkEvery,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+
+        var normalized = Math.Clamp(chunkEvery, 1, 128);
+        var pending = new StringBuilder();
+        var count = 0;
+
+        await foreach (var chunk in source.WithCancellation(ct))
+        {
+            if (string.IsNullOrEmpty(chunk))
+                continue;
+
+            pending.Append(chunk);
+            count++;
+
+            if (normalized > 1 && count % normalized != 0)
+                continue;
+
+            yield return pending.ToString();
+            pending.Clear();
+        }
+
+        if (pending.Length > 0)
+            yield return pending.ToString();
     }
 }

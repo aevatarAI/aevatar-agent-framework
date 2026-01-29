@@ -546,3 +546,5 @@ deploy-frontend-s3.sh
 .playwright-mcp
 
 *.db
+
+/examples/memory/

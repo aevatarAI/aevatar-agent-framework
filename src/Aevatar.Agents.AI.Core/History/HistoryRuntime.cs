@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core.Utils;
+using Aevatar.Agents.Core.StateProtection;
 using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.AI.Core;
@@ -31,6 +32,9 @@ public abstract partial class AIGAgentBase
 
         internal void AddMessage(string content, AevatarChatRole role, string? name = null)
         {
+            // 确保只能在 event handler 或 initialization 上下文中修改 State
+            StateProtectionContext.EnsureModifiable("AddMessageToHistory");
+            
             lock (_historyLock)
             {
                 ConversationHistory.AddMessage(content, role, name);
@@ -39,6 +43,9 @@ public abstract partial class AIGAgentBase
 
         internal void AddMessage(AevatarChatMessage message)
         {
+            // 确保只能在 event handler 或 initialization 上下文中修改 State
+            StateProtectionContext.EnsureModifiable("AddMessageToHistory");
+            
             lock (_historyLock)
             {
                 ConversationHistory.AddMessage(message);
@@ -90,6 +97,9 @@ public abstract partial class AIGAgentBase
 
             if (_owner.ChatHistoryMaxMessages <= 0)
                 return;
+            
+            // 确保只能在 event handler 或 initialization 上下文中修改 State
+            StateProtectionContext.EnsureModifiable("CompactChatHistory");
 
             int historyCount;
             lock (_historyLock)

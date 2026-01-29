@@ -172,6 +172,7 @@ public sealed class CognitiveStepExecutionHandler : IStepExecutionHandler
                 var chunkIndex = 0;
                 var startAt = DateTimeOffset.UtcNow;
 
+                // 直接调用 streaming chat (internal protected，通过 InternalsVisibleTo 访问)
                 var stream = agent.ChatStreamAsync(chat, localCt);
                 var enumerator = stream.GetAsyncEnumerator(localCt);
                 try

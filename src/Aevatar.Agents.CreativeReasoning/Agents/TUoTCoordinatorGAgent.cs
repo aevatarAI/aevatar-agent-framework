@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Aevatar.Agents.Abstractions.Attributes;
+using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.CreativeReasoning.Core;
 using Aevatar.Agents.CreativeReasoning.Messages;
@@ -111,7 +112,7 @@ public class TUoTCoordinatorGAgent : AIGAgentBase<TUoTCoordinatorState, TUoTCoor
         var explicitPrompt = _ruleMutationStrategy.BuildExplicitRuleExtractionPrompt(
             request.Problem, request.DomainHint);
 
-        var explicitResponse = await GenerateResponseAsync(explicitPrompt);
+        var explicitResponse = await ChatAsync(ChatRequest.Create(explicitPrompt));
         CustomState.TotalLlmCalls++;
 
         var explicitRules = _ruleMutationStrategy.ParseExplicitRules(explicitResponse.Content);
@@ -135,7 +136,7 @@ public class TUoTCoordinatorGAgent : AIGAgentBase<TUoTCoordinatorState, TUoTCoor
         var hiddenPrompt = _ruleMutationStrategy.BuildHiddenAssumptionExtractionPrompt(
             request.Problem, explicitRules, request.DomainHint);
 
-        var hiddenResponse = await GenerateResponseAsync(hiddenPrompt);
+        var hiddenResponse = await ChatAsync(ChatRequest.Create(hiddenPrompt));
         CustomState.TotalLlmCalls++;
 
         var hiddenAssumptions = _ruleMutationStrategy.ParseHiddenAssumptions(hiddenResponse.Content);
@@ -187,7 +188,7 @@ public class TUoTCoordinatorGAgent : AIGAgentBase<TUoTCoordinatorState, TUoTCoor
             CustomConfig.MaxRuleSets,
             CustomConfig.MutationsPerSet);
 
-        var mutationResponse = await GenerateResponseAsync(mutationPrompt);
+        var mutationResponse = await ChatAsync(ChatRequest.Create(mutationPrompt));
         CustomState.TotalLlmCalls++;
 
         var mutatedSets = _ruleMutationStrategy.ParseMutatedRuleSets(mutationResponse.Content);
@@ -267,7 +268,7 @@ public class TUoTCoordinatorGAgent : AIGAgentBase<TUoTCoordinatorState, TUoTCoor
             var explorationPrompt = _ruleMutationStrategy.BuildRuleSpaceExplorationPrompt(
                 CustomState.OriginalProblem, parsedRuleSet);
 
-            var explorationResponse = await GenerateResponseAsync(explorationPrompt);
+            var explorationResponse = await ChatAsync(ChatRequest.Create(explorationPrompt));
             CustomState.TotalLlmCalls++;
 
             var solutions = _ruleMutationStrategy.ParseTransformativeSolutions(
@@ -328,7 +329,7 @@ public class TUoTCoordinatorGAgent : AIGAgentBase<TUoTCoordinatorState, TUoTCoor
             var evalPrompt = _ruleMutationStrategy.BuildTransformativeEvaluationPrompt(
                 parsedSolution, CustomState.OriginalProblem, existingSolutions);
 
-            var evalResponse = await GenerateResponseAsync(evalPrompt);
+            var evalResponse = await ChatAsync(ChatRequest.Create(evalPrompt));
             CustomState.TotalLlmCalls++;
 
             var evaluation = _ruleMutationStrategy.ParseTransformativeEvaluation(evalResponse.Content);

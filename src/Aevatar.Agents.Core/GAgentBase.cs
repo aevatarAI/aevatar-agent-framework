@@ -129,6 +129,7 @@ public abstract class GAgentBase : IGAgent
         public Type ParameterType { get; }
         public bool IsAllEventHandler { get; }
         public bool AllowSelfHandling { get; }
+        public bool OnlySelfHandling { get; }
         public Func<Any, IMessage>? Unpacker { get; }
 
         public EventHandlerMetadata(MethodInfo method)
@@ -141,6 +142,7 @@ public abstract class GAgentBase : IGAgent
 
             IsAllEventHandler = allHandlerAttr != null;
             AllowSelfHandling = eventHandlerAttr?.AllowSelfHandling ?? allHandlerAttr?.AllowSelfHandling ?? false;
+            OnlySelfHandling = eventHandlerAttr?.OnlySelfHandling ?? false;
 
             // Pre-compile Unpack delegate for specific message types
             if (!IsAllEventHandler && typeof(IMessage).IsAssignableFrom(ParameterType))
@@ -691,8 +693,18 @@ public abstract class GAgentBase : IGAgent
     /// </summary>
     private bool ShouldHandleEvent(EventHandlerMetadata handler, EventEnvelope envelope)
     {
+        // OnlySelfHandling 蕴含 AllowSelfHandling
+        var allowSelf = handler.AllowSelfHandling || handler.OnlySelfHandling;
+        
         // If self-handling is not allowed and publisher is self, skip
-        if (!handler.AllowSelfHandling && envelope.PublisherId == Id)
+        if (!allowSelf && envelope.PublisherId == Id)
+        {
+            return false;
+        }
+
+        // If only-self-handling is set, only handle events with EventDirection.Self
+        // (ignore events from parent/children streams)
+        if (handler.OnlySelfHandling && envelope.Direction != EventDirection.Self)
         {
             return false;
         }

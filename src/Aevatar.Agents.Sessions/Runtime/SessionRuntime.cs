@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions.Extensions;
 using Aevatar.Agents.Abstractions.Helpers;
 using Aevatar.Agents.Abstractions.Memory;
 using Aevatar.Agents.AGUI;
@@ -275,7 +276,7 @@ public sealed class SessionRuntime
             Role = "assistant"
         });
 
-        // 后台调度 - 使用 StreamingContext 让 HandleChatRequestEvent 直接发布到 UI
+        // 后台调度 - 通过 actor 发布 ChatRequestEvent，让 event handler 处理并发布 streaming events
         _ = Task.Run(async () =>
         {
             await ctx.RunGate.WaitAsync();
@@ -283,21 +284,61 @@ public sealed class SessionRuntime
             {
                 await _bootstrapper.EnsureInitializedAsync(ctx.Stream, agent, requestId, ensured.Role.Role, CancellationToken.None);
 
-                // 注册 StreamingContext，让 RoleAIGAgent 直接发布到 UI
-                // 注意：使用 requestId 作为 key，因为 AsyncLocal 跨不了 stream 回调边界
-                var sink = new SessionStreamChunkSink(ctx.Stream, messageId);
-                StreamingContext.Register(requestId, sink);
-                try
+                // 转换 ChatRequestEvent 为 ChatRequest
+                var chatRequest = ChatRequest.Create(request.Message ?? string.Empty);
+                chatRequest.RequestId = requestId;
+                chatRequest.MaxTokens = request.MaxTokens;
+                chatRequest.Temperature = request.Temperature;
+                if (request.Context.Count > 0)
                 {
-                    await actor.PublishEventAsync(request, EventDirection.Down, CancellationToken.None);
-                    
-                    // 等待 event handler 完成 - sink 会在 EmitEnd 时标记完成
-                    await sink.WaitForCompletionAsync(TimeSpan.FromMinutes(10));
+                    foreach (var (key, value) in request.Context)
+                    {
+                        chatRequest.Context[key] = value;
+                    }
                 }
-                finally
+
+                // 直接调用 ChatStreamAsync（内部通过 event handler 处理 State）
+                var chunkEvery = request.StreamChunkEveryN > 0 ? request.StreamChunkEveryN : 1;
+
+                // 注意：不要绑定到请求的 CancellationToken，
+                // 否则 HTTP 请求结束会导致 streaming 被提前取消。
+                await foreach (var batch in agent.ChatStreamAsync(chatRequest, CancellationToken.None)
+                                   .BatchByCountAsync(chunkEvery, CancellationToken.None))
                 {
-                    StreamingContext.Unregister(requestId);
+                    ctx.Stream.Publish(new TextMessageContentEvent
+                    {
+                        Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                        MessageId = messageId,
+                        Delta = batch
+                    });
                 }
+
+                ctx.Stream.Publish(new TextMessageEndEvent
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    MessageId = messageId
+                });
+                ctx.Stream.Publish(new RunFinishedEvent
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    ThreadId = sessionId,
+                    RunId = requestId
+                });
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                _logger.LogDebug("[SessionRuntime] Chat canceled: session={SessionId}", sessionId);
+                ctx.Stream.Publish(new TextMessageEndEvent
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    MessageId = messageId
+                });
+                ctx.Stream.Publish(new RunFinishedEvent
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    ThreadId = sessionId,
+                    RunId = requestId
+                });
             }
             catch (Exception ex)
             {
@@ -312,6 +353,12 @@ public sealed class SessionRuntime
                 {
                     Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                     MessageId = messageId
+                });
+                ctx.Stream.Publish(new RunFinishedEvent
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    ThreadId = sessionId,
+                    RunId = requestId
                 });
             }
             finally
@@ -484,62 +531,3 @@ public sealed class SessionRuntime
     }
 }
 
-// ============================================================
-//  SessionStreamChunkSink - 实现 IStreamChunkSink
-//
-//  让 RoleAIGAgent.HandleChatRequestEvent 能直接把 chunks 发布到 UI
-// ============================================================
-
-internal sealed class SessionStreamChunkSink : IStreamChunkSink
-{
-    private readonly SessionAgUiStream _stream;
-    private readonly string _messageId;
-    private readonly TaskCompletionSource _completionSource = new();
-
-    public SessionStreamChunkSink(SessionAgUiStream stream, string messageId)
-    {
-        _stream = stream ?? throw new ArgumentNullException(nameof(stream));
-        _messageId = messageId ?? throw new ArgumentNullException(nameof(messageId));
-    }
-
-    public void EmitChunk(string requestId, string content)
-    {
-        _stream.Publish(new TextMessageContentEvent
-        {
-            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            MessageId = _messageId,
-            Delta = content
-        });
-    }
-
-    public void EmitEnd(string requestId, string? fullContent)
-    {
-        _stream.Publish(new TextMessageEndEvent
-        {
-            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            MessageId = _messageId
-        });
-        _stream.Publish(new RunFinishedEvent
-        {
-            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            ThreadId = _messageId.Split(':').ElementAtOrDefault(1) ?? string.Empty,
-            RunId = requestId
-        });
-        
-        // 标记完成
-        _completionSource.TrySetResult();
-    }
-
-    public async Task WaitForCompletionAsync(TimeSpan timeout)
-    {
-        using var cts = new CancellationTokenSource(timeout);
-        try
-        {
-            await _completionSource.Task.WaitAsync(cts.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            // Timeout - 不等了，sink 可能没被使用（非 streaming 路径）
-        }
-    }
-}

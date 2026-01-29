@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Aevatar.Agents.Abstractions.Attributes;
+using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.CreativeReasoning.Core;
@@ -140,7 +141,7 @@ public class UoTCoordinatorGAgent : AIGAgentBase<UoTCoordinatorState, UoTCoordin
             request.DomainHint, 
             CustomConfig.MaxAnalogies);
 
-        var analogyResponse = await GenerateResponseAsync(analogyPrompt);
+        var analogyResponse = await ChatAsync(ChatRequest.Create(analogyPrompt));
         CustomState.TotalLlmCalls++;
         
         var parsedAnalogies = _analogyStrategy.ParseAnalogies(analogyResponse.Content);
@@ -154,7 +155,7 @@ public class UoTCoordinatorGAgent : AIGAgentBase<UoTCoordinatorState, UoTCoordin
                 analogy.Domain, 
                 CustomConfig.SolutionsPerAnalogy);
 
-            var solutionResponse = await GenerateResponseAsync(solutionPrompt);
+            var solutionResponse = await ChatAsync(ChatRequest.Create(solutionPrompt));
             CustomState.TotalLlmCalls++;
 
             var parsedSolutions = _analogyStrategy.ParseSolutions(solutionResponse.Content, analogy.Id);
@@ -204,7 +205,7 @@ public class UoTCoordinatorGAgent : AIGAgentBase<UoTCoordinatorState, UoTCoordin
                     solution.Content, 
                     analogy.Description);
 
-                var response = await GenerateResponseAsync(prompt);
+                var response = await ChatAsync(ChatRequest.Create(prompt));
                 CustomState.TotalLlmCalls++;
 
                 var thoughts = _decompositionStrategy.ParseThoughts(
@@ -275,7 +276,7 @@ public class UoTCoordinatorGAgent : AIGAgentBase<UoTCoordinatorState, UoTCoordin
             CustomState.OriginalProblem, 
             solutionsForSelection);
 
-        var response = await GenerateResponseAsync(prompt);
+        var response = await ChatAsync(ChatRequest.Create(prompt));
         CustomState.TotalLlmCalls++;
 
         var result = _hostSelectionStrategy.ParseHostSelection(response.Content);
@@ -330,7 +331,7 @@ public class UoTCoordinatorGAgent : AIGAgentBase<UoTCoordinatorState, UoTCoordin
                 CustomState.OriginalProblem,
                 CustomConfig.FarDistanceThreshold);
 
-            var response = await GenerateResponseAsync(prompt);
+            var response = await ChatAsync(ChatRequest.Create(prompt));
             CustomState.TotalLlmCalls++;
 
             var result = _donorSelectionStrategy.ParseDonorSelection(response.Content);
@@ -398,7 +399,7 @@ public class UoTCoordinatorGAgent : AIGAgentBase<UoTCoordinatorState, UoTCoordin
             substitutions,
             CustomState.OriginalProblem);
 
-        var response = await GenerateResponseAsync(prompt);
+        var response = await ChatAsync(ChatRequest.Create(prompt));
         CustomState.TotalLlmCalls++;
 
         var synthesizedContent = _synthesisStrategy.ParseSynthesizedSolution(response.Content);
@@ -438,7 +439,7 @@ public class UoTCoordinatorGAgent : AIGAgentBase<UoTCoordinatorState, UoTCoordin
                 candidate.Content,
                 CustomState.OriginalProblem);
 
-            var feasibilityResponse = await GenerateResponseAsync(feasibilityPrompt);
+            var feasibilityResponse = await ChatAsync(ChatRequest.Create(feasibilityPrompt));
             CustomState.TotalLlmCalls++;
 
             var feasibility = _evaluationStrategy.ParseFeasibility(feasibilityResponse.Content);
@@ -455,7 +456,7 @@ public class UoTCoordinatorGAgent : AIGAgentBase<UoTCoordinatorState, UoTCoordin
                 candidate.Content,
                 CustomState.OriginalProblem);
 
-            var utilityResponse = await GenerateResponseAsync(utilityPrompt);
+            var utilityResponse = await ChatAsync(ChatRequest.Create(utilityPrompt));
             CustomState.TotalLlmCalls++;
 
             var utility = _evaluationStrategy.ParseUtility(utilityResponse.Content);
@@ -466,7 +467,7 @@ public class UoTCoordinatorGAgent : AIGAgentBase<UoTCoordinatorState, UoTCoordin
                 CustomState.OriginalProblem,
                 existingSolutions);
 
-            var noveltyResponse = await GenerateResponseAsync(noveltyPrompt);
+            var noveltyResponse = await ChatAsync(ChatRequest.Create(noveltyPrompt));
             CustomState.TotalLlmCalls++;
 
             var novelty = _evaluationStrategy.ParseNovelty(noveltyResponse.Content);

@@ -13,6 +13,7 @@
         <Version>1.0.0-alpha</Version>
     </PropertyGroup>
 
+
     <ItemGroup>
         <ProjectReference Include="..\Aevatar.Agents.AI.Abstractions\Aevatar.Agents.AI.Abstractions.csproj" />
         <ProjectReference Include="..\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />

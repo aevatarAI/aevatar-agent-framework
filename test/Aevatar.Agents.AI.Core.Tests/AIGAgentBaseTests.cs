@@ -313,11 +313,11 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
         await agent.InitializeAsync("test-provider");
 
         // Act
-        var response = await agent.GenerateResponseAsync("Quick test");
+        var response = await agent.ChatAsync(ChatRequest.Create("Quick test"));
 
         // Assert
         response.Should().NotBeNull();
-        response.Content.ShouldNotBeEmpty();
+        response.Content.Should().NotBeNullOrEmpty();
     }
 
     [Fact]

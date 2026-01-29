@@ -1,5 +1,6 @@
 using System.Text;
 using Aevatar.Agents.Abstractions.Attributes;
+using Aevatar.Agents.Abstractions.Extensions;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.Core.Messages;
@@ -92,43 +93,22 @@ public sealed class RoleWorkspaceAgent : RoleAIGAgent
 
         const int DefaultStreamChunkEveryN = 8;
         var chunkEvery = evt.StreamChunkEveryN > 0 ? evt.StreamChunkEveryN : DefaultStreamChunkEveryN;
-        chunkEvery = Math.Clamp(chunkEvery, 1, 128);
 
         var buffer = new StringBuilder();
-        var pending = new StringBuilder();
-        var rawChunkCount = 0;
         var publishedIndex = 0;
 
-        await foreach (var chunk in ChatStreamAsync(request, CancellationToken.None))
+        await foreach (var batch in ChatStreamAsync(request, CancellationToken.None)
+                           .BatchByCountAsync(chunkEvery, CancellationToken.None))
         {
-            if (string.IsNullOrEmpty(chunk))
+            if (string.IsNullOrEmpty(batch))
                 continue;
 
-            buffer.Append(chunk);
-            pending.Append(chunk);
-            rawChunkCount++;
-
-            if (rawChunkCount % chunkEvery != 0)
-                continue;
-
+            buffer.Append(batch);
             publishedIndex++;
             await PublishAsync(new ChatStreamChunkEvent
             {
                 RequestId = requestId,
-                Content = pending.ToString(),
-                ChunkIndex = publishedIndex,
-                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
-            });
-            pending.Clear();
-        }
-
-        if (pending.Length > 0)
-        {
-            publishedIndex++;
-            await PublishAsync(new ChatStreamChunkEvent
-            {
-                RequestId = requestId,
-                Content = pending.ToString(),
+                Content = batch,
                 ChunkIndex = publishedIndex,
                 Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
             });

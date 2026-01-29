@@ -94,6 +94,7 @@
     <Project Path="test\Aevatar.Agents.Twitter.Tests\Aevatar.Agents.Twitter.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.Workflow.Tests\Aevatar.Agents.Workflow.Tests.csproj" />
     <Project Path="test\Aevatar.CognitiveMesh.Dsl.Tests\Aevatar.CognitiveMesh.Dsl.Tests.csproj" />
+    <Project Path="test\Aevatar.Platform.Core.Tests\Aevatar.Platform.Core.Tests.csproj" Type="Classic C#" />
     <File Path="test/README.md" />
     <File Path="test\UnitTestDesign.md" />
   </Folder>

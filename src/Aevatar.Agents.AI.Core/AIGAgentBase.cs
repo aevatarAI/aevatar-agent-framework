@@ -39,6 +39,21 @@ public abstract partial class AIGAgentBase : GAgentBase<AevatarAIAgentState, Aev
 
     private readonly SemaphoreSlim _initializationSemaphore = new(1, 1);
 
+    // ============================================================
+    //  Pending Chat/Streaming Requests
+    //
+    //  用于 ChatAsync/ChatStreamAsync 等待 HandleChatRequestEvent 处理完成。
+    //  时序：
+    //  1. ChatAsync/ChatStreamAsync 先创建 TCS/Channel 并放入字典
+    //  2. 发布 ChatRequestEvent（EventDirection.Self）
+    //  3. HandleChatRequestEvent 在 event handler scope 中处理请求
+    //  4. 写入 TCS/Channel，ChatAsync/ChatStreamAsync 获取结果
+    // ============================================================
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TaskCompletionSource<ChatResponse>>
+        _pendingChatRequests = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Threading.Channels.Channel<string>>
+        _pendingStreamRequests = new();
+
     #endregion
 
     public AIGAgentBase()

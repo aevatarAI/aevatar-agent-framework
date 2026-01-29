@@ -2,7 +2,9 @@ using System.Text.RegularExpressions;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Helpers;
 using Aevatar.Agents.AGUI;
+using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Cognitive.Agents;
+using Aevatar.Agents.Cognitive.Execution;
 using Aevatar.AxiomReasoning.Models;
 using Aevatar.AxiomReasoning.Graph;
 using Aevatar.AxiomReasoning.Graph.Models;
@@ -225,10 +227,25 @@ public static class AxiomAgUiBootstrap
             actors.Add(new AgUiActor
             {
                 ActorId = workerRawId,
-                ActorTypeName = typeof(CognitiveWorkerGAgent).Name,
+                ActorTypeName = typeof(RoleAIGAgent).Name,
                 LaneId = laneId,
                 CreateAsync = async (mgr, ct) =>
-                    await mgr.CreateAndRegisterAsync<CognitiveWorkerGAgent>(workerRawId, ct)
+                {
+                    var actor = await mgr.CreateAndRegisterAsync<RoleAIGAgent>(workerRawId, ct);
+                    try
+                    {
+                        if (actor.GetAgent() is RoleAIGAgent worker)
+                        {
+                            worker.SetStepExecutionHandler(new CognitiveStepExecutionHandler());
+                        }
+                    }
+                    catch (NotSupportedException)
+                    {
+                        // Best-effort: some runtimes do not expose agent instances.
+                    }
+
+                    return actor;
+                }
             });
         }
 

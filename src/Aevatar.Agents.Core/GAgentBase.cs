@@ -406,8 +406,7 @@ public abstract class GAgentBase : IGAgent
     /// </summary>
     protected virtual async Task HandleEventCoreAsync(EventEnvelope envelope, CancellationToken ct = default)
     {
-        // Create event handling log scope
-        var eventType = envelope.Payload?.TypeUrl?.Split('/').LastOrDefault() ?? "Unknown";
+        var eventType = ResolveEnvelopeEventType(envelope);
 
         using var loggingScope = LoggingScope.CreateEventHandlingScope(
             Logger,
@@ -416,124 +415,274 @@ public abstract class GAgentBase : IGAgent
             eventType,
             envelope.CorrelationId);
 
-        // Create context scope from envelope metadata (restores previous context on dispose)
         using var contextScope = ContextAccessor?.CreateScope(envelope) ?? AgentContextScope.Empty;
 
         var stopwatch = Stopwatch.StartNew();
+        var handled = await DispatchEventHandlersAsync(envelope, ct);
+        stopwatch.Stop();
+
+        RecordEventHandlingMetrics(eventType, handled, stopwatch.ElapsedMilliseconds);
+    }
+
+    private static string ResolveEnvelopeEventType(EventEnvelope envelope)
+        => envelope.Payload?.TypeUrl?.Split('/').LastOrDefault() ?? "Unknown";
+
+    private async Task<bool> DispatchEventHandlersAsync(EventEnvelope envelope, CancellationToken ct)
+    {
         var handled = false;
-
         var handlers = GetEventHandlers();
-
         foreach (var handler in handlers)
         {
-            try
-            {
-                // Check if it should handle event
-                if (!ShouldHandleEvent(handler, envelope))
-                {
-                    continue;
-                }
+            if (await TryHandleEventWithHandlerAsync(handler, envelope, ct))
+                handled = true;
+        }
+        return handled;
+    }
 
-                // AllEventHandler - pass EventEnvelope directly
-                if (handler.IsAllEventHandler)
-                {
-                    await InvokeHandler(handler.Method, envelope, ct);
-                    handled = true;
-                    continue;
-                }
+    private async Task<bool> TryHandleEventWithHandlerAsync(
+        EventHandlerMetadata handler,
+        EventEnvelope envelope,
+        CancellationToken ct)
+    {
+        if (!ShouldHandleEvent(handler, envelope))
+            return false;
 
-                // EventHandler - unpack Payload
-                if (envelope.Payload != null)
-                {
-                    IMessage? message = null;
-                    try
-                    {
-                        // Use pre-compiled Unpacker delegate if available
-                        if (handler.Unpacker != null)
-                        {
-                            message = handler.Unpacker(envelope.Payload);
-                            Logger.LogDebug("Unpacked message of type {MessageType} for handler {HandlerName} using Unpacker",
-                                message?.GetType().Name ?? "null", handler.Method.Name);
-                        }
-                        else if (!handler.IsAllEventHandler && envelope.Payload != null)
-                        {
-                            Logger.LogDebug("Unpacker is null for handler {HandlerName}. Attempting reflection fallback.", handler.Method.Name);
-                            
-                            // Fallback: Try to unpack using cached reflection method
-                            try
-                            {
-                                var unpackMethodDef = FindUnpackMethodDefinition(out var isInstanceMethod);
+        try
+        {
+            if (handler.IsAllEventHandler)
+                return await InvokeAllEventHandlerAsync(handler, envelope, ct);
 
-                                if (unpackMethodDef != null)
-                                {
-                                    var genericUnpack = unpackMethodDef.MakeGenericMethod(handler.ParameterType);
-                                    message = isInstanceMethod
-                                        ? (IMessage?)genericUnpack.Invoke(envelope.Payload, null)
-                                        : (IMessage?)genericUnpack.Invoke(null, [envelope.Payload]);
-                                    Logger.LogDebug("Unpacked message of type {MessageType} for handler {HandlerName} using reflection fallback",
-                                        message?.GetType().Name ?? "null", handler.Method.Name);
-                                }
-                                else
-                                {
-                                    Logger.LogError("CRITICAL: Could not find Any.Unpack method via reflection for handler {HandlerName}", handler.Method.Name);
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                Logger.LogDebug(ex, "Failed to unpack payload for handler {HandlerName} using reflection fallback.", handler.Method.Name);
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        // Unpack failed, possibly type mismatch, skip
-                        Logger.LogTrace(ex, "Failed to unpack event payload for handler {Handler}", handler.Method.Name);
-                    }
+            return await InvokeTypedEventHandlerAsync(handler, envelope, ct);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error handling event in {Handler}", handler.Method.Name);
+            AgentMetrics.RecordException(ex.GetType().Name, Id, $"HandleEvent:{handler.Method.Name}");
+            await PublishExceptionEventAsync(envelope, handler.Method.Name, ex);
+            return false;
+        }
+    }
 
-                    if (message != null)
-                    {
-                        Logger.LogDebug("Invoking handler {HandlerName} with message {MessageType}", handler.Method.Name, message.GetType().Name);
-                        await InvokeHandler(handler.Method, message, ct);
-                        handled = true;
-                    }
-                    else
-                    {
-                         // Log why message is null if we expected it to work
-                         if (!handler.IsAllEventHandler)
-                         {
-                            var actualTypeUrl = envelope.Payload?.TypeUrl ?? "null";
-                            var msg = $"Skipping handler {handler.Method.Name} because message could not be unpacked (Type mismatch or Unpack failure). Expected: {handler.ParameterType.FullName}, Actual URL: {actualTypeUrl}";
-                            Logger.LogDebug(msg);
-                         }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError(ex, "Error handling event in {Handler}", handler.Method.Name);
+    private async Task<bool> InvokeAllEventHandlerAsync(
+        EventHandlerMetadata handler,
+        EventEnvelope envelope,
+        CancellationToken ct)
+    {
+        await InvokeHandlerWithHooksAsync(handler, envelope, envelope, ct);
+        return true;
+    }
 
-                // Record exception metrics
-                AgentMetrics.RecordException(ex.GetType().Name, Id, $"HandleEvent:{handler.Method.Name}");
+    private async Task<bool> InvokeTypedEventHandlerAsync(
+        EventHandlerMetadata handler,
+        EventEnvelope envelope,
+        CancellationToken ct)
+    {
+        if (envelope.Payload == null)
+            return false;
 
-                // Publish exception event
-                await PublishExceptionEventAsync(envelope, handler.Method.Name, ex);
-
-                // Continue processing other handlers
-            }
+        var message = TryUnpackMessage(handler, envelope);
+        if (message == null)
+        {
+            LogUnpackSkip(handler, envelope);
+            return false;
         }
 
-        // Record event handling metrics
-        stopwatch.Stop();
+        Logger.LogDebug("Invoking handler {HandlerName} with message {MessageType}", handler.Method.Name, message.GetType().Name);
+        await InvokeHandlerWithHooksAsync(handler, envelope, message, ct);
+        return true;
+    }
+
+    private IMessage? TryUnpackMessage(EventHandlerMetadata handler, EventEnvelope envelope)
+    {
+        if (envelope.Payload == null)
+            return null;
+
+        try
+        {
+            if (handler.Unpacker != null)
+            {
+                var message = handler.Unpacker(envelope.Payload);
+                Logger.LogDebug("Unpacked message of type {MessageType} for handler {HandlerName} using Unpacker",
+                    message?.GetType().Name ?? "null", handler.Method.Name);
+                return message;
+            }
+
+            Logger.LogDebug("Unpacker is null for handler {HandlerName}. Attempting reflection fallback.", handler.Method.Name);
+            return TryUnpackWithReflection(handler, envelope.Payload);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogTrace(ex, "Failed to unpack event payload for handler {Handler}", handler.Method.Name);
+            return null;
+        }
+    }
+
+    private IMessage? TryUnpackWithReflection(EventHandlerMetadata handler, Any payload)
+    {
+        try
+        {
+            var unpackMethodDef = FindUnpackMethodDefinition(out var isInstanceMethod);
+            if (unpackMethodDef == null)
+            {
+                Logger.LogError("CRITICAL: Could not find Any.Unpack method via reflection for handler {HandlerName}",
+                    handler.Method.Name);
+                return null;
+            }
+
+            var genericUnpack = unpackMethodDef.MakeGenericMethod(handler.ParameterType);
+            var message = isInstanceMethod
+                ? (IMessage?)genericUnpack.Invoke(payload, null)
+                : (IMessage?)genericUnpack.Invoke(null, new object?[] { payload });
+            Logger.LogDebug("Unpacked message of type {MessageType} for handler {HandlerName} using reflection fallback",
+                message?.GetType().Name ?? "null", handler.Method.Name);
+            return message;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Failed to unpack payload for handler {HandlerName} using reflection fallback.",
+                handler.Method.Name);
+            return null;
+        }
+    }
+
+    private void LogUnpackSkip(EventHandlerMetadata handler, EventEnvelope envelope)
+    {
+        if (envelope.Payload == null)
+            return;
+
+        var actualTypeUrl = envelope.Payload?.TypeUrl ?? "null";
+        var msg = $"Skipping handler {handler.Method.Name} because message could not be unpacked (Type mismatch or Unpack failure). Expected: {handler.ParameterType.FullName}, Actual URL: {actualTypeUrl}";
+        Logger.LogDebug(msg);
+    }
+
+    private async Task InvokeHandlerWithHooksAsync(
+        EventHandlerMetadata handler,
+        EventEnvelope envelope,
+        object payload,
+        CancellationToken ct)
+    {
+        var handlerStopwatch = Stopwatch.StartNew();
+        Exception? handlerException = null;
+        await SafeOnEventHandlerStartAsync(envelope, handler, payload, ct);
+        try
+        {
+            await InvokeHandler(handler.Method, payload, ct);
+        }
+        catch (Exception ex)
+        {
+            handlerException = ex;
+            throw;
+        }
+        finally
+        {
+            handlerStopwatch.Stop();
+            await SafeOnEventHandlerEndAsync(
+                envelope,
+                handler,
+                payload,
+                handlerStopwatch.Elapsed,
+                handlerException,
+                ct);
+        }
+    }
+
+    private void RecordEventHandlingMetrics(string eventType, bool handled, long elapsedMs)
+    {
         if (handled)
         {
-            AgentMetrics.RecordEventHandled(eventType, Id, stopwatch.ElapsedMilliseconds);
+            AgentMetrics.RecordEventHandled(eventType, Id, elapsedMs);
+            return;
         }
-        else
+
+        AgentMetrics.EventsDropped.Add(1,
+            new KeyValuePair<string, object?>("event.type", eventType),
+            new KeyValuePair<string, object?>("agent.id", Id));
+    }
+
+    /// <summary>
+    /// Event handler hook (best-effort). Override to plug in hook pipeline.
+    /// </summary>
+    protected virtual Task OnEventHandlerStartAsync(
+        EventEnvelope envelope,
+        EventHandlerMetadata handler,
+        object? payload,
+        CancellationToken ct)
+        => Task.CompletedTask;
+
+    /// <summary>
+    /// Event handler hook (best-effort). Override to plug in hook pipeline.
+    /// </summary>
+    protected virtual Task OnEventHandlerEndAsync(
+        EventEnvelope envelope,
+        EventHandlerMetadata handler,
+        object? payload,
+        TimeSpan duration,
+        Exception? exception,
+        CancellationToken ct)
+        => Task.CompletedTask;
+
+    private async Task SafeOnEventHandlerStartAsync(
+        EventEnvelope envelope,
+        EventHandlerMetadata handler,
+        object? payload,
+        CancellationToken ct)
+    {
+        // Skip hook execution if already cancelled
+        if (ct.IsCancellationRequested)
         {
-            // No handler processed this event
-            AgentMetrics.EventsDropped.Add(1,
-                new KeyValuePair<string, object?>("event.type", eventType),
-                new KeyValuePair<string, object?>("agent.id", Id));
+            Logger.LogTrace("Skipping event handler start hook (cancelled). Handler={Handler} EventId={EventId}",
+                handler.Method.Name, envelope.Id);
+            return;
+        }
+
+        try
+        {
+            await OnEventHandlerStartAsync(envelope, handler, payload, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            Logger.LogTrace("Event handler start hook cancelled. Handler={Handler} EventId={EventId}",
+                handler.Method.Name, envelope.Id);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex,
+                "Event handler hook (start) failed. Handler={Handler} EventId={EventId}",
+                handler.Method.Name, envelope.Id);
+        }
+    }
+
+    private async Task SafeOnEventHandlerEndAsync(
+        EventEnvelope envelope,
+        EventHandlerMetadata handler,
+        object? payload,
+        TimeSpan duration,
+        Exception? exception,
+        CancellationToken ct)
+    {
+        // Skip hook execution if already cancelled - avoid noisy OperationCanceledException logs
+        if (ct.IsCancellationRequested)
+        {
+            Logger.LogTrace("Skipping event handler end hook (cancelled). Handler={Handler} EventId={EventId}",
+                handler.Method.Name, envelope.Id);
+            return;
+        }
+
+        try
+        {
+            await OnEventHandlerEndAsync(envelope, handler, payload, duration, exception, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Expected during graceful cancellation - log at trace level
+            Logger.LogTrace("Event handler end hook cancelled. Handler={Handler} EventId={EventId}",
+                handler.Method.Name, envelope.Id);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex,
+                "Event handler hook (end) failed. Handler={Handler} EventId={EventId}",
+                handler.Method.Name, envelope.Id);
         }
     }
 

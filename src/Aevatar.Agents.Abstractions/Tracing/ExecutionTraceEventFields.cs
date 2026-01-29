@@ -43,6 +43,9 @@ public static class ExecutionTraceEventFields
     public const string LlmModel = "llm_model";
     public const string ToolName = "tool_name";
     public const string ToolCallId = "tool_call_id";
+    public const string EventType = "event_type";
+    public const string HandlerName = "handler_name";
+    public const string HandlerType = "handler_type";
     public const string DurationMs = "duration_ms";
     public const string Error = "error";
 
@@ -70,6 +73,8 @@ public static class ExecutionTraceEventPhase
     public const string ToolStart = "tool.start";
     public const string ToolProgress = "tool.progress";
     public const string ToolEnd = "tool.end";
+    public const string EventHandlerStart = "event.handler.start";
+    public const string EventHandlerEnd = "event.handler.end";
     public const string Error = "error";
 }
 

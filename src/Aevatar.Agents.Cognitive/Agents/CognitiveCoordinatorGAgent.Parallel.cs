@@ -1,5 +1,4 @@
 using Aevatar.Agents.Abstractions;
-using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.Cognitive.Messages;
 using Aevatar.Agents.Cognitive.Primitives;
 using Aevatar.Agents.Cognitive.Utilities;
@@ -18,7 +17,6 @@ public partial class CognitiveCoordinatorGAgent
     /// <summary>
     /// Handle Worker completion event (Protobuf event)
     /// </summary>
-    [EventHandler]
     public Task HandleStepCompletedEvent(StepCompletedEventProto evt)
     {
         Logger.LogDebug("Coordinator received step completed: {StepId} from {WorkerId}",
@@ -33,11 +31,7 @@ public partial class CognitiveCoordinatorGAgent
         // Update statistics (only count terminal events, avoid repeated accumulation of streaming intermediate states causing explosion)
         if (isTerminal)
         {
-            lock (_statsLock)
-            {
-                CustomState.TotalTokensUsed += evt.TokensUsed;
-                CustomState.TotalLlmCalls += evt.LlmCalls;
-            }
+            AddStats(evt.TokensUsed, evt.LlmCalls);
         }
 
         // Collect results
@@ -111,7 +105,7 @@ public partial class CognitiveCoordinatorGAgent
     //  Parallel Steps - Distribute to Workers (True Actor Parallelism)
     // ============================================================
 
-    private async Task<PrimitiveResult> ExecuteFanOutAsync(StepDefinition step)
+    internal async Task<PrimitiveResult> ExecuteFanOutAsync(StepDefinition step)
     {
         // Get iteration list
         var forEachVar = step.ForEach ?? "";
@@ -449,7 +443,7 @@ public partial class CognitiveCoordinatorGAgent
         return PrimitiveResult.Ok(reduced, totalTokens, totalCalls);
     }
 
-    private async Task<PrimitiveResult> ExecuteParallelAsync(StepDefinition step)
+    internal async Task<PrimitiveResult> ExecuteParallelAsync(StepDefinition step)
     {
         var steps = step.Parameters.GetValueOrDefault("steps") as List<StepDefinition>;
         if (steps == null || steps.Count == 0)

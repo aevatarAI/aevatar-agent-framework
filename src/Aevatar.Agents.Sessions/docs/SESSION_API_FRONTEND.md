@@ -2,6 +2,9 @@
 
 本文说明如何在浏览器或前端应用中调用 Session API。
 
+## 流程概览
+- 端到端流程请见 `docs/SESSION_RUNTIME_FLOW.md`。
+
 ## 协议与 Content-Type
 - 所有请求/响应均为 **二进制 Protobuf**。
 - `Content-Type` 必须为 `application/x-protobuf`。
@@ -15,9 +18,7 @@
 - `src/Aevatar.Agents.AI.Abstractions/ai_abstractions_messages.proto`
 - `src/Aevatar.Agents.Abstractions/memory.proto`
 - `src/Aevatar.Agents.Abstractions/execution_trace.proto`
-- `src/Aevatar.Agents.Cognitive/cognitive_messages.proto`
 - `google/protobuf/timestamp.proto`
-- `google/protobuf/struct.proto`
 
 ## 接口列表
 
@@ -26,14 +27,13 @@
 
 ### Sessions
 - **POST** `/api/sessions` -> `StartSessionRequest` / `StartSessionResponse`
-  - 必填：`workflow_name`。
-  - 可选：`session_id`、`provider_name`、`worker_count`。
-  - `variables` 为 `map<string, google.protobuf.Value>`。
+  - 必填：`workflow_name`（文件路径或 workflows 目录中的名字）。
+  - 可选：`session_id`。
 - **GET** `/api/sessions` -> `SessionMemoryResourcesResponse`
   - 依赖服务端已注册 `IMemoryStore`。
   - Query：`limit`（默认 200，范围 1-2000）。
 - **GET** `/api/sessions/{sessionId}` -> `SessionState`
-- **GET** `/api/sessions/{sessionId}/agents` -> `SessionAgentsResponse`
+- **GET** `/api/sessions/{sessionId}/agents` -> `SessionAgentsResponse`（包含 `SessionRole` 列表）
 - **GET** `/api/sessions/{sessionId}/agents/states` -> `SessionAgentStatesResponse`
   - Query：`include_history`（默认 true），`history_limit`（默认 50，范围 1-500）。
 - **GET** `/api/sessions/{sessionId}/agents/histories` -> `SessionAgentHistoriesResponse`
@@ -51,7 +51,7 @@
 
 ### Trace
 - **GET** `/api/sessions/{sessionId}/trace` -> `SessionTraceResponse`
-  - 依赖服务端已注册 `IExecutionTraceStore`。
+  - 依赖服务端已注册 `IExecutionTraceStore` 且 `SessionState.tags` 包含 `execution_id`。
 
 ## 错误处理
 - `404 Not Found`：session/agent 不存在，或服务未配置可选存储（memory/trace）。
@@ -69,15 +69,7 @@ import {
 
 export async function startSession() {
   const req = create(StartSessionRequestSchema, {
-    workflowName: "maker",
-    providerName: "deepseek",
-    workerCount: 5,
-    enableSessionMemory: true,
-    enableAgentMemory: false,
-    variables: {
-      query: { kind: { case: "stringValue", value: "hello" } },
-      temperature: { kind: { case: "numberValue", value: 0.3 } },
-    },
+    workflowName: "workspace_mesh",
   });
 
   const res = await fetch("/api/sessions", {

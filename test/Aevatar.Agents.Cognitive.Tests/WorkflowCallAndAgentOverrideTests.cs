@@ -187,6 +187,7 @@ system_prompt: |
         public TestCoordinator()
         {
             EventPublisher = NullEventPublisher.Instance;
+            CustomState.MaxDepth = 50;
         }
 
         public override Task<bool> SupportsStreamingAsync(CancellationToken cancellationToken = default)

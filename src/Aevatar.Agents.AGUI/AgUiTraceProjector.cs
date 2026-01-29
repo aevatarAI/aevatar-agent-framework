@@ -199,6 +199,30 @@ public static class AgUiTraceProjector
             return events;
         }
 
+        if (IsPhase(phase, ExecutionTraceEventPhase.EventHandlerStart) ||
+            IsPhase(phase, ExecutionTraceEventPhase.EventHandlerEnd))
+        {
+            events.Add(new CustomEvent
+            {
+                Timestamp = timestamp,
+                Name = phase,
+                Value = new
+                {
+                    phase,
+                    status,
+                    sessionId,
+                    executionId,
+                    eventType = ReadStringField(evt, ExecutionTraceEventFields.EventType),
+                    handlerName = ReadStringField(evt, ExecutionTraceEventFields.HandlerName),
+                    handlerType = ReadStringField(evt, ExecutionTraceEventFields.HandlerType),
+                    durationMs = ReadLongField(evt, ExecutionTraceEventFields.DurationMs),
+                    error = ReadStringField(evt, ExecutionTraceEventFields.Error)
+                },
+                RawEvent = evt
+            });
+            return events;
+        }
+
         // Fallback to existing execution trace mapper for workflow steps.
         return AgUiExecutionTraceMapper.Map(evt);
     }

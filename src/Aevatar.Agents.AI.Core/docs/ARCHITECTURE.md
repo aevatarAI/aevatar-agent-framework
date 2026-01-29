@@ -18,6 +18,7 @@ src/Aevatar.Agents.AI.Core/
 ├── AIGAgentBase.Tools.cs                 # Tool system（Registration/Caches/Instruction block + LoggerAdapter）
 ├── AIGAgentBase.Tools.Loop.cs            # Tool call loop + tool messages + ToolExecutionRequestEvent handler
 ├── AIGAgentBase.Tools.Policy.cs          # Tool policy + allowlist guard（defense in depth）
+├── AIGAgentBase.ToolEvolution.cs         # Tool evolution options + metrics registry wiring
 ├── RoleAIGAgent.cs                       # 通用 role 驱动 Agent（framework-level）
 ├── RoleAgentFactory.cs                   # role YAML 装配入口（GlobalAgentYamlRegistry + AgentYamlConfigApplier）
 ├── Tooling/ToolingRuntime.cs             # Tooling runtime（manager init + caches）
@@ -47,8 +48,10 @@ src/Aevatar.Agents.AI.Core/
 ├── Tool/                             # 工具系统实现（原 WithTool）
 │   ├── Abstractions/                     # ToolDefinition / IAevatarToolManager 等
 │   ├── Tools/                            # AevatarToolManager + 内置/核心/自定义工具
+│   ├── Evolution/                         # Tool evolution: registry/metrics/hooks/materializer
 │   ├── MCP/                              # Model Context Protocol 支持
-│   └── tool_messages.proto               # Tool 相关事件/消息（Protobuf）
+│   ├── tool_messages.proto               # Tool 相关事件/消息（Protobuf）
+│   └── tool_evolution.proto              # Tool evolution 事件/消息（Protobuf）
 └── ai_messages.proto
 ```
 
@@ -88,6 +91,7 @@ AI Agent 的依赖注入由 `AIGAgentFactory` 统一负责：
 - `docs/aigagentbase/README.md`：AIGAgentBase 专区入口（全量指南 + YAML policy + Review）
 - `docs/aigagentbase/YAML_TOOL_POLICY.md`：YAML 工具策略与审计 hook
 - `docs/HOOKS_HARNESS.md`：Hook/Harness 机制（生命周期、默认 hooks、禁用/扩展方式）
+- `docs/EVENT_MODULES.md`：IEventModule 装配与路由（RoleAIGAgent）
 
 ## Global Agent YAML（跨应用：~/.aevatar/agents/*.yaml）
 
@@ -129,6 +133,7 @@ AI Agent 的依赖注入由 `AIGAgentFactory` 统一负责：
 ## 变更日志
 
 - 2026-01-15：新增 RoleAIGAgent/RoleAgentFactory 作为 role YAML 的框架层入口。
+- 2026-01-27：引入 Tool evolution 子系统（反馈 hooks + metrics store + registry + tool_evolution.proto）。
 
 
 

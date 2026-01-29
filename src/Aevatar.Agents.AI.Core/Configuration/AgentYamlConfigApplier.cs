@@ -83,7 +83,7 @@ public static class AgentYamlConfigApplier
         if (!string.IsNullOrWhiteSpace(yaml.SystemPrompt))
         {
             var pinned = yaml.Skills is { Count: > 0 }
-                ? $"\n\nPinned skills (recommended to load early via skills_load):\n- {string.Join("\n- ", yaml.Skills.Select(s => (s ?? string.Empty).Trim()).Where(s => s.Length > 0))}"
+                ? $"\n\nPinned skills (search first via find_helpful_skills; load only what you need):\n- {string.Join("\n- ", yaml.Skills.Select(s => (s ?? string.Empty).Trim()).Where(s => s.Length > 0))}"
                 : string.Empty;
 
             agent.SystemPrompt = $"{roleLine}\n\n{yaml.SystemPrompt.Trim()}{pinned}";
@@ -139,6 +139,9 @@ public static class AgentYamlConfigApplier
         var allow = policy.Allowlist;
 
         agent.SetFixedToolAllowlist(allow.Count == 0 ? null : allow);
+
+        // Tool packs: register tools that appear in yaml.tools (best-effort).
+        await agent.RegisterYamlToolPacksAsync(yaml, ct);
 
         // Dangerous tools: enable only if explicitly allowlisted by YAML.
         // (We keep fallback semantics for agents that already configure AllowDangerousTools themselves.)

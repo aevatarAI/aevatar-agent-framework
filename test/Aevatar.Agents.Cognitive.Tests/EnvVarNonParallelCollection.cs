@@ -15,6 +15,3 @@ namespace Aevatar.Agents.Cognitive.Tests;
 public sealed class EnvVarNonParallelCollection
 {
 }
-
-
-

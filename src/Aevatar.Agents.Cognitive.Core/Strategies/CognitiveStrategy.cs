@@ -230,6 +230,11 @@ public sealed class CognitiveStrategy : IReasoningStrategy
             // Configure Coordinator
             coordinator.SetActorManager(_actorManager);
 
+            if (options.CognitiveToolEvolution != null)
+            {
+                coordinator.ToolEvolutionOptions = options.CognitiveToolEvolution;
+            }
+
             // ============================================================
             //  Chat history (State.History + compaction summary)
             //
@@ -475,26 +480,6 @@ public sealed class CognitiveStrategy : IReasoningStrategy
                 initialVariables["language"] = lang.Trim();
             }
 
-            // HPA knobs (whitelist):
-            // - propagate only expected keys to avoid leaking arbitrary user data into DSL variables
-            if (options.Context != null)
-            {
-                foreach (var (key, value) in options.Context)
-                {
-                    if (string.IsNullOrWhiteSpace(key) || value == null) continue;
-
-                    var k2 = key.Trim();
-                    if (k2.StartsWith("hpa_", StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(k2, "min_coherence", StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(k2, "max_gap_norm", StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(k2, "max_associator_mean", StringComparison.OrdinalIgnoreCase))
-                    {
-                        // Keep as string; DSL parsers / hpa executor will parse when needed.
-                        initialVariables[k2] = value;
-                    }
-                }
-            }
-            
             // 直接调用 Coordinator 启动工作流（不通过事件流）
             _ = coordinator.StartWorkflowAsync(workflowName, initialVariables);
             

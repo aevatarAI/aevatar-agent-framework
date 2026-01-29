@@ -30,13 +30,7 @@ public partial class CognitiveCoordinatorGAgent
     /// </summary>
     public IReadOnlyList<WorkflowStepEvent> GetStepEvents()
     {
-        // NOTE:
-        // - vote / fan_out may concurrently write _stepEvents
-        // - Directly exposing List will cause reading end to throw exception or read torn data when enumerating
-        lock (_stepEventsLock)
-        {
-            return _stepEvents.ToList();
-        }
+        return _stepEvents.ToArray();
     }
 
     private void EmitStepEvent(
@@ -79,6 +73,7 @@ public partial class CognitiveCoordinatorGAgent
             durationMs = (int)(now - startTime).TotalMilliseconds;
         }
 
+        SyncStatsSnapshot();
         var resolvedMessage = message ?? GetDefaultMessage(step, status);
         var evt = new WorkflowStepEvent
         {
@@ -130,11 +125,7 @@ public partial class CognitiveCoordinatorGAgent
             if (winnerIsConsensus.HasValue) evt.WinnerIsConsensus = winnerIsConsensus.Value;
         }
 
-        // When multiple tasks parallel (vote streaming), avoid List concurrent writes causing memory corruption/hang
-        lock (_stepEventsLock)
-        {
-            _stepEvents.Add(evt);
-        }
+        _stepEvents.Enqueue(evt);
         _onStepEvent?.Invoke(evt);
 
         // Publish unified ExecutionTraceEvent for external streaming (best-effort, no await).

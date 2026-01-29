@@ -12,7 +12,8 @@ Aevatar.Agents.Cognitive/
 │   ├── CognitiveCoordinatorGAgent.Vote.cs                # vote consensus (semantic clustering + red-flag)
 │   ├── CognitiveCoordinatorGAgent.StepEvents.cs          # step events for UI/observability
 │   ├── CognitiveCoordinatorGAgent.Parameters.cs          # output parsing + parameter helpers + red-flag config
-│   └── CognitiveWorkerGAgent.cs                          # Worker: execute llm_call and report results
+│   ├── CognitiveCoordinatorGAgent.Tools.cs               # tool_call/tool_evolve/tool_validate
+│   └── (removed) CognitiveWorkerGAgent.cs                # Worker removed; RoleAIGAgent handles step requests
 │   └── Shared/
 │       └── CognitiveAIGAgentBase.cs                      # Shared: stateless LLM request + step history metadata
 ├── Engine/                      # 工作流引擎
@@ -20,10 +21,9 @@ Aevatar.Agents.Cognitive/
 ├── Execution/                   # 执行器
 │   ├── TransformExecutor.cs            # transform 原语执行器（token-free）
 │   ├── RetrieveFactsExecutor.cs        # retrieve_facts 原语执行器（token-free）
-│   └── HpaExecutor.cs                  # hpa 原语执行器（token-free, HPA 几何证据层）
-├── Hpa/                         # HPA 数学核心（deterministic）
-│   ├── Octonion.cs                    # 八元数（乘法/范数/结合子）
-│   └── HpaEmbedding.cs                # 复相位 + 八元数 lift（可复现 embedding）
+│   └── CognitiveStepExecutionHandler.cs # RoleAIGAgent step handler (ExecuteStepRequestEvent)
+│   └── WorkflowOrchestrator.cs         # workflow 编排主循环（抽离自 Coordinator）
+│   └── CognitiveStepExecutor.cs         # Step 选择与事件派发（抽离自 Coordinator）
 ├── Primitives/                  # DSL 原语
 │   ├── IPrimitive.cs                  # 原语上下文 + PrimitiveResult + 参数扩展
 │   ├── WorkflowDefinition.cs          # WorkflowDefinition/StepDefinition/InputParameter + IWorkflowRegistry
@@ -42,7 +42,6 @@ Aevatar.Agents.Cognitive/
 │   ├── axiom_theorem_loop.yaml        # 公理 → 定理发现循环（Coordinator 提出，Workers 证明）
 │   ├── axiom_reasoning.yaml           # 公理驱动逐步推理（每步 vote 共识）
 │   ├── hypothesis_promotion_loop.yaml # 假设升级定理循环（HPL）
-│   └── hypothesis_promotion_loop_hpa.yaml # HPL + HPA（scan/embed/gap/associator gate）
 └── cognitive_messages.proto     # Protobuf 消息定义
 ```
 
@@ -65,11 +64,12 @@ Aevatar.Agents.Cognitive/
 - `CognitiveCoordinatorGAgent.StepEvents.cs`：步骤事件（UI/回放）
 - `CognitiveCoordinatorGAgent.Parameters.cs`：输出解析 + 参数/红旗配置解析
 
-### 2. CognitiveWorkerGAgent
+### 2. RoleAIGAgent + CognitiveStepExecutionHandler
 **职责**: 并行任务执行
 
-- 接收 Coordinator 派发的任务
-- 执行 LLM 调用（复用 `AIGAgentBase.ChatAsync/ChatStreamAsync`，支持流式）
+- RoleAIGAgent 作为执行体（YAML 角色驱动）
+- `CognitiveStepExecutionHandler` 处理 `ExecuteStepRequestEvent`
+- 执行 LLM 调用或 tool_call（复用 `AIGAgentBase.ChatAsync/ChatStreamAsync` 与 `ExecuteToolForWorkflowAsync`）
 - 向上报告执行结果
 
 ### 2.1 CognitiveAIGAgentBase（Shared）
@@ -156,7 +156,6 @@ CognitiveCoordinatorGAgent
 - 2025-12: 新增 token-free 原语 `transform` / `retrieve_facts`，用于把确定性数据处理与相关事实选择从 LLM 中剥离，减少 token 浪费。
 - 2025-12: DSL 支持 workflow-level `defaults` + `max_length/strict_parse/timeout_seconds/idle_timeout_seconds/include_failures` 护栏，使配置不再“写了但不生效”。 
 - 2025-12: 新增工作流 `hypothesis_promotion_loop.yaml`（HPL：Hypothesis→验证→升级定理）。
-- 2025-12: 新增 token-free 原语 `hpa`（HPA 几何证据层：scan/embed/gap/associator/holonomy）与工作流 `hypothesis_promotion_loop_hpa.yaml`。
 - 2025-12: Coordinator 去味：移除未被引用的 `StepEventEmitter/FanOutExecutor`，并将 `CognitiveCoordinatorGAgent` 拆分为多个 `partial` 文件以控制复杂度。
 - 2025-12: 去味：移除未被引用的 `ParameterResolver/*Primitive.cs`，补齐 DSL 数据模型（`WorkflowDefinition/StepDefinition`），并修正 Worker streaming 中间态事件的统计累加语义（只在终态累计 tokens/calls）。
 - 2026-01: 合并版本化工作流，统一为 `maker` / `uot-combinational`。

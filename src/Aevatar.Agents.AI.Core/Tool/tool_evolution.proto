@@ -1,0 +1,82 @@
+syntax = "proto3";
+option csharp_namespace = "Aevatar.Agents.AI.Tool.Messages";
+
+import "google/protobuf/timestamp.proto";
+
+// ============================================================
+//  Tool Evolution - Core Messages
+//
+//  WHY:
+//  - Record binary feedback for tool evolution.
+//  - Provide structured candidates/results for evolution workflows.
+// ============================================================
+
+message ToolExecutionFeedback {
+  string tool_name = 1;
+  string tool_version = 2;
+  string tool_call_id = 3;
+  string request_id = 4;
+  string agent_id = 5;
+  string session_id = 6;
+  bool success = 7;
+  string error_code = 8;
+  string error_message = 9;
+  int64 duration_ms = 10;
+  google.protobuf.Timestamp timestamp = 11;
+  map<string, string> metadata = 12;
+}
+
+message ToolCandidate {
+  string candidate_id = 1;
+  string tool_name = 2;
+  string tool_version = 3;
+  string description = 4;
+  string language = 5; // "dotnet" | "python"
+  string source_code = 6;
+  string manifest_json = 7;
+  string parameters_json = 8;
+  string return_schema_json = 9;
+  map<string, string> metadata = 10;
+}
+
+message ToolEvolutionRequest {
+  string evolution_id = 1;
+  string agent_id = 2;
+  string session_id = 3;
+  string request_id = 4;
+  string task_summary = 5;
+  int32 max_candidates = 6;
+  repeated ToolExecutionFeedback recent_feedback = 7;
+  google.protobuf.Timestamp timestamp = 8;
+  map<string, string> metadata = 9;
+}
+
+message ToolEvolutionResult {
+  string evolution_id = 1;
+  bool success = 2;
+  string error_message = 3;
+  repeated ToolCandidate accepted_tools = 4;
+  repeated ToolCandidate rejected_tools = 5;
+  ToolMetricsSnapshot metrics_snapshot = 6;
+  google.protobuf.Timestamp timestamp = 7;
+  map<string, string> metadata = 8;
+}
+
+message ToolMetricsEntry {
+  string tool_name = 1;
+  string tool_version = 2;
+  int64 total_calls = 3;
+  int64 success_calls = 4;
+  int64 failure_calls = 5;
+  double success_rate = 6;
+  int64 avg_duration_ms = 7;
+}
+
+message ToolMetricsSnapshot {
+  string snapshot_id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  google.protobuf.Timestamp window_start = 3;
+  google.protobuf.Timestamp window_end = 4;
+  repeated ToolMetricsEntry entries = 5;
+  map<string, string> metadata = 6;
+}

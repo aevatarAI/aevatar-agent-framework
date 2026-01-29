@@ -1,0 +1,8 @@
+id: "critic"
+name: "Critic Agent"
+version: "1.0"
+provider: "test-provider"
+model: "test-model"
+temperature: 0.2
+system_prompt: |
+  Critic agent: surface risks, gaps, and weak assumptions.

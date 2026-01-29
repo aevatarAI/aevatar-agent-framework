@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Aevatar.Agents.Cognitive\Aevatar.Agents.Cognitive.csproj" />
+    <ProjectReference Include="..\..\src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
   </ItemGroup>
 
 </Project>

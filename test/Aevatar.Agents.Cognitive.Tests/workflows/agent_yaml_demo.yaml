@@ -1,0 +1,11 @@
+name: agent_yaml_demo
+description: "Demo workflow uses agent YAML override"
+steps:
+  - id: call
+    type: llm_call
+    prompt: "Hello agent"
+    agent: "demo_agent"
+    output: text
+    store: response
+output:
+  result: "{{response}}"

@@ -16,7 +16,11 @@
     <ProjectReference Include="..\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
     <ProjectReference Include="..\Aevatar.Agents.AI.Abstractions\Aevatar.Agents.AI.Abstractions.csproj" />
     <ProjectReference Include="..\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
-    <ProjectReference Include="..\Aevatar.Agents.Cognitive\Aevatar.Agents.Cognitive.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.AGUI\Aevatar.Agents.AGUI.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.Cognitive.Streaming\Aevatar.Agents.Cognitive.Streaming.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.Tooling\Aevatar.Agents.Tooling.csproj" />
+    <ProjectReference Include="..\Aevatar.CognitiveMesh.Dsl\Aevatar.CognitiveMesh.Dsl.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -34,7 +38,7 @@
   <ItemGroup>
     <Protobuf Include="session_messages.proto"
               GrpcServices="None"
-              AdditionalImportDirs="..\Aevatar.Agents.Abstractions;..\Aevatar.Agents.AI.Abstractions;..\Aevatar.Agents.Cognitive" />
+              AdditionalImportDirs="..\Aevatar.Agents.Abstractions;..\Aevatar.Agents.AI.Abstractions" />
   </ItemGroup>
 
   <ItemGroup>

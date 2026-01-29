@@ -20,9 +20,9 @@ oh-my-opencode 的核心优势是：把“长链路 Agent 工程化必踩坑”�
 - **MAKER（Agent 模式）**：`MakerCoordinatorGAgent` 协调 N 个 `MakerWorkerGAgent` 并行生成 + 投票早停
   - Coordinator：`src/Aevatar.Agents.Maker/Agents/MakerCoordinatorGAgent.cs`（+多个 partial）
   - Worker：`src/Aevatar.Agents.Maker/Agents/MakerWorkerGAgent.cs`
-- **Cognitive（DSL Workflow）**：`CognitiveCoordinatorGAgent` 执行 workflow step；`fan_out/parallel` 分发到 `CognitiveWorkerGAgent`
+- **Cognitive（DSL Workflow）**：`CognitiveCoordinatorGAgent` 执行 workflow step；`fan_out/parallel` 分发到 `RoleAIGAgent`（由 `CognitiveStepExecutionHandler` 处理）
   - Coordinator：`src/Aevatar.Agents.Cognitive/Agents/CognitiveCoordinatorGAgent.cs`（+ Parallel/Llm 等 partial）
-  - Worker：`src/Aevatar.Agents.Cognitive/Agents/CognitiveWorkerGAgent.cs`
+  - Worker：`src/Aevatar.Agents.Cognitive/Execution/CognitiveStepExecutionHandler.cs`
 - **底层事件传播/父子层级**：`EventRouter`（Up/Down/Both、防循环、hop 计数）
   - `src/Aevatar.Agents.Core/EventRouting/EventRouter.cs`
 

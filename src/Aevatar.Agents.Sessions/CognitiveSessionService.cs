@@ -9,6 +9,8 @@ using Aevatar.Agents.Abstractions.Tracing;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.Core.Configuration;
+using Aevatar.Agents.Cognitive.Engine;
+using Aevatar.Agents.Cognitive.Primitives;
 using Aevatar.CognitiveMesh.Dsl;
 using Aevatar.CognitiveMesh.Dsl.Models;
 using Aevatar.CognitiveMesh.Dsl.Options;
@@ -29,6 +31,7 @@ public sealed class CognitiveSessionService
     private readonly IExecutionTraceStore? _executionTraceStore;
     private readonly CognitiveSessionOptions _options;
     private readonly ILogger<CognitiveSessionService> _logger;
+    private readonly WorkflowParser _workflowParser = new();
 
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _sessionGates = new(StringComparer.Ordinal);
 
@@ -105,22 +108,6 @@ public sealed class CognitiveSessionService
             throw new InvalidOperationException($"Failed to read workflow '{workflowName}': {ex.Message}", ex);
         }
 
-        MeshDefinition def;
-        try
-        {
-            def = CompileWorkflow(raw);
-        }
-        catch (DslCompilationException ex)
-        {
-            var errors = ex.Errors?.Select(e => $"{e.Code}:{e.Message}") ?? Array.Empty<string>();
-            var message = string.Join("; ", errors);
-            throw new InvalidOperationException($"Workflow compile failed: {message}", ex);
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException($"Workflow compile failed: {ex.Message}", ex);
-        }
-
         var now = Timestamp.FromDateTime(DateTime.UtcNow);
         var lazy = _options.LazyLoadRoles;
         var state = new SessionState
@@ -133,7 +120,33 @@ public sealed class CognitiveSessionService
         };
         state.Tags["workflow_name"] = workflowName;
         state.Tags["workflow_path"] = workflowPath;
-        state.Roles.Add(BuildSessionRoles(def, sessionId, loaded: !lazy));
+
+        if (TryParseCognitiveWorkflow(raw, out var cognitive))
+        {
+            state.Tags["workflow_kind"] = "cognitive";
+            state.Roles.Add(BuildSessionRoles(cognitive, sessionId, loaded: !lazy));
+        }
+        else
+        {
+            MeshDefinition def;
+            try
+            {
+                def = CompileWorkflow(raw);
+            }
+            catch (DslCompilationException ex)
+            {
+                var errors = ex.Errors?.Select(e => $"{e.Code}:{e.Message}") ?? Array.Empty<string>();
+                var message = string.Join("; ", errors);
+                throw new InvalidOperationException($"Workflow compile failed: {message}", ex);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"Workflow compile failed: {ex.Message}", ex);
+            }
+
+            state.Tags["workflow_kind"] = "mesh";
+            state.Roles.Add(BuildSessionRoles(def, sessionId, loaded: !lazy));
+        }
 
         await _sessionStore.SaveAsync(state, ct);
 
@@ -440,6 +453,85 @@ public sealed class CognitiveSessionService
         }
 
         return list;
+    }
+
+    private static List<SessionRole> BuildSessionRoles(WorkflowDefinition workflow, string sessionId, bool loaded)
+    {
+        var ordered = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var step in workflow.Steps)
+        {
+            CollectWorkflowAgents(step, ordered, seen);
+        }
+
+        var list = new List<SessionRole>();
+        foreach (var role in ordered)
+        {
+            var nodeId = role.Trim();
+            if (nodeId.Length == 0)
+                continue;
+
+            var agentId = BuildRoleActorId(sessionId, nodeId);
+            list.Add(new SessionRole
+            {
+                NodeId = nodeId,
+                Role = nodeId,
+                AgentId = agentId,
+                Loaded = loaded
+            });
+        }
+
+        return list;
+    }
+
+    private static void CollectWorkflowAgents(StepDefinition step, List<string> ordered, ISet<string> seen)
+    {
+        if (step.Parameters.TryGetValue("agent", out var agentObj))
+        {
+            var agent = (agentObj?.ToString() ?? string.Empty).Trim();
+            if (agent.Length > 0 && seen.Add(agent))
+                ordered.Add(agent);
+        }
+
+        if (step.IfTrue != null)
+        {
+            foreach (var child in step.IfTrue)
+                CollectWorkflowAgents(child, ordered, seen);
+        }
+
+        if (step.IfFalse != null)
+        {
+            foreach (var child in step.IfFalse)
+                CollectWorkflowAgents(child, ordered, seen);
+        }
+
+        if (step.Generator != null)
+            CollectWorkflowAgents(step.Generator, ordered, seen);
+
+        if (step.Step != null)
+            CollectWorkflowAgents(step.Step, ordered, seen);
+
+        if (step.Parameters.TryGetValue("steps", out var stepsObj) &&
+            stepsObj is IEnumerable<StepDefinition> steps)
+        {
+            foreach (var child in steps)
+                CollectWorkflowAgents(child, ordered, seen);
+        }
+    }
+
+    private bool TryParseCognitiveWorkflow(string raw, out WorkflowDefinition workflow)
+    {
+        workflow = null!;
+        try
+        {
+            workflow = _workflowParser.Parse(raw);
+        }
+        catch
+        {
+            return false;
+        }
+
+        return workflow.Steps.Count > 0;
     }
 
     private static string ResolveRole(NodeSpec node)

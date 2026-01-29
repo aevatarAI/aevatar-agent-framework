@@ -11,6 +11,7 @@ using Aevatar.Agents.Cognitive.Primitives;
 using Aevatar.Agents.Core.Secrets;
 using Aevatar.Agents.Knowledge.Graph;
 using Aevatar.Agents.Sessions;
+using Aevatar.Agents.Sessions.Runtime;
 using Aevatar.Agents.Persistence.InMemory.Graph;
 using Aevatar.Agents.Persistence.MongoDB;
 using Aevatar.Agents.Persistence.MongoDB.GAgent;
@@ -19,6 +20,7 @@ using Aevatar.Agents.Persistence.SQLite.GAgent.Stores;
 using Aevatar.Agents.Persistence.Neo4j.Graph.DependencyInjection;
 using Microsoft.Data.Sqlite;
 using Microsoft.AspNetCore.Http.Json;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using VibeResearching.Api.Infrastructure;
 using VibeResearching.Api;
@@ -191,7 +193,18 @@ builder.Services.AddCognitiveAgents(options =>
     options.WorkflowsDirectory = workflowsDir;
     options.LoadBuiltInWorkflows = true;
 });
-// builder.Services.AddAevatarCognitiveSessions();
+builder.Services.AddAevatarCognitiveSessions(options =>
+{
+    options.WorkflowsDirectory = workflowsDir;
+});
+builder.Services.AddAevatarSessionRuntime(options =>
+{
+    options.WorkflowName = "vibe_researching";
+    options.AgentRole = "planner";
+    options.MaxSnapshotMessages = 60;
+});
+builder.Services.RemoveAll<ISessionAgUiBootstrapper>();
+builder.Services.AddSingleton<ISessionAgUiBootstrapper, VibeAgUiBootstrapper>();
 
 // Default: enable both MEAI + LLMTornado providers (framework will composite-inject factories).
 builder.Services.AddAevatarLLMProviders();

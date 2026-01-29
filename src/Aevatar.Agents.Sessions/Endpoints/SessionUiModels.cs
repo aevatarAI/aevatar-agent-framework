@@ -14,6 +14,12 @@ public sealed record PingInput(string? SessionId, string? Content);
 public sealed record AgentYamlInput(string? Yaml, bool CreateSession = true);
 public sealed record RegisterDotNetToolInput(string? SessionId, string? FilePath);
 public sealed record WorkflowYamlInput(string? Yaml, string? Name);
+public sealed record WorkflowRunInput(
+    string? RequestId,
+    string? WorkflowName,
+    string? Message,
+    string? Mode,
+    Dictionary<string, object?>? Variables);
 
 public sealed record AgentSettingsInput(
     string? SessionId,

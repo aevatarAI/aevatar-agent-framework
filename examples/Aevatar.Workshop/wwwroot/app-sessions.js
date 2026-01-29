@@ -349,12 +349,14 @@ function handleAgUiEvent(evt) {
   };
 
   if (evt.type === 'MESSAGES_SNAPSHOT') {
+    state.sseConnected = true;
+    updateInputState();
     addEventLine(displayType, summary, meta);
     renderMessagesSnapshot(evt.messages || []);
     return;
   }
 
-  // SSE_CONNECTED: 后端简化后用此事件代替 MESSAGES_SNAPSHOT 确认连接
+  // SSE_CONNECTED: legacy fallback
   if (evt.type === 'CUSTOM' && evt.name === 'SSE_CONNECTED') {
     state.sseConnected = true;
     updateInputState();

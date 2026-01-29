@@ -50,9 +50,11 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton<IAgentMessageStreamResolver, AgentMessageStreamResolver>();
         services.TryAddSingleton<AgentBootstrapper>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ISessionAgUiBootstrapper, DefaultSessionAgUiBootstrapper>());
         services.TryAddSingleton<IWorkflowCatalog, SessionWorkflowCatalog>();
         services.TryAddSingleton<WorkflowMeshCompiler>();
         services.TryAddSingleton<WorkflowMeshService>();
+        services.TryAddSingleton<SessionWorkflowRunner>();
         services.TryAddSingleton<SessionRuntime>();
         return services;
     }

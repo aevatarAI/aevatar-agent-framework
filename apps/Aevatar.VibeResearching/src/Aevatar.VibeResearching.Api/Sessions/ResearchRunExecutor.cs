@@ -5,7 +5,7 @@ using Google.Protobuf.WellKnownTypes;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
-using Aevatar.Agents.Cognitive.Streaming;
+using Aevatar.Agents.Sessions.Runtime;
 using Microsoft.Extensions.Options;
 using VibeResearching.Api.Materials;
 using VibeResearching.Api.Vibe;
@@ -960,14 +960,14 @@ internal sealed class ResearchRunExecutor
     {
         private readonly ResearchRuntime _runtime;
         private readonly string _sessionId;
-        private readonly BroadcastEventHub<AgUiEvent> _hub;
+        private readonly SessionAgUiStream _hub;
         private readonly string _threadId;
         private readonly string _runId;
 
         public AgUiResearchStreamEventSink(
             ResearchRuntime runtime,
             string sessionId,
-            BroadcastEventHub<AgUiEvent> hub,
+            SessionAgUiStream hub,
             string threadId,
             string runId)
         {

@@ -38,6 +38,11 @@ public sealed class SessionRuntimeOptions
     public string? WorkflowName { get; set; }
 
     /// <summary>
+    /// Cognitive workflow worker pool size.
+    /// </summary>
+    public int WorkflowWorkerCount { get; set; } = 5;
+
+    /// <summary>
     /// Enable agent YAML configuration.
     /// </summary>
     public bool EnableAgentYaml { get; set; } = true;

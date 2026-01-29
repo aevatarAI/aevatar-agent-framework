@@ -17,6 +17,7 @@
     <ProjectReference Include="..\Aevatar.Agents.AI.Abstractions\Aevatar.Agents.AI.Abstractions.csproj" />
     <ProjectReference Include="..\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
     <ProjectReference Include="..\Aevatar.Agents.AGUI\Aevatar.Agents.AGUI.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.Cognitive\Aevatar.Agents.Cognitive.csproj" />
     <ProjectReference Include="..\Aevatar.Agents.Cognitive.Streaming\Aevatar.Agents.Cognitive.Streaming.csproj" />
     <ProjectReference Include="..\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
     <ProjectReference Include="..\Aevatar.Agents.Tooling\Aevatar.Agents.Tooling.csproj" />

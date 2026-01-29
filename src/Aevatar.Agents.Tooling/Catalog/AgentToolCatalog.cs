@@ -192,14 +192,8 @@ public sealed class AgentToolCatalog
                 list.Add(Path.Combine(home, ".aevatar", "dotnet-tools"));
             }
 
-            list.Add(Path.Combine(
-                _env.ContentRootPath,
-                "apps",
-                "Aevatar.Trading",
-                "src",
-                "Aevatar.Trade",
-                "Tools",
-                "DotNetSkills"));
+            // Optional repo-local default (generic, no app-specific paths).
+            list.Add(Path.Combine(_env.ContentRootPath, "tools", "dotnet"));
         }
 
         return list;

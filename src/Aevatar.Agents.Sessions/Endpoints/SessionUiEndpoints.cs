@@ -92,6 +92,27 @@ public static class SessionUiEndpoints
             return Results.Ok(new { runId });
         });
 
+        app.MapPost("/api/chat/sessions/{sessionId}/workflow/run", async (
+            string sessionId,
+            HttpRequest req,
+            SessionRuntime runtime,
+            CancellationToken ct) =>
+        {
+            var input = await req.ReadFromJsonAsync<WorkflowRunInput>(cancellationToken: ct);
+            if (input == null)
+                return Results.BadRequest(new { error = "invalid payload" });
+
+            var request = new SessionWorkflowRunRequest(
+                input.WorkflowName,
+                input.Message,
+                input.Mode,
+                input.Variables,
+                input.RequestId);
+
+            var runId = await runtime.RunWorkflowAsync(sessionId, request, ct);
+            return Results.Ok(new { runId });
+        });
+
         app.MapGet("/api/chat/sessions/{sessionId}/state/history", async (
             string sessionId,
             SessionRuntime runtime,
@@ -132,8 +153,20 @@ public static class SessionUiEndpoints
             HttpContext http,
             string sessionId,
             SessionRuntime runtime,
+            CognitiveSessionService sessions,
+            IGAgentActorManager actorManager,
+            IEnumerable<ISessionAgUiBootstrapper> bootstrappers,
+            IOptions<SessionRuntimeOptions> options,
             CancellationToken ct) =>
         {
+            var state = await sessions.GetSessionStateAsync(sessionId, ct);
+            if (state == null)
+                return Results.NotFound();
+
+            var primary = await runtime.ResolvePrimaryAgentAsync(sessionId, ct);
+            if (primary == null)
+                return Results.NotFound();
+
             var stream = await runtime.GetSessionStreamAsync(sessionId, ct);
             if (stream == null)
                 return Results.NotFound();
@@ -147,7 +180,22 @@ public static class SessionUiEndpoints
             await http.Response.StartAsync(ct);
             await using var writer = new AgUiSseWriter(http.Response, jsonOptions);
 
-            // 发送连接确认事件（让前端知道 SSE 已就绪）
+            // snapshot-first bootstrap
+            var bootstrapContext = new SessionAgUiBootstrapContext(
+                state,
+                primary,
+                stream,
+                actorManager,
+                options.Value);
+
+            foreach (var bootstrapper in bootstrappers)
+            {
+                var events = await bootstrapper.BuildAsync(bootstrapContext, ct);
+                foreach (var evt in events)
+                    await writer.WriteAsync(evt, ct);
+            }
+
+            // legacy handshake
             await writer.WriteAsync(new CustomEvent
             {
                 Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),

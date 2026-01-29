@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
-using System.Threading.Channels;
+using Aevatar.Agents.Cognitive.Streaming;
 using Aevatar.Agents.AGUI;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Tracing;
@@ -27,7 +27,9 @@ public sealed class SessionAgUiStream : IAsyncDisposable
 {
     private readonly string _sessionId;
     private readonly ILogger _logger;
-    private readonly Channel<AgUiEvent> _channel;
+    private readonly BroadcastEventHub<AgUiEvent> _hub;
+    private readonly IAgentMessageStreamResolver _streamResolver;
+    private readonly ConcurrentDictionary<string, bool> _subscribedAgents = new(StringComparer.Ordinal);
     private readonly ConcurrentBag<Task<IMessageStreamSubscription>> _subscriptions = new();
     private int _disposed;
 
@@ -39,16 +41,15 @@ public sealed class SessionAgUiStream : IAsyncDisposable
     {
         _sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _streamResolver = streamResolver ?? throw new ArgumentNullException(nameof(streamResolver));
 
-        _channel = Channel.CreateUnbounded<AgUiEvent>(new UnboundedChannelOptions
-        {
-            SingleWriter = false,
-            SingleReader = false,
-            AllowSynchronousContinuations = true
-        });
+        _hub = new BroadcastEventHub<AgUiEvent>(
+            replayBufferSize: 0,
+            subscriberBufferSize: 512,
+            warningLogger: msg => _logger.LogWarning("{Message}", msg),
+            hubName: $"SessionAgUiStream:{sessionId}");
 
-        var stream = streamResolver.GetStream(agentId);
-        SubscribeToAgentEvents(stream, agentId);
+        AttachAgent(agentId);
     }
 
     public async IAsyncEnumerable<AgUiEvent> SubscribeAsync(
@@ -57,7 +58,7 @@ public sealed class SessionAgUiStream : IAsyncDisposable
         _logger.LogDebug("[SessionAgUiStream] SSE subscriber connected: {SessionId}", _sessionId);
         try
         {
-            await foreach (var evt in _channel.Reader.ReadAllAsync(ct))
+            await foreach (var evt in _hub.SubscribeAsync(replay: false, ct: ct))
                 yield return evt;
         }
         finally
@@ -70,7 +71,19 @@ public sealed class SessionAgUiStream : IAsyncDisposable
     {
         if (evt == null || Volatile.Read(ref _disposed) != 0)
             return;
-        _channel.Writer.TryWrite(evt);
+        _hub.Publish(evt);
+    }
+
+    public void AttachAgent(string agentId)
+    {
+        if (string.IsNullOrWhiteSpace(agentId) || Volatile.Read(ref _disposed) != 0)
+            return;
+
+        if (!_subscribedAgents.TryAdd(agentId, true))
+            return;
+
+        var stream = _streamResolver.GetStream(agentId);
+        SubscribeToAgentEvents(stream, agentId);
     }
 
     private void SubscribeToAgentEvents(IMessageStream stream, string agentId)
@@ -136,7 +149,7 @@ public sealed class SessionAgUiStream : IAsyncDisposable
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
-        _channel.Writer.TryComplete();
+        _hub.Complete();
 
         foreach (var task in _subscriptions)
         {

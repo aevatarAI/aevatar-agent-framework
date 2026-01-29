@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.AGUI;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Core;
@@ -17,9 +18,8 @@ namespace Aevatar.Agents.Sessions.Runtime;
 //  - Agent 默认配置
 //  - LLM provider 初始化
 //
-//  删除的冗余：
-//  - SessionAgUiStream 依赖（状态事件）
-//  - 复杂的初始化进度通知
+//  简化的状态通知：
+//  - SessionAgUiStream: SESSION_STATUS
 // ============================================================
 
 public sealed class AgentBootstrapper
@@ -67,32 +67,51 @@ public sealed class AgentBootstrapper
         CancellationToken ct)
     {
         if (_initializedAgents.ContainsKey(agent.Id))
+        {
+            PublishStatus(stream, requestId, "init.skip", "agent already initialized", agent.Id, role);
             return;
+        }
 
         var providerName = ResolveProviderName(_llmProviders.CurrentValue);
         if (string.IsNullOrWhiteSpace(providerName))
+        {
+            PublishStatus(stream, requestId, "init.error", "LLMProviders.default 未配置", agent.Id, role);
             throw new InvalidOperationException("LLMProviders.default 未配置");
+        }
 
         _logger.LogDebug("[AgentBootstrapper] Initializing agent {AgentId} with provider {Provider}", agent.Id, providerName);
 
         var options = _options.CurrentValue ?? new SessionRuntimeOptions();
         var yamlConfig = BuildYamlConfigAction(options, role);
 
+        PublishStatus(stream, requestId, "init.plan", $"provider={providerName}", agent.Id, role);
+        PublishStatus(stream, requestId, "init.start", "initializing agent", agent.Id, role);
+
         var sw = Stopwatch.StartNew();
-        await agent.InitializeAsync(
-            providerName,
-            config =>
-            {
-                config.Temperature = (float)options.Temperature;
-                config.MaxOutputTokens = options.MaxOutputTokens;
-                yamlConfig?.Invoke(config);
-            },
-            ct);
+        try
+        {
+            await agent.InitializeAsync(
+                providerName,
+                config =>
+                {
+                    config.Temperature = (float)options.Temperature;
+                    config.MaxOutputTokens = options.MaxOutputTokens;
+                    yamlConfig?.Invoke(config);
+                },
+                ct);
 
-        _initializedAgents.TryAdd(agent.Id, true);
+            _initializedAgents.TryAdd(agent.Id, true);
 
-        sw.Stop();
-        _logger.LogInformation("[AgentBootstrapper] Agent {AgentId} initialized in {Elapsed:F1}s", agent.Id, sw.Elapsed.TotalSeconds);
+            sw.Stop();
+            PublishStatus(stream, requestId, "init.done", $"elapsed={sw.Elapsed.TotalSeconds:F1}s", agent.Id, role);
+            _logger.LogInformation("[AgentBootstrapper] Agent {AgentId} initialized in {Elapsed:F1}s", agent.Id, sw.Elapsed.TotalSeconds);
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            PublishStatus(stream, requestId, "init.error", ex.Message, agent.Id, role);
+            throw;
+        }
     }
 
     public async Task TryConfigureRoleAgentAsync(IGAgentActor actor, string? role, CancellationToken ct)
@@ -133,5 +152,28 @@ public sealed class AgentBootstrapper
             return null;
 
         return _roleAgentFactory.BuildYamlConfigAction(key);
+    }
+
+    private static void PublishStatus(
+        SessionAgUiStream stream,
+        string requestId,
+        string stage,
+        string message,
+        string? agentId,
+        string? role)
+    {
+        stream.Publish(new CustomEvent
+        {
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            Name = "SESSION_STATUS",
+            Value = new
+            {
+                stage,
+                message,
+                requestId,
+                agentId = agentId ?? string.Empty,
+                role = role ?? string.Empty
+            }
+        });
     }
 }

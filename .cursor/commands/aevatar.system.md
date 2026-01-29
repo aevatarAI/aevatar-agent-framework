@@ -76,7 +76,7 @@ $ARGUMENTS
 
 ## Reference Patterns (You MUST reuse these)
 
-- **AG-UI 规范与最佳实践**：`docs/AGUI_INTEGRATION_GUIDE.md`
+- **AG-UI 规范与最佳实践**：`docs/SESSION_RUNTIME_STREAMING_AGUI_BEST_PRACTICES.md`
 - **AG-UI 代码参考**：`apps/Aevatar.AxiomReasoning/src/Aevatar.AxiomReasoning/EventStreaming/AgUi/*`
   - `AxiomAgUiBootstrap`：构建快照（messages/status/state）
   - `AxiomAgUiEventStream`：把业务事件流投影成 AG-UI 事件（RUN/STEP/TEXT/STATE + CUSTOM）
@@ -109,7 +109,7 @@ $ARGUMENTS
 
 前端默认采用 React + Vite + TypeScript（除非需求强烈指向桌面端/离线能力，需要 Tauri）：
 
-- 必须安装并使用 `@agui/sdk`（按 `docs/AGUI_INTEGRATION_GUIDE.md`）
+- 必须安装并使用 `@agui/sdk`（按 `docs/SESSION_RUNTIME_STREAMING_AGUI_BEST_PRACTICES.md`）
 - UI 最小包含：
   - Session 创建/选择
   - 输入框（发送 user input）

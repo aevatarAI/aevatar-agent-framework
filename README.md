@@ -185,6 +185,64 @@ Run `examples/SimpleDemo/` for a complete example.
 
 ## 🤖 AI Capabilities
 
+### AIGAgentBase (Core AI Agent Base)
+
+`AIGAgentBase` is the unified AI agent base class. It extends
+`GAgentBase<AevatarAIAgentState, AevatarAIAgentConfig>` and bundles chat, tool calling, memory, and hooks
+into one pipeline.
+
+- **Initialization is mandatory**: call `InitializeAsync(providerName)` or
+  `InitializeAsync(LLMProviderConfig)` before any chat/streaming call. In DI scenarios, use
+  `AIGAgentFactory` to create agents with `ILLMProviderFactory`, `IAIAgentEmbeddingFactory`, and the tool
+  manager injected.
+- **Event-driven chat pipeline**: `ChatAsync` / `ChatStreamAsync` publish `ChatRequestEvent` to self so
+  state changes happen inside the actor mailbox, then emit `ChatResponseEvent`, `ChatStreamChunkEvent`,
+  and `AIDecisionEvent`.
+- **Tooling built-in**: default registration includes `StateQueryTool`, `EventPublisherTool`,
+  `AevatarMemorySearchTool`, plus WebSearch / AgentSkills / MCP (best-effort). Override
+  `RegisterToolsAsync` or import file skills to extend.
+- **Tool safety**: `AllowInternalTools` + `AllowDangerousTools` control exposure and execution;
+  `SetFixedToolAllowlist(...)` + per-request allowlist via `AIGAgentKeys.ToolAllowlist` enforce policy;
+  YAML tool policy can be applied via `AgentYamlConfigApplier`.
+- **History & memory**: `EnableChatHistoryInState` and `EnableChatHistoryCompaction` (both default off)
+  maintain a sliding window + rolling summary; memory store/vector index append is best-effort;
+  `search_memory` prefers CQRS read-model.
+- **MCP & AgentSkills**: `EnableMcpServers` and `EnableAgentSkills` (default on) allow on-demand
+  tool/skill discovery; reconnect and I/O are best-effort and never block chat.
+- **Hooks & telemetry**: Hook/Harness pipeline wraps LLM + tool lifecycle;
+  `LlmCallInstrumentationScope` standardizes tracing and timing.
+- **Common extension points**: `ConfigAI`, `BuildLLMRequest`, `RegisterToolsAsync`,
+  `StreamingToolCalls`, `AppendChatMemoryAsync`, `BuildMemoryScope`.
+
+Minimal usage:
+
+```csharp
+public sealed class MyAgent : AIGAgentBase
+{
+    public override string SystemPrompt { get; set; } = "You are a helpful AI assistant.";
+
+    public override Task<string> GetDescriptionAsync() =>
+        Task.FromResult("MyAgent");
+}
+
+var agent = new MyAgent();
+await agent.InitializeAsync("openai-gpt4");
+var response = await agent.ChatAsync(new ChatRequest { Message = "Hello" });
+```
+
+Related base classes:
+- `MEAIGAgentBase` (Microsoft.Extensions.AI integration)
+- `RoleAIGAgent<TState>` (role-based prompts + routing)
+- `CognitiveAIGAgentBase<TState>` (stateless LLM requests for workflow steps)
+- `YamlConfigurableAIGAgentBase<TState>` (YAML-driven runtime config)
+
+Further reading:
+- `src/Aevatar.Agents.AI.Core/docs/aigagentbase/AIGAGENTBASE_GUIDE.md`
+- `docs/AI_MEMORY_GUIDE.md`
+- `src/Aevatar.Agents.AI.Core/docs/HOOKS_HARNESS.md`
+
+### MEAIGAgentBase (Microsoft.Extensions.AI)
+
 The framework integrates **Microsoft.Extensions.AI**, supporting Azure OpenAI and OpenAI:
 
 ```csharp

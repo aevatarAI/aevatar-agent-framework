@@ -1,5 +1,6 @@
 using Aevatar.Agents.AGUI;
-using Aevatar.Agents.Core.Runtime;
+using Aevatar.Agents.AI.Core.Messages;
+using Aevatar.Agents.Sessions.Runtime;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Options;
 using VibeResearching.Api;
@@ -18,7 +19,7 @@ internal static partial class ResearchSessionsApi
             string sessionId,
             SessionInputInDto input,
             ResearchSessionManager sessions,
-            ResearchRunExecutor executor,
+            SessionRuntime runtime,
             CancellationToken ct) =>
         {
             if (!sessions.TryGet(sessionId, out var session))
@@ -27,46 +28,40 @@ internal static partial class ResearchSessionsApi
             if (string.IsNullOrWhiteSpace(input.Message))
                 return Results.BadRequest(new { error = "message is required" });
 
-            // Fire-and-forget run; clients receive progress via AG-UI SSE.
-            var runSeq = session.NextRunSeq();
-            var runId = $"{session.Id}:{runSeq}";
-
-            _ = Task.Run(async () =>
+            var mode = (input.Mode ?? string.Empty).Trim();
+            if (string.Equals(mode, "chat", StringComparison.OrdinalIgnoreCase))
             {
-                // Latest-wins: new message cancels previous run for this session.
-                var run = session.BeginNewRun(runId, reason: "new_input", out var interruptedRunId);
-
-                if (!string.IsNullOrWhiteSpace(interruptedRunId))
+                var chat = new ChatRequestEvent
                 {
-                    // Tell UI immediately (even if the old run was still queued on RunLock).
-                    session.Events.Publish(new CustomEvent
-                    {
-                        Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                        Name = "aevatar.scientific.run_interrupted",
-                        Value = new
-                        {
-                            threadId = session.Id,
-                            oldRunId = interruptedRunId,
-                            newRunId = runId,
-                            reason = "new_input"
-                        }
-                    });
-                }
+                    Message = input.Message,
+                    RequestId = input.RequestId ?? string.Empty
+                };
+                var runId = await runtime.SendChatAsync(sessionId, chat, ct);
+                return Results.Accepted($"/api/sessions/{session.Id}", new { ok = true, sessionId = session.Id, runId });
+            }
 
-                using var scope = RunContextScope.Begin(run);
-                try
-                {
-                    await executor.ExecuteAsync(session, runId, input, run.Token);
-                }
-                finally
-                {
-                    // Only clear if still active (avoid clearing a newer run).
-                    _ = session.TryClearActiveRun(runId, run);
-                    run.Dispose();
-                }
-            }, CancellationToken.None);
+            var variables = new Dictionary<string, object?>();
+            if (input.AttachmentPaths is { Count: > 0 })
+                variables["attachments"] = input.AttachmentPaths;
+            if (input.ToAgents is { Count: > 0 })
+                variables["to_agents"] = input.ToAgents;
+            if (input.Loop != null)
+            {
+                if (input.Loop.MaxIterations.HasValue)
+                    variables["loop_max_iterations"] = input.Loop.MaxIterations.Value;
+                if (input.Loop.MaxTotalDurationMs.HasValue)
+                    variables["loop_max_duration_ms"] = input.Loop.MaxTotalDurationMs.Value;
+            }
 
-            return Results.Accepted($"/api/sessions/{session.Id}", new { ok = true, sessionId = session.Id, runId });
+            var request = new SessionWorkflowRunRequest(
+                WorkflowName: "vibe_researching",
+                Message: input.Message,
+                Mode: mode,
+                Variables: variables,
+                RequestId: input.RequestId);
+
+            var runIdWorkflow = await runtime.RunWorkflowAsync(sessionId, request, ct);
+            return Results.Accepted($"/api/sessions/{session.Id}", new { ok = true, sessionId = session.Id, runId = runIdWorkflow });
         });
     }
 

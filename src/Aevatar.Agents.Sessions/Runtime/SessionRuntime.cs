@@ -22,8 +22,8 @@ namespace Aevatar.Agents.Sessions.Runtime;
 //  - Chat 调度
 //  - AG-UI stream 绑定
 //
-//  删除的冗余：
-//  - 复杂的 status 事件
+//  简化的状态通知：
+//  - SESSION_STATUS 仅保留关键阶段
 //  - Message history 管理（由 agent 自己管理）
 // ============================================================
 
@@ -48,6 +48,7 @@ public sealed class SessionRuntime
     private readonly IOptionsMonitor<SessionRuntimeOptions> _options;
     private readonly IWorkflowCatalog _workflowCatalog;
     private readonly AgentBootstrapper _bootstrapper;
+    private readonly SessionWorkflowRunner _workflowRunner;
     private readonly IMemoryStore? _memoryStore;
     private readonly ILogger<SessionRuntime> _logger;
 
@@ -62,6 +63,7 @@ public sealed class SessionRuntime
         IOptionsMonitor<SessionRuntimeOptions> options,
         IWorkflowCatalog workflowCatalog,
         AgentBootstrapper bootstrapper,
+        SessionWorkflowRunner workflowRunner,
         IEnumerable<IMemoryStore> memoryStores,
         ILogger<SessionRuntime> logger)
     {
@@ -71,6 +73,7 @@ public sealed class SessionRuntime
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _workflowCatalog = workflowCatalog ?? throw new ArgumentNullException(nameof(workflowCatalog));
         _bootstrapper = bootstrapper ?? throw new ArgumentNullException(nameof(bootstrapper));
+        _workflowRunner = workflowRunner ?? throw new ArgumentNullException(nameof(workflowRunner));
         _memoryStore = memoryStores?.FirstOrDefault();
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -79,10 +82,19 @@ public sealed class SessionRuntime
     //  Session CRUD
     // ============================================================
 
-    public async Task<SessionState> CreateSessionAsync(string? workflowName, CancellationToken ct)
+    public Task<SessionState> CreateSessionAsync(string? workflowName, CancellationToken ct)
+        => CreateSessionAsync(workflowName, sessionId: null, ct);
+
+    public async Task<SessionState> CreateSessionAsync(string? workflowName, string? sessionId, CancellationToken ct)
     {
         var name = _workflowCatalog.ResolveWorkflowName(workflowName);
-        var state = await _sessions.StartSessionAsync(new StartSessionRequest { WorkflowName = name }, ct);
+        var request = new StartSessionRequest
+        {
+            WorkflowName = name,
+            SessionId = sessionId ?? string.Empty
+        };
+
+        var state = await _sessions.StartSessionAsync(request, ct);
         _createdSessions[state.SessionId] = state;
         _ = await GetOrCreateContextAsync(state, ct);
         return state;
@@ -279,9 +291,11 @@ public sealed class SessionRuntime
         // 后台调度 - 通过 actor 发布 ChatRequestEvent，让 event handler 处理并发布 streaming events
         _ = Task.Run(async () =>
         {
-            await ctx.RunGate.WaitAsync();
+            PublishStatus(ctx.Stream, sessionId, requestId, "dispatch.queued", "waiting for run gate", ctx.PrimaryAgentId, ensured.Role.Role);
+            await ctx.RunGate.WaitAsync(ct);
             try
             {
+                PublishStatus(ctx.Stream, sessionId, requestId, "dispatch.start", "dispatching chat request", ctx.PrimaryAgentId, ensured.Role.Role);
                 await _bootstrapper.EnsureInitializedAsync(ctx.Stream, agent, requestId, ensured.Role.Role, CancellationToken.None);
 
                 // 转换 ChatRequestEvent 为 ChatRequest
@@ -324,10 +338,12 @@ public sealed class SessionRuntime
                     ThreadId = sessionId,
                     RunId = requestId
                 });
+                PublishStatus(ctx.Stream, sessionId, requestId, "dispatch.done", "response streamed", ctx.PrimaryAgentId, ensured.Role.Role);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
                 _logger.LogDebug("[SessionRuntime] Chat canceled: session={SessionId}", sessionId);
+                PublishStatus(ctx.Stream, sessionId, requestId, "dispatch.cancel", "request canceled", ctx.PrimaryAgentId, ensured.Role.Role);
                 ctx.Stream.Publish(new TextMessageEndEvent
                 {
                     Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
@@ -343,6 +359,7 @@ public sealed class SessionRuntime
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "[SessionRuntime] Chat dispatch failed: session={SessionId}", sessionId);
+                PublishStatus(ctx.Stream, sessionId, requestId, "run.error", ex.Message, ctx.PrimaryAgentId, ensured.Role.Role);
                 ctx.Stream.Publish(new TextMessageContentEvent
                 {
                     Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
@@ -365,9 +382,83 @@ public sealed class SessionRuntime
             {
                 ctx.RunGate.Release();
             }
-        });
+        }, ct);
 
         return requestId;
+    }
+
+    // ============================================================
+    //  Workflow 调度（Cognitive Workflow）
+    // ============================================================
+
+    public async Task<string> RunWorkflowAsync(
+        string sessionId,
+        SessionWorkflowRunRequest request,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (string.IsNullOrWhiteSpace(sessionId))
+            throw new ArgumentException("sessionId is required.", nameof(sessionId));
+
+        var state = await _sessions.GetSessionStateAsync(sessionId, ct)
+                    ?? throw new InvalidOperationException("session not found.");
+
+        var ctx = await GetOrCreateContextAsync(state, ct);
+        var runId = string.IsNullOrWhiteSpace(request.RequestId)
+            ? Guid.NewGuid().ToString("N")
+            : request.RequestId.Trim();
+
+        var runRequest = request with { RequestId = runId };
+
+        _ = Task.Run(async () =>
+        {
+            await ctx.RunGate.WaitAsync();
+            try
+            {
+                var prepared = await _workflowRunner.PrepareAsync(state, runRequest, _memoryStore != null, CancellationToken.None);
+                ctx.Stream.AttachAgent(prepared.CoordinatorActorId);
+
+                ctx.Stream.Publish(new RunStartedEvent
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    ThreadId = sessionId,
+                    RunId = runId
+                });
+
+                await _workflowRunner.ExecuteAsync(prepared, runRequest, CancellationToken.None);
+
+                ctx.Stream.Publish(new RunFinishedEvent
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    ThreadId = sessionId,
+                    RunId = runId,
+                    Result = new { ok = true }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[SessionRuntime] Workflow run failed: session={SessionId}", sessionId);
+                ctx.Stream.Publish(new RunErrorEvent
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    Message = ex.Message,
+                    Code = "WORKFLOW_RUN_ERROR"
+                });
+                ctx.Stream.Publish(new RunFinishedEvent
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    ThreadId = sessionId,
+                    RunId = runId,
+                    Result = new { ok = false, error = ex.Message }
+                });
+            }
+            finally
+            {
+                ctx.RunGate.Release();
+            }
+        });
+
+        return runId;
     }
 
     // ============================================================
@@ -494,6 +585,31 @@ public sealed class SessionRuntime
             ? _options.CurrentValue.StreamChunkEveryN
             : 1;
         return Math.Clamp(streamChunkEveryN > 0 ? streamChunkEveryN : fallback, 1, 64);
+    }
+
+    private static void PublishStatus(
+        SessionAgUiStream stream,
+        string sessionId,
+        string requestId,
+        string stage,
+        string message,
+        string? agentId,
+        string? role)
+    {
+        stream.Publish(new CustomEvent
+        {
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            Name = "SESSION_STATUS",
+            Value = new
+            {
+                sessionId,
+                requestId,
+                stage,
+                message,
+                agentId = agentId ?? string.Empty,
+                role = role ?? string.Empty
+            }
+        });
     }
 
     private static DateTimeOffset ToDateTimeOffset(Timestamp? ts)

@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using Aevatar.Agents.Abstractions.Persistence;
 using Aevatar.Agents.AGUI;
-using Aevatar.Agents.Cognitive.Streaming;
+using Aevatar.Agents.Sessions.Runtime;
 using Aevatar.Agents.Core.Runtime;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
@@ -22,6 +22,7 @@ namespace VibeResearching.Api.Sessions;
 public sealed class ResearchSessionManager
 {
     private readonly ConcurrentDictionary<string, ResearchSession> _sessions = new(StringComparer.Ordinal);
+    private readonly SessionRuntime _runtime;
     private readonly SessionUiTraceRecorder _uiTrace;
     private readonly IVibeSessionStore? _sessionStore;
     private readonly IStateStore<VibeSessionIndex>? _indexStore;
@@ -30,11 +31,13 @@ public sealed class ResearchSessionManager
     private const string IndexKey = "vibe_researching_sessions_index";
 
     public ResearchSessionManager(
+        SessionRuntime runtime,
         SessionUiTraceRecorder uiTrace,
         IVibeSessionStore? sessionStore = null,
         IStateStore<VibeSessionIndex>? indexStore = null,
         ILogger<ResearchSessionManager>? logger = null)
     {
+        _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         _uiTrace = uiTrace ?? throw new ArgumentNullException(nameof(uiTrace));
         _sessionStore = sessionStore;
         _indexStore = indexStore;
@@ -63,9 +66,9 @@ public sealed class ResearchSessionManager
         string? providerName,
         CancellationToken ct = default)
     {
-        // Use full GUID (N) to avoid collisions and match other File-SSoT ids.
-        var id = Guid.NewGuid().ToString("N");
-        var session = GetOrCreate(id, providerName);
+        var state = await _runtime.CreateSessionAsync(workflowName: null, sessionId: null, ct);
+        var createdAt = TryReadTimestamp(state.CreatedAt);
+        var session = GetOrCreate(state.SessionId, providerName, createdAt);
         await PersistSessionAsync(session, ct);
         return session;
     }
@@ -87,20 +90,32 @@ public sealed class ResearchSessionManager
         try
         {
             var records = await LoadPersistedRecordsAsync(ct);
-            if (records.Count == 0)
-                return;
+            if (records.Count > 0)
+            {
+                foreach (var record in records)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (string.IsNullOrWhiteSpace(record.SessionId))
+                        continue;
 
-            foreach (var record in records)
+                    await EnsureRuntimeSessionAsync(record.SessionId, ct);
+
+                    var providerName = NormalizeOptional(record.ProviderName);
+                    var dagId = NormalizeOptional(record.DagId);
+                    var createdAt = TryReadTimestamp(record.CreatedAt);
+
+                    GetOrCreate(record.SessionId, providerName, createdAt, dagId);
+                }
+
+                return;
+            }
+
+            var list = await _runtime.ListSessionsAsync(limit: 2000, ct);
+            foreach (var summary in list)
             {
                 ct.ThrowIfCancellationRequested();
-                if (string.IsNullOrWhiteSpace(record.SessionId))
-                    continue;
-
-                var providerName = NormalizeOptional(record.ProviderName);
-                var dagId = NormalizeOptional(record.DagId);
-                var createdAt = TryReadTimestamp(record.CreatedAt);
-
-                GetOrCreate(record.SessionId, providerName, createdAt, dagId);
+                await EnsureRuntimeSessionAsync(summary.SessionId, ct);
+                GetOrCreate(summary.SessionId, null, summary.CreatedAt);
             }
         }
         catch (Exception ex)
@@ -163,9 +178,10 @@ public sealed class ResearchSessionManager
         var p = string.IsNullOrWhiteSpace(providerName) ? null : providerName.Trim();
         var d = string.IsNullOrWhiteSpace(dagId) ? null : dagId.Trim();
 
+        var stream = EnsureStream(normalized);
         var session = _sessions.GetOrAdd(normalized, id =>
         {
-            var s = new ResearchSession(id, createdAt) { ProviderName = p, DagId = d };
+            var s = new ResearchSession(id, stream, createdAt) { ProviderName = p, DagId = d };
             _uiTrace.Attach(s);
             return s;
         });
@@ -266,11 +282,47 @@ public sealed class ResearchSessionManager
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
+
+    private SessionAgUiStream EnsureStream(string sessionId)
+    {
+        try
+        {
+            var stream = _runtime.GetSessionStreamAsync(sessionId, CancellationToken.None)
+                .GetAwaiter()
+                .GetResult();
+            if (stream != null)
+                return stream;
+
+            _runtime.CreateSessionAsync(workflowName: null, sessionId: sessionId, CancellationToken.None)
+                .GetAwaiter()
+                .GetResult();
+
+            stream = _runtime.GetSessionStreamAsync(sessionId, CancellationToken.None)
+                .GetAwaiter()
+                .GetResult();
+            if (stream != null)
+                return stream;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Failed to bind session stream for {SessionId}", sessionId);
+        }
+
+        throw new InvalidOperationException("Failed to bind SessionAgUiStream.");
+    }
+
+    private async Task EnsureRuntimeSessionAsync(string sessionId, CancellationToken ct)
+    {
+        var stream = await _runtime.GetSessionStreamAsync(sessionId, ct);
+        if (stream != null)
+            return;
+
+        await _runtime.CreateSessionAsync(workflowName: null, sessionId: sessionId, ct);
+    }
 }
 
-public sealed class ResearchSession(string id, DateTimeOffset? createdAt = null)
+public sealed class ResearchSession(string id, SessionAgUiStream events, DateTimeOffset? createdAt = null)
 {
-    private const string EventsHubName = "ResearchSession.Events";
     // ============================================================
     //  Global Knowledge Graph
     //
@@ -302,7 +354,7 @@ public sealed class ResearchSession(string id, DateTimeOffset? createdAt = null)
     /// </summary>
     public string EffectiveDagId => string.IsNullOrWhiteSpace(DagId) ? GlobalDagId : DagId.Trim();
 
-    public BroadcastEventHub<AgUiEvent> Events { get; } = new(replayBufferSize: 0, hubName: EventsHubName);
+    public SessionAgUiStream Events { get; } = events ?? throw new ArgumentNullException(nameof(events));
 
     // Lightweight server-side workspace state (rendered via AG-UI STATE_SNAPSHOT/DELTA).
     public ResearchWorkspaceState Workspace { get; } = new()

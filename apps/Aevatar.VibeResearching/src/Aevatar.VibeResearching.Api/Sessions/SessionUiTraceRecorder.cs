@@ -146,7 +146,7 @@ public sealed class SessionUiTraceRecorder
 
         try
         {
-            await foreach (var evt in session.Events.SubscribeAsync(replay: false))
+            await foreach (var evt in session.Events.SubscribeAsync(CancellationToken.None))
             {
                 // Persist small "work trace" for audit (best-effort).
                 switch (evt)

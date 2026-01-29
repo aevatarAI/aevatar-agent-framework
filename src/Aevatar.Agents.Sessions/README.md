@@ -3,7 +3,7 @@
 Session management and HTTP APIs for workflow YAML sessions.
 
 ## Responsibilities
-- Load workflow YAML from disk and resolve roles.
+- Load workflow YAML from disk and resolve roles (Mesh DSL or Cognitive Workflow).
 - Persist session state and role mapping.
 - Expose session/agent status, history, memory, and trace via HTTP.
 
@@ -13,6 +13,8 @@ Session management and HTTP APIs for workflow YAML sessions.
 - Lazy role agent loading to reduce startup cost.
 - Optional memory and trace integration (graceful 404 when unavailable).
 - Runtime/stream abstraction in `Aevatar.Agents.Sessions.Runtime`.
+- Workflow execution via `SessionRuntime.RunWorkflowAsync`.
+- Snapshot-first SSE bootstrap via `ISessionAgUiBootstrapper`.
 - Tooling abstraction in `Aevatar.Agents.Tooling`.
 
 ## Public API highlights
@@ -72,5 +74,5 @@ dotnet build src/Aevatar.Agents.Sessions/Aevatar.Agents.Sessions.csproj
 
 ## Notes
 - Session APIs require Protobuf types for all cross-boundary data.
-- Workflow YAML uses Cognitive Mesh DSL (nodes → roles).
+- Workflow YAML supports both Cognitive Mesh DSL (nodes → roles) and Cognitive Workflow (`steps`).
 - In non-local runtime, role initialization may not be accessible (best-effort).

@@ -66,7 +66,8 @@ dotnet run --project examples/Aevatar.Workshop/Aevatar.Workshop.csproj
 
 - Chat 面板支持流式批量刷新与自动滚动保护。
 - `stream_chunk_every_n` 可通过 Chat 面板的 **Stream batch** 设置，或在 `appsettings.json` 的 `Aevatar.Workshop:StreamChunkEveryN` 配置默认值。
-- 最佳实践参考：`docs/STREAMING_CHAT_UI_BEST_PRACTICES.md`。
+- 连接就绪以 `MESSAGES_SNAPSHOT` 为准，`SSE_CONNECTED` 作为兜底。
+- Best practices: `docs/SESSION_RUNTIME_STREAMING_AGUI_BEST_PRACTICES.md`.
 
 ## 重要说明
 

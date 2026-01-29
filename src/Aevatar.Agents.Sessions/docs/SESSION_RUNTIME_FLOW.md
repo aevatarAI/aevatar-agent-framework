@@ -9,6 +9,7 @@
 2. **API -> SessionRuntime**
    - `SessionRuntime.CreateSessionAsync` 启动 workflow，选择主角色。
    - `SessionRuntime.SendChatAsync` 组装 `ChatRequestEvent`，进入后台调度。
+   - `SessionRuntime.RunWorkflowAsync` 执行 Cognitive Workflow（`workflow.run`）。
 
 3. **Agent Bootstrap**
    - `AgentBootstrapper.EnsureInitializedAsync` 负责：
@@ -30,6 +31,7 @@
      - 状态 -> `CUSTOM: SESSION_STATUS`
 
 6. **SSE 输出**
+   - 先执行 bootstrap（`ISessionAgUiBootstrapper` → `MESSAGES_SNAPSHOT`）。
    - `AgUiSseWriter` 将 `AgUiEvent` 写入 SSE。
    - 前端 `app-sessions.js` 统一渲染 timeline + chat bubbles。
 
@@ -44,6 +46,18 @@ UI -> /api/chat/sessions/{id}/input
           -> SessionAgUiStream
             -> AgUiSseWriter (SSE)
               -> UI timeline/messages
+```
+
+Workflow:
+
+```
+UI -> /api/chat/sessions/{id}/workflow/run
+  -> SessionRuntime.RunWorkflowAsync
+    -> SessionWorkflowRunner (CognitiveCoordinatorGAgent)
+      -> ExecutionTraceEvent
+        -> SessionAgUiStream
+          -> AgUiSseWriter (SSE)
+            -> UI timeline/messages
 ```
 
 ## 关键可观测事件 (Observability)

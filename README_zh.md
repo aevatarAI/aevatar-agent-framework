@@ -183,6 +183,63 @@ services.AddAevatarAgentSystem(
 
 ## 🤖 AI 能力
 
+### AIGAgentBase（核心 AI Agent 基类）
+
+`AIGAgentBase` 是统一的 AI Agent 基类，继承自
+`GAgentBase<AevatarAIAgentState, AevatarAIAgentConfig>`，将对话、工具调用、记忆与 hooks
+打通为一条统一管线。
+
+- **必须初始化**：调用 `InitializeAsync(providerName)` 或
+  `InitializeAsync(LLMProviderConfig)` 后才能调用 Chat/Stream。DI 场景推荐用
+  `AIGAgentFactory`，自动注入 `ILLMProviderFactory`、`IAIAgentEmbeddingFactory` 与工具管理器。
+- **事件驱动 Chat**：`ChatAsync` / `ChatStreamAsync` 会发布 `ChatRequestEvent` 给自身，保证
+  State 修改发生在 actor mailbox 内，并输出 `ChatResponseEvent`、`ChatStreamChunkEvent`、
+  `AIDecisionEvent`。
+- **工具能力内置**：默认注册 `StateQueryTool`、`EventPublisherTool`、
+  `AevatarMemorySearchTool`，并 best-effort 接入 WebSearch / AgentSkills / MCP。可 override
+  `RegisterToolsAsync` 或通过文件技能扩展。
+- **工具安全**：`AllowInternalTools` + `AllowDangerousTools` 控制可见与可执行；
+  `SetFixedToolAllowlist(...)` + `AIGAgentKeys.ToolAllowlist` 进行双层白名单；
+  YAML 工具策略由 `AgentYamlConfigApplier` 应用。
+- **历史与记忆**：`EnableChatHistoryInState` 与 `EnableChatHistoryCompaction`（默认关闭）
+  提供滑窗 + 滚动摘要；MemoryStore/VectorIndex 追加为 best-effort；`search_memory` 优先查
+  CQRS read-model。
+- **MCP 与 AgentSkills**：`EnableMcpServers` / `EnableAgentSkills`（默认开启）支持按需发现与
+  加载；重连与 I/O 均为 best-effort，不阻断主流程。
+- **Hooks 与可观测**：Hook/Harness 贯穿 LLM 与工具生命周期；
+  `LlmCallInstrumentationScope` 统一 tracing 与耗时统计。
+- **常见扩展点**：`ConfigAI`、`BuildLLMRequest`、`RegisterToolsAsync`、
+  `StreamingToolCalls`、`AppendChatMemoryAsync`、`BuildMemoryScope`。
+
+最小示例：
+
+```csharp
+public sealed class MyAgent : AIGAgentBase
+{
+    public override string SystemPrompt { get; set; } = "You are a helpful AI assistant.";
+
+    public override Task<string> GetDescriptionAsync() =>
+        Task.FromResult("MyAgent");
+}
+
+var agent = new MyAgent();
+await agent.InitializeAsync("openai-gpt4");
+var response = await agent.ChatAsync(new ChatRequest { Message = "Hello" });
+```
+
+相关基类：
+- `MEAIGAgentBase`（Microsoft.Extensions.AI 集成）
+- `RoleAIGAgent<TState>`（角色化 prompt + 路由）
+- `CognitiveAIGAgentBase<TState>`（Workflow step 的无状态 LLM 请求）
+- `YamlConfigurableAIGAgentBase<TState>`（YAML 驱动的运行时配置）
+
+更多文档：
+- `src/Aevatar.Agents.AI.Core/docs/aigagentbase/AIGAGENTBASE_GUIDE.md`
+- `docs/AI_MEMORY_GUIDE.md`
+- `src/Aevatar.Agents.AI.Core/docs/HOOKS_HARNESS.md`
+
+### MEAIGAgentBase（Microsoft.Extensions.AI）
+
 框架集成了 **Microsoft.Extensions.AI**，支持 Azure OpenAI 和 OpenAI：
 
 ```csharp

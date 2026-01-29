@@ -37,8 +37,7 @@
     <ProjectReference Include="..\..\src\modules\Knowledge\Neo4j\Aevatar.VibeResearching.Knowledge.Neo4j.csproj" />
     <!-- Framework project references -->
     <ProjectReference Include="..\..\..\..\src\Aevatar.Agents.Persistence.InMemory.Graph\Aevatar.Agents.Persistence.InMemory.Graph.csproj" />
-    <!-- Temporarily commented out until HttpApi.Host build errors are fixed -->
-    <!-- <ProjectReference Include="..\..\src\host\HttpApi.Host\Aevatar.VibeResearching.HttpApi.Host.csproj" /> -->
+    <ProjectReference Include="..\..\src\host\HttpApi.Host\Aevatar.VibeResearching.HttpApi.Host.csproj" />
   </ItemGroup>
 
 </Project>

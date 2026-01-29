@@ -23,5 +23,8 @@ public static class SessionsPermissions
         public const string Admin = Default + ".Admin";
         public const string View = Default + ".View";
         public const string ListAll = Default + ".ListAll";
+        public const string Pause = Default + ".Pause";
+        public const string Resume = Default + ".Resume";
+        public const string Terminate = Default + ".Terminate";
     }
 }

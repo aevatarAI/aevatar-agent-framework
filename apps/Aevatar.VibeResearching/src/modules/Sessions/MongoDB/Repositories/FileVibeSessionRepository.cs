@@ -143,6 +143,31 @@ internal sealed class FileVibeSessionRepository : IVibeSessionRepository
         }
     }
 
+    public async Task DeleteAsync(string sessionId, CancellationToken ct = default)
+    {
+        sessionId = VibeSessionStoreHelpers.NormalizeSessionId(sessionId);
+        if (sessionId.Length == 0)
+            return;
+
+        await _indexLock.WaitAsync(ct);
+        try
+        {
+            var index = await LoadIndexAsync(ct);
+            var existing = index.Sessions
+                .FirstOrDefault(s => string.Equals(s.SessionId, sessionId, StringComparison.Ordinal));
+
+            if (existing != null)
+            {
+                index.Sessions.Remove(existing);
+                await SaveIndexAsync(index, ct);
+            }
+        }
+        finally
+        {
+            _indexLock.Release();
+        }
+    }
+
     private async Task<VibeSessionIndex> LoadIndexAsync(CancellationToken ct)
     {
         try

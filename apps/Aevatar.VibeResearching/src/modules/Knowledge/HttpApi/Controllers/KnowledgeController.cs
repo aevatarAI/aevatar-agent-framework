@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Volo.Abp.AspNetCore.Mvc;
 using Aevatar.VibeResearching.Agents.Contracts.Collab;
@@ -11,6 +12,7 @@ namespace Aevatar.VibeResearching.Knowledge;
 /// </summary>
 [ApiController]
 [Route("api/sessions/{sessionId}")]
+[Authorize]
 public class KnowledgeController : AbpControllerBase
 {
     private readonly IKnowledgeAppService _knowledgeAppService;
@@ -32,6 +34,7 @@ public class KnowledgeController : AbpControllerBase
     /// GET /api/sessions/{sessionId}/dag
     /// </summary>
     [HttpGet("dag")]
+    [AllowAnonymous]
     public async Task<IActionResult> GetDagAsync(
         [FromRoute] string sessionId,
         CancellationToken ct = default)
@@ -121,6 +124,7 @@ public class KnowledgeController : AbpControllerBase
     /// GET /api/sessions/{sessionId}/dag/nodes/{nodeId}/explain
     /// </summary>
     [HttpGet("dag/nodes/{nodeId}/explain")]
+    [AllowAnonymous]
     public async Task<IActionResult> ExplainNodeAsync(
         [FromRoute] string sessionId,
         [FromRoute] string nodeId,
@@ -141,6 +145,7 @@ public class KnowledgeController : AbpControllerBase
     /// GET /api/sessions/{sessionId}/dag/{nodeId}/explain
     /// </summary>
     [HttpGet("dag/{nodeId}/explain")]
+    [AllowAnonymous]
     public async Task<IActionResult> ExplainDagNodeAsync(
         [FromRoute] string sessionId,
         [FromRoute] string nodeId,
@@ -161,6 +166,7 @@ public class KnowledgeController : AbpControllerBase
     /// GET /api/sessions/{sessionId}/graph/{nodeId}/explain
     /// </summary>
     [HttpGet("graph/{nodeId}/explain")]
+    [AllowAnonymous]
     public async Task<IActionResult> ExplainGraphNodeAsync(
         [FromRoute] string sessionId,
         [FromRoute] string nodeId,
@@ -187,6 +193,7 @@ public class KnowledgeController : AbpControllerBase
     /// GET /api/sessions/{sessionId}/graph/{nodeId}/chain
     /// </summary>
     [HttpGet("graph/{nodeId}/chain")]
+    [AllowAnonymous]
     public async Task<IActionResult> GetKnowledgeChainAsync(
         [FromRoute] string sessionId,
         [FromRoute] string nodeId,
@@ -211,6 +218,7 @@ public class KnowledgeController : AbpControllerBase
     /// GET /api/sessions/{sessionId}/graph/summary
     /// </summary>
     [HttpGet("graph/summary")]
+    [AllowAnonymous]
     public async Task<IActionResult> GetGraphSummaryAsync(
         [FromRoute] string sessionId,
         CancellationToken ct = default)
@@ -230,6 +238,7 @@ public class KnowledgeController : AbpControllerBase
     /// GET /api/sessions/{sessionId}/graph/dag-summary
     /// </summary>
     [HttpGet("graph/dag-summary")]
+    [AllowAnonymous]
     public async Task<IActionResult> GetDagSummaryAsync(
         [FromRoute] string sessionId,
         CancellationToken ct = default)

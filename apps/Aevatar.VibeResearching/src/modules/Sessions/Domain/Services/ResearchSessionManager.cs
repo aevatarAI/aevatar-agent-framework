@@ -5,11 +5,14 @@ using Aevatar.Agents.AGUI;
 using Aevatar.Agents.Cognitive.Streaming;
 using Aevatar.Agents.Core.Runtime;
 using Google.Protobuf.WellKnownTypes;
-using Aevatar.VibeResearching.Agents.Contracts.Sessions;
 using Aevatar.VibeResearching.Sessions.Repositories;
 using Aevatar.VibeResearching.Sessions.ValueObjects;
 using Aevatar.VibeResearching.Sessions.Constants;
+using Aevatar.VibeResearching.Sessions.Enums;
 using Aevatar.VibeResearching.Agents;
+using ProtoSessionStatus = Aevatar.VibeResearching.Agents.Contracts.Sessions.SessionStatus;
+using VibeSessionRecord = Aevatar.VibeResearching.Agents.Contracts.Sessions.VibeSessionRecord;
+using VibeSessionIndex = Aevatar.VibeResearching.Agents.Contracts.Sessions.VibeSessionIndex;
 
 namespace Aevatar.VibeResearching.Sessions.Services;
 
@@ -44,15 +47,17 @@ public sealed class ResearchSessionManager
         _logger = logger;
     }
 
-    public IReadOnlyList<object> ListSessions()
+    public IReadOnlyList<object> ListSessions(bool includeArchived = false)
     {
         return _sessions.Values
+            .Where(s => includeArchived || s.Status != SessionStatus.Archived)
             .OrderByDescending(s => s.CreatedAt)
             .Select(s => new
             {
                 sessionId = s.Id,
                 createdAt = s.CreatedAt.ToString("O"),
-                providerName = s.ProviderName
+                providerName = s.ProviderName,
+                status = s.Status.ToString().ToLowerInvariant()
             })
             .ToList();
     }
@@ -64,11 +69,12 @@ public sealed class ResearchSessionManager
 
     public async Task<ResearchSession> CreateAsync(
         string? providerName,
+        string? ownerId = null,
         CancellationToken ct = default)
     {
         // Use full GUID (N) to avoid collisions and match other File-SSoT ids.
         var id = Guid.NewGuid().ToString("N");
-        var session = GetOrCreate(id, providerName);
+        var session = GetOrCreate(id, providerName, ownerId: ownerId);
         await PersistSessionAsync(session, ct);
         return session;
     }
@@ -102,8 +108,13 @@ public sealed class ResearchSessionManager
                 var providerName = NormalizeOptional(record.ProviderName);
                 var dagId = NormalizeOptional(record.DagId);
                 var createdAt = TryReadTimestamp(record.CreatedAt);
+                var ownerId = NormalizeOptional(record.OwnerId);
 
-                GetOrCreate(record.SessionId, providerName, createdAt, dagId);
+                var session = GetOrCreate(record.SessionId, providerName, createdAt, dagId, ownerId);
+                var restoredStatus = MapFromProtoStatus(record.Status);
+                var restoredPausedAt = TryReadTimestamp(record.PausedAt);
+                var restoredArchivedAt = TryReadTimestamp(record.ArchivedAt);
+                session.RestoreStatus(restoredStatus, restoredPausedAt, restoredArchivedAt);
             }
         }
         catch (Exception ex)
@@ -145,7 +156,8 @@ public sealed class ResearchSessionManager
         string sessionId,
         string? providerName = null,
         DateTimeOffset? createdAt = null,
-        string? dagId = null)
+        string? dagId = null,
+        string? ownerId = null)
     {
         sessionId = (sessionId ?? string.Empty).Trim();
         if (sessionId.Length == 0)
@@ -165,16 +177,20 @@ public sealed class ResearchSessionManager
 
         var p = string.IsNullOrWhiteSpace(providerName) ? null : providerName.Trim();
         var d = string.IsNullOrWhiteSpace(dagId) ? null : dagId.Trim();
+        var o = string.IsNullOrWhiteSpace(ownerId) ? null : ownerId.Trim();
 
         var session = _sessions.GetOrAdd(normalized, id =>
         {
-            var s = new ResearchSession(id, createdAt) { ProviderName = p, DagId = d };
+            var s = new ResearchSession(id, createdAt) { ProviderName = p, DagId = d, OwnerId = o };
             _uiTrace.Attach(s);
             return s;
         });
 
         if (session.DagId == null && !string.IsNullOrWhiteSpace(d))
             session.DagId = d;
+
+        if (session.OwnerId == null && !string.IsNullOrWhiteSpace(o))
+            session.OwnerId = o;
 
         return session;
     }
@@ -216,6 +232,10 @@ public sealed class ResearchSessionManager
                 existing.DagId = updated.DagId;
                 existing.CreatedAt = updated.CreatedAt;
                 existing.UpdatedAt = updated.UpdatedAt;
+                existing.OwnerId = updated.OwnerId;
+                existing.Status = updated.Status;
+                existing.PausedAt = updated.PausedAt;
+                existing.ArchivedAt = updated.ArchivedAt;
             }
 
             await SaveIndexAsync(index, ct);
@@ -240,13 +260,43 @@ public sealed class ResearchSessionManager
 
     private static VibeSessionRecord BuildRecord(ResearchSession session)
     {
-        return new VibeSessionRecord
+        var record = new VibeSessionRecord
         {
             SessionId = session.Id,
             ProviderName = session.ProviderName ?? string.Empty,
             DagId = session.DagId ?? string.Empty,
             CreatedAt = Timestamp.FromDateTime(session.CreatedAt.UtcDateTime),
-            UpdatedAt = Timestamp.FromDateTime(DateTime.UtcNow)
+            UpdatedAt = Timestamp.FromDateTime(DateTime.UtcNow),
+            OwnerId = session.OwnerId ?? string.Empty,
+            Status = MapToProtoStatus(session.Status)
+        };
+
+        if (session.PausedAt.HasValue)
+            record.PausedAt = Timestamp.FromDateTime(session.PausedAt.Value.UtcDateTime);
+        if (session.ArchivedAt.HasValue)
+            record.ArchivedAt = Timestamp.FromDateTime(session.ArchivedAt.Value.UtcDateTime);
+
+        return record;
+    }
+
+    private static ProtoSessionStatus MapToProtoStatus(SessionStatus status)
+    {
+        return status switch
+        {
+            SessionStatus.Active => ProtoSessionStatus.Active,
+            SessionStatus.Paused => ProtoSessionStatus.Paused,
+            SessionStatus.Archived => ProtoSessionStatus.Archived,
+            _ => ProtoSessionStatus.Active
+        };
+    }
+
+    private static SessionStatus MapFromProtoStatus(ProtoSessionStatus status)
+    {
+        return status switch
+        {
+            ProtoSessionStatus.Paused => SessionStatus.Paused,
+            ProtoSessionStatus.Archived => SessionStatus.Archived,
+            _ => SessionStatus.Active // UNSPECIFIED and ACTIVE both map to Active
         };
     }
 
@@ -271,11 +321,50 @@ public sealed class ResearchSessionManager
     }
 
     /// <summary>
+    /// Pauses a session by ID. Validates state and persists the change.
+    /// </summary>
+    public async Task PauseSessionAsync(string sessionId, CancellationToken ct = default)
+    {
+        if (!TryGet(sessionId, out var session))
+            throw new InvalidOperationException($"Session '{sessionId}' not found");
+
+        session.Pause();
+        await PersistSessionAsync(session, ct);
+        _logger?.LogInformation("Session {SessionId} paused", sessionId);
+    }
+
+    /// <summary>
+    /// Resumes a paused session by ID. Validates state and persists the change.
+    /// </summary>
+    public async Task ResumeSessionAsync(string sessionId, CancellationToken ct = default)
+    {
+        if (!TryGet(sessionId, out var session))
+            throw new InvalidOperationException($"Session '{sessionId}' not found");
+
+        session.Resume();
+        await PersistSessionAsync(session, ct);
+        _logger?.LogInformation("Session {SessionId} resumed", sessionId);
+    }
+
+    /// <summary>
+    /// Terminates (archives) a session by ID. Validates state and persists the change.
+    /// </summary>
+    public async Task TerminateSessionAsync(string sessionId, CancellationToken ct = default)
+    {
+        if (!TryGet(sessionId, out var session))
+            throw new InvalidOperationException($"Session '{sessionId}' not found");
+
+        session.Terminate();
+        await PersistSessionAsync(session, ct);
+        _logger?.LogInformation("Session {SessionId} terminated (archived)", sessionId);
+    }
+
+    /// <summary>
     /// Creates a new session (alias for CreateAsync that returns VibeSessionRecord).
     /// </summary>
-    public async Task<VibeSessionRecord> CreateSessionAsync(string? providerName, CancellationToken ct = default)
+    public async Task<VibeSessionRecord> CreateSessionAsync(string? providerName, string? ownerId = null, CancellationToken ct = default)
     {
-        var session = await CreateAsync(providerName, ct);
+        var session = await CreateAsync(providerName, ownerId, ct);
         return BuildRecord(session);
     }
 
@@ -284,17 +373,17 @@ public sealed class ResearchSessionManager
     /// </summary>
     public async Task DeleteSessionAsync(string sessionId, CancellationToken ct = default)
     {
-        if (_sessions.TryRemove(sessionId, out var session))
-        {
-            // Remove from persistent store if available
-            if (_sessionRepository != null)
-            {
-                // Note: IVibeSessionRepository doesn't have DeleteAsync, so we just remove from memory
-                _logger?.LogInformation("Deleted session {SessionId} from memory", sessionId);
-            }
-        }
+        _sessions.TryRemove(sessionId, out _);
 
-        await Task.CompletedTask;
+        if (_sessionRepository != null)
+        {
+            await _sessionRepository.DeleteAsync(sessionId, ct);
+            _logger?.LogInformation("Deleted session {SessionId} from memory and persistent storage", sessionId);
+        }
+        else
+        {
+            _logger?.LogInformation("Deleted session {SessionId} from memory (no persistent store configured)", sessionId);
+        }
     }
 
     /// <summary>
@@ -362,6 +451,26 @@ public sealed class ResearchSession(string id, DateTimeOffset? createdAt = null)
     public DateTimeOffset CreatedAt { get; } = createdAt ?? DateTimeOffset.UtcNow;
     public string? ProviderName { get; init; }
 
+    /// <summary>
+    /// The user ID of the session creator. Null/empty for legacy or anonymous sessions.
+    /// </summary>
+    public string? OwnerId { get; set; }
+
+    /// <summary>
+    /// The lifecycle status of the session. Defaults to Active.
+    /// </summary>
+    public SessionStatus Status { get; private set; } = SessionStatus.Active;
+
+    /// <summary>
+    /// Timestamp when the session was paused. Null if not paused.
+    /// </summary>
+    public DateTimeOffset? PausedAt { get; private set; }
+
+    /// <summary>
+    /// Timestamp when the session was archived (terminated). Null if not archived.
+    /// </summary>
+    public DateTimeOffset? ArchivedAt { get; private set; }
+
     public string? DagId { get; set; }
 
     /// <summary>
@@ -389,6 +498,102 @@ public sealed class ResearchSession(string id, DateTimeOffset? createdAt = null)
     private int _runSeq;
 
     public int NextRunSeq() => Interlocked.Increment(ref _runSeq);
+
+    /// <summary>
+    /// Pauses the session. Only valid when Status is Active.
+    /// Cancels any active run and emits a session_paused SSE event.
+    /// </summary>
+    public void Pause()
+    {
+        if (Status != SessionStatus.Active)
+            throw new InvalidOperationException($"Cannot pause session in '{Status}' state. Only Active sessions can be paused.");
+
+        CancelActiveRunInternal();
+        Status = SessionStatus.Paused;
+        PausedAt = DateTimeOffset.UtcNow;
+
+        Events.Publish(new CustomEvent
+        {
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            Name = "session_paused",
+            Value = new { sessionId = Id, pausedAt = PausedAt?.ToString("O") }
+        });
+    }
+
+    /// <summary>
+    /// Resumes the session. Only valid when Status is Paused.
+    /// Emits a session_resumed SSE event.
+    /// </summary>
+    public void Resume()
+    {
+        if (Status != SessionStatus.Paused)
+            throw new InvalidOperationException($"Cannot resume session in '{Status}' state. Only Paused sessions can be resumed.");
+
+        Status = SessionStatus.Active;
+        PausedAt = null;
+
+        Events.Publish(new CustomEvent
+        {
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            Name = "session_resumed",
+            Value = new { sessionId = Id }
+        });
+    }
+
+    /// <summary>
+    /// Terminates (archives) the session. Valid when Status is Active or Paused.
+    /// Cancels any active run and emits a session_terminated SSE event, then completes the event stream.
+    /// </summary>
+    public void Terminate()
+    {
+        if (Status == SessionStatus.Archived)
+            throw new InvalidOperationException("Cannot terminate session that is already archived.");
+
+        CancelActiveRunInternal();
+        Status = SessionStatus.Archived;
+        ArchivedAt = DateTimeOffset.UtcNow;
+
+        Events.Publish(new CustomEvent
+        {
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            Name = "session_terminated",
+            Value = new { sessionId = Id, archivedAt = ArchivedAt?.ToString("O") }
+        });
+
+        Events.Complete();
+    }
+
+    /// <summary>
+    /// Ensures the session is in a state that accepts input (Active).
+    /// Throws InvalidOperationException if the session is Paused or Archived.
+    /// </summary>
+    public void EnsureAcceptsInput()
+    {
+        if (Status == SessionStatus.Paused)
+            throw new InvalidOperationException("Session is paused");
+        if (Status == SessionStatus.Archived)
+            throw new InvalidOperationException("Session is archived");
+    }
+
+    /// <summary>
+    /// Restores the session status from a persisted proto record.
+    /// Treats UNSPECIFIED as Active for backward compatibility.
+    /// </summary>
+    public void RestoreStatus(SessionStatus status, DateTimeOffset? pausedAt, DateTimeOffset? archivedAt)
+    {
+        Status = status == 0 ? SessionStatus.Active : status;
+        PausedAt = pausedAt;
+        ArchivedAt = archivedAt;
+    }
+
+    private void CancelActiveRunInternal()
+    {
+        lock (_runGate)
+        {
+            ActiveRun?.Cancel();
+            ActiveRun = null;
+        }
+    }
 
     // Interruptible runs (Latest-wins, session scope)
     private readonly object _runGate = new();

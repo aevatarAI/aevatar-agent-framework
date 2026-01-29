@@ -36,7 +36,8 @@ public static class SessionSseEndpoints
             .WithName("SessionAgUiEvents")
             .WithTags("Research Sessions")
             .Produces(StatusCodes.Status200OK, contentType: "text/event-stream")
-            .Produces(StatusCodes.Status404NotFound);
+            .Produces(StatusCodes.Status404NotFound)
+            .AllowAnonymous();
 
         return app;
     }

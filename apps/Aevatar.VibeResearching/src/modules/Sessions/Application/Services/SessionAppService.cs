@@ -1,10 +1,13 @@
+using Volo.Abp;
 using Volo.Abp.Application.Services;
+using Volo.Abp.Authorization;
 using Aevatar.Agents.AGUI;
 using Aevatar.Agents.Core.Runtime;
 using Microsoft.Extensions.Logging;
 using Aevatar.VibeResearching.Agents;
 using Aevatar.VibeResearching.Agents.Contracts.Sessions;
 using Aevatar.VibeResearching.Agents.Orchestration;
+using Aevatar.VibeResearching.Sessions.Permissions;
 using Aevatar.VibeResearching.Sessions.Repositories;
 using Aevatar.VibeResearching.Sessions.Services;
 using Aevatar.VibeResearching.Sessions.DTOs;
@@ -39,15 +42,18 @@ public class SessionAppService : ApplicationService, ISessionAppService
     /// <inheritdoc/>
     public async Task<VibeSessionRecord> CreateAsync(CreateSessionDto input, CancellationToken ct = default)
     {
-        // Delegate to domain service
-        var session = await _sessionManager.CreateSessionAsync(input.ProviderName, ct);
+        // Set OwnerId to current user's ID (null if anonymous/unauthenticated)
+        var ownerId = CurrentUser.Id?.ToString();
+        var session = await _sessionManager.CreateSessionAsync(input.ProviderName, ownerId, ct);
         return session;
     }
 
     /// <inheritdoc/>
     public async Task<IReadOnlyList<VibeSessionRecord>> GetListAsync(CancellationToken ct = default)
     {
-        return await _sessionRepository.ListAsync(ct);
+        var all = await _sessionRepository.ListAsync(ct);
+        // Exclude archived sessions by default
+        return all.Where(s => s.Status != Agents.Contracts.Sessions.SessionStatus.Archived).ToList();
     }
 
     /// <inheritdoc/>
@@ -59,16 +65,24 @@ public class SessionAppService : ApplicationService, ISessionAppService
     /// <inheritdoc/>
     public async Task DeleteAsync(string sessionId, CancellationToken ct = default)
     {
+        // Delete requires Sessions.Delete permission (admin only, enforced by controller [Authorize])
+        // Additional owner check: admins can delete any, but this is already gated by permission
         await _sessionManager.DeleteSessionAsync(sessionId, ct);
     }
 
     /// <inheritdoc/>
-    public Task<string> SubmitInputAsync(string sessionId, SessionInputDto input, CancellationToken ct = default)
+    public async Task<string> SubmitInputAsync(string sessionId, SessionInputDto input, CancellationToken ct = default)
     {
         if (!_sessionManager.TryGet(sessionId, out var session))
         {
             throw new InvalidOperationException($"Session '{sessionId}' not found");
         }
+
+        // Owner check: only the session owner or admin can submit input
+        await CheckSessionOwnershipAsync(session);
+
+        // Guard: reject input on paused/archived sessions
+        session.EnsureAcceptsInput();
 
         if (string.IsNullOrWhiteSpace(input.Message))
         {
@@ -146,7 +160,7 @@ public class SessionAppService : ApplicationService, ISessionAppService
         }, CancellationToken.None);
 
         Logger.LogInformation("Started input processing for session {SessionId}, run {RunId}", sessionId, runId);
-        return Task.FromResult(runId);
+        return runId;
     }
 
     /// <summary>
@@ -193,7 +207,12 @@ public class SessionAppService : ApplicationService, ISessionAppService
     /// <inheritdoc/>
     public async Task ReconnectMcpAsync(string sessionId, CancellationToken ct = default)
     {
-        // Delegate to runtime service (fire-and-forget)
+        // Owner check: only the session owner or admin can reconnect MCP
+        if (_sessionManager.TryGet(sessionId, out var session))
+        {
+            await CheckSessionOwnershipAsync(session);
+        }
+
         await _sessionManager.ReconnectMcpAsync(sessionId, ct);
     }
 
@@ -309,5 +328,57 @@ public class SessionAppService : ApplicationService, ISessionAppService
             },
             updatedAt = DateTimeOffset.UtcNow.ToString("O")
         };
+    }
+
+    /// <inheritdoc/>
+    public async Task PauseAsync(string sessionId, CancellationToken ct = default)
+    {
+        if (!_sessionManager.TryGet(sessionId, out var session))
+            throw new InvalidOperationException($"Session '{sessionId}' not found");
+
+        await CheckSessionOwnershipAsync(session);
+        await _sessionManager.PauseSessionAsync(sessionId, ct);
+    }
+
+    /// <inheritdoc/>
+    public async Task ResumeAsync(string sessionId, CancellationToken ct = default)
+    {
+        if (!_sessionManager.TryGet(sessionId, out var session))
+            throw new InvalidOperationException($"Session '{sessionId}' not found");
+
+        await CheckSessionOwnershipAsync(session);
+        await _sessionManager.ResumeSessionAsync(sessionId, ct);
+    }
+
+    /// <inheritdoc/>
+    public async Task TerminateAsync(string sessionId, CancellationToken ct = default)
+    {
+        if (!_sessionManager.TryGet(sessionId, out var session))
+            throw new InvalidOperationException($"Session '{sessionId}' not found");
+
+        await CheckSessionOwnershipAsync(session);
+        await _sessionManager.TerminateSessionAsync(sessionId, ct);
+    }
+
+    /// <summary>
+    /// Checks that the current user is the session owner or has admin privileges.
+    /// Throws <see cref="AbpAuthorizationException"/> if the user is not authorized.
+    /// Sessions with no owner (legacy/anonymous) are accessible by any authenticated user.
+    /// </summary>
+    private async Task CheckSessionOwnershipAsync(ResearchSession session)
+    {
+        // Legacy sessions without an owner are accessible by any authenticated user
+        if (string.IsNullOrWhiteSpace(session.OwnerId))
+            return;
+
+        // Check if current user is the owner
+        var currentUserId = CurrentUser.Id?.ToString();
+        if (!string.IsNullOrWhiteSpace(currentUserId) &&
+            string.Equals(currentUserId, session.OwnerId, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        // Not the owner — check if admin (Sessions.Admin bypasses owner check).
+        // CheckPolicyAsync throws AbpAuthorizationException if not granted.
+        await CheckPolicyAsync(SessionsPermissions.Sessions.Admin);
     }
 }

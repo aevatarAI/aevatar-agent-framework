@@ -1,7 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Volo.Abp.Modularity;
 using Volo.Abp.MongoDB;
-using Volo.Abp.MongoDB.DependencyInjection;
 using Aevatar.VibeResearching.Sessions.Repositories;
 using Aevatar.VibeResearching.Sessions.Services;
 using Aevatar.VibeResearching.Sessions.MongoDB.Repositories;
@@ -17,12 +16,10 @@ public class VibeSessionsMongoDbModule : AbpModule
 {
     public override void ConfigureServices(ServiceConfigurationContext context)
     {
-        // TODO: Register MongoDB context when switching to actual MongoDB implementation
-        // context.Services.AddAbpDbContext<SessionsMongoDbContext>();
-
         // Register repositories
-        // Note: Using file-based implementations for now
-        context.Services.AddTransient<IVibeSessionRepository, FileVibeSessionRepository>();
+        // Uses IStateStore<T> abstraction — resolves to MongoDB / SQLite / InMemory
+        // based on host-level StateStoreType configuration.
+        context.Services.AddTransient<IVibeSessionRepository, MongoVibeSessionRepository>();
         context.Services.AddTransient<IAgentProvidersRepository, MongoAgentProvidersRepository>();
 
         // Register services

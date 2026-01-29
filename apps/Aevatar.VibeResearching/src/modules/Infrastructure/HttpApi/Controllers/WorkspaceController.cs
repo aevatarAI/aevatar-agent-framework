@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Volo.Abp.AspNetCore.Mvc;
 
@@ -8,6 +9,7 @@ namespace Aevatar.VibeResearching.Infrastructure.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/sessions/{sessionId}")]
+[Authorize]
 public class WorkspaceController : AbpControllerBase
 {
     private readonly IWorkspaceAppService _workspaceAppService;
@@ -22,6 +24,7 @@ public class WorkspaceController : AbpControllerBase
     /// GET /api/sessions/{sessionId}/workspace
     /// </summary>
     [HttpGet("workspace")]
+    [AllowAnonymous]
     public async Task<IActionResult> ListFilesAsync(
         [FromRoute] string sessionId,
         CancellationToken ct = default)
@@ -35,6 +38,7 @@ public class WorkspaceController : AbpControllerBase
     /// GET /api/sessions/{sessionId}/files
     /// </summary>
     [HttpGet("files")]
+    [AllowAnonymous]
     public async Task<IActionResult> ReadFileAsync(
         [FromRoute] string sessionId,
         [FromQuery] string path,
@@ -77,6 +81,7 @@ public class WorkspaceController : AbpControllerBase
     /// GET /api/sessions/{sessionId}/files/tree
     /// </summary>
     [HttpGet("files/tree")]
+    [AllowAnonymous]
     public async Task<IActionResult> GetFileTreeAsync(
         [FromRoute] string sessionId,
         [FromQuery] string? dir = null,

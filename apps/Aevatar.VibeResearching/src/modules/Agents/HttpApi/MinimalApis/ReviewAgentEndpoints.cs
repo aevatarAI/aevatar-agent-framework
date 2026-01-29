@@ -27,30 +27,34 @@ public static class ReviewAgentEndpoints
             .WithName("GetReviewAgentStatus")
             .WithSummary("Get the current status of the Review Agent")
             .WithDescription("Returns the current state including status, counters, timestamps, and error information if any.")
-            .Produces<ReviewAgentStatusResponse>(StatusCodes.Status200OK);
+            .Produces<ReviewAgentStatusResponse>(StatusCodes.Status200OK)
+            .AllowAnonymous();
 
         // GET /api/review-agent/settings - Get current settings
         group.MapGet("/settings", GetSettings)
             .WithName("GetReviewAgentSettings")
             .WithSummary("Get the current Review Agent settings")
             .WithDescription("Returns the current configuration values for the Review Agent.")
-            .Produces<ReviewAgentOptionsResponse>(StatusCodes.Status200OK);
+            .Produces<ReviewAgentOptionsResponse>(StatusCodes.Status200OK)
+            .AllowAnonymous();
 
-        // PUT /api/review-agent/settings - Update settings
+        // PUT /api/review-agent/settings - Update settings (Admin only)
         group.MapPut("/settings", UpdateSettings)
             .WithName("UpdateReviewAgentSettings")
             .WithSummary("Update Review Agent settings")
             .WithDescription("Updates the Review Agent configuration. Changes take effect on the next iteration.")
             .Accepts<ReviewAgentSettingsUpdate>("application/json")
             .Produces<ReviewAgentOptionsResponse>(StatusCodes.Status200OK)
-            .Produces(StatusCodes.Status400BadRequest);
+            .Produces(StatusCodes.Status400BadRequest)
+            .RequireAuthorization("Platform.Settings");
 
         // GET /api/review-agent/iterations - List iterations
         group.MapGet("/iterations", GetIterations)
             .WithName("GetReviewAgentIterations")
             .WithSummary("Get review iteration history")
             .WithDescription("Returns a paginated list of past review iterations with summary information.")
-            .Produces<IterationListResponse>(StatusCodes.Status200OK);
+            .Produces<IterationListResponse>(StatusCodes.Status200OK)
+            .AllowAnonymous();
 
         // GET /api/review-agent/iterations/{iterationId} - Get specific iteration
         group.MapGet("/iterations/{iterationId}", GetIteration)
@@ -58,36 +62,41 @@ public static class ReviewAgentEndpoints
             .WithSummary("Get details of a specific review iteration")
             .WithDescription("Returns full details of a review iteration including all log entries.")
             .Produces<ReviewIteration>(StatusCodes.Status200OK)
-            .Produces(StatusCodes.Status404NotFound);
+            .Produces(StatusCodes.Status404NotFound)
+            .AllowAnonymous();
 
         // GET /api/review-agent/current-entries - Get entries for current iteration in progress
         group.MapGet("/current-entries", GetCurrentIterationEntries)
             .WithName("GetCurrentIterationEntries")
             .WithSummary("Get review log entries for the current iteration in progress")
             .WithDescription("Returns all review log entries collected so far in the current iteration. Empty if no iteration is in progress.")
-            .Produces<CurrentIterationEntriesResponse>(StatusCodes.Status200OK);
+            .Produces<CurrentIterationEntriesResponse>(StatusCodes.Status200OK)
+            .AllowAnonymous();
 
         // GET /api/review-agent/events - SSE stream of real-time events
         group.MapGet("/events", StreamEvents)
             .WithName("StreamReviewAgentEvents")
             .WithSummary("Stream real-time Review Agent events")
             .WithDescription("Server-Sent Events (SSE) endpoint for real-time updates during review/cleanup rounds.")
-            .Produces(StatusCodes.Status200OK, contentType: "text/event-stream");
+            .Produces(StatusCodes.Status200OK, contentType: "text/event-stream")
+            .AllowAnonymous();
 
         // GET /api/review-agent/graph - Get knowledge graph with review status
         group.MapGet("/graph", GetReviewGraph)
             .WithName("GetReviewGraph")
             .WithSummary("Get knowledge graph with review status")
             .WithDescription("Returns all knowledge nodes with their review status for graph visualization. Nodes are colored based on: reviewed (passed), pending (waiting), deactivated (failed), removed, or currently reviewing.")
-            .Produces<ReviewGraphResponse>(StatusCodes.Status200OK);
+            .Produces<ReviewGraphResponse>(StatusCodes.Status200OK)
+            .AllowAnonymous();
 
-        // POST /api/review-agent/trigger - Manually trigger a review round
+        // POST /api/review-agent/trigger - Manually trigger a review round (Admin only)
         group.MapPost("/trigger", TriggerReview)
             .WithName("TriggerReviewRound")
             .WithSummary("Manually trigger a review round")
             .WithDescription("Triggers a review round manually. Required for the first round; subsequent rounds are auto-scheduled.")
             .Produces<TriggerReviewResponse>(StatusCodes.Status200OK)
-            .Produces(StatusCodes.Status409Conflict);
+            .Produces(StatusCodes.Status409Conflict)
+            .RequireAuthorization("VibeResearching.Agents.ReviewAgent.Trigger");
 
         return app;
     }

@@ -70,4 +70,25 @@ public interface ISessionAppService : IApplicationService
     /// <param name="ct">Cancellation token</param>
     /// <returns>Session status data if found, null otherwise</returns>
     Task<object?> GetStatusAsync(string sessionId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Pauses an active session. Cancels any active run and preserves progress.
+    /// </summary>
+    /// <param name="sessionId">Session identifier</param>
+    /// <param name="ct">Cancellation token</param>
+    Task PauseAsync(string sessionId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Resumes a paused session, restoring it to active state.
+    /// </summary>
+    /// <param name="sessionId">Session identifier</param>
+    /// <param name="ct">Cancellation token</param>
+    Task ResumeAsync(string sessionId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Terminates (archives) a session permanently.
+    /// </summary>
+    /// <param name="sessionId">Session identifier</param>
+    /// <param name="ct">Cancellation token</param>
+    Task TerminateAsync(string sessionId, CancellationToken ct = default);
 }

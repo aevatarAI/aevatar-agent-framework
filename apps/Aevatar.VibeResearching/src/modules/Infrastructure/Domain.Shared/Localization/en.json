@@ -1,0 +1,11 @@
+{
+  "culture": "en",
+  "texts": {
+    "Permission:Platform": "Platform",
+    "Permission:Platform.Settings": "Settings",
+    "Permission:Platform.Settings.LLM": "LLM Configuration",
+    "Permission:Platform.UserManagement": "User Management",
+    "Permission:Platform.UserManagement.ManageRoles": "Manage Roles",
+    "Permission:Platform.UserManagement.ManagePermissions": "Manage Permissions"
+  }
+}

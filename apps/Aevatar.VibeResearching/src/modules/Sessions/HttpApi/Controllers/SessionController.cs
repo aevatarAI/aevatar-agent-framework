@@ -1,6 +1,8 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Volo.Abp.AspNetCore.Mvc;
 using Aevatar.VibeResearching.Sessions.DTOs;
+using Aevatar.VibeResearching.Sessions.Permissions;
 using Aevatar.VibeResearching.Sessions.Services;
 
 namespace Aevatar.VibeResearching.Sessions.Controllers;
@@ -10,6 +12,7 @@ namespace Aevatar.VibeResearching.Sessions.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/sessions")]
+[Authorize]
 public class SessionController : AbpControllerBase
 {
     private readonly ISessionAppService _sessionAppService;
@@ -24,6 +27,7 @@ public class SessionController : AbpControllerBase
     /// POST /api/sessions
     /// </summary>
     [HttpPost]
+    [Authorize(SessionsPermissions.Sessions.Create)]
     public async Task<IActionResult> CreateAsync(
         [FromBody] CreateSessionDto input,
         CancellationToken ct = default)
@@ -33,7 +37,7 @@ public class SessionController : AbpControllerBase
     }
 
     /// <summary>
-    /// Gets all research sessions.
+    /// Gets all research sessions (excludes archived by default).
     /// GET /api/sessions
     /// </summary>
     [HttpGet]
@@ -48,6 +52,7 @@ public class SessionController : AbpControllerBase
     /// GET /api/sessions/{sessionId}
     /// </summary>
     [HttpGet("{sessionId}")]
+    [AllowAnonymous]
     public async Task<IActionResult> GetAsync(
         [FromRoute] string sessionId,
         CancellationToken ct = default)
@@ -64,6 +69,7 @@ public class SessionController : AbpControllerBase
     /// DELETE /api/sessions/{sessionId}
     /// </summary>
     [HttpDelete("{sessionId}")]
+    [Authorize(SessionsPermissions.Sessions.Delete)]
     public async Task<IActionResult> DeleteAsync(
         [FromRoute] string sessionId,
         CancellationToken ct = default)
@@ -82,8 +88,78 @@ public class SessionController : AbpControllerBase
         [FromBody] SessionInputDto input,
         CancellationToken ct = default)
     {
-        var runId = await _sessionAppService.SubmitInputAsync(sessionId, input, ct);
-        return Accepted($"/api/sessions/{sessionId}", new { ok = true, sessionId, runId });
+        try
+        {
+            var runId = await _sessionAppService.SubmitInputAsync(sessionId, input, ct);
+            return Accepted($"/api/sessions/{sessionId}", new { ok = true, sessionId, runId });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { error = "SessionNotActive", message = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Pauses an active session.
+    /// POST /api/sessions/{sessionId}/pause
+    /// </summary>
+    [HttpPost("{sessionId}/pause")]
+    [Authorize(SessionsPermissions.Sessions.Pause)]
+    public async Task<IActionResult> PauseAsync(
+        [FromRoute] string sessionId,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            await _sessionAppService.PauseAsync(sessionId, ct);
+            return Ok(new { ok = true, sessionId });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { error = "InvalidStateTransition", message = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Resumes a paused session.
+    /// POST /api/sessions/{sessionId}/resume
+    /// </summary>
+    [HttpPost("{sessionId}/resume")]
+    [Authorize(SessionsPermissions.Sessions.Resume)]
+    public async Task<IActionResult> ResumeAsync(
+        [FromRoute] string sessionId,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            await _sessionAppService.ResumeAsync(sessionId, ct);
+            return Ok(new { ok = true, sessionId });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { error = "InvalidStateTransition", message = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Terminates (archives) a session permanently.
+    /// POST /api/sessions/{sessionId}/terminate
+    /// </summary>
+    [HttpPost("{sessionId}/terminate")]
+    [Authorize(SessionsPermissions.Sessions.Terminate)]
+    public async Task<IActionResult> TerminateAsync(
+        [FromRoute] string sessionId,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            await _sessionAppService.TerminateAsync(sessionId, ct);
+            return Ok(new { ok = true, sessionId });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { error = "InvalidStateTransition", message = ex.Message });
+        }
     }
 
     /// <summary>
@@ -104,6 +180,7 @@ public class SessionController : AbpControllerBase
     /// GET /api/sessions/{sessionId}/tools
     /// </summary>
     [HttpGet("{sessionId}/tools")]
+    [AllowAnonymous]
     public async Task<IActionResult> GetToolsAsync(
         [FromRoute] string sessionId,
         CancellationToken ct = default)
@@ -117,6 +194,7 @@ public class SessionController : AbpControllerBase
     /// GET /api/sessions/{sessionId}/status
     /// </summary>
     [HttpGet("{sessionId}/status")]
+    [AllowAnonymous]
     public async Task<IActionResult> GetStatusAsync(
         [FromRoute] string sessionId,
         CancellationToken ct = default)

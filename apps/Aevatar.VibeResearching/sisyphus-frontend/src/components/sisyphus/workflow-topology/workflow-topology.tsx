@@ -127,6 +127,8 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
   const simulationRef = useRef<SimulationManager | null>(null)
   const positionCacheRef = useRef<Map<string, { x: number; y: number }>>(new Map())
   const needsRenderRef = useRef<boolean>(true)  // Track if render is needed
+  const lastSessionIdRef = useRef<string | null>(null)  // Track session changes for cache invalidation
+  const initialFitDoneRef = useRef<string | null>(null)  // Track initial fit per session
 
   // State
   const [refreshing, setRefreshing] = useState(false)

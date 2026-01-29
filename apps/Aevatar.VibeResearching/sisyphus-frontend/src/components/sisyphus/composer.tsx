@@ -46,6 +46,7 @@ const Composer: React.FC<ComposerProps> = ({ sessionId, connected }) => {
   const setInputMode = useSisyphusStore((s) => s.setInputMode)
   const agentRoster = useSisyphusStore((s) => s.agentRoster)
   const isSending = useSisyphusStore((s) => s.isSending)
+  const lifecycleStatus = useSisyphusStore((s) => s.lifecycleStatus)
   const setIsSending = useSisyphusStore((s) => s.setIsSending)
   const addMessage = useSisyphusStore((s) => s.addMessage)
 
@@ -196,7 +197,7 @@ const Composer: React.FC<ComposerProps> = ({ sessionId, connected }) => {
   }
 
   const config = MODE_CONFIG[inputMode]
-  const disabled = !connected || !sessionId || isSending
+  const disabled = !connected || !sessionId || isSending || lifecycleStatus !== 'active'
 
   return (
     <div className="p-3 bg-surface/30 border-t border-border-subtle backdrop-blur-sm">

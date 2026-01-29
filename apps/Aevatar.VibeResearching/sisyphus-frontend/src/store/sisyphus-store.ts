@@ -208,6 +208,10 @@ interface SisyphusState {
   tools: ToolSummary[]
   setTools: (tools: ToolSummary[]) => void
 
+  // Session Lifecycle
+  lifecycleStatus: "active" | "paused" | "archived"
+  setLifecycleStatus: (status: "active" | "paused" | "archived", sessionId?: string) => void
+
   // Sessions
   sessions: SisyphusSession[]
   currentSessionId: string | null
@@ -390,6 +394,18 @@ export const useSisyphusStore = create<SisyphusState>((set) => ({
   // === Tools ===
   tools: [],
   setTools: (tools) => set({ tools }),
+
+  // === Session Lifecycle ===
+  lifecycleStatus: "active",
+  setLifecycleStatus: (status, sessionId) => set((state) => {
+    const targetId = sessionId || state.currentSessionId;
+    return {
+      lifecycleStatus: (!sessionId || sessionId === state.currentSessionId) ? status : state.lifecycleStatus,
+      sessions: state.sessions.map((s) =>
+        s.id === targetId ? { ...s, lifecycleStatus: status } : s
+      ),
+    };
+  }),
 
   // === Sessions ===
   sessions: [],
@@ -595,6 +611,7 @@ export const useSisyphusStore = create<SisyphusState>((set) => ({
       currentRunId: null,
       userPrompt: "",
       isSending: false,
+      lifecycleStatus: "active",
       tools: [],
       // Clear Agent States (API data)
       agentStates: {},

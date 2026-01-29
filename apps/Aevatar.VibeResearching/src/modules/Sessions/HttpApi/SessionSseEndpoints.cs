@@ -205,6 +205,24 @@ public static class SessionSseEndpoints
             }
         }, ct);
 
+        // Lifecycle status for reconnecting clients
+        if (session.Status != Aevatar.VibeResearching.Sessions.Enums.SessionStatus.Active)
+        {
+            await WriteSseAsync(new CustomEvent
+            {
+                Timestamp = Ts(DateTimeOffset.UtcNow),
+                Name = session.Status == Aevatar.VibeResearching.Sessions.Enums.SessionStatus.Paused
+                    ? "session_paused"
+                    : "session_terminated",
+                Value = new
+                {
+                    sessionId = session.Id,
+                    pausedAt = session.PausedAt?.ToString("O"),
+                    archivedAt = session.ArchivedAt?.ToString("O")
+                }
+            }, ct);
+        }
+
         // ------------------------------------------------------------
         //  Vibe bootstrap snapshots (File-SSoT projections)
         // ------------------------------------------------------------

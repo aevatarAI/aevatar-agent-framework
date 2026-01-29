@@ -147,6 +147,12 @@ const Header: React.FC = () => {
                     >
                       Permissions
                     </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => navigate('/admin/settings')}
+                      icon={<Settings className="w-4 h-4" />}
+                    >
+                      Platform Settings
+                    </DropdownMenuItem>
                     <DropdownMenuSeparator />
                   </>
                 )}

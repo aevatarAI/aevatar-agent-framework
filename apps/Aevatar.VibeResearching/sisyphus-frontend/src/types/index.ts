@@ -11,6 +11,10 @@ export interface SisyphusSession {
   totalTokens: number
   totalLlmCalls: number
   createdAt?: string  // ISO timestamp
+  // Lifecycle fields
+  lifecycleStatus?: "active" | "paused" | "archived"
+  ownerId?: string
+  ownerName?: string
 }
 
 // === Node Status ===

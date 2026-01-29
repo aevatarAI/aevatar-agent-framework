@@ -23,7 +23,7 @@ import {
 } from './pages/auth'
 
 // Admin Pages
-import { UsersPage, RolesPage, PermissionsPage } from './pages/admin'
+import { UsersPage, RolesPage, PermissionsPage, SettingsPage } from './pages/admin'
 
 // Account Page
 import AccountPage from './pages/account'
@@ -83,6 +83,14 @@ createRoot(document.getElementById('root')!).render(
           element={
             <AdminRoute>
               <PermissionsPage />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/admin/settings"
+          element={
+            <AdminRoute>
+              <SettingsPage />
             </AdminRoute>
           }
         />

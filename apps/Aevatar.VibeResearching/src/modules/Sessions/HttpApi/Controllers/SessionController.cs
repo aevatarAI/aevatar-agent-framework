@@ -132,8 +132,8 @@ public class SessionController : AbpControllerBase
     {
         try
         {
-            await _sessionAppService.ResumeAsync(sessionId, ct);
-            return Ok(new { ok = true, sessionId });
+            var result = await _sessionAppService.ResumeAsync(sessionId, ct);
+            return Ok(new { ok = true, sessionId, autoResumed = result.AutoResumed, runId = result.RunId });
         }
         catch (InvalidOperationException ex)
         {

@@ -101,6 +101,12 @@ internal sealed class FileVibeSessionRepository : IVibeSessionRepository
                 VibeSessionStoreHelpers.MergeList(existing.WorkerIds, record.WorkerIds);
                 existing.CreatedAt = record.CreatedAt;
                 existing.UpdatedAt = record.UpdatedAt;
+                // Lifecycle status fields
+                existing.Status = record.Status;
+                existing.PausedAt = record.PausedAt;
+                existing.ArchivedAt = record.ArchivedAt;
+                existing.LastUserMessage = record.LastUserMessage;
+                existing.LastRunMode = record.LastRunMode;
             }
 
             await SaveIndexAsync(index, ct);

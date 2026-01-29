@@ -115,6 +115,9 @@ public sealed class ResearchSessionManager
                 var restoredPausedAt = TryReadTimestamp(record.PausedAt);
                 var restoredArchivedAt = TryReadTimestamp(record.ArchivedAt);
                 session.RestoreStatus(restoredStatus, restoredPausedAt, restoredArchivedAt);
+                session.OwnerName = NormalizeOptional(record.OwnerName);
+                session.LastUserMessage = NormalizeOptional(record.LastUserMessage);
+                session.LastRunMode = NormalizeOptional(record.LastRunMode);
             }
         }
         catch (Exception ex)
@@ -233,9 +236,12 @@ public sealed class ResearchSessionManager
                 existing.CreatedAt = updated.CreatedAt;
                 existing.UpdatedAt = updated.UpdatedAt;
                 existing.OwnerId = updated.OwnerId;
+                existing.OwnerName = updated.OwnerName;
                 existing.Status = updated.Status;
                 existing.PausedAt = updated.PausedAt;
                 existing.ArchivedAt = updated.ArchivedAt;
+                existing.LastUserMessage = updated.LastUserMessage;
+                existing.LastRunMode = updated.LastRunMode;
             }
 
             await SaveIndexAsync(index, ct);
@@ -268,6 +274,7 @@ public sealed class ResearchSessionManager
             CreatedAt = Timestamp.FromDateTime(session.CreatedAt.UtcDateTime),
             UpdatedAt = Timestamp.FromDateTime(DateTime.UtcNow),
             OwnerId = session.OwnerId ?? string.Empty,
+            OwnerName = session.OwnerName ?? string.Empty,
             Status = MapToProtoStatus(session.Status)
         };
 
@@ -275,6 +282,9 @@ public sealed class ResearchSessionManager
             record.PausedAt = Timestamp.FromDateTime(session.PausedAt.Value.UtcDateTime);
         if (session.ArchivedAt.HasValue)
             record.ArchivedAt = Timestamp.FromDateTime(session.ArchivedAt.Value.UtcDateTime);
+
+        record.LastUserMessage = session.LastUserMessage ?? string.Empty;
+        record.LastRunMode = session.LastRunMode ?? string.Empty;
 
         return record;
     }
@@ -321,6 +331,29 @@ public sealed class ResearchSessionManager
     }
 
     /// <summary>
+    /// Returns sessions that are Active but have no active run and were last updated more than staleThreshold ago.
+    /// These are candidates for auto-pause.
+    /// </summary>
+    public IReadOnlyList<ResearchSession> GetStaleResumableSessions(TimeSpan staleThreshold)
+    {
+        var cutoff = DateTimeOffset.UtcNow - staleThreshold;
+        return _sessions.Values
+            .Where(s => s.Status == SessionStatus.Active && s.ActiveRun == null && s.LastActivityAt < cutoff)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Returns all Active sessions that have no in-memory active run.
+    /// Used on startup to pause sessions orphaned by a previous process crash.
+    /// </summary>
+    public IReadOnlyList<ResearchSession> GetOrphanedActiveSessions()
+    {
+        return _sessions.Values
+            .Where(s => s.Status == SessionStatus.Active && s.ActiveRun == null)
+            .ToList();
+    }
+
+    /// <summary>
     /// Pauses a session by ID. Validates state and persists the change.
     /// </summary>
     public async Task PauseSessionAsync(string sessionId, CancellationToken ct = default)
@@ -362,9 +395,12 @@ public sealed class ResearchSessionManager
     /// <summary>
     /// Creates a new session (alias for CreateAsync that returns VibeSessionRecord).
     /// </summary>
-    public async Task<VibeSessionRecord> CreateSessionAsync(string? providerName, string? ownerId = null, CancellationToken ct = default)
+    public async Task<VibeSessionRecord> CreateSessionAsync(string? providerName, string? ownerId = null, string? ownerName = null, CancellationToken ct = default)
     {
         var session = await CreateAsync(providerName, ownerId, ct);
+        session.OwnerName = ownerName;
+        // Persist again so OwnerName is saved (CreateAsync persists before OwnerName is set)
+        await PersistSessionAsync(session, ct);
         return BuildRecord(session);
     }
 
@@ -452,9 +488,20 @@ public sealed class ResearchSession(string id, DateTimeOffset? createdAt = null)
     public string? ProviderName { get; init; }
 
     /// <summary>
+    /// Tracks the last time this session had meaningful activity (input, run start, etc.).
+    /// Used by stale-session detection. Defaults to CreatedAt.
+    /// </summary>
+    public DateTimeOffset LastActivityAt { get; set; } = createdAt ?? DateTimeOffset.UtcNow;
+
+    /// <summary>
     /// The user ID of the session creator. Null/empty for legacy or anonymous sessions.
     /// </summary>
     public string? OwnerId { get; set; }
+
+    /// <summary>
+    /// The display name of the session creator.
+    /// </summary>
+    public string? OwnerName { get; set; }
 
     /// <summary>
     /// The lifecycle status of the session. Defaults to Active.
@@ -470,6 +517,16 @@ public sealed class ResearchSession(string id, DateTimeOffset? createdAt = null)
     /// Timestamp when the session was archived (terminated). Null if not archived.
     /// </summary>
     public DateTimeOffset? ArchivedAt { get; private set; }
+
+    /// <summary>
+    /// Last user message text, saved for resume context.
+    /// </summary>
+    public string? LastUserMessage { get; set; }
+
+    /// <summary>
+    /// Last input mode used (chat/vibe/vibe_loop).
+    /// </summary>
+    public string? LastRunMode { get; set; }
 
     public string? DagId { get; set; }
 

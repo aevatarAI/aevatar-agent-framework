@@ -482,7 +482,33 @@ internal sealed partial class VibeOrchestrator
     private sealed record MultiStageVerificationResult(
         string Summary,
         bool OverallPass,
+        string? Proof,
         AgentPromptRecord? PromptRecord
+    );
+
+    private sealed record ScoutWorkerResult(
+        string Output,
+        bool RecommendProceed,
+        AgentPromptRecord? PromptRecord
+    );
+
+    private sealed record ScoutPhaseResult(
+        List<ScoutWorkerResult> WorkerResults,
+        bool OverallProceed,
+        string Summary
+    );
+
+    private sealed record ProverWorkerResult(
+        string Output,
+        bool Verified,
+        AgentPromptRecord? PromptRecord
+    );
+
+    private sealed record ProverPhaseResult(
+        List<ProverWorkerResult> WorkerResults,
+        int PassCount,
+        bool OverallPass,
+        string Summary
     );
 
     private async Task<MultiStageVerificationResult> RunMultiStageVerifierAsync(
@@ -492,21 +518,495 @@ internal sealed partial class VibeOrchestrator
         string? providerName,
         CancellationToken ct)
     {
-        // TODO: Implement full multi-stage verification (Scout + Prover phases)
-        // For now, delegate to single-pass verification as a fallback
-        var (output, promptRecord) = await RunVerifierAsync(ctx, dag, reasonerOutput, providerName, ct);
+        var session = ctx.Session;
+        var allPromptRecords = new List<AgentPromptRecord>();
+
+        // Phase 1: Scout Phase (2 workers)
+        session.Events.Publish(new StepStartedEvent { Timestamp = NowMs(), StepName = "vibe.verifier.scout" });
+        EmitAgentStatusReport(session, "verifier", AgentStatusMessages.VerifierScoutStart);
         
-        // Simple heuristic: check if output contains verification success indicators
-        var overallPass = output.Contains("VERIFIED", StringComparison.OrdinalIgnoreCase) ||
-                          output.Contains("verified", StringComparison.OrdinalIgnoreCase) ||
-                          (!output.Contains("NOT VERIFIED", StringComparison.OrdinalIgnoreCase) &&
-                           !output.Contains("INCONCLUSIVE", StringComparison.OrdinalIgnoreCase));
+        var scoutResult = await RunScoutPhaseAsync(ctx, dag, reasonerOutput, providerName, ct);
+        allPromptRecords.AddRange(scoutResult.WorkerResults.Where(r => r.PromptRecord != null).Select(r => r.PromptRecord!));
+        
+        session.Events.Publish(new StepFinishedEvent { Timestamp = NowMs(), StepName = "vibe.verifier.scout" });
+
+        // If Scout phase recommends BLOCK, return early
+        if (!scoutResult.OverallProceed)
+        {
+            var summary = $"Scout Phase: BLOCKED\n\n{scoutResult.Summary}";
+            return new MultiStageVerificationResult(
+                Summary: summary,
+                OverallPass: false,
+                Proof: null, // No proof if blocked
+                PromptRecord: allPromptRecords.FirstOrDefault()
+            );
+        }
+
+        // Phase 2: Prover Phase (5 workers)
+        session.Events.Publish(new StepStartedEvent { Timestamp = NowMs(), StepName = "vibe.verifier.prover" });
+        EmitAgentStatusReport(session, "verifier", AgentStatusMessages.VerifierProverStart);
+        
+        var proverResult = await RunProverPhaseAsync(ctx, dag, reasonerOutput, providerName, ct);
+        allPromptRecords.AddRange(proverResult.WorkerResults.Where(r => r.PromptRecord != null).Select(r => r.PromptRecord!));
+        
+        session.Events.Publish(new StepFinishedEvent { Timestamp = NowMs(), StepName = "vibe.verifier.prover" });
+
+        // Phase 3: Final Proof Extraction (if verification passed)
+        string? proof = null;
+        if (proverResult.OverallPass)
+        {
+            session.Events.Publish(new StepStartedEvent { Timestamp = NowMs(), StepName = "vibe.verifier.proof_extraction" });
+            EmitAgentStatusReport(session, "verifier", "正在提取验证证明...");
+            
+            proof = await RunProofExtractionAsync(ctx, dag, reasonerOutput, scoutResult, proverResult, providerName, ct);
+            
+            session.Events.Publish(new StepFinishedEvent { Timestamp = NowMs(), StepName = "vibe.verifier.proof_extraction" });
+        }
+
+        // Build final summary
+        var finalSummary = new StringBuilder();
+        finalSummary.AppendLine("## Multi-Stage Verification Summary");
+        finalSummary.AppendLine();
+        finalSummary.AppendLine("### Scout Phase:");
+        finalSummary.AppendLine(scoutResult.Summary);
+        finalSummary.AppendLine();
+        finalSummary.AppendLine("### Prover Phase:");
+        finalSummary.AppendLine(proverResult.Summary);
+        finalSummary.AppendLine();
+        finalSummary.AppendLine($"### Overall Result: {(proverResult.OverallPass ? "PASSED" : "FAILED")} (Prover: {proverResult.PassCount}/5)");
+        if (!string.IsNullOrWhiteSpace(proof))
+        {
+            finalSummary.AppendLine();
+            finalSummary.AppendLine("### Proof:");
+            finalSummary.AppendLine(proof);
+        }
 
         return new MultiStageVerificationResult(
-            Summary: output,
-            OverallPass: overallPass,
-            PromptRecord: promptRecord
+            Summary: finalSummary.ToString(),
+            OverallPass: proverResult.OverallPass,
+            Proof: proof,
+            PromptRecord: allPromptRecords.FirstOrDefault()
         );
+    }
+
+    private async Task<ScoutPhaseResult> RunScoutPhaseAsync(
+        VibeRoundContext ctx,
+        SraDagSnapshot dag,
+        string? reasonerOutput,
+        string? providerName,
+        CancellationToken ct)
+    {
+        var session = ctx.Session;
+        var materialsContext = ctx.Materials.RenderedContext;
+        var workerResults = new List<ScoutWorkerResult>();
+
+        // Build base user message
+        var baseUserMessage = BuildWorkerMessage("verification_scout", ctx.Question, dag, attachments: ctx.Input.AttachmentPaths,
+            extra: string.IsNullOrWhiteSpace(reasonerOutput) ? null : $"Reasoner output (excerpt):\n{Bound(reasonerOutput!, 3500)}");
+
+        // Run 2 workers in parallel
+        var tasks = new[]
+        {
+            RunScoutWorkerAsync(ctx, dag, reasonerOutput, providerName, "counterexample", baseUserMessage, materialsContext, ct),
+            RunScoutWorkerAsync(ctx, dag, reasonerOutput, providerName, "premise", baseUserMessage, materialsContext, ct)
+        };
+
+        var results = await Task.WhenAll(tasks);
+        workerResults.AddRange(results);
+
+        // Analyze results: if any worker recommends BLOCK, overall is BLOCK
+        var overallProceed = workerResults.All(r => r.RecommendProceed);
+
+        // Build summary
+        var summary = new StringBuilder();
+        summary.AppendLine($"### Worker 1 (Counterexample Scout):");
+        summary.AppendLine($"- Recommendation: {(workerResults[0].RecommendProceed ? "PROCEED" : "BLOCK")}");
+        summary.AppendLine($"- Output: {Bound(workerResults[0].Output, 500)}");
+        summary.AppendLine();
+        summary.AppendLine($"### Worker 2 (Missing Premise Scout):");
+        summary.AppendLine($"- Recommendation: {(workerResults[1].RecommendProceed ? "PROCEED" : "BLOCK")}");
+        summary.AppendLine($"- Output: {Bound(workerResults[1].Output, 500)}");
+        summary.AppendLine();
+        summary.AppendLine($"### Overall Scout Decision: {(overallProceed ? "PROCEED" : "BLOCK")}");
+
+        return new ScoutPhaseResult(
+            WorkerResults: workerResults,
+            OverallProceed: overallProceed,
+            Summary: summary.ToString()
+        );
+    }
+
+    private async Task<ScoutWorkerResult> RunScoutWorkerAsync(
+        VibeRoundContext ctx,
+        SraDagSnapshot dag,
+        string? reasonerOutput,
+        string? providerName,
+        string focus,
+        string baseUserMessage,
+        string materialsContext,
+        CancellationToken ct)
+    {
+        var session = ctx.Session;
+        var messageId = $"msg:{session.Id}:verifier:scout:{focus}:{ctx.RunId}";
+
+        // Build focus-specific user message
+        var userMessage = new StringBuilder(baseUserMessage);
+        userMessage.AppendLine();
+        userMessage.AppendLine($"Focus: {focus}");
+        userMessage.AppendLine();
+        if (focus == "counterexample")
+        {
+            userMessage.AppendLine("Task:");
+            userMessage.AppendLine("- Scan the reasoning chain for obvious counterexamples.");
+            userMessage.AppendLine("- Test edge cases and boundary conditions.");
+            userMessage.AppendLine("- Use computational checks if applicable.");
+        }
+        else
+        {
+            userMessage.AppendLine("Task:");
+            userMessage.AppendLine("- Scan the reasoning chain for missing premises.");
+            userMessage.AppendLine("- Identify unstated assumptions.");
+            userMessage.AppendLine("- Check if all dependencies are properly cited.");
+        }
+
+        var baseSystemPrompt = VibeVerifierAgent.GetScoutSystemPrompt(focus);
+        var finalSystemPrompt = string.IsNullOrWhiteSpace(materialsContext)
+            ? baseSystemPrompt
+            : $"{baseSystemPrompt}\n\nMaterials context:\n{materialsContext.Trim()}\n";
+
+        try
+        {
+            var (ver, verId) = await _core.Runtime.GetVerifierAgentAsync(session.Id, providerName, ct);
+            var req = new ChatRequest
+            {
+                Message = userMessage.ToString(),
+                RequestId = ctx.Input.RequestId ?? Guid.NewGuid().ToString("N"),
+                StageHint = $"session:vibe:verifier:scout:{focus}"
+            };
+            req.Context["agent_id"] = verId;
+            req.Context["materials_context"] = materialsContext;
+
+            var sb = new StringBuilder(512);
+            var supportsStreaming = await ver.SupportsStreamingAsync(ct);
+            if (!supportsStreaming)
+            {
+                var resp = await ver.ChatAsync(req, ct);
+                var text = resp.Content ?? string.Empty;
+                sb.Append(text);
+            }
+            else
+            {
+                await foreach (var chunk in ver.ChatStreamAsync(req, ct))
+                {
+                    if (string.IsNullOrEmpty(chunk)) continue;
+                    sb.Append(chunk);
+                }
+            }
+
+            var output = Bound(sb.ToString(), 5_000);
+            
+            // Parse recommendation: look for "PROCEED" or "BLOCK" in output
+            var recommendProceed = output.Contains("PROCEED", StringComparison.OrdinalIgnoreCase) &&
+                                  !output.Contains("BLOCK", StringComparison.OrdinalIgnoreCase);
+
+            var promptRecord = new AgentPromptRecord(
+                AgentName: $"verifier_scout_{focus}",
+                SystemPrompt: finalSystemPrompt,
+                UserPrompt: userMessage.ToString(),
+                MaterialsContext: materialsContext,
+                RawOutput: output,
+                Timestamp: DateTimeOffset.UtcNow
+            );
+
+            return new ScoutWorkerResult(
+                Output: output,
+                RecommendProceed: recommendProceed,
+                PromptRecord: promptRecord
+            );
+        }
+        catch (Exception ex)
+        {
+            var msg = $"[scout {focus} error] {ex.Message}\n\n";
+            var promptRecord = new AgentPromptRecord(
+                AgentName: $"verifier_scout_{focus}",
+                SystemPrompt: finalSystemPrompt,
+                UserPrompt: userMessage.ToString(),
+                MaterialsContext: materialsContext,
+                RawOutput: msg,
+                Timestamp: DateTimeOffset.UtcNow
+            );
+            
+            // On error, default to BLOCK (fail-safe)
+            return new ScoutWorkerResult(
+                Output: msg,
+                RecommendProceed: false,
+                PromptRecord: promptRecord
+            );
+        }
+    }
+
+    private async Task<ProverPhaseResult> RunProverPhaseAsync(
+        VibeRoundContext ctx,
+        SraDagSnapshot dag,
+        string? reasonerOutput,
+        string? providerName,
+        CancellationToken ct)
+    {
+        var session = ctx.Session;
+        var materialsContext = ctx.Materials.RenderedContext;
+        var workerResults = new List<ProverWorkerResult>();
+
+        // Build base user message
+        var baseUserMessage = BuildWorkerMessage("verification_prover", ctx.Question, dag, attachments: ctx.Input.AttachmentPaths,
+            extra: string.IsNullOrWhiteSpace(reasonerOutput) ? null : $"Reasoner output (excerpt):\n{Bound(reasonerOutput!, 3500)}");
+
+        // Run 5 workers in parallel
+        var tasks = new[]
+        {
+            RunProverWorkerAsync(ctx, dag, reasonerOutput, providerName, 1, baseUserMessage, materialsContext, ct),
+            RunProverWorkerAsync(ctx, dag, reasonerOutput, providerName, 2, baseUserMessage, materialsContext, ct),
+            RunProverWorkerAsync(ctx, dag, reasonerOutput, providerName, 3, baseUserMessage, materialsContext, ct),
+            RunProverWorkerAsync(ctx, dag, reasonerOutput, providerName, 4, baseUserMessage, materialsContext, ct),
+            RunProverWorkerAsync(ctx, dag, reasonerOutput, providerName, 5, baseUserMessage, materialsContext, ct)
+        };
+
+        var results = await Task.WhenAll(tasks);
+        workerResults.AddRange(results);
+
+        // Count passes: need at least 3 to pass
+        var passCount = workerResults.Count(r => r.Verified);
+        var overallPass = passCount >= 3;
+
+        // Build summary
+        var summary = new StringBuilder();
+        for (int i = 0; i < workerResults.Count; i++)
+        {
+            summary.AppendLine($"### Worker {i + 1}:");
+            summary.AppendLine($"- Result: {(workerResults[i].Verified ? "VERIFIED" : "NOT VERIFIED")}");
+            summary.AppendLine($"- Output: {Bound(workerResults[i].Output, 300)}");
+            summary.AppendLine();
+        }
+        summary.AppendLine($"### Overall: {passCount}/5 workers verified (need ≥3 to pass)");
+
+        return new ProverPhaseResult(
+            WorkerResults: workerResults,
+            PassCount: passCount,
+            OverallPass: overallPass,
+            Summary: summary.ToString()
+        );
+    }
+
+    private async Task<ProverWorkerResult> RunProverWorkerAsync(
+        VibeRoundContext ctx,
+        SraDagSnapshot dag,
+        string? reasonerOutput,
+        string? providerName,
+        int workerIndex,
+        string baseUserMessage,
+        string materialsContext,
+        CancellationToken ct)
+    {
+        var session = ctx.Session;
+        var messageId = $"msg:{session.Id}:verifier:prover:{workerIndex}:{ctx.RunId}";
+
+        var baseSystemPrompt = VibeVerifierAgent.GetProverSystemPrompt();
+        var finalSystemPrompt = string.IsNullOrWhiteSpace(materialsContext)
+            ? baseSystemPrompt
+            : $"{baseSystemPrompt}\n\nMaterials context:\n{materialsContext.Trim()}\n";
+
+        try
+        {
+            var (ver, verId) = await _core.Runtime.GetVerifierAgentAsync(session.Id, providerName, ct);
+            var req = new ChatRequest
+            {
+                Message = baseUserMessage,
+                RequestId = ctx.Input.RequestId ?? Guid.NewGuid().ToString("N"),
+                StageHint = $"session:vibe:verifier:prover:{workerIndex}"
+            };
+            req.Context["agent_id"] = verId;
+            req.Context["materials_context"] = materialsContext;
+
+            var sb = new StringBuilder(1024);
+            var supportsStreaming = await ver.SupportsStreamingAsync(ct);
+            if (!supportsStreaming)
+            {
+                var resp = await ver.ChatAsync(req, ct);
+                var text = resp.Content ?? string.Empty;
+                sb.Append(text);
+            }
+            else
+            {
+                await foreach (var chunk in ver.ChatStreamAsync(req, ct))
+                {
+                    if (string.IsNullOrEmpty(chunk)) continue;
+                    sb.Append(chunk);
+                }
+            }
+
+            var output = Bound(sb.ToString(), 10_000);
+            
+            // Parse verification result: look for "VERIFIED" in output
+            var verified = output.Contains("VERIFIED", StringComparison.OrdinalIgnoreCase) &&
+                          !output.Contains("NOT VERIFIED", StringComparison.OrdinalIgnoreCase) &&
+                          !output.Contains("INCONCLUSIVE", StringComparison.OrdinalIgnoreCase);
+
+            var promptRecord = new AgentPromptRecord(
+                AgentName: $"verifier_prover_{workerIndex}",
+                SystemPrompt: finalSystemPrompt,
+                UserPrompt: baseUserMessage,
+                MaterialsContext: materialsContext,
+                RawOutput: output,
+                Timestamp: DateTimeOffset.UtcNow
+            );
+
+            return new ProverWorkerResult(
+                Output: output,
+                Verified: verified,
+                PromptRecord: promptRecord
+            );
+        }
+        catch (Exception ex)
+        {
+            var msg = $"[prover worker {workerIndex} error] {ex.Message}\n\n";
+            var promptRecord = new AgentPromptRecord(
+                AgentName: $"verifier_prover_{workerIndex}",
+                SystemPrompt: finalSystemPrompt,
+                UserPrompt: baseUserMessage,
+                MaterialsContext: materialsContext,
+                RawOutput: msg,
+                Timestamp: DateTimeOffset.UtcNow
+            );
+            
+            // On error, default to NOT VERIFIED (fail-safe)
+            return new ProverWorkerResult(
+                Output: msg,
+                Verified: false,
+                PromptRecord: promptRecord
+            );
+        }
+    }
+
+    private async Task<string?> RunProofExtractionAsync(
+        VibeRoundContext ctx,
+        SraDagSnapshot dag,
+        string? reasonerOutput,
+        ScoutPhaseResult scoutResult,
+        ProverPhaseResult proverResult,
+        string? providerName,
+        CancellationToken ct)
+    {
+        var session = ctx.Session;
+        var materialsContext = ctx.Materials.RenderedContext;
+        var messageId = $"msg:{session.Id}:verifier:proof_extraction:{ctx.RunId}";
+
+        // Build user message with verification results
+        var userMessage = new StringBuilder();
+        userMessage.AppendLine("Role: proof_extractor");
+        userMessage.AppendLine($"Question: {ctx.Question}");
+        userMessage.AppendLine();
+        userMessage.AppendLine("## Verification Results Summary");
+        userMessage.AppendLine();
+        userMessage.AppendLine("### Scout Phase:");
+        userMessage.AppendLine(scoutResult.Summary);
+        userMessage.AppendLine();
+        userMessage.AppendLine("### Prover Phase:");
+        userMessage.AppendLine(proverResult.Summary);
+        userMessage.AppendLine();
+        userMessage.AppendLine($"### Overall Result: PASSED (Prover: {proverResult.PassCount}/5)");
+        userMessage.AppendLine();
+        userMessage.AppendLine("## Task:");
+        userMessage.AppendLine("Extract and synthesize proof information from the verification results above.");
+        userMessage.AppendLine("- Extract key verification methods and checks from Prover workers' outputs.");
+        userMessage.AppendLine("- Synthesize a concise proof summary (max 1200 characters).");
+        userMessage.AppendLine("- Focus on the most important verification approaches that led to PASSED result.");
+
+        if (!string.IsNullOrWhiteSpace(reasonerOutput))
+        {
+            userMessage.AppendLine();
+            userMessage.AppendLine("## Original Reasoning:");
+            userMessage.AppendLine(Bound(reasonerOutput, 2000));
+        }
+
+        var baseSystemPrompt = VibeVerifierAgent.GetProofExtractionSystemPrompt();
+        var finalSystemPrompt = string.IsNullOrWhiteSpace(materialsContext)
+            ? baseSystemPrompt
+            : $"{baseSystemPrompt}\n\nMaterials context:\n{materialsContext.Trim()}\n";
+
+        try
+        {
+            var (ver, verId) = await _core.Runtime.GetVerifierAgentAsync(session.Id, providerName, ct);
+            var req = new ChatRequest
+            {
+                Message = userMessage.ToString(),
+                RequestId = ctx.Input.RequestId ?? Guid.NewGuid().ToString("N"),
+                StageHint = "session:vibe:verifier:proof_extraction"
+            };
+            req.Context["agent_id"] = verId;
+            req.Context["materials_context"] = materialsContext;
+
+            var sb = new StringBuilder(512);
+            var supportsStreaming = await ver.SupportsStreamingAsync(ct);
+            if (!supportsStreaming)
+            {
+                var resp = await ver.ChatAsync(req, ct);
+                var text = resp.Content ?? string.Empty;
+                sb.Append(text);
+            }
+            else
+            {
+                await foreach (var chunk in ver.ChatStreamAsync(req, ct))
+                {
+                    if (string.IsNullOrEmpty(chunk)) continue;
+                    sb.Append(chunk);
+                }
+            }
+
+            var output = Bound(sb.ToString(), 1_500);
+            
+            // Extract proof from output (look for "Proof:" or similar markers)
+            var proof = ExtractProofFromOutput(output);
+            
+            return string.IsNullOrWhiteSpace(proof) ? null : proof;
+        }
+        catch (Exception ex)
+        {
+            // On error, return null (no proof)
+            return null;
+        }
+    }
+
+    private static string? ExtractProofFromOutput(string output)
+    {
+        if (string.IsNullOrWhiteSpace(output))
+            return null;
+
+        // Try to extract proof section
+        var proofMarkers = new[] { "Proof:", "proof:", "Proof Summary:", "proof summary:" };
+        foreach (var marker in proofMarkers)
+        {
+            var index = output.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (index >= 0)
+            {
+                var proofStart = index + marker.Length;
+                var proofText = output.Substring(proofStart).Trim();
+                // Remove any trailing markers or empty sections
+                var endMarkers = new[] { "\n\n##", "\n\n###", "\n---" };
+                foreach (var endMarker in endMarkers)
+                {
+                    var endIndex = proofText.IndexOf(endMarker, StringComparison.OrdinalIgnoreCase);
+                    if (endIndex > 0)
+                    {
+                        proofText = proofText.Substring(0, endIndex).Trim();
+                    }
+                }
+                if (!string.IsNullOrWhiteSpace(proofText))
+                    return proofText.Trim();
+            }
+        }
+
+        // If no explicit proof marker, return the output itself (trimmed)
+        var trimmed = output.Trim();
+        return string.IsNullOrWhiteSpace(trimmed) ? null : trimmed;
     }
 
     private async Task<string> RunDagBuilderAsync(

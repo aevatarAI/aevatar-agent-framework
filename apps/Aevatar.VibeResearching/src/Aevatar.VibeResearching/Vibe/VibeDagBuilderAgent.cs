@@ -57,10 +57,17 @@ public sealed class VibeDagBuilderAgent : VibeAgentBase
               * Set "type" to "axiom", "theorem", "assumption", or "definition" based on verifier's classification.
               * If verifier marked it as "VERIFIED", include tag: { "verification_status": "verified", "verified_by": "verifier" }.
               * If verifier marked it as "NOT VERIFIED" or "INCONCLUSIVE", you may still include it but mark appropriately in tags.
-              * Extract any proof or verification method from verifier output and include in "proof" field (if available).
+              * CRITICAL - Extract proof or verification method:
+                - First, try to extract proof from verifier output (verification method, check steps, reasoning).
+                - If verifier output doesn't contain proof, extract from reasoner output (derivation steps, logical reasoning, key insights).
+                - If neither contains proof, extract from planner output (key steps, methodology).
+                - The "proof" field should contain a concise summary of how the knowledge item was derived or verified (max 1200 chars).
+                - For axioms, proof can be empty or contain citation/source information.
+                - For theorems, proof should contain key derivation steps or verification method.
             - Priority: Items marked as "VERIFIED" by verifier should be included first.
             - Cross-reference with reasoner output: If reasoner listed axioms/theorems/definitions and verifier verified them, 
               combine the information (use reasoner's complete statement, verifier's verification status).
+            - Proof extraction priority: verifier verification method > reasoner derivation steps > planner methodology > empty.
 
             Helpful tools (optional):
             - You MAY call graph_get_snapshot to see existing node ids/types and reuse them.

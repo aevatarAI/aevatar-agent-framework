@@ -214,6 +214,30 @@ public sealed partial class DagConsensusRunner
         var materials = (input.MaterialsContext ?? string.Empty).Replace("\r", "").Trim();
         if (materials.Length > 6000) materials = materials[..6000];
 
+        var verifierOutput = (input.VerifierOutput ?? string.Empty).Replace("\r", "").Trim();
+        if (verifierOutput.Length > 4000) verifierOutput = verifierOutput[..4000];
+
+        var verifierProof = (input.VerifierProof ?? string.Empty).Replace("\r", "").Trim();
+        if (verifierProof.Length > 1500) verifierProof = verifierProof[..1500];
+
+        var verifierSection = new StringBuilder();
+        if (!string.IsNullOrWhiteSpace(verifierOutput) || !string.IsNullOrWhiteSpace(verifierProof))
+        {
+            verifierSection.AppendLine();
+            verifierSection.AppendLine("Worker Phase Verification Results (for reference):");
+            if (!string.IsNullOrWhiteSpace(verifierOutput))
+            {
+                verifierSection.AppendLine("Verifier Output:");
+                verifierSection.AppendLine(verifierOutput);
+            }
+            if (!string.IsNullOrWhiteSpace(verifierProof))
+            {
+                verifierSection.AppendLine();
+                verifierSection.AppendLine("Verifier Proof:");
+                verifierSection.AppendLine(verifierProof);
+            }
+        }
+
         return $$"""
         You are voting on whether to ACCEPT a DAG mutation into the canonical DAG snapshot.
 
@@ -227,11 +251,14 @@ public sealed partial class DagConsensusRunner
         - Be conservative: do not approve incoherent, cyclic, or malformed mutations.
         - IMPORTANT: missing source files / missing evidence are NOT hard blockers by themselves.
           If grounding is missing, keep redFlags empty and list what's missing in notes.
+        - Consider the Worker Phase verification results when evaluating the mutation.
+          If verification passed and proof is provided, use it to validate the knowledge claims in the mutation.
 
         What to check (quickly):
         - Structural soundness: ids, missing references, cycles, self-edges, direction (dependency -> dependent).
         - Grounding (if materials are present): does the mutation align with DAG facts?
         - Safety: no unbounded text, no fabricated citations.
+        - Verification consistency: if Worker Phase verification passed, ensure the mutation's proof fields align with the verification proof.
 
         CandidateMutationSummary:
         {{JsonSerializer.Serialize(candidateSummary, Json)}}
@@ -240,7 +267,7 @@ public sealed partial class DagConsensusRunner
         {{JsonSerializer.Serialize(currentStats, Json)}}
 
         MaterialsContext (optional):
-        {{materials}}
+        {{materials}}{{verifierSection}}
 
         Output JSON schema:
         {

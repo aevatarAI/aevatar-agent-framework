@@ -88,6 +88,11 @@ public abstract partial class AIGAgentBase
             if (!_owner.EnableChatHistoryInState || !_owner.EnableChatHistoryCompaction)
                 return;
 
+            // Skip compaction when Event Sourcing is active (Version > 0)
+            // History modifications should go through RaiseEvent in Event Sourcing mode
+            if (_owner.GetCurrentVersion() > 0)
+                return;
+
             if (_owner.ChatHistoryMaxMessages <= 0)
                 return;
 
@@ -149,9 +154,14 @@ public abstract partial class AIGAgentBase
                     updatedSummary = updatedSummary[.._owner.ChatHistorySummaryMaxChars];
                 }
 
-                lock (_historyLock)
+                // Skip updating State.Context when Event Sourcing is active (Version > 0)
+                // Context modifications should go through RaiseEvent in Event Sourcing mode
+                if (_owner.GetCurrentVersion() == 0)
                 {
-                    _owner.State.Context[AIGAgentKeys.HistorySummary] = updatedSummary;
+                    lock (_historyLock)
+                    {
+                        _owner.State.Context[AIGAgentKeys.HistorySummary] = updatedSummary;
+                    }
                 }
             }
             finally

@@ -90,6 +90,11 @@ internal sealed partial class VibeOrchestrator
         try
         {
             var progress = BuildDagConsensusAgUiProgress(session, runId, workflowName: "maker");
+            
+            // Extract verifier output and proof from worker outputs
+            var verifierOutput = outputs.TryGetValue("verifier", out var v) ? v : null;
+            var verifierProof = outputs.TryGetValue("verifier_proof", out var vp) ? vp : null;
+            
             consensus = await _core.DagConsensus.RunAsync(new DagConsensusRunner.ConsensusInput(
                 session.Id,
                 runId,
@@ -97,6 +102,8 @@ internal sealed partial class VibeOrchestrator
                 candidate,
                 MaterialsContext: materials?.RenderedContext,
                 ProviderName: providerName ?? session.ProviderName,
+                VerifierOutput: verifierOutput,
+                VerifierProof: verifierProof,
                 Progress: progress), ct);
         }
         catch (Exception ex)

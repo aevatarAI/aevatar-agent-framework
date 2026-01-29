@@ -97,6 +97,11 @@ public abstract class CognitiveAIGAgentBase<TCustomState> : AIGAgentBase<TCustom
     {
         try
         {
+            // Skip trimming when Event Sourcing is active (Version > 0)
+            // History modifications should go through RaiseEvent in Event Sourcing mode
+            if (GetCurrentVersion() > 0)
+                return;
+
             var max = ChatHistoryMaxMessages;
             if (max <= 0) return;
 

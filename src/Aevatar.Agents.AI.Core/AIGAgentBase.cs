@@ -144,7 +144,9 @@ public abstract partial class AIGAgentBase : GAgentBase<AevatarAIAgentState, Aev
         // calling ActivateAsync again would cause infinite recursion.
 
         // Load state and config if stores are available
-        if (StateStore != null)
+        // Skip loading State from StateStore when Event Sourcing is active (Version > 0)
+        // In Event Sourcing mode, State is rebuilt from events in OnActivateAsync
+        if (StateStore != null && GetCurrentVersion() == 0)
         {
             State = await StateStore.LoadAsync(Id, cancellationToken) ?? new AevatarAIAgentState();
         }

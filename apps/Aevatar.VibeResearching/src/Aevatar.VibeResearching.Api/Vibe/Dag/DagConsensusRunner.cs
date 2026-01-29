@@ -82,6 +82,8 @@ public sealed partial class DagConsensusRunner
         SraDagMutation Candidate,
         string? MaterialsContext = null,
         string? ProviderName = null,
+        string? VerifierOutput = null,
+        string? VerifierProof = null,
         int? ConsensusK = null,
         int? MaxRounds = null,
         int? WorkerCount = null,
@@ -352,6 +354,7 @@ public sealed partial class DagConsensusRunner
 
             CurrentDagStats:
             """ + JsonSerializer.Serialize(currentStats, Json) + """
+            """ + BuildVerifierContextSection(input) + """
 
             Output JSON schema:
             {
@@ -464,6 +467,49 @@ public sealed partial class DagConsensusRunner
         if (string.IsNullOrEmpty(s)) return string.Empty;
         if (s.Length <= max) return s;
         return s[..max];
+    }
+
+    private static string BuildVerifierContextSection(ConsensusInput input)
+    {
+        var verifierOutput = (input.VerifierOutput ?? string.Empty).Replace("\r", "").Trim();
+        if (verifierOutput.Length > 4000) verifierOutput = verifierOutput[..4000];
+
+        var verifierProof = (input.VerifierProof ?? string.Empty).Replace("\r", "").Trim();
+        if (verifierProof.Length > 1500) verifierProof = verifierProof[..1500];
+
+        if (string.IsNullOrWhiteSpace(verifierOutput) && string.IsNullOrWhiteSpace(verifierProof))
+        {
+            return "";
+        }
+
+        var sb = new StringBuilder();
+        sb.AppendLine();
+        sb.AppendLine("Worker Phase Verification Results (for reference):");
+        sb.AppendLine("- These results come from the Worker Phase verification (Scout + Prover stages).");
+        sb.AppendLine("- Use them to validate the knowledge claims and proof fields in the mutation.");
+        sb.AppendLine("- If verification passed and proof is provided, ensure the mutation's proof fields align with the verification proof.");
+        sb.AppendLine();
+        
+        if (!string.IsNullOrWhiteSpace(verifierOutput))
+        {
+            sb.AppendLine("Verifier Output:");
+            sb.AppendLine(verifierOutput);
+            sb.AppendLine();
+        }
+        
+        if (!string.IsNullOrWhiteSpace(verifierProof))
+        {
+            sb.AppendLine("Verifier Proof:");
+            sb.AppendLine(verifierProof);
+            sb.AppendLine();
+        }
+        
+        sb.AppendLine("Note: When validating the mutation, consider:");
+        sb.AppendLine("- If verification passed, the mutation's proof fields should be consistent with the verification proof.");
+        sb.AppendLine("- If verification failed, be more cautious about accepting the mutation.");
+        sb.AppendLine("- Use the verification results as additional context, but still perform your own validation.");
+
+        return sb.ToString();
     }
 
     private async Task<string> WriteArtifactAsync(

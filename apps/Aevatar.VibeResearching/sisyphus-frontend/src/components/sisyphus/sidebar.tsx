@@ -211,23 +211,38 @@ const SessionCard: React.FC<SessionCardProps> = ({
 
       {/* Terminate confirmation dialog */}
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Terminate Session</DialogTitle>
-            <DialogDescription>
-              This will permanently end the session. Research progress is preserved but no new input will be accepted.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
+        <DialogContent className="max-w-sm bg-[#0a0e17]/98 backdrop-blur-xl border border-neon-red/20 rounded-xl shadow-[0_0_40px_rgba(255,50,50,0.12)] p-0 overflow-hidden">
+          {/* Danger accent bar */}
+          <div className="h-[2px] bg-gradient-to-r from-transparent via-neon-red/80 to-transparent" />
+
+          <div className="px-5 pt-5 pb-2">
+            <DialogHeader className="gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="flex items-center justify-center size-9 rounded-lg bg-neon-red/10 border border-neon-red/20">
+                  <svg className="size-4 text-neon-red" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                  </svg>
+                </div>
+                <DialogTitle className="text-sm font-display text-text-primary">
+                  Terminate Session
+                </DialogTitle>
+              </div>
+              <DialogDescription className="text-[11px] leading-relaxed text-text-muted pl-[46px]">
+                This will permanently end the session. Research progress is preserved but no new input will be accepted.
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+
+          <DialogFooter className="px-5 pb-5 pt-3 flex-row justify-end gap-2">
             <button
               onClick={() => setConfirmOpen(false)}
-              className="px-4 py-2 rounded-lg text-sm font-mono text-text-primary bg-surface-elevated hover:bg-surface border border-border-default transition-colors"
+              className="px-4 py-2 rounded-lg text-[11px] font-mono text-text-secondary bg-transparent hover:bg-surface-elevated border border-[#2a3040] hover:border-border-default transition-all"
             >
               Cancel
             </button>
             <button
               onClick={handleTerminateConfirm}
-              className="px-4 py-2 rounded-lg text-sm font-mono text-neon-red bg-neon-red/10 hover:bg-neon-red/20 border border-neon-red/40 transition-colors"
+              className="px-4 py-2 rounded-lg text-[11px] font-mono text-white bg-neon-red/80 hover:bg-neon-red border border-neon-red/60 hover:shadow-[0_0_16px_rgba(255,50,50,0.3)] transition-all"
             >
               Terminate
             </button>

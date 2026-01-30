@@ -3,6 +3,7 @@
 // ============================================================================
 
 import { apiLogger } from '../logger'
+import { getAccessToken } from '../abp/config'
 
 // === API Base URL ===
 export const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
@@ -86,12 +87,19 @@ export async function fetchJson<T>(
 
   const fetchPromise = (async () => {
     try {
+      const token = getAccessToken()
+      const authHeaders: Record<string, string> = token
+        ? { Authorization: `Bearer ${token}` }
+        : {}
+
       const res = await fetch(`${API_BASE}${path}`, {
         ...init,
         signal: abortController.signal,
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
           Accept: 'application/json',
+          ...authHeaders,
           ...init?.headers,
         },
       })

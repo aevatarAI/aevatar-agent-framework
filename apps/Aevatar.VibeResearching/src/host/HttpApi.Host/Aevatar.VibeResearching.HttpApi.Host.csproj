@@ -12,18 +12,21 @@
         <ProjectReference Include="../../modules/Sessions/HttpApi/Aevatar.VibeResearching.Sessions.HttpApi.csproj" />
         <ProjectReference Include="../../modules/Knowledge/HttpApi/Aevatar.VibeResearching.Knowledge.HttpApi.csproj" />
         <ProjectReference Include="../../modules/Agents/HttpApi/Aevatar.VibeResearching.Agents.HttpApi.csproj" />
+        <ProjectReference Include="../../modules/Comments/HttpApi/Aevatar.VibeResearching.Comments.HttpApi.csproj" />
         <ProjectReference Include="../../modules/Infrastructure/HttpApi/Aevatar.VibeResearching.Infrastructure.HttpApi.csproj" />
 
         <!-- Module Application layers -->
         <ProjectReference Include="../../modules/Sessions/Application/Aevatar.VibeResearching.Sessions.Application.csproj" />
         <ProjectReference Include="../../modules/Knowledge/Application/Aevatar.VibeResearching.Knowledge.Application.csproj" />
         <ProjectReference Include="../../modules/Agents/Application/Aevatar.VibeResearching.Agents.Application.csproj" />
+        <ProjectReference Include="../../modules/Comments/Application/Aevatar.VibeResearching.Comments.Application.csproj" />
         <ProjectReference Include="../../modules/Infrastructure/Application/Aevatar.VibeResearching.Infrastructure.Application.csproj" />
 
         <!-- Module Data Access layers -->
         <ProjectReference Include="../../modules/Sessions/MongoDB/Aevatar.VibeResearching.Sessions.MongoDB.csproj" />
         <ProjectReference Include="../../modules/Knowledge/Neo4j/Aevatar.VibeResearching.Knowledge.Neo4j.csproj" />
         <ProjectReference Include="../../modules/Agents/MongoDB/Aevatar.VibeResearching.Agents.MongoDB.csproj" />
+        <ProjectReference Include="../../modules/Comments/MongoDB/Aevatar.VibeResearching.Comments.MongoDB.csproj" />
         <ProjectReference Include="../../modules/Infrastructure/MongoDB/Aevatar.VibeResearching.Infrastructure.MongoDB.csproj" />
 
         <!-- Agent Framework (host needs direct access for configuration) -->

@@ -35,12 +35,10 @@
     <Project Path="..\..\src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
     <Project Path="..\..\src\Aevatar.Agents.Cognitive.Streaming\Aevatar.Agents.Cognitive.Streaming.csproj" />
     <Project Path="..\..\src\Aevatar.Agents.Sessions\Aevatar.Agents.Sessions.csproj" />
-    <Project Path="..\..\src\Aevatar.Agents.Persistence.InMemory.Graph\Aevatar.Agents.Persistence.InMemory.Graph.csproj" />
     <Project Path="..\..\src\Aevatar.Agents.Persistence.MongoDB\Aevatar.Agents.Persistence.MongoDB.csproj" />
     <Project Path="..\..\src\Aevatar.Agents.Persistence.MongoDB.GAgent\Aevatar.Agents.Persistence.MongoDB.GAgent.csproj" />
     <Project Path="..\..\src\Aevatar.Agents.Persistence.SQLite\Aevatar.Agents.Persistence.SQLite.csproj" />
     <Project Path="..\..\src\Aevatar.Agents.Persistence.SQLite.GAgent\Aevatar.Agents.Persistence.SQLite.GAgent.csproj" />
-    <Project Path="..\..\src\Aevatar.Agents.Persistence.Neo4j.Graph\Aevatar.Agents.Persistence.Neo4j.Graph.csproj" />
   </Folder>
 
   <Folder Name="/root/">

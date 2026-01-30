@@ -121,7 +121,10 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
             ResourceUri = resourceUri,
             CreatedAt = now,
             UpdatedAt = now,
-            DependsOn = dependsOnList
+            DependsOn = dependsOnList,
+            // Review Agent: set LastReviewedAt = CreatedAt so new nodes aren't immediately stale
+            LastReviewedAt = now,
+            IsActivated = true
         };
 
         await _store.AddKnowledgeNodeAsync(node, cancellationToken);
@@ -206,7 +209,10 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
                 PivotStatus = pivotStatus ?? PivotNodeStatus.Active,
                 CancelledAt = cancelledAt,
                 CancelledByPivotId = cancelledByIn,
-                DirectionContext = directionIn
+                DirectionContext = directionIn,
+                // Review Agent: set LastReviewedAt = CreatedAt so new nodes aren't immediately stale
+                LastReviewedAt = now,
+                IsActivated = true
             };
 
             await _store.AddKnowledgeNodeAsync(created, cancellationToken);
@@ -253,7 +259,12 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
             PivotStatus = mergedPivotStatus,
             CancelledAt = mergedCancelledAt,
             CancelledByPivotId = mergedCancelledByPivotId,
-            DirectionContext = mergedDirectionContext
+            DirectionContext = mergedDirectionContext,
+            // Preserve Review Agent fields from existing node
+            LastReviewedAt = existing.LastReviewedAt,
+            IsActivated = existing.IsActivated,
+            DeactivatedReason = existing.DeactivatedReason,
+            DeactivatedTimestamp = existing.DeactivatedTimestamp
         };
 
         await _store.AddKnowledgeNodeAsync(updated, cancellationToken);
@@ -371,7 +382,12 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
                 PivotStatus = knowledgeNode.PivotStatus,
                 CancelledAt = knowledgeNode.CancelledAt,
                 CancelledByPivotId = knowledgeNode.CancelledByPivotId,
-                DirectionContext = knowledgeNode.DirectionContext
+                DirectionContext = knowledgeNode.DirectionContext,
+                // Preserve Review Agent fields
+                LastReviewedAt = knowledgeNode.LastReviewedAt,
+                IsActivated = knowledgeNode.IsActivated,
+                DeactivatedReason = knowledgeNode.DeactivatedReason,
+                DeactivatedTimestamp = knowledgeNode.DeactivatedTimestamp
             };
             await _store.AddKnowledgeNodeAsync(updatedKnowledge, cancellationToken);
         }
@@ -968,9 +984,12 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
         var validTransition = (currentStatus, newStatus) switch
         {
             (PlanNodeStatus.Pending, PlanNodeStatus.Active) => true,
+            (PlanNodeStatus.Pending, PlanNodeStatus.Cancelled) => true, // Direction change: mark orphans as Cancelled
             (PlanNodeStatus.Active, PlanNodeStatus.Completed) => true,
             (PlanNodeStatus.Active, PlanNodeStatus.Pending) => true, // Re-planning
+            (PlanNodeStatus.Active, PlanNodeStatus.Cancelled) => true, // Direction change: mark active orphans as Cancelled
             (PlanNodeStatus.Completed, _) => false, // Cannot transition from Completed
+            (PlanNodeStatus.Cancelled, _) => false, // Cannot transition from Cancelled
             (var from, var to) when from == to => true, // Same status is OK
             _ => false
         };
@@ -993,6 +1012,49 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
             Status = newStatus,
             ProgressText = progressText ?? node.ProgressText,
             Methodology = node.Methodology,
+            SequentialOrder = node.SequentialOrder,
+            PivotStatus = node.PivotStatus,
+            CancelledAt = node.CancelledAt,
+            CancelledByPivotId = node.CancelledByPivotId,
+            DirectionContext = node.DirectionContext
+        };
+
+        await _store.UpdatePlanNodeAsync(updated, cancellationToken);
+        return updated;
+    }
+
+    public async Task<PlanNode> UpdatePlanNodeContentAsync(
+        string nodeId,
+        string coreDescription,
+        string? detailedDescription = null,
+        string? methodology = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(coreDescription);
+
+        using var _ = await _operationLock.AcquireAsync(SessionId, cancellationToken);
+
+        var node = await _store.GetPlanNodeAsync(SessionId, nodeId, cancellationToken);
+        if (node == null)
+        {
+            throw new NodeNotFoundException(nodeId);
+        }
+
+        // Create updated node preserving existing fields, only updating content fields
+        var updated = new PlanNode
+        {
+            Id = node.Id,
+            SessionId = node.SessionId,
+            Owner = node.Owner,
+            CoreDescription = coreDescription,
+            DetailedDescription = detailedDescription ?? node.DetailedDescription,
+            CreatedAt = node.CreatedAt,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DependsOn = node.DependsOn,
+            Status = node.Status,
+            ProgressText = node.ProgressText,
+            Methodology = methodology ?? node.Methodology,
             SequentialOrder = node.SequentialOrder,
             PivotStatus = node.PivotStatus,
             CancelledAt = node.CancelledAt,
@@ -1083,7 +1145,10 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
             Proof = proof,
             CreatedAt = now,
             UpdatedAt = now,
-            DependsOn = dependsOnList
+            DependsOn = dependsOnList,
+            // Review Agent: set LastReviewedAt = CreatedAt so new nodes aren't immediately stale
+            LastReviewedAt = now,
+            IsActivated = true
         };
 
         await _store.AddKnowledgeNodeAsync(node, cancellationToken);

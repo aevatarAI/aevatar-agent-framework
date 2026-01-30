@@ -2,7 +2,7 @@
 //  NodeDetailsPanel - Node Details with Markdown Explanation
 // ============================================================
 
-import { useMemo, useEffect, memo } from 'react'
+import { useEffect, memo } from 'react'
 import { useSisyphusStore } from '@/store/sisyphus-store'
 import { getNodeExplanation } from '@/lib/axiom-client'
 import { MarkdownPreview } from '@/components/ui/markdown-preview'

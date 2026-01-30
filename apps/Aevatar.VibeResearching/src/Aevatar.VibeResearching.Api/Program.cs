@@ -35,6 +35,11 @@ using VibeResearching.Api.Vibe.Delivery;
 using VibeResearching.Api.Vibe.Dag;
 using VibeResearching.Vibe.Pivot;
 using VibeResearching.Api.Vibe.Pivot;
+using VibeResearching.Vibe.ReviewAgent;
+using Aevatar.VibeResearching.Api.ReviewAgent.Api;
+using Aevatar.VibeResearching.Api.ReviewAgent.Events;
+using Aevatar.VibeResearching.Api.ReviewAgent.Storage;
+using VibeResearching.Api.ReviewAgent.Verification;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -252,8 +257,8 @@ builder.Services.AddSingleton<BriefStore>();
 // - 这里默认用 InMemory 图后端（开发/测试最快，无外部依赖）
 // - DagStore 会把图快照同步落盘到 artifacts/dag/snapshot.json，保证可审阅/可恢复
 // ==========================================
-// builder.Services.AddAevatarGraphNeo4j();
-builder.Services.AddAevatarGraphInMemory();
+builder.Services.AddAevatarGraphNeo4j();
+// builder.Services.AddAevatarGraphInMemory();
 builder.Services.AddKnowledgeGraph();
 
 // Vibe: DAG/Graph store (SSoT: KnowledgeGraph + file snapshot mirror)
@@ -297,6 +302,40 @@ builder.Services.AddSingleton<VibeResearching.Api.Vibe.VibeGoalLoopRunner>();
 // Vibe: milestone-driven loop runner (execute research by iterating through milestones)
 builder.Services.AddSingleton<VibeResearching.Api.Vibe.VibeMilestoneLoopRunner>();
 
+// Review Agent: background knowledge node verification
+builder.Services.Configure<ReviewAgentOptions>(builder.Configuration.GetSection(ReviewAgentOptions.SectionName));
+builder.Services.AddSingleton<IKnowledgeNodeVerifier, KnowledgeNodeVerifier>();
+builder.Services.AddSingleton<IReviewAgentService, ReviewAgentService>();
+builder.Services.AddSingleton<IReviewAgentStorage>(sp =>
+{
+    var env = sp.GetRequiredService<IHostEnvironment>();
+    var logger = sp.GetRequiredService<ILogger<FileReviewAgentStorage>>();
+    var systemRoot = Path.GetFullPath(Path.Combine(env.ContentRootPath, "..", ".."));
+    var basePath = Path.Combine(systemRoot, "workspace", "review-agent");
+    return new FileReviewAgentStorage(basePath, logger);
+});
+builder.Services.AddSingleton<IReviewAgentEventPublisher, ReviewAgentEventPublisher>();
+// Register ReviewAgentHostedService as singleton so IReviewAgentTrigger can be injected
+builder.Services.AddSingleton<ReviewAgentHostedService>();
+builder.Services.AddSingleton<IReviewAgentTrigger>(sp => sp.GetRequiredService<ReviewAgentHostedService>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ReviewAgentHostedService>());
+
+// CORS configuration for cross-origin deployment
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        // 从配置读取允许的域名，支持多个域名
+        var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+            ?? ["http://localhost:3000", "http://localhost:5173"];
+
+        policy.WithOrigins(allowedOrigins)
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials();  // 需要支持 SSE 的 credentials
+    });
+});
+
 var app = builder.Build();
 
 if (syncOnly)
@@ -319,6 +358,9 @@ catch
 {
     // best-effort only
 }
+
+// Enable CORS (must be before routing/endpoints)
+app.UseCors();
 
 app.MapGet("/health", () => Results.Text("ok"));
 // NOTE: Cognitive Session API registers /api/sessions (conflicts with current Vibe API).
@@ -347,7 +389,7 @@ app.MapGet("/api/skills/sync/status", (SkillPacksSyncProgress progress) =>
     return Results.Json(progress.GetSnapshot());
 });
 
-app.MapGet("/api/info", (IOptionsMonitor<LLMProvidersConfig> llm, IConfiguration cfg) =>
+app.MapGet("/api/info", (IOptionsMonitor<LLMProvidersConfig> llm, IConfiguration cfg, IAevatarUserSecretsStore secrets) =>
 {
     var cur = llm.CurrentValue;
     var defaultProvider = LlmConfigDefaults.ResolveEffectiveDefaultProviderName(cur);
@@ -356,10 +398,26 @@ app.MapGet("/api/info", (IOptionsMonitor<LLMProvidersConfig> llm, IConfiguration
     var mcpResolved = MCPServersConfigReader.Resolve(cfg);
 
     // Only show providers that are actually runnable (have apiKey).
-    // We still expose full provider keys as `providersAll` for debugging.
-    var providersWithKey = cur.Providers
+    // Check both LLMProvidersConfig and secrets store for providers with API keys.
+    var providersFromConfig = cur.Providers
         .Where(kv => kv.Value != null && !string.IsNullOrWhiteSpace(kv.Value.ApiKey))
-        .Select(kv => kv.Key)
+        .Select(kv => kv.Key);
+
+    // Also include providers from secrets store (for freshly saved keys before config reload)
+    var providersFromSecrets = secrets.GetAll()
+        .Where(kv => kv.Key.StartsWith("LLMProviders:Providers:", StringComparison.OrdinalIgnoreCase) &&
+                     kv.Key.EndsWith(":ApiKey", StringComparison.OrdinalIgnoreCase) &&
+                     !string.IsNullOrWhiteSpace(kv.Value))
+        .Select(kv =>
+        {
+            var parts = kv.Key.Split(':');
+            return parts.Length >= 3 ? parts[2] : null;
+        })
+        .Where(name => !string.IsNullOrWhiteSpace(name))
+        .Cast<string>();
+
+    var providersWithKey = providersFromConfig
+        .Union(providersFromSecrets, StringComparer.OrdinalIgnoreCase)
         .OrderBy(x => x, StringComparer.Ordinal)
         .ToList();
 
@@ -425,7 +483,7 @@ app.MapGet("/api/llm/test", async (
     CancellationToken ct) =>
 {
     if (!IsLocal(http))
-        return Results.Forbid();
+        return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
     var resolved = LlmProbe.Resolve(llm.CurrentValue, providerName);
     if (!resolved.Ok)
@@ -443,7 +501,7 @@ app.MapGet("/api/llm/models", async (
     CancellationToken ct) =>
 {
     if (!IsLocal(http))
-        return Results.Forbid();
+        return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
     var resolved = LlmProbe.Resolve(llm.CurrentValue, providerName);
     if (!resolved.Ok)
@@ -459,7 +517,7 @@ app.MapGet("/api/llm/status", (
     string? providerName) =>
 {
     if (!IsLocal(http))
-        return Results.Forbid();
+        return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
     var resolved = LlmProbe.Resolve(llm.CurrentValue, providerName);
     if (!resolved.Ok)
@@ -488,10 +546,18 @@ app.MapResearchSessionsApi();
 // Pivot API (rollback support for US-5)
 app.MapPivotApi();
 
+// Review Agent API (background verification status + settings)
+app.MapReviewAgentApi();
+
 app.Run();
 
 static bool IsLocal(HttpContext ctx)
 {
+    // Allow disabling local check for trusted Docker environments
+    var allowRemote = Environment.GetEnvironmentVariable("ALLOW_REMOTE_LLM_API");
+    if (string.Equals(allowRemote, "true", StringComparison.OrdinalIgnoreCase))
+        return true;
+
     var ip = ctx.Connection.RemoteIpAddress;
     return ip == null || System.Net.IPAddress.IsLoopback(ip);
 }

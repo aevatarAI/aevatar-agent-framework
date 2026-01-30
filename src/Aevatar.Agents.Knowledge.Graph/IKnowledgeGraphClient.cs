@@ -192,6 +192,25 @@ public interface IKnowledgeGraphClient
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Updates the content (label and description) of a PlanNode.
+    /// Used when milestones are modified due to research direction change.
+    /// This method preserves the node's status and other metadata.
+    /// </summary>
+    /// <param name="nodeId">The plan node ID to update.</param>
+    /// <param name="coreDescription">New core description (label) for the plan node.</param>
+    /// <param name="detailedDescription">Optional new detailed description.</param>
+    /// <param name="methodology">Optional new methodology.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The updated PlanNode.</returns>
+    /// <exception cref="Exceptions.NodeNotFoundException">Thrown if node not found.</exception>
+    Task<PlanNode> UpdatePlanNodeContentAsync(
+        string nodeId,
+        string coreDescription,
+        string? detailedDescription = null,
+        string? methodology = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Gets all PlanNodes in the current session, ordered by SequentialOrder.
     /// </summary>
     Task<IReadOnlyList<PlanNode>> GetPlanNodesAsync(CancellationToken cancellationToken = default);

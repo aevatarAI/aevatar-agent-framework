@@ -20,7 +20,7 @@ internal static partial class ResearchSessionsApi
             HttpContext http) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             if (!sessions.TryGet(sessionId, out var session))
                 return Results.NotFound(new { ok = false, error = "session not found" });
@@ -46,7 +46,7 @@ internal static partial class ResearchSessionsApi
             HttpContext http) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             if (!sessions.TryGet(sessionId, out var session))
                 return Results.NotFound(new { ok = false, error = "session not found" });
@@ -116,7 +116,7 @@ internal static partial class ResearchSessionsApi
             HttpContext http) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             if (!sessions.TryGet(sessionId, out var session))
                 return Results.NotFound(new { error = "session not found" });
@@ -141,7 +141,7 @@ internal static partial class ResearchSessionsApi
             CancellationToken ct) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             if (!sessions.TryGet(sessionId, out var session))
                 return Results.NotFound(new { error = "session not found" });
@@ -170,7 +170,7 @@ internal static partial class ResearchSessionsApi
             CancellationToken ct) =>
         {
             if (!IsLocal(http))
-                return Results.Forbid();
+                return Results.Json(new { ok = false, error = "Forbidden: local access only" }, statusCode: 403);
 
             if (!sessions.TryGet(sessionId, out var session))
                 return Results.NotFound(new { error = "session not found" });
@@ -193,6 +193,11 @@ internal static partial class ResearchSessionsApi
 
     private static bool IsLocal(HttpContext ctx)
     {
+        // Allow disabling local check for trusted Docker environments
+        var allowRemote = Environment.GetEnvironmentVariable("ALLOW_REMOTE_LLM_API");
+        if (string.Equals(allowRemote, "true", StringComparison.OrdinalIgnoreCase))
+            return true;
+
         var ip = ctx.Connection.RemoteIpAddress;
         return ip == null || System.Net.IPAddress.IsLoopback(ip);
     }

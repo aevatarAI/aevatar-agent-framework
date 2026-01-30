@@ -1,9 +1,11 @@
 <Project>
-  <!-- 
+  <!--
     Global build properties for all projects in the solution.
     This file is automatically imported by all .csproj files.
   -->
   <PropertyGroup>
+    <!-- Enable C# preview features (null conditional assignment, field keyword, etc.) -->
+    <LangVersion>preview</LangVersion>
     <!-- Use system protoc on Apple Silicon (ARM64) to avoid "Bad CPU type" error -->
     <!-- This works for macOS with Homebrew-installed protoc -->
     <Protobuf_Protoc Condition="'$(OS)' == 'Unix' And Exists('/opt/homebrew/bin/protoc')">/opt/homebrew/bin/protoc</Protobuf_Protoc>

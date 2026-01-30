@@ -1,11 +1,10 @@
 using Aevatar.Agents.AGUI;
 using Aevatar.Agents.AI.Core.Messages;
 using Aevatar.Agents.Sessions.Runtime;
-using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Options;
-using VibeResearching.Api;
 using VibeResearching.Api.Facts;
 using VibeResearching.Api.Materials;
+using VibeResearching.Api.Vibe;
 using VibeResearching.Api.Workspace;
 using VibeResearching.Contracts.Collab;
 
@@ -36,8 +35,8 @@ internal static partial class ResearchSessionsApi
                     Message = input.Message,
                     RequestId = input.RequestId ?? string.Empty
                 };
-                var runId = await runtime.SendChatAsync(sessionId, chat, ct);
-                return Results.Accepted($"/api/sessions/{session.Id}", new { ok = true, sessionId = session.Id, runId });
+                var chatRunId = await runtime.SendChatAsync(sessionId, chat, ct);
+                return Results.Accepted($"/api/sessions/{session.Id}", new { ok = true, sessionId = session.Id, runId = chatRunId });
             }
 
             var variables = new Dictionary<string, object?>();
@@ -53,15 +52,62 @@ internal static partial class ResearchSessionsApi
                     variables["loop_max_duration_ms"] = input.Loop.MaxTotalDurationMs.Value;
             }
 
+            var runId = string.IsNullOrWhiteSpace(input.RequestId)
+                ? Guid.NewGuid().ToString("N")
+                : input.RequestId!.Trim();
             var request = new SessionWorkflowRunRequest(
                 WorkflowName: "vibe_researching",
                 Message: input.Message,
                 Mode: mode,
                 Variables: variables,
-                RequestId: input.RequestId);
+                RequestId: runId);
 
-            var runIdWorkflow = await runtime.RunWorkflowAsync(sessionId, request, ct);
-            return Results.Accepted($"/api/sessions/{session.Id}", new { ok = true, sessionId = session.Id, runId = runIdWorkflow });
+            var interruptedRunId = session.Workspace.Vibe.LastRunId.Trim();
+            if (interruptedRunId.Length > 0 && !string.Equals(interruptedRunId, runId, StringComparison.Ordinal))
+            {
+                // Record interruption context for the new run to process
+                session.RecordInterruption(new InterruptionContext
+                {
+                    InterruptedRunId = interruptedRunId,
+                    NewUserMessage = input.Message ?? string.Empty,
+                    InterruptedAt = DateTimeOffset.UtcNow,
+                    Reason = "new_input",
+                    // 从 Workspace.Vibe 读取进度信息
+                    TotalMilestones = session.Workspace.Vibe.TotalMilestones,
+                    CompletedMilestones = session.Workspace.Vibe.CompletedMilestones,
+                    InterruptedAtMilestoneIndex = session.Workspace.Vibe.CurrentMilestoneIndex
+                });
+
+                // Tell UI immediately (even if the old run was still queued on RunLock).
+                session.Events.Publish(new CustomEvent
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    Name = "aevatar.scientific.run_interrupted",
+                    Value = new
+                    {
+                        threadId = session.Id,
+                        oldRunId = interruptedRunId,
+                        newRunId = runId,
+                        reason = "new_input"
+                    }
+                });
+
+                // Immediate feedback: acknowledge the user's input
+                session.Events.Publish(new CustomEvent
+                {
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    Name = "aevatar.scientific.system_reply",
+                    Value = new
+                    {
+                        sessionId = session.Id,
+                        messageType = "acknowledgment",
+                        content = "Got it! Analyzing your request..."
+                    }
+                });
+            }
+
+            _ = await runtime.RunWorkflowAsync(sessionId, request, ct);
+            return Results.Accepted($"/api/sessions/{session.Id}", new { ok = true, sessionId = session.Id, runId });
         });
     }
 

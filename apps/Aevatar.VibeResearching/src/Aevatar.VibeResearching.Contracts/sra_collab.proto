@@ -259,6 +259,7 @@ enum SraDagPlanStatus {
   SRA_DAG_PLAN_STATUS_PENDING = 1;
   SRA_DAG_PLAN_STATUS_ACTIVE = 2;
   SRA_DAG_PLAN_STATUS_COMPLETED = 3;
+  SRA_DAG_PLAN_STATUS_CANCELLED = 4;  // Plan step was cancelled due to direction change
 }
 
 message SraDagAttestation {

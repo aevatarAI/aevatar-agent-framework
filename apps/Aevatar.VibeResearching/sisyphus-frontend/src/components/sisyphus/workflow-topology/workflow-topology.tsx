@@ -16,7 +16,6 @@ import { SubGraphViewer } from '../sub-graph-viewer'
 
 import { type NodeFilterMode } from './dag-node-styles'
 import {
-  createRadialForceLayout,
   createPersistentSimulation,
   findCenterNode,
   type LayoutNode,
@@ -127,7 +126,6 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
   const interactionRef = useRef<InteractionManager | null>(null)
   const simulationRef = useRef<SimulationManager | null>(null)
   const positionCacheRef = useRef<Map<string, { x: number; y: number }>>(new Map())
-  const animationRef = useRef<number>(0)
 
   // State
   const [refreshing, setRefreshing] = useState(false)
@@ -154,8 +152,6 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
     if (!dag?.nodes || dag.nodes.length === 0) {
       return { filteredNodes: [], filteredEdges: [], centerNodeId: null }
     }
-
-    const isHighlighting = highlightMode !== 'none'
 
     // Filter nodes (no hard limit - performance optimized in force layout)
     const filteredDagNodes = dag.nodes.filter((node) => {
@@ -307,7 +303,7 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
           // Update position in simulation - this will push other nodes away
           simulationRef.current?.updateNodePosition(node.id, x, y)
         },
-        onNodeDragEnd: (node) => {
+        onNodeDragEnd: () => {
           // Release the fixed position and let simulation settle
           simulationRef.current?.setDraggedNode(null)
           simulationRef.current?.reheat()
@@ -329,7 +325,6 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
       rendererRef.current = null
       interactionRef.current = null
       setIsRendererReady(false)
-      cancelAnimationFrame(animationRef.current)
     }
   }, [hasData]) // Re-run when data becomes available
 
@@ -362,19 +357,16 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
     return () => clearTimeout(timeoutId)
   }, [sessionId])
 
-  // ── Render loop ──
+  // ── Render on demand (no infinite loop) ──
+  // PERFORMANCE FIX: Only render when data or transform changes
+  // Previously used requestAnimationFrame loop which consumed CPU even when idle
   useEffect(() => {
-    const render = () => {
-      const renderer = rendererRef.current
-      if (renderer && layoutNodes.length > 0) {
-        renderer.setTransform(transform)
-        renderer.render(layoutNodes, layoutEdges)
-      }
-      animationRef.current = requestAnimationFrame(render)
-    }
+    const renderer = rendererRef.current
+    if (!renderer || layoutNodes.length === 0) return
 
-    render()
-    return () => cancelAnimationFrame(animationRef.current)
+    // Single render pass when dependencies change
+    renderer.setTransform(transform)
+    renderer.render(layoutNodes, layoutEdges)
   }, [layoutNodes, layoutEdges, transform])
 
   // ── Update interaction manager nodes ──

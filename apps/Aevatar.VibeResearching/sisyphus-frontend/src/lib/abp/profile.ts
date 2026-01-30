@@ -26,6 +26,9 @@ export interface UserProfile {
 }
 
 export interface UpdateProfileInput {
+  name?: string
+  surname?: string
+  phoneNumber?: string
   displayName?: string
   bio?: string
 }

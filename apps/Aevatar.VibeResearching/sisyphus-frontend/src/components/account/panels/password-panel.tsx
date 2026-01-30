@@ -2,6 +2,7 @@ import React, { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { PasswordInput } from "@/components/ui/input"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import { changePassword } from "@/lib/abp"
 
 // ============================================================
 //  Password Panel - Change Password
@@ -37,10 +38,25 @@ export const PasswordPanel: React.FC = () => {
 
     setIsLoading(true)
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 800))
-      setSuccess(true)
-      setFormData({ currentPassword: "", newPassword: "", confirmPassword: "" })
+      const result = await changePassword({
+        currentPassword: formData.currentPassword,
+        newPassword: formData.newPassword,
+      })
+
+      if (result.ok) {
+        setSuccess(true)
+        setFormData({ currentPassword: "", newPassword: "", confirmPassword: "" })
+      } else {
+        // Handle validation details if available
+        if (result.details && result.details.length > 0) {
+          setError(result.details.join(", "))
+        } else {
+          setError(result.error || "Failed to change password")
+        }
+      }
+    } catch (err) {
+      console.error('[Password] Change password error:', err)
+      setError(err instanceof Error ? err.message : "An unexpected error occurred. Please try again.")
     } finally {
       setIsLoading(false)
     }

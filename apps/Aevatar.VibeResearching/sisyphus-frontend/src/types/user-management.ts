@@ -132,6 +132,7 @@ export interface AuthUser {
   email: string
   name?: string
   surname?: string
+  phoneNumber?: string
   roles: string[]
   isAdmin: boolean
   avatarUrl?: string

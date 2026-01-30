@@ -10,6 +10,7 @@ import Composer from './composer';
 import ToolOutputDisplay from './tool-output-display';
 import AgentTimeline from './agent-timeline';
 import WorkflowSteps from './workflow-steps';
+import { AgentFlowGraph } from './agent-flow-graph';
 import type { ChatMessage, ToolOutput } from '@/types';
 
 // ============================================================
@@ -57,6 +58,7 @@ interface AgentsPanelProps {
   agentNames: string[];
   isVibeMode: boolean;
   hasActiveRun: boolean;
+  sessionId: string;
 }
 
 // Single agent chip with isolated stream subscription
@@ -112,9 +114,12 @@ interface AgentDashboardDrawerProps {
   open: boolean;
   onClose: () => void;
   agentNames: string[];
+  sessionId: string;
 }
 
-const AgentDashboardDrawer: React.FC<AgentDashboardDrawerProps> = memo(({ open, onClose, agentNames }) => {
+const AgentDashboardDrawer: React.FC<AgentDashboardDrawerProps> = memo(({ open, onClose, agentNames, sessionId }) => {
+  const [activeTab, setActiveTab] = useState<'info' | 'topology'>('info');
+  
   // Prevent body scroll when drawer is open
   useEffect(() => {
     if (open) {
@@ -168,23 +173,71 @@ const AgentDashboardDrawer: React.FC<AgentDashboardDrawerProps> = memo(({ open, 
           </button>
         </div>
         
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-5">
-          {/* Status Overview - Timeline and Steps side by side on larger screens */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <AgentTimeline agentNames={agentNames} />
-            <WorkflowSteps />
-          </div>
-          
-          {/* Agent Cards */}
-          <div className="space-y-3">
-            <h3 className="text-xs font-display font-medium text-text-muted tracking-wider">AGENT OUTPUTS</h3>
-            <div className="grid grid-cols-1 gap-3">
-              {agentNames.map((name) => (
-                <DrawerAgentCard key={name} agentName={name} />
-              ))}
+        {/* Tab Switcher */}
+        <div className="flex border-b border-border-default">
+          <button
+            onClick={() => setActiveTab('info')}
+            className={cn(
+              "flex-1 px-4 py-3 text-xs font-medium transition-all relative",
+              activeTab === 'info'
+                ? "text-neon-cyan"
+                : "text-text-muted hover:text-text-primary"
+            )}
+          >
+            <div className="flex items-center justify-center gap-2">
+              <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+              Agent Info
             </div>
-          </div>
+            {activeTab === 'info' && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-neon-cyan" />
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab('topology')}
+            className={cn(
+              "flex-1 px-4 py-3 text-xs font-medium transition-all relative",
+              activeTab === 'topology'
+                ? "text-neon-cyan"
+                : "text-text-muted hover:text-text-primary"
+            )}
+          >
+            <div className="flex items-center justify-center gap-2">
+              <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
+              </svg>
+              Topology
+            </div>
+            {activeTab === 'topology' && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-neon-cyan" />
+            )}
+          </button>
+        </div>
+        
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-5">
+          {activeTab === 'info' ? (
+            <div className="space-y-5">
+              {/* Status Overview - Timeline and Steps side by side on larger screens */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <AgentTimeline agentNames={agentNames} />
+                <WorkflowSteps />
+              </div>
+              
+              {/* Agent Cards */}
+              <div className="space-y-3">
+                <h3 className="text-xs font-display font-medium text-text-muted tracking-wider">AGENT OUTPUTS</h3>
+                <div className="grid grid-cols-1 gap-3">
+                  {agentNames.map((name) => (
+                    <DrawerAgentCard key={name} agentName={name} />
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <AgentFlowGraph key={sessionId} fullHeight sessionId={sessionId} />
+          )}
         </div>
       </div>
     </div>,
@@ -424,7 +477,7 @@ const AgentExpandedCard: React.FC<{ agentName: string; onClose: () => void }> = 
   );
 });
 
-const AgentsPanel: React.FC<AgentsPanelProps> = memo(({ agentNames, isVibeMode, hasActiveRun }) => {
+const AgentsPanel: React.FC<AgentsPanelProps> = memo(({ agentNames, isVibeMode, hasActiveRun, sessionId }) => {
   const [showDrawer, setShowDrawer] = useState(false);
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   
@@ -503,6 +556,7 @@ const AgentsPanel: React.FC<AgentsPanelProps> = memo(({ agentNames, isVibeMode, 
         open={showDrawer} 
         onClose={() => setShowDrawer(false)}
         agentNames={agentNames}
+        sessionId={sessionId}
       />
     </div>
   );
@@ -1206,6 +1260,7 @@ const InteractionStream: React.FC<InteractionStreamProps> = ({ sessionId }) => {
         agentNames={otherAgentNames}
         isVibeMode={isVibeMode}
         hasActiveRun={hasActiveRun}
+        sessionId={sessionId}
       />
 
       {/* Enhanced Composer */}

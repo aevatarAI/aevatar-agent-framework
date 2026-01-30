@@ -1429,16 +1429,43 @@ internal sealed partial class VibeOrchestrator
         userMessage.AppendLine("### Scout Phase:");
         userMessage.AppendLine(scoutResult.Summary);
         userMessage.AppendLine();
-        userMessage.AppendLine("### Prover Phase:");
+        userMessage.AppendLine("### Prover Phase Summary:");
         userMessage.AppendLine(proverResult.Summary);
         userMessage.AppendLine();
         userMessage.AppendLine($"### Overall Result: PASSED (Prover: {proverResult.PassCount}/5)");
         userMessage.AppendLine();
+        
+        // Include FULL outputs from Prover workers (not just summary)
+        userMessage.AppendLine("## Prover Workers' Full Outputs:");
+        userMessage.AppendLine();
+        var proverRoles = new[] { "Direct prover", "Algebraic manipulator", "Dependency minimalist", "Case-split specialist", "Proof auditor" };
+        for (int i = 0; i < proverResult.WorkerResults.Count && i < proverRoles.Length; i++)
+        {
+            var worker = proverResult.WorkerResults[i];
+            if (worker.Verified) // Only include verified workers' outputs
+            {
+                userMessage.AppendLine($"### Worker {i + 1} ({proverRoles[i]}) - Full Output:");
+                userMessage.AppendLine(Bound(worker.Output, 4000)); // Include full output (up to 4000 chars per worker)
+                userMessage.AppendLine();
+            }
+        }
+        
         userMessage.AppendLine("## Task:");
         userMessage.AppendLine("Extract and synthesize proof information from the verification results above.");
-        userMessage.AppendLine("- Extract key verification methods and checks from Prover workers' outputs.");
-        userMessage.AppendLine("- Synthesize a concise proof summary (max 1200 characters).");
-        userMessage.AppendLine("- Focus on the most important verification approaches that led to PASSED result.");
+        userMessage.AppendLine();
+        userMessage.AppendLine("CRITICAL REQUIREMENTS:");
+        userMessage.AppendLine("1. The proof MUST match the detail level of Prover workers' outputs - DO NOT oversimplify.");
+        userMessage.AppendLine("2. Include ALL key verification methods, checks, and reasoning from Prover workers.");
+        userMessage.AppendLine("3. Preserve technical depth: include mathematical statements, computational results, logical steps.");
+        userMessage.AppendLine("4. If multiple workers verified, synthesize their approaches but preserve the detail level.");
+        userMessage.AppendLine("5. The proof should be COMPREHENSIVE (1500-3000 characters), not concise.");
+        userMessage.AppendLine("6. Structure the proof to show HOW verification was performed, not just THAT it passed.");
+        userMessage.AppendLine("7. Include references to DAG facts, axioms, or theorems used in verification.");
+        userMessage.AppendLine();
+        userMessage.AppendLine("Output format:");
+        userMessage.AppendLine("- Start with 'Proof:' marker");
+        userMessage.AppendLine("- Provide detailed proof matching Prover workers' detail level");
+        userMessage.AppendLine("- Include verification methods, checks, reasoning, and conclusions");
 
         if (!string.IsNullOrWhiteSpace(reasonerOutput))
         {
@@ -1481,10 +1508,19 @@ internal sealed partial class VibeOrchestrator
                 }
             }
 
-            var output = Bound(sb.ToString(), 1_500);
+            // Increased limit to accommodate detailed proof (was 1500, now 3500)
+            var output = Bound(sb.ToString(), 3_500);
             
             // Extract proof from output (look for "Proof:" or similar markers)
             var proof = ExtractProofFromOutput(output);
+            
+            // If extraction found proof, ensure it's not too short (should match Prover detail level)
+            if (!string.IsNullOrWhiteSpace(proof) && proof.Length < 200)
+            {
+                // If extracted proof is too short, use the full output (may contain proof without explicit marker)
+                _logger?.LogDebug("[ProofExtraction] Extracted proof too short ({Length} chars), using full output", proof.Length);
+                proof = output.Trim();
+            }
             
             return string.IsNullOrWhiteSpace(proof) ? null : proof;
         }

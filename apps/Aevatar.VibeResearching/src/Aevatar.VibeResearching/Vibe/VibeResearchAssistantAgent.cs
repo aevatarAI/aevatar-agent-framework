@@ -141,6 +141,61 @@ public sealed class VibeResearchAssistantAgent : VibeAgentBase
                - Keep tasks short and executable.
                - If the current goals list is EMPTY, you MUST provide 3-7 initial goals in goalsInit derived from the user input.
                  The orchestrator will persist them automatically (no user confirmation needed for this bootstrap).
+               
+               CRITICAL: Plan Coverage and Non-Overlap Requirements:
+               
+               1. COMPLETE COVERAGE OF TARGET MILESTONE:
+                  - The workers' tasks MUST collectively cover ALL aspects of the current milestone's expectedOutput.
+                  - Before finalizing the plan, verify that together the workers address:
+                    * Every key component mentioned in the milestone's expectedOutput
+                    * All sub-tasks required to achieve the milestone goal
+                    * All verification/validation steps if the milestone involves verification
+                  - If the milestone has multiple parts (e.g., "extract AND verify"), ensure workers cover both parts.
+                  - The union of all worker tasks should fully satisfy the milestone's expectedOutput.
+                  - Check the "Plan (from DAG plan nodes)" section in the user message to identify the current Active milestone.
+               
+               2. NON-OVERLAP BETWEEN WORKERS:
+                  - Each worker MUST focus on a DISTINCT and NON-OVERLAPPING task.
+                  - Before finalizing the plan, check that:
+                    * No two workers target the same specific task or sub-task
+                    * Sequential workers should BUILD UPON previous work, not REPEAT it
+                    * If workers seem similar, clarify their DISTINCT purposes explicitly
+                  - Examples of OVERLAP to avoid:
+                    * planner: "Extract theorems from pages 1-20"
+                    * reasoner: "Extract theorems from pages 1-20" (WRONG - duplicates planner's task)
+                  - Examples of NON-OVERLAP:
+                    * planner: "Identify all theorems in pages 1-20 and create extraction plan"
+                    * reasoner: "Extract and analyze theorems from pages 1-20 based on planner's plan" (CORRECT - builds upon planner)
+                    * planner: "Create verification plan for theorems"
+                    * verifier: "Verify theorems according to planner's plan" (CORRECT - distinct roles)
+               
+               3. PLAN GENERATION PROCESS:
+                  Step 1: Identify the current Active milestone from the "Plan (from DAG plan nodes)" section.
+                  Step 2: Break down the milestone's expectedOutput into distinct, non-overlapping sub-tasks.
+                  Step 3: Assign each sub-task to an appropriate worker, ensuring:
+                    * planner: High-level planning and task breakdown
+                    * reasoner: Deep analysis and reasoning based on planner's output
+                    * librarian: Extract trusted axioms/knowledge (if needed)
+                    * verifier: Verification/validation (if needed)
+                    * dag_builder: Knowledge extraction and DAG node creation
+                  Step 4: Verify coverage: Check that all sub-tasks are covered by at least one worker.
+                  Step 5: Verify non-overlap: Check that no two workers have overlapping tasks.
+                  Step 6: Finalize workers with clear, distinct tasks that collectively achieve the milestone goal.
+               
+               4. QUALITY CHECK:
+                  Before outputting the JSON, ask yourself:
+                  - "Do these workers together cover 100% of the current milestone's expectedOutput?" (Must be YES)
+                  - "Are any two workers doing the same work?" (Must be NO)
+                  - "Do sequential workers build upon each other rather than repeat?" (Must be YES)
+                  - "Is each worker's task specific and executable?" (Must be YES)
+               
+               5. CONSIDERATION OF PREVIOUS ROUNDS:
+                  - Check "RecentTrace" in the user message to understand what was done in previous rounds.
+                  - If this is a continuation round (iteration > 1), focus on:
+                    * Completing unfinished tasks from previous rounds
+                    * Addressing gaps identified in previous rounds
+                    * Building upon previous round's outputs, not repeating them
+                  - Avoid duplicating work that was already completed in previous rounds.
 
             2) [MODE:SUMMARY]
                Output Markdown.

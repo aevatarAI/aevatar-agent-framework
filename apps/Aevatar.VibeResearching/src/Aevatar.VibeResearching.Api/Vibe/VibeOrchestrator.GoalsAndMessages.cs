@@ -68,6 +68,14 @@ internal sealed partial class VibeOrchestrator
             }
         }
 
+        sb.AppendLine();
+        sb.AppendLine("---");
+        sb.AppendLine("IMPORTANT: When generating the execution plan, ensure:");
+        sb.AppendLine("1. Complete coverage: All workers together must cover 100% of the current Active milestone's expectedOutput.");
+        sb.AppendLine("2. No overlap: Each worker must focus on distinct, non-overlapping tasks.");
+        sb.AppendLine("3. Sequential building: Later workers should build upon earlier workers' outputs, not repeat their work.");
+        sb.AppendLine("4. Identify the Active milestone from the Plan section above and ensure your plan addresses its goal.");
+
         return sb.ToString();
     }
 

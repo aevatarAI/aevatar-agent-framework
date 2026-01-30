@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button"
 import { PasswordInput } from "@/components/ui/input"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { changePassword } from "@/lib/abp"
+import { useToast } from "@/components/ui/toast"
 
 // ============================================================
 //  Password Panel - Change Password
@@ -10,8 +11,7 @@ import { changePassword } from "@/lib/abp"
 
 export const PasswordPanel: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState("")
-  const [success, setSuccess] = useState(false)
+  const { error: showError, success: showSuccess } = useToast()
   const [formData, setFormData] = useState({
     currentPassword: "",
     newPassword: "",
@@ -20,19 +20,17 @@ export const PasswordPanel: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError("")
-    setSuccess(false)
 
     // Validation
     if (formData.newPassword !== formData.confirmPassword) {
-      setError("New passwords do not match")
+      showError("New passwords do not match")
       return
     }
 
     // ABP Password Policy Validation
     const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]).{6,}$/
     if (!passwordRegex.test(formData.newPassword)) {
-      setError("Password must be at least 6 characters and contain uppercase, lowercase, number, and special character")
+      showError("Password must be at least 6 characters and contain uppercase, lowercase, number, and special character")
       return
     }
 
@@ -44,19 +42,19 @@ export const PasswordPanel: React.FC = () => {
       })
 
       if (result.ok) {
-        setSuccess(true)
+        showSuccess("Password changed successfully!")
         setFormData({ currentPassword: "", newPassword: "", confirmPassword: "" })
       } else {
         // Handle validation details if available
         if (result.details && result.details.length > 0) {
-          setError(result.details.join(", "))
+          showError(result.details.join(", "))
         } else {
-          setError(result.error || "Failed to change password")
+          showError(result.error || "Failed to change password")
         }
       }
     } catch (err) {
       console.error('[Password] Change password error:', err)
-      setError(err instanceof Error ? err.message : "An unexpected error occurred. Please try again.")
+      showError(err instanceof Error ? err.message : "An unexpected error occurred. Please try again.")
     } finally {
       setIsLoading(false)
     }
@@ -70,18 +68,6 @@ export const PasswordPanel: React.FC = () => {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            {error && (
-              <div className="p-3 rounded-lg bg-neon-red/10 border border-neon-red/30 text-neon-red text-sm">
-                {error}
-              </div>
-            )}
-
-            {success && (
-              <div className="p-3 rounded-lg bg-neon-green/10 border border-neon-green/30 text-neon-green text-sm">
-                Password changed successfully!
-              </div>
-            )}
-
             <div className="space-y-1.5">
               <label className="text-sm text-text-secondary">Current Password</label>
               <PasswordInput

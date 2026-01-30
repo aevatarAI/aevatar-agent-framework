@@ -5,6 +5,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { ToastProvider } from './components/ui/toast'
 import './index.css'
 
 // Pages
@@ -37,6 +38,7 @@ import { ProtectedRoute, AdminRoute } from './components/guards'
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
+      <ToastProvider>
       <Routes>
         {/* Public Routes */}
         <Route path="/" element={<LandingPage />} />
@@ -101,6 +103,7 @@ createRoot(document.getElementById('root')!).render(
         {/* Error Routes */}
         <Route path="/403" element={<AccessDeniedPage />} />
       </Routes>
+      </ToastProvider>
     </BrowserRouter>
   </StrictMode>,
 )

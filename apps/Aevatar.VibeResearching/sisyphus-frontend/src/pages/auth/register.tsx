@@ -4,8 +4,7 @@ import { User, UserPlus } from "lucide-react"
 import { AuthLayout, SocialLoginButtons } from "@/components/auth"
 import { Button } from "@/components/ui/button"
 import { Input, EmailInput, PasswordInput } from "@/components/ui/input"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Label } from "@/components/ui/label"
+import { useToast } from "@/components/ui/toast"
 import { abpRegister, type AuthResponse } from "@/lib/abp"
 import { useAuthStore } from "@/store/auth-store"
 
@@ -19,14 +18,14 @@ const OAUTH_ENABLED = import.meta.env.VITE_ENABLE_OAUTH !== 'false'
 export default function RegisterPage() {
   const navigate = useNavigate()
   const { login } = useAuthStore()
+  const { error: showError } = useToast()
   
   const [formData, setFormData] = useState({
     userName: "",
     email: "",
     password: "",
+    confirmPassword: "",
   })
-  const [termsAccepted, setTermsAccepted] = useState(false)
-  const [error, setError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
 
   const updateField = (field: string, value: string) => {
@@ -35,32 +34,36 @@ export default function RegisterPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError("")
 
     // ABP UserName Validation
     const trimmedUserName = formData.userName.trim()
     if (!trimmedUserName) {
-      setError("UserName is required")
+      showError("UserName is required")
       return
     }
     
     // ABP Identity userName rules: max 256 chars, allowed: letters, numbers, underscore, hyphen, dot
-    // Regex: allows a-z, A-Z, 0-9, _, -, .
     const userNameRegex = /^[a-zA-Z0-9_.-]+$/
     if (!userNameRegex.test(trimmedUserName)) {
-      setError("UserName can only contain letters, numbers, underscore, hyphen, and dot")
+      showError("UserName can only contain letters, numbers, underscore, hyphen, and dot")
       return
     }
     
     if (trimmedUserName.length > 256) {
-      setError("UserName must be 256 characters or less")
+      showError("UserName must be 256 characters or less")
+      return
+    }
+
+    // Validate passwords match
+    if (formData.password !== formData.confirmPassword) {
+      showError("Passwords do not match")
       return
     }
 
     // ABP Password Policy Validation
     const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]).{6,}$/
     if (!passwordRegex.test(formData.password)) {
-      setError("Password must be at least 6 characters with uppercase, lowercase, number & special character")
+      showError("Password must be at least 6 characters with uppercase, lowercase, number & special character")
       return
     }
 
@@ -77,10 +80,10 @@ export default function RegisterPage() {
         login(result.user)
         navigate("/email-confirmation", { state: { email: formData.email } })
       } else {
-        setError(result.error || "Registration failed")
+        showError(result.error || "Registration failed")
       }
-    } catch (err) {
-      setError("An unexpected error occurred. Please try again.")
+    } catch {
+      showError("An unexpected error occurred. Please try again.")
     } finally {
       setIsLoading(false)
     }
@@ -88,8 +91,7 @@ export default function RegisterPage() {
 
   const handleSocialLogin = async (_provider: "google" | "github") => {
     // TODO: Implement ABP external login flow
-    // ABP external login requires server-side OAuth flow
-    setError("Social login is not yet configured. Please use email registration.")
+    showError("Social login is not yet configured. Please use email registration.")
   }
 
   return (
@@ -99,13 +101,6 @@ export default function RegisterPage() {
       variant="register"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Error Message */}
-        {error && (
-          <div className="p-3 rounded-lg bg-neon-red/10 border border-neon-red/30 text-neon-red text-sm">
-            {error}
-          </div>
-        )}
-
         {/* UserName Field */}
         <div className="space-y-2">
           <label htmlFor="userName" className="text-sm font-medium text-text-secondary">
@@ -160,25 +155,19 @@ export default function RegisterPage() {
           </p>
         </div>
 
-        {/* Terms Agreement */}
-        <div className="flex items-start gap-2">
-          <Checkbox
-            id="terms"
-            checked={termsAccepted}
-            onCheckedChange={(checked) => setTermsAccepted(checked === true)}
+        {/* Confirm Password Field */}
+        <div className="space-y-2">
+          <label htmlFor="confirmPassword" className="text-sm font-medium text-text-secondary">
+            Confirm Password
+          </label>
+          <PasswordInput
+            id="confirmPassword"
+            placeholder="Confirm your password"
+            value={formData.confirmPassword}
+            onChange={(e) => updateField("confirmPassword", e.target.value)}
             required
-            className="mt-0.5"
+            disabled={isLoading}
           />
-          <Label htmlFor="terms" className="text-sm text-text-secondary cursor-pointer">
-            I agree to the{" "}
-            <a href="#" className="text-neon-cyan hover:underline">
-              Terms of Service
-            </a>{" "}
-            and{" "}
-            <a href="#" className="text-neon-cyan hover:underline">
-              Privacy Policy
-            </a>
-          </Label>
         </div>
 
         {/* Submit Button */}
@@ -186,7 +175,7 @@ export default function RegisterPage() {
           type="submit"
           variant="gold"
           className="w-full gap-2"
-          disabled={isLoading || !termsAccepted}
+          disabled={isLoading}
         >
           <UserPlus className="w-[18px] h-[18px]" />
           {isLoading ? "Creating account..." : "Create Account"}

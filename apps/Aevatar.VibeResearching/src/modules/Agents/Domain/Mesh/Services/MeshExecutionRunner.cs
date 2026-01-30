@@ -59,7 +59,7 @@ internal sealed class MeshExecutionRunner : IMeshExecutionRunner
         var outputs = new Dictionary<string, string>(StringComparer.Ordinal);
         var errors = new List<string>();
 
-        // Notify mesh start (best-effort).
+        // Notify mesh start (best-effort) with full topology for visualization.
         session.Events.Publish(new CustomEvent
         {
             Timestamp = NowMs(),
@@ -69,8 +69,13 @@ internal sealed class MeshExecutionRunner : IMeshExecutionRunner
                 sessionId = session.Id,
                 runId = plan.RunId,
                 dslVersion = plan.DslVersion,
-                nodes = plan.Nodes.Count,
-                edges = plan.Nodes.Sum(n => n.Inbound.Count)
+                nodeCount = plan.Nodes.Count,
+                edgeCount = plan.Nodes.Sum(n => n.Inbound.Count),
+                topology = new
+                {
+                    nodes = plan.Nodes.Select(n => new { id = n.Id, type = n.Type }),
+                    edges = plan.Nodes.SelectMany(n => n.Inbound.Select(b => new { from = b.FromNodeId, to = n.Id }))
+                }
             }
         });
 

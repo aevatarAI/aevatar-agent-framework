@@ -1,0 +1,204 @@
+/* ============================================================
+   Agent Flow Graph Styles
+   Animations and custom styling for the topology graph
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   Dash Flow Animation (edge flowing effect)
+   ------------------------------------------------------------ */
+@keyframes dashFlow {
+  from {
+    stroke-dashoffset: 24;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* ------------------------------------------------------------
+   Pulse Glow Animation (edge/node active state)
+   ------------------------------------------------------------ */
+@keyframes pulseGlow {
+  0%, 100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+/* ------------------------------------------------------------
+   Node Pulse Animation
+   ------------------------------------------------------------ */
+@keyframes nodePulse {
+  0%, 100% {
+    box-shadow: 0 0 12px currentColor;
+  }
+  50% {
+    box-shadow: 0 0 24px currentColor, 0 0 48px currentColor;
+  }
+}
+
+/* ------------------------------------------------------------
+   Slow Pulse Animation (4s cycle instead of 2s)
+   Reduced opacity range for subtler effect
+   ------------------------------------------------------------ */
+@keyframes pulseSlow {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.02);
+  }
+}
+
+.animate-pulse-slow {
+  animation: pulseSlow 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* ------------------------------------------------------------
+   Status Indicator Slow Pulse
+   ------------------------------------------------------------ */
+@keyframes statusPulseSlow {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 4px currentColor;
+  }
+  50% {
+    opacity: 0.7;
+    box-shadow: 0 0 8px currentColor, 0 0 12px currentColor;
+  }
+}
+
+.animate-status-pulse {
+  animation: statusPulseSlow 3s ease-in-out infinite;
+}
+
+/* ------------------------------------------------------------
+   React Flow Overrides
+   ------------------------------------------------------------ */
+.agent-flow-graph .react-flow__node {
+  /* Remove default node styles */
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+}
+
+.agent-flow-graph .react-flow__handle {
+  /* Hide handles visually but keep for connections */
+  opacity: 0;
+}
+
+.agent-flow-graph .react-flow__edge-path {
+  /* Smooth edge rendering */
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Apply dash animation to animated edges */
+.agent-flow-graph .react-flow__edge.animated .react-flow__edge-path {
+  animation: dashFlow 1s linear infinite;
+}
+
+/* ------------------------------------------------------------
+   Background Grid
+   ------------------------------------------------------------ */
+.agent-flow-graph .react-flow__background {
+  opacity: 0.3;
+}
+
+/* ------------------------------------------------------------
+   Mini Map (if used)
+   ------------------------------------------------------------ */
+.agent-flow-graph .react-flow__minimap {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+}
+
+/* ------------------------------------------------------------
+   Controls
+   ------------------------------------------------------------ */
+.agent-flow-graph .react-flow__controls {
+  background: rgba(15, 23, 42, 0.9) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+  padding: 4px !important;
+  gap: 2px !important;
+}
+
+.agent-flow-graph .react-flow__controls-button {
+  background: transparent !important;
+  border: none !important;
+  border-radius: 6px !important;
+  color: #94a3b8 !important;
+  width: 28px !important;
+  height: 28px !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: all 0.2s ease !important;
+}
+
+.agent-flow-graph .react-flow__controls-button:hover {
+  background: rgba(34, 211, 238, 0.15) !important;
+  color: #22d3ee !important;
+}
+
+.agent-flow-graph .react-flow__controls-button svg {
+  width: 14px !important;
+  height: 14px !important;
+  fill: currentColor !important;
+}
+
+/* ------------------------------------------------------------
+   Legend Styles
+   ------------------------------------------------------------ */
+.agent-flow-legend {
+  display: flex;
+  gap: 12px;
+  padding: 8px 12px;
+  background: rgba(15, 23, 42, 0.6);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.agent-flow-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-family: ui-monospace, monospace;
+  color: #94a3b8;
+}
+
+.agent-flow-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.agent-flow-legend-dot.entry {
+  background: #22d3ee;
+  box-shadow: 0 0 8px #22d3ee60;
+}
+
+.agent-flow-legend-dot.process {
+  background: #06b6d4;
+  box-shadow: 0 0 8px #06b6d460;
+}
+
+.agent-flow-legend-dot.validate {
+  background: #8b5cf6;
+  box-shadow: 0 0 8px #8b5cf660;
+}
+
+.agent-flow-legend-dot.output {
+  background: #10b981;
+  box-shadow: 0 0 8px #10b98160;
+}

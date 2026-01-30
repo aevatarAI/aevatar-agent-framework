@@ -810,6 +810,12 @@ internal sealed class VibeMilestoneLoopRunner
     {
         try
         {
+            // Determine milestone type based on goal keywords (used in both prompt building and auto-completion logic)
+            var isIdentificationMilestone = milestoneGoal.Contains("识别", StringComparison.OrdinalIgnoreCase) ||
+                                           milestoneGoal.Contains("identify", StringComparison.OrdinalIgnoreCase);
+            var isVerificationMilestone = milestoneGoal.Contains("验证", StringComparison.OrdinalIgnoreCase) ||
+                                        milestoneGoal.Contains("verify", StringComparison.OrdinalIgnoreCase);
+            
             // Use verifier agent to evaluate completion
             var (verifier, verifierId) = await _vibe.Runtime.GetVerifierAgentAsync(session.Id, providerOverride, ct);
 
@@ -914,12 +920,7 @@ internal sealed class VibeMilestoneLoopRunner
             sb.AppendLine("```");
             sb.AppendLine();
             
-            // Determine milestone type based on goal keywords
-            var isIdentificationMilestone = milestoneGoal.Contains("识别", StringComparison.OrdinalIgnoreCase) ||
-                                           milestoneGoal.Contains("identify", StringComparison.OrdinalIgnoreCase);
-            var isVerificationMilestone = milestoneGoal.Contains("验证", StringComparison.OrdinalIgnoreCase) ||
-                                        milestoneGoal.Contains("verify", StringComparison.OrdinalIgnoreCase);
-            
+            // Use milestone type determined at the beginning of the method
             if (isIdentificationMilestone)
             {
                 // For identification milestones: focus on completeness of identification
@@ -1030,9 +1031,7 @@ internal sealed class VibeMilestoneLoopRunner
             // Add automatic completion logic for identification milestones
             // If milestone goal contains "识别" (identify) and we have created substantial knowledge nodes,
             // and iteration count is reasonable, consider auto-completing
-            var isIdentificationMilestone = milestoneGoal.Contains("识别", StringComparison.OrdinalIgnoreCase) ||
-                                           milestoneGoal.Contains("identify", StringComparison.OrdinalIgnoreCase);
-            
+            // (isIdentificationMilestone was already determined at the beginning of the method)
             if (isIdentificationMilestone && !evaluation.IsComplete)
             {
                 var knowledgeNodeCount = dagSnap.Nodes.Count(n => n.Kind == SraDagNodeKind.Knowledge);

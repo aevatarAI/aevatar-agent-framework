@@ -1518,13 +1518,13 @@ internal sealed partial class VibeOrchestrator
             if (!string.IsNullOrWhiteSpace(proof) && proof.Length < 200)
             {
                 // If extracted proof is too short, use the full output (may contain proof without explicit marker)
-                _logger?.LogDebug("[ProofExtraction] Extracted proof too short ({Length} chars), using full output", proof.Length);
+                _host.Logger.LogDebug("[ProofExtraction] Extracted proof too short ({Length} chars), using full output", proof.Length);
                 proof = output.Trim();
             }
             
             return string.IsNullOrWhiteSpace(proof) ? null : proof;
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             // On error, return null (no proof)
             return null;

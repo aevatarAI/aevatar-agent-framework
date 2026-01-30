@@ -9,6 +9,7 @@ import { Avatar } from "@/components/ui/avatar"
 import { Badge, StatusDot } from "@/components/ui/badge"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import { getUsers, getUserStats, createUser, updateUser, deleteUser, setUserPassword, getRoles } from "@/lib/abp"
+import { useToast } from "@/components/ui/toast"
 import type { User, CreateUserInput, UpdateUserInput } from "@/types/user-management"
 
 // ============================================================
@@ -16,6 +17,7 @@ import type { User, CreateUserInput, UpdateUserInput } from "@/types/user-manage
 // ============================================================
 
 export default function UsersPage() {
+  const { error: showError, success: showSuccess } = useToast()
   const [users, setUsers] = useState<User[]>([])
   const [stats, setStats] = useState({ total: 0, active: 0, roles: 0, admins: 0 })
   const [roles, setRoles] = useState<string[]>([])
@@ -72,27 +74,48 @@ export default function UsersPage() {
 
   // CRUD handlers
   const handleCreateUser = async (data: CreateUserInput) => {
-    await createUser(data)
-    loadData()
+    try {
+      await createUser(data)
+      showSuccess("User created successfully")
+      loadData()
+    } catch (err) {
+      showError("Failed to create user", (err as Error)?.message || "Please try again")
+      throw err // Re-throw to keep modal open
+    }
   }
 
   const handleUpdateUser = async (data: UpdateUserInput) => {
-    if (editingUser) {
+    if (!editingUser) return
+    try {
       await updateUser(editingUser.id, data)
+      showSuccess("User updated successfully")
       loadData()
+    } catch (err) {
+      showError("Failed to update user", (err as Error)?.message || "Please try again")
+      throw err
     }
   }
 
   const handleDeleteUser = async () => {
-    if (deletingUser) {
+    if (!deletingUser) return
+    try {
       await deleteUser(deletingUser.id)
+      showSuccess("User deleted successfully")
       loadData()
+    } catch (err) {
+      showError("Failed to delete user", (err as Error)?.message || "Please try again")
+      throw err
     }
   }
 
   const handleSetPassword = async (password: string) => {
-    if (passwordUser) {
+    if (!passwordUser) return
+    try {
       await setUserPassword(passwordUser.id, password)
+      showSuccess("Password updated successfully")
+    } catch (err) {
+      showError("Failed to set password", (err as Error)?.message || "Please try again")
+      throw err
     }
   }
 

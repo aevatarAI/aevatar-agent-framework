@@ -21,10 +21,9 @@ export default function RegisterPage() {
   const { login } = useAuthStore()
   
   const [formData, setFormData] = useState({
-    name: "",
+    userName: "",
     email: "",
     password: "",
-    confirmPassword: "",
   })
   const [termsAccepted, setTermsAccepted] = useState(false)
   const [error, setError] = useState("")
@@ -38,9 +37,23 @@ export default function RegisterPage() {
     e.preventDefault()
     setError("")
 
-    // Validate passwords match
-    if (formData.password !== formData.confirmPassword) {
-      setError("Passwords do not match")
+    // ABP UserName Validation
+    const trimmedUserName = formData.userName.trim()
+    if (!trimmedUserName) {
+      setError("UserName is required")
+      return
+    }
+    
+    // ABP Identity userName rules: max 256 chars, allowed: letters, numbers, underscore, hyphen, dot
+    // Regex: allows a-z, A-Z, 0-9, _, -, .
+    const userNameRegex = /^[a-zA-Z0-9_.-]+$/
+    if (!userNameRegex.test(trimmedUserName)) {
+      setError("UserName can only contain letters, numbers, underscore, hyphen, and dot")
+      return
+    }
+    
+    if (trimmedUserName.length > 256) {
+      setError("UserName must be 256 characters or less")
       return
     }
 
@@ -54,17 +67,10 @@ export default function RegisterPage() {
     setIsLoading(true)
 
     try {
-      // Split name into first/last
-      const nameParts = formData.name.trim().split(/\s+/)
-      const firstName = nameParts[0] || ""
-      const lastName = nameParts.slice(1).join(" ") || ""
-
       const result: AuthResponse = await abpRegister({
-        userName: formData.email.split("@")[0],
+        userName: formData.userName.trim(),
         email: formData.email,
         password: formData.password,
-        name: firstName,
-        surname: lastName,
       })
       
       if (result.success && result.user) {
@@ -100,21 +106,25 @@ export default function RegisterPage() {
           </div>
         )}
 
-        {/* Full Name Field */}
+        {/* UserName Field */}
         <div className="space-y-2">
-          <label htmlFor="name" className="text-sm font-medium text-text-secondary">
-            Full Name
+          <label htmlFor="userName" className="text-sm font-medium text-text-secondary">
+            UserName
           </label>
           <Input
-            id="name"
+            id="userName"
             type="text"
             icon={User}
-            placeholder="Enter your full name"
-            value={formData.name}
-            onChange={(e) => updateField("name", e.target.value)}
+            placeholder="Enter your username"
+            value={formData.userName}
+            onChange={(e) => updateField("userName", e.target.value)}
             required
             disabled={isLoading}
+            maxLength={256}
           />
+          <p className="text-xs text-text-dimmed">
+            Letters, numbers, underscore, hyphen, and dot only. Max 256 characters.
+          </p>
         </div>
 
         {/* Email Field */}
@@ -148,21 +158,6 @@ export default function RegisterPage() {
           <p className="text-xs text-text-dimmed">
             Min 6 characters with uppercase, lowercase, number & special character
           </p>
-        </div>
-
-        {/* Confirm Password Field */}
-        <div className="space-y-2">
-          <label htmlFor="confirmPassword" className="text-sm font-medium text-text-secondary">
-            Confirm Password
-          </label>
-          <PasswordInput
-            id="confirmPassword"
-            placeholder="Confirm your password"
-            value={formData.confirmPassword}
-            onChange={(e) => updateField("confirmPassword", e.target.value)}
-            required
-            disabled={isLoading}
-          />
         </div>
 
         {/* Terms Agreement */}

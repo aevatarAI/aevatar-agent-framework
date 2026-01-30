@@ -3,22 +3,24 @@ import { Pencil, Lock, User, Camera, Save, X } from "lucide-react"
 import { useAuthStore } from "@/store/auth-store"
 import { useNavigate } from "react-router-dom"
 import { AvatarUploadModal, AvatarCropModal } from "../avatar-modals"
+import { updateMyProfile } from "@/lib/abp"
 
 // ============================================================
 //  Profile Panel - With Edit & Avatar Upload
 // ============================================================
 
 export const ProfilePanel: React.FC = () => {
-  const { user } = useAuthStore()
+  const { user, updateUser: updateAuthUser } = useAuthStore()
   const navigate = useNavigate()
 
   // Edit mode state
   const [isEditing, setIsEditing] = useState(false)
   const [formData, setFormData] = useState({
-    firstName: user?.name || "John",
-    lastName: user?.surname || "Doe",
-    email: user?.email || "admin@sisyphus.ai",
-    phone: "+1 (555) 123-4567",
+    userName: user?.userName || "",
+    firstName: user?.name || "",
+    lastName: user?.surname || "",
+    email: user?.email || "",
+    phone: user?.phoneNumber || "",
   })
 
   // Avatar upload state
@@ -26,25 +28,62 @@ export const ProfilePanel: React.FC = () => {
   const [showAvatarCrop, setShowAvatarCrop] = useState(false)
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
+  
+  // Save state
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
-  const fullName = `${formData.firstName} ${formData.lastName}`
+  const fullName = formData.firstName || formData.lastName 
+    ? `${formData.firstName} ${formData.lastName}`.trim() 
+    : "-"
   const isAdmin = user?.isAdmin || user?.roles?.includes("admin")
 
   const handleInputChange = (field: keyof typeof formData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }))
   }
 
-  const handleSave = () => {
-    // TODO: Save to backend
-    setIsEditing(false)
+  const handleSave = async () => {
+    setIsSaving(true)
+    setSaveError(null)
+
+    try {
+      // Update profile via user-accessible API (not admin API)
+      const result = await updateMyProfile({
+        name: formData.firstName.trim() || undefined,
+        surname: formData.lastName.trim() || undefined,
+        phoneNumber: formData.phone.trim() || undefined,
+      })
+
+      if (!result.ok) {
+        setSaveError(result.error || 'Failed to update profile')
+        return
+      }
+
+      // Update auth store with new user data
+      updateAuthUser({
+        name: formData.firstName.trim(),
+        surname: formData.lastName.trim(),
+        phoneNumber: formData.phone.trim(),
+      })
+
+      setIsEditing(false)
+      setSaveError(null)
+    } catch (error) {
+      console.error('[Profile] Update profile error:', error)
+      setSaveError(error instanceof Error ? error.message : 'Failed to update profile')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const handleCancel = () => {
+    setSaveError(null)
     setFormData({
-      firstName: user?.name || "John",
-      lastName: user?.surname || "Doe",
-      email: user?.email || "admin@sisyphus.ai",
-      phone: "+1 (555) 123-4567",
+      userName: user?.userName || "",
+      firstName: user?.name || "",
+      lastName: user?.surname || "",
+      email: user?.email || "",
+      phone: user?.phoneNumber || "",
     })
     setIsEditing(false)
   }
@@ -89,10 +128,11 @@ export const ProfilePanel: React.FC = () => {
               </button>
               <button
                 onClick={handleSave}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-bg-base bg-neon-cyan rounded-md hover:bg-neon-cyan/90 transition-colors"
+                disabled={isSaving}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-bg-base bg-neon-cyan rounded-md hover:bg-neon-cyan/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Save className="w-3 h-3" />
-                Save
+                <Save className={`w-3 h-3 ${isSaving ? "animate-spin" : ""}`} />
+                {isSaving ? "Saving..." : "Save"}
               </button>
             </div>
           )}
@@ -131,9 +171,30 @@ export const ProfilePanel: React.FC = () => {
           </div>
         )}
 
+        {/* Save Error Message */}
+        {saveError && (
+          <div className="p-3 rounded-lg bg-neon-red/10 border border-neon-red/30 text-neon-red text-sm">
+            {saveError}
+          </div>
+        )}
+
         {/* Fields - Edit Mode */}
         {isEditing ? (
           <div className="space-y-4">
+            {/* User Name - Read Only */}
+            <div className="space-y-1.5">
+              <label className="text-[13px] font-medium text-text-secondary">
+                User Name
+              </label>
+              <input
+                type="text"
+                value={formData.userName}
+                disabled
+                className="w-full h-10 px-3 text-[13px] font-mono bg-background/50 border border-border-subtle rounded-lg text-text-muted cursor-not-allowed"
+              />
+              <p className="text-[11px] text-text-dimmed">User name cannot be changed</p>
+            </div>
+
             {/* First Name + Last Name Row */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
@@ -156,15 +217,18 @@ export const ProfilePanel: React.FC = () => {
               </div>
             </div>
 
-            {/* Email Address */}
+            {/* Email Address - Read Only */}
             <div className="space-y-1.5">
-              <label className="text-[13px] font-medium text-text-secondary">Email Address</label>
+              <label className="text-[13px] font-medium text-text-secondary">
+                Email Address
+              </label>
               <input
                 type="email"
                 value={formData.email}
-                onChange={(e) => handleInputChange("email", e.target.value)}
-                className="w-full h-10 px-3 text-[13px] font-mono bg-background border border-border-subtle rounded-lg text-text-primary focus:outline-none focus:border-neon-cyan transition-colors"
+                disabled
+                className="w-full h-10 px-3 text-[13px] font-mono bg-background/50 border border-border-subtle rounded-lg text-text-muted cursor-not-allowed"
               />
+              <p className="text-[11px] text-text-dimmed">Email cannot be changed</p>
             </div>
 
             {/* Phone Number */}
@@ -182,16 +246,20 @@ export const ProfilePanel: React.FC = () => {
           /* Fields - View Mode */
           <div className="grid grid-cols-2 gap-x-6 gap-y-4">
             <div className="space-y-1">
+              <p className="text-xs text-text-dimmed">User Name</p>
+              <p className="text-sm font-mono text-text-primary">{formData.userName || "-"}</p>
+            </div>
+            <div className="space-y-1">
               <p className="text-xs text-text-dimmed">Full Name</p>
               <p className="text-sm text-text-primary">{fullName}</p>
             </div>
             <div className="space-y-1">
               <p className="text-xs text-text-dimmed">Email Address</p>
-              <p className="text-sm font-mono text-text-primary">{formData.email}</p>
+              <p className="text-sm font-mono text-text-primary">{formData.email || "-"}</p>
             </div>
             <div className="space-y-1">
               <p className="text-xs text-text-dimmed">Phone Number</p>
-              <p className="text-sm font-mono text-text-primary">{formData.phone}</p>
+              <p className="text-sm font-mono text-text-primary">{formData.phone || "-"}</p>
             </div>
             <div className="space-y-1">
               <p className="text-xs text-text-dimmed">Member Since</p>

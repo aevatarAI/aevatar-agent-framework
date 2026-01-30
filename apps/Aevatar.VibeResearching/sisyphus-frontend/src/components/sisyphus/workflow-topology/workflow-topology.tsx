@@ -126,10 +126,9 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
   const interactionRef = useRef<InteractionManager | null>(null)
   const simulationRef = useRef<SimulationManager | null>(null)
   const positionCacheRef = useRef<Map<string, { x: number; y: number }>>(new Map())
-  const animationRef = useRef<number>(0)
   const needsRenderRef = useRef<boolean>(true)  // Track if render is needed
-  const lastSessionIdRef = useRef<string>(sessionId)  // Track session changes
-  const initialFitDoneRef = useRef<string | null>(null)  // Track initial fit per session
+  const lastSessionIdRef = useRef<string>(sessionId)
+  const initialFitDoneRef = useRef<string>('')
 
   // State
   const [refreshing, setRefreshing] = useState(false)
@@ -341,7 +340,6 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
       rendererRef.current = null
       interactionRef.current = null
       setIsRendererReady(false)
-      cancelAnimationFrame(animationRef.current)
     }
   }, [hasData]) // Re-run when data becomes available
 
@@ -375,31 +373,16 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
     return () => clearTimeout(timeoutId)
   }, [sessionId])
 
-  // ── Render loop (optimized: only render when needed) ──
+  // ── Render on demand (no infinite loop) ──
+  // PERFORMANCE FIX: Only render when data or transform changes
+  // Previously used requestAnimationFrame loop which consumed CPU even when idle
   useEffect(() => {
-    let isRunning = true
-    
-    const render = () => {
-      if (!isRunning) return
-      
-      const renderer = rendererRef.current
-      // Only render when flagged or simulation is active
-      const simulationActive = (simulationRef.current?.simulation?.alpha() ?? 0) > 0.001
-      
-      if (renderer && layoutNodes.length > 0 && (needsRenderRef.current || simulationActive)) {
-        renderer.setTransform(transform)
-        renderer.render(layoutNodes, layoutEdges)
-        needsRenderRef.current = false  // Reset flag after render
-      }
-      
-      animationRef.current = requestAnimationFrame(render)
-    }
+    const renderer = rendererRef.current
+    if (!renderer || layoutNodes.length === 0) return
 
-    render()
-    return () => {
-      isRunning = false
-      cancelAnimationFrame(animationRef.current)
-    }
+    // Single render pass when dependencies change
+    renderer.setTransform(transform)
+    renderer.render(layoutNodes, layoutEdges)
   }, [layoutNodes, layoutEdges, transform])
   
   // Mark render needed when transform changes

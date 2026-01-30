@@ -32,12 +32,20 @@ export const UserMenu: React.FC<UserMenuProps> = ({ showName = true }) => {
 
   if (!isAuthenticated || !user) {
     return (
-      <Link
-        to="/login"
-        className="flex items-center gap-2 px-3 py-2 rounded-lg bg-neon-cyan text-bg-base text-sm font-semibold hover:bg-neon-sky transition-colors"
-      >
-        Sign In
-      </Link>
+      <div className="flex items-center gap-2">
+        <Link
+          to="/register"
+          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-neon-cyan/40 text-neon-cyan text-sm font-semibold hover:bg-neon-cyan/10 transition-colors"
+        >
+          Register
+        </Link>
+        <Link
+          to="/login"
+          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-neon-cyan text-bg-base text-sm font-semibold hover:bg-neon-sky transition-colors"
+        >
+          Sign In
+        </Link>
+      </div>
     )
   }
 

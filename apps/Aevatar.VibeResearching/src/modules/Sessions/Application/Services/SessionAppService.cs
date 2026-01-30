@@ -42,9 +42,10 @@ public class SessionAppService : ApplicationService, ISessionAppService
     /// <inheritdoc/>
     public async Task<VibeSessionRecord> CreateAsync(CreateSessionDto input, CancellationToken ct = default)
     {
-        // Set OwnerId to current user's ID (null if anonymous/unauthenticated)
+        // Set OwnerId and OwnerName from current user (null if anonymous/unauthenticated)
         var ownerId = CurrentUser.Id?.ToString();
-        var session = await _sessionManager.CreateSessionAsync(input.ProviderName, ownerId, ct);
+        var ownerName = CurrentUser.Name ?? CurrentUser.UserName;
+        var session = await _sessionManager.CreateSessionAsync(input.ProviderName, ownerId, ownerName, ct);
         return session;
     }
 
@@ -89,73 +90,70 @@ public class SessionAppService : ApplicationService, ISessionAppService
             throw new ArgumentException("Message is required", nameof(input));
         }
 
+        // Save last user message and run mode for resume context
+        session.LastUserMessage = input.Message;
+        session.LastRunMode = input.Mode ?? "vibe";
+        session.LastActivityAt = DateTimeOffset.UtcNow;
+
         // Fire-and-forget run; clients receive progress via AG-UI SSE.
         var runSeq = session.NextRunSeq();
         var runId = $"{session.Id}:{runSeq}";
 
         _ = Task.Run(async () =>
         {
-            // Latest-wins: new message cancels previous run for this session.
-            var run = session.BeginNewRun(runId, reason: "new_input", out var interruptedRunId);
-
-            if (!string.IsNullOrWhiteSpace(interruptedRunId))
-            {
-                // Record interruption context for the new run to process
-                session.RecordInterruption(new InterruptionContext
-                {
-                    InterruptedRunId = interruptedRunId,
-                    NewUserMessage = input.Message ?? string.Empty,
-                    InterruptedAt = DateTimeOffset.UtcNow,
-                    Reason = "new_input",
-                    TotalMilestones = session.Workspace.Vibe.TotalMilestones,
-                    CompletedMilestones = session.Workspace.Vibe.CompletedMilestones,
-                    InterruptedAtMilestoneIndex = session.Workspace.Vibe.CurrentMilestoneIndex
-                });
-
-                // Tell UI immediately (even if the old run was still queued on RunLock).
-                session.Events.Publish(new CustomEvent
-                {
-                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                    Name = "aevatar.scientific.run_interrupted",
-                    Value = new
-                    {
-                        threadId = session.Id,
-                        oldRunId = interruptedRunId,
-                        newRunId = runId,
-                        reason = "new_input"
-                    }
-                });
-
-                // Immediate feedback: acknowledge the user's input
-                session.Events.Publish(new CustomEvent
-                {
-                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                    Name = "aevatar.scientific.system_reply",
-                    Value = new
-                    {
-                        sessionId = session.Id,
-                        messageType = "acknowledgment",
-                        content = "Got it! Analyzing your request..."
-                    }
-                });
-            }
-
-            using var scope = RunContextScope.Begin(run);
             try
             {
-                // Map SessionInputDto to SessionInputInDto
+                // Latest-wins: new message cancels previous run for this session.
+                var run = session.BeginNewRun(runId, reason: "new_input", out var interruptedRunId);
+
+                if (!string.IsNullOrWhiteSpace(interruptedRunId))
+                {
+                    // Record interruption context for the new run to process
+                    session.RecordInterruption(new InterruptionContext
+                    {
+                        InterruptedRunId = interruptedRunId,
+                        NewUserMessage = input.Message ?? string.Empty,
+                        InterruptedAt = DateTimeOffset.UtcNow,
+                        Reason = "new_input",
+                        TotalMilestones = session.Workspace.Vibe.TotalMilestones,
+                        CompletedMilestones = session.Workspace.Vibe.CompletedMilestones,
+                        InterruptedAtMilestoneIndex = session.Workspace.Vibe.CurrentMilestoneIndex
+                    });
+
+                    // Tell UI immediately (even if the old run was still queued on RunLock).
+                    session.Events.Publish(new CustomEvent
+                    {
+                        Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                        Name = "aevatar.scientific.run_interrupted",
+                        Value = new
+                        {
+                            threadId = session.Id,
+                            oldRunId = interruptedRunId,
+                            newRunId = runId,
+                            reason = "new_input"
+                        }
+                    });
+
+                    // Immediate feedback: acknowledge the user's input
+                    session.Events.Publish(new CustomEvent
+                    {
+                        Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                        Name = "aevatar.scientific.system_reply",
+                        Value = new
+                        {
+                            sessionId = session.Id,
+                            messageType = "acknowledgment",
+                            content = "Got it! Analyzing your request..."
+                        }
+                    });
+                }
+
                 var executorInput = MapToExecutorInput(input);
-                await _runExecutor.ExecuteAsync(session, runId, executorInput, run.Token);
+                await FireAndForgetRunCoreAsync(session, run, runId, executorInput);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                Logger.LogError(ex, "Error executing run {RunId} for session {SessionId}", runId, sessionId);
-            }
-            finally
-            {
-                // Only clear if still active (avoid clearing a newer run).
-                _ = session.TryClearActiveRun(runId, run);
-                run.Dispose();
+                Logger.LogError(ex, "Unhandled error in fire-and-forget run {RunId} for session {SessionId}", runId, sessionId);
             }
         }, CancellationToken.None);
 
@@ -166,6 +164,47 @@ public class SessionAppService : ApplicationService, ISessionAppService
     /// <summary>
     /// Maps SessionInputDto (from Application.Contracts) to SessionInputInDto (used by ResearchRunExecutor).
     /// </summary>
+    /// <summary>
+    /// Shared core for fire-and-forget runs. Handles execution, auto-pause on failure, and run cleanup.
+    /// </summary>
+    private async Task FireAndForgetRunCoreAsync(ResearchSession session, RunContext run, string runId, SessionInputInDto executorInput)
+    {
+        using var scope = RunContextScope.Begin(run);
+        try
+        {
+            await _runExecutor.ExecuteAsync(session, runId, executorInput, run.Token);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Logger.LogError(ex, "Error executing run {RunId} for session {SessionId}", runId, session.Id);
+
+            try
+            {
+                if (session.Status == Aevatar.VibeResearching.Sessions.Enums.SessionStatus.Active)
+                {
+                    session.Pause();
+                    await _sessionManager.PersistSessionAsync(session, CancellationToken.None);
+
+                    session.Events.Publish(new CustomEvent
+                    {
+                        Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                        Name = "auto_paused",
+                        Value = new { sessionId = session.Id, reason = "run_failed", error = ex.Message }
+                    });
+                }
+            }
+            catch (Exception pauseEx)
+            {
+                Logger.LogWarning(pauseEx, "Failed to auto-pause session {SessionId} after run failure", session.Id);
+            }
+        }
+        finally
+        {
+            _ = session.TryClearActiveRun(runId, run);
+            run.Dispose();
+        }
+    }
+
     private static SessionInputInDto MapToExecutorInput(SessionInputDto input)
     {
         var executorInput = new SessionInputInDto
@@ -341,13 +380,46 @@ public class SessionAppService : ApplicationService, ISessionAppService
     }
 
     /// <inheritdoc/>
-    public async Task ResumeAsync(string sessionId, CancellationToken ct = default)
+    public async Task<ResumeResultDto> ResumeAsync(string sessionId, CancellationToken ct = default)
     {
         if (!_sessionManager.TryGet(sessionId, out var session))
             throw new InvalidOperationException($"Session '{sessionId}' not found");
 
         await CheckSessionOwnershipAsync(session);
         await _sessionManager.ResumeSessionAsync(sessionId, ct);
+
+        // If there is a previous user message, auto-resume the research run
+        if (string.IsNullOrWhiteSpace(session.LastUserMessage))
+        {
+            return new ResumeResultDto { AutoResumed = false };
+        }
+
+        var lastMessage = session.LastUserMessage;
+        var lastMode = session.LastRunMode ?? "vibe";
+
+        var runSeq = session.NextRunSeq();
+        var runId = $"{session.Id}:{runSeq}";
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var run = session.BeginNewRun(runId, reason: "resume", out _);
+                var executorInput = new SessionInputInDto
+                {
+                    Message = lastMessage,
+                    Mode = lastMode
+                };
+                await FireAndForgetRunCoreAsync(session, run, runId, executorInput);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Logger.LogError(ex, "Unhandled error in fire-and-forget resume run {RunId} for session {SessionId}", runId, sessionId);
+            }
+        }, CancellationToken.None);
+
+        Logger.LogInformation("Auto-resumed session {SessionId} with run {RunId}", sessionId, runId);
+        return new ResumeResultDto { AutoResumed = true, RunId = runId };
     }
 
     /// <inheritdoc/>
@@ -358,6 +430,35 @@ public class SessionAppService : ApplicationService, ISessionAppService
 
         await CheckSessionOwnershipAsync(session);
         await _sessionManager.TerminateSessionAsync(sessionId, ct);
+    }
+
+    /// <summary>
+    /// Auto-pauses sessions that have been active but stale (no active run) for longer than the threshold.
+    /// Called on startup to clean up sessions from previous process instances.
+    /// </summary>
+    public async Task AutoPauseStaleSessionsAsync(TimeSpan? staleThreshold = null, CancellationToken ct = default)
+    {
+        var threshold = staleThreshold ?? TimeSpan.FromMinutes(30);
+        var staleSessions = _sessionManager.GetStaleResumableSessions(threshold);
+
+        foreach (var session in staleSessions)
+        {
+            try
+            {
+                if (session.Status == Aevatar.VibeResearching.Sessions.Enums.SessionStatus.Active)
+                {
+                    await _sessionManager.PauseSessionAsync(session.Id, ct);
+                    Logger.LogInformation("Auto-paused stale session {SessionId}", session.Id);
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to auto-pause stale session {SessionId}", session.Id);
+            }
+        }
+
+        if (staleSessions.Count > 0)
+            Logger.LogInformation("Auto-paused {Count} stale sessions on startup", staleSessions.Count);
     }
 
     /// <summary>

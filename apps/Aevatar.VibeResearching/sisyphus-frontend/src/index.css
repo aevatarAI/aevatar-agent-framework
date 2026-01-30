@@ -736,4 +736,55 @@
     padding: 2px 4px;
     margin: -2px -4px;
   }
+
+  /* ============================================================
+     Gradient Border Animation for LIVE Status
+     Rotating gradient creates a flowing energy effect
+     ============================================================ */
+  @keyframes gradient-rotate {
+    0% { --angle: 0deg; }
+    100% { --angle: 360deg; }
+  }
+
+  @property --angle {
+    syntax: '<angle>';
+    initial-value: 0deg;
+    inherits: false;
+  }
+
+  .animate-gradient-border {
+    position: relative;
+    background: linear-gradient(var(--bg-surface), var(--bg-surface)) padding-box,
+                conic-gradient(
+                  from var(--angle),
+                  var(--neon-cyan),
+                  var(--neon-purple),
+                  var(--neon-sky),
+                  var(--neon-cyan)
+                ) border-box;
+    border: 2px solid transparent;
+    animation: gradient-rotate 2s linear infinite;
+    box-shadow: 
+      0 0 12px rgba(125, 211, 252, 0.4),
+      0 0 24px rgba(196, 181, 253, 0.2);
+  }
+
+  /* Glow pulse for LIVE border */
+  @keyframes border-glow-pulse {
+    0%, 100% {
+      box-shadow: 
+        0 0 8px rgba(125, 211, 252, 0.5),
+        0 0 16px rgba(196, 181, 253, 0.3);
+    }
+    50% {
+      box-shadow: 
+        0 0 16px rgba(125, 211, 252, 0.7),
+        0 0 32px rgba(196, 181, 253, 0.5),
+        0 0 48px rgba(125, 211, 252, 0.3);
+    }
+  }
+
+  .animate-border-glow {
+    animation: border-glow-pulse 1.5s ease-in-out infinite;
+  }
 }

@@ -69,6 +69,8 @@ internal sealed class MongoVibeSessionRepository : IVibeSessionRepository
                 record.CoordinatorId = existing.CoordinatorId;
             if (string.IsNullOrWhiteSpace(record.OwnerId))
                 record.OwnerId = existing.OwnerId;
+            if (string.IsNullOrWhiteSpace(record.OwnerName))
+                record.OwnerName = existing.OwnerName;
 
             VibeSessionStoreHelpers.MergeList(record.AgentIds, existing.AgentIds);
             VibeSessionStoreHelpers.MergeList(record.WorkerIds, existing.WorkerIds);
@@ -164,10 +166,17 @@ internal sealed class MongoVibeSessionRepository : IVibeSessionRepository
                 existing.DagId = record.DagId;
                 existing.CoordinatorId = record.CoordinatorId;
                 existing.OwnerId = record.OwnerId;
+                existing.OwnerName = record.OwnerName;
                 VibeSessionStoreHelpers.MergeList(existing.AgentIds, record.AgentIds);
                 VibeSessionStoreHelpers.MergeList(existing.WorkerIds, record.WorkerIds);
                 existing.CreatedAt = record.CreatedAt;
                 existing.UpdatedAt = record.UpdatedAt;
+                // Lifecycle status fields
+                existing.Status = record.Status;
+                existing.PausedAt = record.PausedAt;
+                existing.ArchivedAt = record.ArchivedAt;
+                existing.LastUserMessage = record.LastUserMessage;
+                existing.LastRunMode = record.LastRunMode;
             }
 
             await SaveIndexAsync(index, ct);

@@ -1,7 +1,9 @@
 import { useEffect, useRef, useCallback } from "react"
-import { flushSync } from "react-dom"
+// PERFORMANCE FIX: Removed flushSync - React 18 automatic batching handles updates efficiently
+// flushSync was blocking main thread on every token during LLM streaming
 import { useSisyphusStore } from "@/store/sisyphus-store"
 import { useStreamContentStore } from "@/store/stream-content-store"
+import { useAgentTopologyStore } from "@/store/agent-topology-store"
 import { createAxiomEventStream, getToolsSnapshot, getDagSnapshot } from "@/lib/axiom-client"
 import type { EventStream } from "@aevatar/kit-protocol"
 import { parseMessageId } from "@aevatar/kit-protocol"
@@ -84,6 +86,35 @@ interface AevatarAgentStatusReportValue {
   message?: string
 }
 
+// Mesh Execution Events (Agent Flow Graph)
+interface VibeMeshStartedValue {
+  sessionId?: string
+  runId?: string
+  dslVersion?: string
+  nodeCount?: number
+  edgeCount?: number
+  topology?: {
+    nodes?: Array<{ id: string; type: string }>
+    edges?: Array<{ from: string; to: string }>
+  }
+}
+
+interface VibeMeshNodeStartedValue {
+  sessionId?: string
+  runId?: string
+  nodeId?: string
+  nodeType?: string
+}
+
+interface VibeMeshNodeFinishedValue {
+  sessionId?: string
+  runId?: string
+  nodeId?: string
+  nodeType?: string
+  ok?: boolean
+  error?: string
+}
+
 // ============================================================================
 //  Axiom Event Stream Hook
 //  Connects to AxiomReasoning backend via @aevatar/kit-protocol
@@ -146,12 +177,12 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     clearAllStreams,
   } = useStreamContentStore.getState()
 
-  // Handle worker streaming content - use flushSync with ISOLATED store
+  // Handle worker streaming content - using ISOLATED store
+  // PERFORMANCE FIX: Removed flushSync - React 18 batching handles updates
   // Only components subscribed to this specific workerId will re-render
   const appendWorkerStream = useCallback((workerId: string, delta: string) => {
-    flushSync(() => {
-      appendWorkerContent(workerId, delta)
-    })
+    // Direct store update - React 18 will batch efficiently
+    appendWorkerContent(workerId, delta)
     
     // Also ensure worker exists in main store (without streaming content)
     const state = useSisyphusStore.getState()
@@ -365,16 +396,16 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
       const parsed = parseMessageId(event.messageId)
       appendWorkerStream(parsed.workerId, event.delta)
 
-      // Also update agent message - use ISOLATED store for immediate render
+      // Also update agent message - use ISOLATED store
+      // PERFORMANCE FIX: Removed flushSync - React 18 batching handles updates
       // Only components subscribed to this specific agent will re-render
       const parts = event.messageId.split(":")
       if (parts.length >= 4) {
         const agent = parts[2]
         if (agent && agent !== "user" && !agent.startsWith("worker")) {
           const agentName = agent === "assistant" ? "research_assistant" : agent
-          flushSync(() => {
-            appendAgentContent(agentName, event.delta)
-          })
+          // Direct store update - React 18 will batch efficiently
+          appendAgentContent(agentName, event.delta)
         }
       }
     })
@@ -396,12 +427,25 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
         lastResponse: finalContent,
       })
       
-      // Finalize agent message in isolated store
+      // Finalize agent message in isolated store and update topology stats
       const parts = event.messageId.split(":")
       if (parts.length >= 4) {
         const agent = parts[2]
         if (agent && agent !== "user" && !agent.startsWith("worker")) {
+          // Update agent topology stats with estimated token count
           const agentName = agent === "assistant" ? "research_assistant" : agent
+          const agentStream = useStreamContentStore.getState().agentStreams[agentName]
+          if (agentStream?.content) {
+            const estimatedTokens = Math.ceil(agentStream.content.length / 4)
+            const { updateAgentStats, agentStats } = useAgentTopologyStore.getState()
+            const currentStats = agentStats[agentName.toLowerCase()]
+            if (currentStats) {
+              updateAgentStats(agentName, {
+                tokens: (currentStats.tokens || 0) + estimatedTokens,
+              })
+            }
+          }
+          // Finalize the agent content stream
           finalizeAgentContent(agentName)
         }
       }
@@ -779,6 +823,53 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
       }
     })
 
+    // ================================================================
+    //  Mesh Execution Events (Agent Flow Graph Topology)
+    // ================================================================
+
+    // Mesh Started - Receive full topology for visualization
+    stream.onCustom("aevatar.vibe.mesh_started", (event) => {
+      addRawEvent(event)
+      const data = event.value as VibeMeshStartedValue
+      if (data?.topology?.nodes && data?.topology?.edges) {
+        const { setTopology } = useAgentTopologyStore.getState()
+        setTopology(
+          { nodes: data.topology.nodes, edges: data.topology.edges },
+          data.sessionId,
+          data.runId
+        )
+      }
+    })
+
+    // Mesh Node Started - Agent begins execution
+    stream.onCustom("aevatar.vibe.mesh_node_started", (event) => {
+      addRawEvent(event)
+      const data = event.value as VibeMeshNodeStartedValue
+      if (data?.nodeType) {
+        const { updateAgentStatus, updateAgentStats } = useAgentTopologyStore.getState()
+        updateAgentStatus(data.nodeType, 'running')
+        // Increment message count for this agent
+        updateAgentStats(data.nodeType, { 
+          messageCount: (useAgentTopologyStore.getState().agentStats[data.nodeType.toLowerCase()]?.messageCount || 0) + 1,
+          lastActivity: 'Started processing...'
+        })
+      }
+    })
+
+    // Mesh Node Finished - Agent completes execution
+    stream.onCustom("aevatar.vibe.mesh_node_finished", (event) => {
+      addRawEvent(event)
+      const data = event.value as VibeMeshNodeFinishedValue
+      if (data?.nodeType) {
+        const { updateAgentStatus, updateAgentStats } = useAgentTopologyStore.getState()
+        updateAgentStatus(data.nodeType, data.ok ? 'completed' : 'error')
+        // Update last activity
+        updateAgentStats(data.nodeType, { 
+          lastActivity: data.ok ? 'Completed successfully' : `Error: ${data.error || 'Unknown'}`
+        })
+      }
+    })
+
     // Agent Status Report (real-time work status from agents)
     stream.onCustom("aevatar.vibe.agent_status_report", (event) => {
       addRawEvent(event)
@@ -952,6 +1043,28 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
       }
       // Clear isolated streams for the new run
       clearAllStreams()
+    })
+
+    // === Session Lifecycle Events ===
+
+    stream.onCustom("auto_paused", () => {
+      const { setLifecycleStatus } = useSisyphusStore.getState()
+      setLifecycleStatus("paused")
+    })
+
+    stream.onCustom("session_paused", () => {
+      const { setLifecycleStatus } = useSisyphusStore.getState()
+      setLifecycleStatus("paused")
+    })
+
+    stream.onCustom("session_resumed", () => {
+      const { setLifecycleStatus } = useSisyphusStore.getState()
+      setLifecycleStatus("active")
+    })
+
+    stream.onCustom("session_terminated", () => {
+      const { setLifecycleStatus } = useSisyphusStore.getState()
+      setLifecycleStatus("archived")
     })
 
     // Catch-all handler - extract worker data from ProgressEvent

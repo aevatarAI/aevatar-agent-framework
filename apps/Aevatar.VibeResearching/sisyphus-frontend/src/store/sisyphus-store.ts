@@ -208,6 +208,10 @@ interface SisyphusState {
   tools: ToolSummary[]
   setTools: (tools: ToolSummary[]) => void
 
+  // Session Lifecycle
+  lifecycleStatus: "active" | "paused" | "archived"
+  setLifecycleStatus: (status: "active" | "paused" | "archived", sessionId?: string) => void
+
   // Sessions
   sessions: SisyphusSession[]
   currentSessionId: string | null
@@ -391,6 +395,18 @@ export const useSisyphusStore = create<SisyphusState>((set) => ({
   tools: [],
   setTools: (tools) => set({ tools }),
 
+  // === Session Lifecycle ===
+  lifecycleStatus: "active",
+  setLifecycleStatus: (status, sessionId) => set((state) => {
+    const targetId = sessionId || state.currentSessionId;
+    return {
+      lifecycleStatus: (!sessionId || sessionId === state.currentSessionId) ? status : state.lifecycleStatus,
+      sessions: state.sessions.map((s) =>
+        s.id === targetId ? { ...s, lifecycleStatus: status } : s
+      ),
+    };
+  }),
+
   // === Sessions ===
   sessions: [],
   currentSessionId: null,
@@ -524,18 +540,21 @@ export const useSisyphusStore = create<SisyphusState>((set) => ({
   }),
 
   // === Chat Messages ===
+  // PERFORMANCE: Limit to 200 messages to prevent memory bloat
   messages: [],
   addMessage: (message) =>
-    set((state) => ({
-      messages: [
-        ...state.messages,
-        {
-          ...message,
-          id: crypto.randomUUID(),
-          timestamp: Date.now(),
-        },
-      ],
-    })),
+    set((state) => {
+      const newMessage = {
+        ...message,
+        id: crypto.randomUUID(),
+        timestamp: Date.now(),
+      }
+      // Keep only last 199 messages + new one = 200 max
+      const trimmedMessages = state.messages.length >= 200
+        ? state.messages.slice(-199)
+        : state.messages
+      return { messages: [...trimmedMessages, newMessage] }
+    }),
   clearMessages: () => set({ messages: [] }),
 
   // === Research Brief ===
@@ -592,6 +611,7 @@ export const useSisyphusStore = create<SisyphusState>((set) => ({
       currentRunId: null,
       userPrompt: "",
       isSending: false,
+      lifecycleStatus: "active",
       tools: [],
       // Clear Agent States (API data)
       agentStates: {},

@@ -1,5 +1,5 @@
 import React, { useEffect, useCallback, useState, useRef } from 'react';
-import { Header, Sidebar, InteractionStream, WorkflowTopology, StatusBar, SettingsPanel } from '@/components/sisyphus';
+import { Header, Sidebar, InteractionStream, WorkflowTopology, StatusBar } from '@/components/sisyphus';
 import { useSisyphusStore } from '@/store/sisyphus-store';
 import { useAxiomStream } from '@/hooks/use-axiom-stream';
 import { useAgentStates } from '@/hooks/use-agent-states';
@@ -7,12 +7,57 @@ import { useSessionStatus } from '@/hooks/use-session-status';
 import { listSessions, createSession, getDagSnapshot, getSessionEvents, parseWorkersFromEvents, abortCurrentSessionRequests, getSessionStatus, type AxiomSession } from '@/lib/axiom-client';
 import type { DAGGraph } from '@/types';
 import { cn } from '@/lib/utils';
-
-type AppView = 'chat' | 'settings';
+import { useAuthStore } from '@/store/auth-store';
 
 // Panel collapse threshold (percentage)
 const COLLAPSE_THRESHOLD = 20;
 const DEFAULT_LEFT_WIDTH = 50;
+
+// Parse protobuf Timestamp or ISO string to ISO string
+function parseTimestamp(val: unknown): string {
+  if (!val) return '';
+  if (typeof val === 'string') return val;
+  if (typeof val === 'object' && val !== null && 'seconds' in val) {
+    const ts = val as { seconds?: number; nanos?: number };
+    if (ts.seconds) return new Date(ts.seconds * 1000).toISOString();
+  }
+  return '';
+}
+
+// Derive lifecycle status from backend SessionStatus (proto enum: 0=unspecified, 1=active, 2=paused, 3=archived)
+// The value may arrive as a number (protobuf JSON) or a string.
+function deriveLifecycleStatus(status?: unknown): 'active' | 'paused' | 'archived' {
+  if (status == null) return 'active';
+  // Numeric protobuf enum values
+  if (typeof status === 'number') {
+    if (status === 2) return 'paused';
+    if (status === 3) return 'archived';
+    return 'active';
+  }
+  // String values (camelCase enum name or lowercase)
+  if (typeof status === 'string') {
+    const s = status.toLowerCase();
+    if (s === 'paused' || s === 'auto_paused' || s === 'session_status_paused') return 'paused';
+    if (s === 'archived' || s === 'terminated' || s === 'session_status_archived') return 'archived';
+  }
+  return 'active';
+}
+
+// Shared mapper: backend AxiomSession → frontend SisyphusSession
+function mapAxiomSession(s: AxiomSession) {
+  return {
+    id: s.sessionId,
+    status: "pending" as "pending" | "running" | "completed" | "failed",
+    phase: s.phase || "",
+    progressPercent: s.progressPercent || 0,
+    totalTokens: s.totalTokens || 0,
+    totalLlmCalls: s.totalLlmCalls || 0,
+    createdAt: parseTimestamp(s.createdAt),
+    ownerId: s.ownerId || '',
+    ownerName: s.ownerName || '',
+    lifecycleStatus: deriveLifecycleStatus(s.status),
+  };
+}
 
 // Transform backend DAG format to frontend format
 // Backend uses fromId/toId, frontend expects source/target
@@ -41,9 +86,6 @@ const App: React.FC = () => {
   const isDragging = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // View state: chat (default) or settings
-  const [view, setView] = useState<AppView>('chat');
-  
   // Connect to AG-UI event stream
   useAxiomStream({ sessionId: currentSessionId, enabled: true });
   
@@ -68,17 +110,9 @@ const App: React.FC = () => {
     const fetchSessions = async () => {
       try {
         const data = await listSessions();
-        const mapped = data.map((s: AxiomSession) => ({
-          id: s.sessionId,  // Use sessionId from backend
-          status: (s.status as "pending" | "running" | "completed" | "failed") || "pending",
-          phase: s.phase || "",
-          progressPercent: s.progressPercent || 0,
-          totalTokens: s.totalTokens || 0,
-          totalLlmCalls: s.totalLlmCalls || 0,
-          createdAt: s.createdAt || "",
-        }));
+        const mapped = data.map(mapAxiomSession);
         setSessions(mapped);
-        
+
         // Auto-select first session if available
         if (mapped.length > 0) {
           const firstSessionId = mapped[0].id;
@@ -276,6 +310,7 @@ const App: React.FC = () => {
       if (result.ok && result.sessionId) {
         // Optimistic update: prepend new session to list immediately
         // This avoids cache hit issues from listSessions() returning stale data
+        const currentUser = useAuthStore.getState().user;
         const newSession = {
           id: result.sessionId,
           status: "pending" as const,
@@ -284,6 +319,9 @@ const App: React.FC = () => {
           totalTokens: 0,
           totalLlmCalls: 0,
           createdAt: new Date().toISOString(),
+          ownerId: currentUser?.id,
+          ownerName: currentUser?.name || currentUser?.userName,
+          lifecycleStatus: 'active' as const,
         };
         
         // Get current sessions and prepend the new one
@@ -305,28 +343,18 @@ const App: React.FC = () => {
           console.warn('[App] Failed to fetch DAG for new session:', result.sessionId, err);
         }
 
-        // Switch to chat view
-        setView('chat');
       } else {
         console.error("Failed to create session:", result.error);
       }
     } catch (error) {
       console.error("Error creating session:", error);
     }
-  }, [setSessions, setCurrentSession, resetForNewSession, setView, setDag]);
+  }, [setSessions, setCurrentSession, resetForNewSession, setDag]);
 
   const handleRefreshSessions = useCallback(async () => {
     try {
       const data = await listSessions();
-      const mapped = data.map((s: AxiomSession) => ({
-        id: s.sessionId,  // Use sessionId from backend
-        status: (s.status as "pending" | "running" | "completed" | "failed") || "pending",
-        phase: s.phase || "",
-        progressPercent: s.progressPercent || 0,
-        totalTokens: s.totalTokens || 0,
-        totalLlmCalls: s.totalLlmCalls || 0,
-        createdAt: s.createdAt || "",
-      }));
+      const mapped = data.map(mapAxiomSession);
       setSessions(mapped);
     } catch (error) {
       console.error("Failed to refresh sessions:", error);
@@ -349,18 +377,12 @@ const App: React.FC = () => {
       <div className="flex flex-1 overflow-hidden relative z-10">
         <Sidebar
           onCreateSession={handleCreateSession}
-          onSelectSession={(id) => { handleSelectSession(id); setView('chat'); }}
+          onSelectSession={handleSelectSession}
           onRefreshSessions={handleRefreshSessions}
-          onOpenSettings={() => setView('settings')}
-          activeView={view}
         />
         
         <main ref={containerRef} className="flex-1 flex overflow-hidden bg-dots relative">
-          {view === 'settings' ? (
-            <div className="flex-1 overflow-hidden">
-              <SettingsPanel sessionId={currentSessionId} connected={isConnected} />
-            </div>
-          ) : currentSessionId ? (
+          {currentSessionId ? (
             <>
               {/* Left Panel */}
               <div 

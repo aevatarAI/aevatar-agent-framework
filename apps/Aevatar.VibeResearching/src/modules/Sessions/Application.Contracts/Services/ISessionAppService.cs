@@ -80,10 +80,12 @@ public interface ISessionAppService : IApplicationService
 
     /// <summary>
     /// Resumes a paused session, restoring it to active state.
+    /// If the session has a previous user message, automatically re-triggers a research run.
     /// </summary>
     /// <param name="sessionId">Session identifier</param>
     /// <param name="ct">Cancellation token</param>
-    Task ResumeAsync(string sessionId, CancellationToken ct = default);
+    /// <returns>Result indicating whether a run was auto-resumed</returns>
+    Task<ResumeResultDto> ResumeAsync(string sessionId, CancellationToken ct = default);
 
     /// <summary>
     /// Terminates (archives) a session permanently.
@@ -91,4 +93,9 @@ public interface ISessionAppService : IApplicationService
     /// <param name="sessionId">Session identifier</param>
     /// <param name="ct">Cancellation token</param>
     Task TerminateAsync(string sessionId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Auto-pauses stale sessions on startup.
+    /// </summary>
+    Task AutoPauseStaleSessionsAsync(TimeSpan? staleThreshold = null, CancellationToken ct = default);
 }

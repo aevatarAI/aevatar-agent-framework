@@ -1,6 +1,6 @@
 import React from "react"
 import { NavLink, useLocation } from "react-router-dom"
-import { User, Lock, Users, Shield, Key } from "lucide-react"
+import { User, Lock, Users, Shield, Key, Settings } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 // ============================================================
@@ -22,6 +22,7 @@ const managementItems: NavItem[] = [
   { label: "Users", href: "/admin/users", icon: <Users className="w-4 h-4" /> },
   { label: "Roles", href: "/admin/roles", icon: <Shield className="w-4 h-4" /> },
   { label: "Permissions", href: "/admin/permissions", icon: <Key className="w-4 h-4" /> },
+  { label: "Platform Settings", href: "/admin/settings", icon: <Settings className="w-4 h-4" /> },
 ]
 
 export const AdminSidebar: React.FC = () => {

@@ -107,16 +107,13 @@ public sealed class VibeMilestoneLoopRunner
                     emitAssistantDelta,
                     ct);
 
-                // If intent was handled and no further research needed, return early
+                // Progress inquiry handled above. Do NOT return early —
+                // BeginNewRun cancelled the previous research run (latest-wins),
+                // so we must fall through to continue the milestone loop.
                 if (intentAnalysis.IntentType == UserIntentType.ProgressInquiry)
                 {
-                    return new MilestoneLoopResult
-                    {
-                        Ok = true,
-                        StopReason = "progress_inquiry_handled",
-                        MilestonesExecuted = interruptionContext.CompletedMilestones,
-                        TotalMilestones = interruptionContext.TotalMilestones
-                    };
+                    _logger.LogInformation(
+                        "[MilestoneLoop] Progress inquiry handled. Continuing research from where it left off.");
                 }
             }
 

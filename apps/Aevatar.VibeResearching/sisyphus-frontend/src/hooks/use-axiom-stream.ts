@@ -1045,6 +1045,28 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
       clearAllStreams()
     })
 
+    // === Session Lifecycle Events ===
+
+    stream.onCustom("auto_paused", () => {
+      const { setLifecycleStatus } = useSisyphusStore.getState()
+      setLifecycleStatus("paused")
+    })
+
+    stream.onCustom("session_paused", () => {
+      const { setLifecycleStatus } = useSisyphusStore.getState()
+      setLifecycleStatus("paused")
+    })
+
+    stream.onCustom("session_resumed", () => {
+      const { setLifecycleStatus } = useSisyphusStore.getState()
+      setLifecycleStatus("active")
+    })
+
+    stream.onCustom("session_terminated", () => {
+      const { setLifecycleStatus } = useSisyphusStore.getState()
+      setLifecycleStatus("archived")
+    })
+
     // Catch-all handler - extract worker data from ProgressEvent
     stream.onAny((event) => {
       // Handle ProgressEvent to extract worker data (like reference project)

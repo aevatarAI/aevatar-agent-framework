@@ -13,6 +13,7 @@ import {
   getAccessToken,
   getRefreshToken,
 } from './config'
+import { usePermissionStore } from '@/store/permission-store'
 
 // ============================================================================
 //  Types
@@ -150,6 +151,9 @@ async function cookieLogin(input: LoginInput): Promise<AuthResponse> {
     return { success: false, error: 'Failed to fetch user profile.' }
   }
 
+  // Load permissions after successful login
+  await usePermissionStore.getState().loadPermissions()
+
   return { success: true, user }
 }
 
@@ -216,6 +220,9 @@ async function tokenLogin(input: LoginInput): Promise<AuthResponse> {
   if (!user) {
     return { success: false, error: 'Failed to fetch user profile.' }
   }
+
+  // Load permissions after successful token login
+  await usePermissionStore.getState().loadPermissions()
 
   return { success: true, user }
 }
@@ -294,6 +301,8 @@ async function fetchVibeProfile(): Promise<AuthUser | null> {
     } as RequestInit)
 
     const permissions = await fetchMyPermissions()
+    // Store permissions in the permission store
+    usePermissionStore.setState({ permissions, isLoaded: true })
     const roles = extractRolesFromPermissions(permissions)
 
     // Parse display name, fallback to userName if empty
@@ -407,6 +416,7 @@ export async function abpLogout(): Promise<void> {
     }
   } finally {
     clearTokens()
+    usePermissionStore.getState().clearPermissions()
   }
 }
 

@@ -80,6 +80,44 @@ export async function stopSession(sessionId: string | null | undefined): Promise
   return fetchJson<RunResult>(`/api/sessions/${sessionId}/stop`, { method: 'POST' })
 }
 
+// === Session Lifecycle ===
+
+export async function pauseSession(
+  sessionId: string | null | undefined
+): Promise<{ ok: boolean; error?: string }> {
+  if (!validateSessionId(sessionId, 'pauseSession')) {
+    return { ok: false, error: 'Invalid sessionId' }
+  }
+  return fetchJson<{ ok: boolean; error?: string }>(
+    `/api/sessions/${encodeURIComponent(sessionId!)}/pause`,
+    { method: 'POST' }
+  )
+}
+
+export async function resumeSession(
+  sessionId: string | null | undefined
+): Promise<{ ok: boolean; autoResumed: boolean; error?: string }> {
+  if (!validateSessionId(sessionId, 'resumeSession')) {
+    return { ok: false, autoResumed: false, error: 'Invalid sessionId' }
+  }
+  return fetchJson<{ ok: boolean; autoResumed: boolean; error?: string }>(
+    `/api/sessions/${encodeURIComponent(sessionId!)}/resume`,
+    { method: 'POST' }
+  )
+}
+
+export async function terminateSession(
+  sessionId: string | null | undefined
+): Promise<{ ok: boolean; error?: string }> {
+  if (!validateSessionId(sessionId, 'terminateSession')) {
+    return { ok: false, error: 'Invalid sessionId' }
+  }
+  return fetchJson<{ ok: boolean; error?: string }>(
+    `/api/sessions/${encodeURIComponent(sessionId!)}/terminate`,
+    { method: 'POST' }
+  )
+}
+
 export async function getSessionResult(sessionId: string | null | undefined): Promise<unknown> {
   if (!validateSessionId(sessionId, 'getSessionResult')) {
     return null

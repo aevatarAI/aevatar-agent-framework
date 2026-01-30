@@ -402,6 +402,21 @@ public class VibeResearchingHttpApiHostModule : AbpModule
             var services = app.ApplicationServices;
             var sessions = services.GetRequiredService<ResearchSessionManager>();
             await sessions.LoadPersistedSessionsAsync(CancellationToken.None);
+
+            // Auto-pause orphaned sessions from previous process crash.
+            // On startup, any Active session with no in-memory run is orphaned.
+            var orphaned = sessions.GetOrphanedActiveSessions();
+            foreach (var session in orphaned)
+            {
+                try
+                {
+                    await sessions.PauseSessionAsync(session.Id, CancellationToken.None);
+                }
+                catch
+                {
+                    // best-effort
+                }
+            }
         }
         catch
         {

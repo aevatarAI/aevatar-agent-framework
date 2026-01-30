@@ -7,13 +7,15 @@
 export interface AxiomSession {
   sessionId: string
   id?: string
-  status?: string
+  status?: string | number
   phase?: string
   progressPercent?: number
   totalTokens?: number
   totalLlmCalls?: number
-  createdAt?: string
+  createdAt?: string | { seconds?: number; nanos?: number }
   providerName?: string | null
+  ownerId?: string
+  ownerName?: string
 }
 
 export interface CreateSessionPayload {

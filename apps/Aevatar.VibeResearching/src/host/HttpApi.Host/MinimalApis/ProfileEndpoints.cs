@@ -23,6 +23,9 @@ public static class ProfileEndpoints
                 id = user.Id,
                 userName = user.UserName,
                 email = user.Email,
+                name = user.Name ?? "",
+                surname = user.Surname ?? "",
+                phoneNumber = user.PhoneNumber ?? "",
                 displayName = user.GetProperty<string>("DisplayName") ?? "",
                 bio = user.GetProperty<string>("Bio") ?? "",
                 hasProfilePicture = user.GetProperty<bool?>("HasProfilePicture") ?? false
@@ -44,6 +47,17 @@ public static class ProfileEndpoints
 
             var user = await userRepository.GetAsync(currentUser.Id.Value);
 
+            // Update standard ABP Identity fields
+            if (body.Name != null)
+                user.Name = body.Name;
+
+            if (body.Surname != null)
+                user.Surname = body.Surname;
+
+            if (body.PhoneNumber != null)
+                await userManager.SetPhoneNumberAsync(user, body.PhoneNumber);
+
+            // Update custom extension properties
             if (body.DisplayName != null)
                 user.SetProperty("DisplayName", body.DisplayName);
 
@@ -81,6 +95,12 @@ public static class ProfileEndpoints
         }).RequireAuthorization();
     }
 
-    private sealed record UpdateProfileRequest(string? DisplayName, string? Bio);
+    private sealed record UpdateProfileRequest(
+        string? Name,
+        string? Surname,
+        string? PhoneNumber,
+        string? DisplayName,
+        string? Bio
+    );
     private sealed record ChangePasswordRequest(string? CurrentPassword, string? NewPassword);
 }

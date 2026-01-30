@@ -296,10 +296,10 @@ async function fetchVibeProfile(): Promise<AuthUser | null> {
     const permissions = await fetchMyPermissions()
     const roles = extractRolesFromPermissions(permissions)
 
-    // Parse display name, fallback to userName if empty
-    const displayName = profile.displayName?.trim() || profile.userName
+    // Parse display name, keep empty if not provided
+    const displayName = profile.displayName?.trim() || ''
     const nameParts = displayName.split(' ')
-    const firstName = nameParts[0] || profile.userName
+    const firstName = nameParts[0] || ''
     const lastName = nameParts.slice(1).join(' ') || ''
 
     return {

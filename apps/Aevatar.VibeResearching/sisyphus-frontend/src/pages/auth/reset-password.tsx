@@ -4,6 +4,7 @@ import { ArrowLeft, CheckCircle } from "lucide-react"
 import { AuthLayout } from "@/components/auth"
 import { Button } from "@/components/ui/button"
 import { PasswordInput } from "@/components/ui/input"
+import { useToast } from "@/components/ui/toast"
 import { abpResetPassword } from "@/lib/abp"
 
 // ============================================================
@@ -13,6 +14,7 @@ import { abpResetPassword } from "@/lib/abp"
 export default function ResetPasswordPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const { error: showError } = useToast()
   const token = searchParams.get("resetToken") || ""
   const userId = searchParams.get("userId") || ""
   
@@ -20,22 +22,20 @@ export default function ResetPasswordPage() {
   const [confirmPassword, setConfirmPassword] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [isSuccess, setIsSuccess] = useState(false)
-  const [error, setError] = useState("")
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError("")
 
     // Validate passwords match
     if (password !== confirmPassword) {
-      setError("Passwords do not match")
+      showError("Passwords do not match")
       return
     }
 
     // ABP Password Policy Validation
     const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]).{6,}$/
     if (!passwordRegex.test(password)) {
-      setError("Password must be at least 6 characters with uppercase, lowercase, number & special character")
+      showError("Password must be at least 6 characters with uppercase, lowercase, number & special character")
       return
     }
 
@@ -47,10 +47,10 @@ export default function ResetPasswordPage() {
       if (result.success) {
         setIsSuccess(true)
       } else {
-        setError(result.error || "Failed to reset password")
+        showError(result.error || "Failed to reset password")
       }
-    } catch (err) {
-      setError("An unexpected error occurred. Please try again.")
+    } catch {
+      showError("An unexpected error occurred. Please try again.")
     } finally {
       setIsLoading(false)
     }
@@ -94,13 +94,6 @@ export default function ResetPasswordPage() {
       subtitle="Create a new password for your account"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Error Message */}
-        {error && (
-          <div className="p-3 rounded-lg bg-neon-red/10 border border-neon-red/30 text-neon-red text-sm">
-            {error}
-          </div>
-        )}
-
         {/* New Password Field */}
         <div className="space-y-2">
           <label htmlFor="password" className="text-sm font-medium text-text-secondary">

@@ -4,6 +4,7 @@ import { ArrowLeft, Mail } from "lucide-react"
 import { AuthLayout } from "@/components/auth"
 import { Button } from "@/components/ui/button"
 import { EmailInput } from "@/components/ui/input"
+import { useToast } from "@/components/ui/toast"
 import { abpForgotPassword } from "@/lib/abp"
 
 // ============================================================
@@ -14,11 +15,10 @@ export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [isSubmitted, setIsSubmitted] = useState(false)
-  const [error, setError] = useState("")
+  const { error: showError } = useToast()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError("")
     setIsLoading(true)
 
     try {
@@ -27,10 +27,10 @@ export default function ForgotPasswordPage() {
       if (result.success) {
         setIsSubmitted(true)
       } else {
-        setError(result.error || "Failed to send reset email")
+        showError(result.error || "Failed to send reset email")
       }
-    } catch (err) {
-      setError("An unexpected error occurred. Please try again.")
+    } catch {
+      showError("An unexpected error occurred. Please try again.")
     } finally {
       setIsLoading(false)
     }
@@ -88,13 +88,6 @@ export default function ForgotPasswordPage() {
       subtitle="Enter your email to receive a reset link"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Error Message */}
-        {error && (
-          <div className="p-3 rounded-lg bg-neon-red/10 border border-neon-red/30 text-neon-red text-sm">
-            {error}
-          </div>
-        )}
-
         {/* Email Field */}
         <div className="space-y-2">
           <label htmlFor="email" className="text-sm font-medium text-text-secondary">

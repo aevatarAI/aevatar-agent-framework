@@ -485,7 +485,18 @@ export async function abpForgotPassword(email: string): Promise<{ success: boole
     return { success: true }
   } catch (error) {
     console.error('[Auth] Forgot password error:', error)
-    return { success: true } // Always return success to prevent email enumeration
+    
+    // Show network/server errors to user for debugging
+    // But hide "user not found" errors to prevent email enumeration
+    if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+      return { success: false, error: 'Unable to connect to server. Please try again later.' }
+    }
+    if (error instanceof Error && error.message.includes('500')) {
+      return { success: false, error: 'Server error. Please try again later.' }
+    }
+    
+    // For other errors (like 404 user not found), return success to prevent email enumeration
+    return { success: true }
   }
 }
 

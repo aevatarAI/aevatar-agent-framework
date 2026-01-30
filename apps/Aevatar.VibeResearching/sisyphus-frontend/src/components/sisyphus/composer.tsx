@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import { useSisyphusStore, type InputMode } from '@/store/sisyphus-store'
 import { sendMessage, uploadWithExtraction } from '@/lib/axiom-client'
 import { usePermission } from '@/hooks/use-permission'
+import { useToast } from '@/components/ui/toast'
 
 // ============================================================
 //  Composer - Enhanced message input with mode switch,
@@ -53,6 +54,7 @@ const Composer: React.FC<ComposerProps> = ({ sessionId, connected }) => {
   const lifecycleStatus = useSisyphusStore((s) => s.lifecycleStatus)
   const setIsSending = useSisyphusStore((s) => s.setIsSending)
   const addMessage = useSisyphusStore((s) => s.addMessage)
+  const { error: showError } = useToast()
 
   const [text, setText] = useState("")
   const [files, setFiles] = useState<File[]>([])
@@ -186,11 +188,12 @@ const Composer: React.FC<ComposerProps> = ({ sessionId, connected }) => {
       setFiles([])
     } catch (e) {
       console.error("Failed to send message:", e)
+      showError("Failed to send message", (e as Error)?.message || "Please try again")
     } finally {
       setIsSending(false)
       setUploadStatus(null)
     }
-  }, [sessionId, connected, isSending, text, inputMode, toAgents, files, setIsSending, addMessage])
+  }, [sessionId, connected, isSending, text, inputMode, toAgents, files, setIsSending, addMessage, showError])
 
   // Handle enter key
   const handleKeyDown = (e: React.KeyboardEvent) => {

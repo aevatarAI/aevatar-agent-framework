@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input, PasswordInput } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Avatar } from "@/components/ui/avatar"
+import { useToast } from "@/components/ui/toast"
 import type { User as UserType, CreateUserInput, UpdateUserInput } from "@/types/user-management"
 import { cn } from "@/lib/utils"
 
@@ -437,19 +438,18 @@ export const SetPasswordModal: React.FC<SetPasswordModalProps> = ({
   const [isLoading, setIsLoading] = useState(false)
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
-  const [error, setError] = useState("")
+  const { error: showError } = useToast()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError("")
 
     if (password !== confirmPassword) {
-      setError("Passwords do not match")
+      showError("Passwords do not match")
       return
     }
 
     if (password.length < 6) {
-      setError("Password must be at least 6 characters")
+      showError("Password must be at least 6 characters")
       return
     }
 
@@ -489,12 +489,6 @@ export const SetPasswordModal: React.FC<SetPasswordModalProps> = ({
 
           {/* Body */}
           <div className="p-5 space-y-4">
-            {error && (
-              <div className="p-3 rounded-lg bg-neon-red/10 border border-neon-red/30 text-neon-red text-sm">
-                {error}
-              </div>
-            )}
-
             <div className="space-y-1.5">
               <label className="text-sm text-text-secondary">New Password</label>
               <PasswordInput

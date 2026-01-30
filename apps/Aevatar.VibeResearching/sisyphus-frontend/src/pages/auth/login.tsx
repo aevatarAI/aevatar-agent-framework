@@ -6,12 +6,13 @@ import { Button } from "@/components/ui/button"
 import { Input, PasswordInput } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
+import { useToast } from "@/components/ui/toast"
 import { abpLogin, type AuthResponse } from "@/lib/abp"
 
 // Demo credentials for testing (remove in production)
 const getDemoCredentials = () => ({
   admin: { email: "admin", password: "1q2w3E*" },  // ABP default
-  user: { email: "user@sisyphus.ai", password: "User@123" },
+  user: { email: "testuser", password: "Abc@123" },
 })
 import { useAuthStore } from "@/store/auth-store"
 import {
@@ -32,11 +33,11 @@ const OAUTH_ENABLED = import.meta.env.VITE_ENABLE_OAUTH !== 'false'
 export default function LoginPage() {
   const navigate = useNavigate()
   const { login } = useAuthStore()
+  const { error: showError } = useToast()
   
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [rememberMe, setRememberMe] = useState(false)
-  const [error, setError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [oauthStatus, setOauthStatus] = useState<string | null>(null)
 
@@ -57,7 +58,6 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError("")
     setIsLoading(true)
 
     try {
@@ -67,10 +67,10 @@ export default function LoginPage() {
         login(result.user)
         navigate("/app")
       } else {
-        setError(result.error || "Login failed")
+        showError(result.error || "Login failed")
       }
     } catch {
-      setError("An unexpected error occurred. Please try again.")
+      showError("An unexpected error occurred. Please try again.")
     } finally {
       setIsLoading(false)
     }
@@ -89,7 +89,6 @@ export default function LoginPage() {
   })
 
   const handleGoogleLogin = async () => {
-    setError("")
     setIsLoading(true)
 
     try {
@@ -105,29 +104,27 @@ export default function LoginPage() {
           const friendlyError = result.error?.includes('unavailable') || result.error?.includes('skipped')
             ? "Please sign in to Google in your browser first, or use email/password login."
             : (result.error || "Google login failed")
-          setError(friendlyError)
+          showError(friendlyError)
         }
       } else {
         // Google OAuth not configured
-        setError("Google OAuth not configured. Please use email/password login.")
+        showError("Google OAuth not configured. Please use email/password login.")
       }
     } catch {
-      setError("An unexpected error occurred. Please try again.")
+      showError("An unexpected error occurred. Please try again.")
     } finally {
       setIsLoading(false)
     }
   }
 
   const handleGithubLogin = async () => {
-    setError("")
-    
     if (isGitHubConfigured()) {
       // Real GitHub OAuth - redirect flow
       setIsLoading(true)
       initiateGitHubLogin()
       // Page will redirect, no need to handle response here
     } else {
-      setError("GitHub OAuth not configured. Please use email/password login.")
+      showError("GitHub OAuth not configured. Please use email/password login.")
     }
   }
 
@@ -143,13 +140,6 @@ export default function LoginPage() {
       subtitle="Sign in to continue your research journey"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Error Message */}
-        {error && (
-          <div className="p-3 rounded-lg bg-neon-red/10 border border-neon-red/30 text-neon-red text-sm">
-            {error}
-          </div>
-        )}
-
         {/* OAuth Status (dev info) - Only show when OAuth enabled */}
         {OAUTH_ENABLED && oauthStatus && import.meta.env.DEV && (
           <div className="p-2 rounded-lg bg-neon-cyan/10 border border-neon-cyan/30 text-neon-cyan text-xs text-center">

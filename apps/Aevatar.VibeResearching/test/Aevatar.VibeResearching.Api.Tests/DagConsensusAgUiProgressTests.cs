@@ -2,6 +2,9 @@ using System.Reflection;
 using System.Text.Json;
 using Aevatar.Agents.AGUI;
 using Aevatar.Agents.Cognitive.Core;
+using Aevatar.Agents.Runtime.Local;
+using Aevatar.Agents.Sessions.Runtime;
+using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
 using VibeResearching.Api.Sessions;
 using VibeResearching.Api.Vibe;
@@ -13,11 +16,11 @@ public sealed class DagConsensusAgUiProgressTests
     [Fact]
     public async Task Progress_ShouldEmitWinnerFields_InCustomEvent()
     {
-        var session = new ResearchSession("s1");
+        var session = CreateSession("s1");
         var progress = CreateProgressReporter(session, runId: "run_1", workflowName: "maker");
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        var enumerator = session.Events.SubscribeAsync(replay: false, ct: cts.Token).GetAsyncEnumerator();
+        var enumerator = session.Events.SubscribeAsync(cts.Token).GetAsyncEnumerator();
 
         try
         {
@@ -66,6 +69,18 @@ public sealed class DagConsensusAgUiProgressTests
         {
             await enumerator.DisposeAsync();
         }
+    }
+
+    private static ResearchSession CreateSession(string sessionId)
+    {
+        var registry = new LocalMessageStreamRegistry();
+        var resolver = new AgentMessageStreamResolver(registry);
+        var stream = new SessionAgUiStream(
+            sessionId,
+            agentId: $"{sessionId}-agent",
+            resolver,
+            NullLogger<SessionAgUiStream>.Instance);
+        return new ResearchSession(sessionId, stream);
     }
 
     private static IProgress<ReasoningProgress> CreateProgressReporter(

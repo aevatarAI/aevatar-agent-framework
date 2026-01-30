@@ -1,4 +1,7 @@
 using Aevatar.Agents.Core.Runtime;
+using Aevatar.Agents.Runtime.Local;
+using Aevatar.Agents.Sessions.Runtime;
+using Microsoft.Extensions.Logging.Abstractions;
 using VibeResearching.Api.Sessions;
 using Shouldly;
 
@@ -9,7 +12,7 @@ public class SessionInterruptibleRunsTests
     [Fact]
     public void BeginNewRun_ShouldCancelPreviousRun_AndMarkSuperseded()
     {
-        var session = new ResearchSession("s-test");
+        var session = CreateSession("s-test");
 
         var run1 = session.BeginNewRun("s-test:1", reason: "first", out var interrupted1);
         interrupted1.ShouldBeNull();
@@ -28,6 +31,18 @@ public class SessionInterruptibleRunsTests
         // Cleanup
         run1.Dispose();
         run2.Dispose();
+    }
+
+    private static ResearchSession CreateSession(string sessionId)
+    {
+        var registry = new LocalMessageStreamRegistry();
+        var resolver = new AgentMessageStreamResolver(registry);
+        var stream = new SessionAgUiStream(
+            sessionId,
+            agentId: $"{sessionId}-agent",
+            resolver,
+            NullLogger<SessionAgUiStream>.Instance);
+        return new ResearchSession(sessionId, stream);
     }
 }
 

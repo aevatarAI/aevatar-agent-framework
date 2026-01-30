@@ -154,6 +154,7 @@ public sealed class ReviewAgentEventPublisherTests
         await _publisher.PublishNodeProgressAsync(
             "node-123",
             "Test Node",
+            "Test explanation",
             5, 10, 2,
             ReviewResult.Passed);
 

@@ -1,5 +1,7 @@
 using Aevatar.Agents.Knowledge.Graph;
 using Aevatar.Agents.Knowledge.Graph.Models;
+using Aevatar.Agents.Runtime.Local;
+using Aevatar.Agents.Sessions.Runtime;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using NSubstitute;
@@ -441,7 +443,7 @@ public sealed class VibeRoundContextTests
     [Fact]
     public void Constructor_StoresInputs()
     {
-        var session = new ResearchSession(DefaultSessionId);
+        var session = CreateSession(DefaultSessionId);
         var input = new SessionInputInDto { RequestId = "req1" };
         var materials = CreateMaterialsSnapshot(DefaultSessionId);
         var captured = new List<string>();
@@ -462,6 +464,18 @@ public sealed class VibeRoundContextTests
 
         ctx.EmitAssistantDelta("hi");
         captured.ShouldBe(["hi"]);
+    }
+
+    private static ResearchSession CreateSession(string sessionId)
+    {
+        var registry = new LocalMessageStreamRegistry();
+        var resolver = new AgentMessageStreamResolver(registry);
+        var stream = new SessionAgUiStream(
+            sessionId,
+            agentId: $"{sessionId}-agent",
+            resolver,
+            NullLogger<SessionAgUiStream>.Instance);
+        return new ResearchSession(sessionId, stream);
     }
 
     private static MaterialsSnapshot CreateMaterialsSnapshot(string sessionId)

@@ -51,15 +51,8 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/auth/callback/github" element={<OAuthCallbackPage />} />
         <Route path="/auth/callback/google" element={<OAuthCallbackPage />} />
         
-        {/* Protected Routes */}
-        <Route
-          path="/app"
-          element={
-            <ProtectedRoute>
-              <App />
-            </ProtectedRoute>
-          }
-        />
+        {/* App Route - Public for anonymous browsing */}
+        <Route path="/app" element={<App />} />
         
         {/* Admin Routes */}
         <Route

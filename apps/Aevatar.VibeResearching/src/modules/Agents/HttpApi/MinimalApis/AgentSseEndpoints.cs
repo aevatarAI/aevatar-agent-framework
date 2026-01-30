@@ -24,7 +24,8 @@ public static class AgentSseEndpoints
             .WithName("StreamAgUiEvents")
             .WithTags("Research Sessions", "SSE")
             .Produces(StatusCodes.Status200OK, contentType: "text/event-stream")
-            .Produces(StatusCodes.Status404NotFound);
+            .Produces(StatusCodes.Status404NotFound)
+            .AllowAnonymous();
 
         return app;
     }

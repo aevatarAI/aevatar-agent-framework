@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useSisyphusStore } from '@/store/sisyphus-store';
 import { useAuthStore } from '@/store/auth-store';
+import { usePermission } from '@/hooks/use-permission';
 import { cn } from '@/lib/utils';
 import { Avatar } from '@/components/ui/avatar';
 import { pauseSession, resumeSession, terminateSession } from '@/lib/axiom-client/session';
@@ -61,6 +62,8 @@ const SessionCard: React.FC<SessionCardProps> = ({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [resumeNotice, setResumeNotice] = useState<string | null>(null);
   const currentUser = useAuthStore((s) => s.user);
+  const { canManageSession } = usePermission();
+  const canManage = canManageSession(session);
 
   // Resolve owner name: prefer backend ownerName, fallback to current user match
   const isMe = session.ownerId && currentUser && session.ownerId === currentUser.id;
@@ -125,7 +128,7 @@ const SessionCard: React.FC<SessionCardProps> = ({
         )}
       </div>
       {/* Action icons — bottom-right, aligned with timestamp */}
-      {isSelected && status !== 'archived' && (
+      {isSelected && status !== 'archived' && canManage && (
         <div className="absolute bottom-3 right-3 z-10 flex items-center gap-1">
           {status === 'active' ? (
             <button
@@ -283,6 +286,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const currentSessionId = useSisyphusStore((s) => s.currentSessionId);
   const setLifecycleStatus = useSisyphusStore((s) => s.setLifecycleStatus);
   const currentUser = useAuthStore((s) => s.user);
+  const { isAnonymous } = usePermission();
   const [collapsed, setCollapsed] = useState(false);
   const [myExpanded, setMyExpanded] = useState(true);
   const [otherExpanded, setOtherExpanded] = useState(true);
@@ -331,17 +335,19 @@ const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
 
-        {/* New Chat Button */}
-        <button
-          onClick={handleCreateSession}
-          aria-label="Create new chat session"
-          className={cn('btn-primary w-full justify-center', collapsed && 'p-2.5')}
-        >
-          <svg className="size-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          {!collapsed && <span className="font-semibold">New Chat</span>}
-        </button>
+        {/* New Chat Button - Hidden for anonymous users */}
+        {!isAnonymous && (
+          <button
+            onClick={handleCreateSession}
+            aria-label="Create new chat session"
+            className={cn('btn-primary w-full justify-center', collapsed && 'p-2.5')}
+          >
+            <svg className="size-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            {!collapsed && <span className="font-semibold">New Chat</span>}
+          </button>
+        )}
 
       </div>
 

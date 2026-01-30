@@ -1,7 +1,9 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useSisyphusStore, type InputMode } from '@/store/sisyphus-store'
 import { sendMessage, uploadWithExtraction } from '@/lib/axiom-client'
+import { usePermission } from '@/hooks/use-permission'
 
 // ============================================================
 //  Composer - Enhanced message input with mode switch,
@@ -41,6 +43,8 @@ const MODE_CONFIG = {
 }
 
 const Composer: React.FC<ComposerProps> = ({ sessionId, connected }) => {
+  const { isAnonymous, isAdmin, isOwner } = usePermission()
+
   // FINE-GRAINED SUBSCRIPTIONS: Only subscribe to what we need
   const inputMode = useSisyphusStore((s) => s.inputMode)
   const setInputMode = useSisyphusStore((s) => s.setInputMode)
@@ -197,7 +201,39 @@ const Composer: React.FC<ComposerProps> = ({ sessionId, connected }) => {
   }
 
   const config = MODE_CONFIG[inputMode]
+
+  // Permission: check if user can interact with this session
+  const currentSession = useSisyphusStore((s) => s.sessions.find((sess) => sess.id === sessionId))
+  const canInteract = isAdmin || (currentSession ? (!currentSession.ownerId || isOwner(currentSession.ownerId)) : false)
   const disabled = !connected || !sessionId || isSending || lifecycleStatus !== 'active'
+
+  // Anonymous users: show sign-in prompt
+  if (isAnonymous) {
+    return (
+      <div className="p-3 bg-surface/30 border-t border-border-subtle backdrop-blur-sm">
+        <div className="rounded-xl border border-border-subtle bg-bg-surface/80 p-4 text-center">
+          <p className="text-sm text-text-secondary mb-2">Sign in to start researching</p>
+          <Link
+            to="/login"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-neon-cyan text-bg-base text-sm font-semibold hover:bg-neon-sky transition-colors"
+          >
+            Sign In
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
+  // Non-owner members: show read-only message
+  if (!canInteract) {
+    return (
+      <div className="p-3 bg-surface/30 border-t border-border-subtle backdrop-blur-sm">
+        <div className="rounded-xl border border-border-subtle bg-bg-surface/80 p-3 text-center">
+          <p className="text-xs text-text-muted font-mono">Read-only — you can only interact with your own sessions</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="p-3 bg-surface/30 border-t border-border-subtle backdrop-blur-sm">

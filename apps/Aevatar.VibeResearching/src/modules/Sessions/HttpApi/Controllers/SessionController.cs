@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Volo.Abp.AspNetCore.Mvc;
+using Volo.Abp.Authorization;
 using Aevatar.VibeResearching.Sessions.DTOs;
 using Aevatar.VibeResearching.Sessions.Permissions;
 using Aevatar.VibeResearching.Sessions.Services;
@@ -38,9 +39,11 @@ public class SessionController : AbpControllerBase
 
     /// <summary>
     /// Gets all research sessions (excludes archived by default).
+    /// Anonymous users can browse sessions.
     /// GET /api/sessions
     /// </summary>
     [HttpGet]
+    [AllowAnonymous]
     public async Task<IActionResult> GetListAsync(CancellationToken ct = default)
     {
         var sessions = await _sessionAppService.GetListAsync(ct);
@@ -66,6 +69,8 @@ public class SessionController : AbpControllerBase
 
     /// <summary>
     /// Deletes a research session.
+    /// Only the session owner or an admin can delete.
+    /// Returns 404 for unauthorized access to hide resource existence.
     /// DELETE /api/sessions/{sessionId}
     /// </summary>
     [HttpDelete("{sessionId}")]
@@ -74,12 +79,17 @@ public class SessionController : AbpControllerBase
         [FromRoute] string sessionId,
         CancellationToken ct = default)
     {
+        if (!await IsOwnerOrAdminAsync(sessionId, ct))
+            return NotFound(new { error = "session not found" });
+
         await _sessionAppService.DeleteAsync(sessionId, ct);
         return Ok(new { ok = true, sessionId });
     }
 
     /// <summary>
     /// Submits user input to a session.
+    /// Only the session owner or an admin can submit input.
+    /// Returns 404 for unauthorized access to hide resource existence.
     /// POST /api/sessions/{sessionId}/input
     /// </summary>
     [HttpPost("{sessionId}/input")]
@@ -88,6 +98,9 @@ public class SessionController : AbpControllerBase
         [FromBody] SessionInputDto input,
         CancellationToken ct = default)
     {
+        if (!await IsOwnerOrAdminAsync(sessionId, ct))
+            return NotFound(new { error = "session not found" });
+
         try
         {
             var runId = await _sessionAppService.SubmitInputAsync(sessionId, input, ct);
@@ -101,6 +114,8 @@ public class SessionController : AbpControllerBase
 
     /// <summary>
     /// Pauses an active session.
+    /// Only the session owner or an admin can pause.
+    /// Returns 404 for unauthorized access to hide resource existence.
     /// POST /api/sessions/{sessionId}/pause
     /// </summary>
     [HttpPost("{sessionId}/pause")]
@@ -109,6 +124,9 @@ public class SessionController : AbpControllerBase
         [FromRoute] string sessionId,
         CancellationToken ct = default)
     {
+        if (!await IsOwnerOrAdminAsync(sessionId, ct))
+            return NotFound(new { error = "session not found" });
+
         try
         {
             await _sessionAppService.PauseAsync(sessionId, ct);
@@ -122,6 +140,8 @@ public class SessionController : AbpControllerBase
 
     /// <summary>
     /// Resumes a paused session.
+    /// Only the session owner or an admin can resume.
+    /// Returns 404 for unauthorized access to hide resource existence.
     /// POST /api/sessions/{sessionId}/resume
     /// </summary>
     [HttpPost("{sessionId}/resume")]
@@ -130,6 +150,9 @@ public class SessionController : AbpControllerBase
         [FromRoute] string sessionId,
         CancellationToken ct = default)
     {
+        if (!await IsOwnerOrAdminAsync(sessionId, ct))
+            return NotFound(new { error = "session not found" });
+
         try
         {
             var result = await _sessionAppService.ResumeAsync(sessionId, ct);
@@ -143,6 +166,8 @@ public class SessionController : AbpControllerBase
 
     /// <summary>
     /// Terminates (archives) a session permanently.
+    /// Only the session owner or an admin can terminate.
+    /// Returns 404 for unauthorized access to hide resource existence.
     /// POST /api/sessions/{sessionId}/terminate
     /// </summary>
     [HttpPost("{sessionId}/terminate")]
@@ -151,6 +176,9 @@ public class SessionController : AbpControllerBase
         [FromRoute] string sessionId,
         CancellationToken ct = default)
     {
+        if (!await IsOwnerOrAdminAsync(sessionId, ct))
+            return NotFound(new { error = "session not found" });
+
         try
         {
             await _sessionAppService.TerminateAsync(sessionId, ct);
@@ -164,6 +192,8 @@ public class SessionController : AbpControllerBase
 
     /// <summary>
     /// Triggers MCP reconnection for a session.
+    /// Only the session owner or an admin can reconnect MCP.
+    /// Returns 404 for unauthorized access to hide resource existence.
     /// POST /api/sessions/{sessionId}/mcp/reconnect
     /// </summary>
     [HttpPost("{sessionId}/mcp/reconnect")]
@@ -171,6 +201,9 @@ public class SessionController : AbpControllerBase
         [FromRoute] string sessionId,
         CancellationToken ct = default)
     {
+        if (!await IsOwnerOrAdminAsync(sessionId, ct))
+            return NotFound(new { error = "session not found" });
+
         await _sessionAppService.ReconnectMcpAsync(sessionId, ct);
         return Accepted($"/api/sessions/{sessionId}", new { ok = true });
     }
@@ -204,5 +237,41 @@ public class SessionController : AbpControllerBase
             return NotFound(new { error = "session not found" });
 
         return Ok(status);
+    }
+
+    /// <summary>
+    /// Checks if the current user is the session owner or has admin privileges.
+    /// Returns false if the session does not exist or the user is not authorized,
+    /// enabling the caller to return 404 to hide resource existence from unauthorized users.
+    /// </summary>
+    /// <param name="sessionId">The session ID to check.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>True if the session exists and the user is owner or admin; false otherwise.</returns>
+    private async Task<bool> IsOwnerOrAdminAsync(string sessionId, CancellationToken ct)
+    {
+        var session = await _sessionAppService.GetAsync(sessionId, ct);
+        if (session == null)
+            return false;
+
+        // Legacy sessions without an owner are accessible by any authenticated user
+        if (string.IsNullOrWhiteSpace(session.OwnerId))
+            return true;
+
+        // Check if the current user is the owner
+        var currentUserId = CurrentUser.Id?.ToString();
+        if (!string.IsNullOrWhiteSpace(currentUserId) &&
+            string.Equals(currentUserId, session.OwnerId, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Check if the user has admin permission
+        try
+        {
+            await AuthorizationService.CheckAsync(SessionsPermissions.Sessions.Admin);
+            return true;
+        }
+        catch (AbpAuthorizationException)
+        {
+            return false;
+        }
     }
 }

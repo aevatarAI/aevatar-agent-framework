@@ -320,7 +320,7 @@ const App: React.FC = () => {
           totalLlmCalls: 0,
           createdAt: new Date().toISOString(),
           ownerId: currentUser?.id,
-          ownerName: currentUser?.displayName || currentUser?.username,
+          ownerName: currentUser?.name || currentUser?.userName,
           lifecycleStatus: 'active' as const,
         };
         

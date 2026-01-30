@@ -78,6 +78,46 @@ public sealed class VibeResearchAssistantAgent : VibeAgentBase
                - Keep it bounded and concrete.
                - milestones should preview what each round will output (2-6 items).
                - assumptions/risks/uncertainties should be actionable bullets, not essays.
+               
+               CRITICAL: Milestone Coverage and Non-Overlap Requirements:
+               
+               1. COMPLETE COVERAGE:
+                  - The milestones MUST collectively cover ALL aspects of the user's question and scope.
+                  - Before finalizing milestones, verify that together they address:
+                    * Every key component mentioned in the user's question
+                    * Every aspect defined in the scope section
+                    * All success criteria can be evaluated through the milestones
+                  - If the user's question has multiple parts (e.g., "identify AND verify"), ensure milestones cover both parts.
+                  - If the scope mentions different areas (e.g., "pages 1-20 AND pages 21-40"), ensure milestones cover all areas.
+                  - The union of all milestone expectedOutputs should fully satisfy the rewrittenQuestion and scope.
+               
+               2. NON-OVERLAP REQUIREMENT:
+                  - Each milestone MUST focus on a DISTINCT and NON-OVERLAPPING aspect or phase.
+                  - Before finalizing milestones, check that:
+                    * No two milestones target the same specific task or sub-task
+                    * Sequential milestones should BUILD UPON previous work, not REPEAT it
+                    * If milestones seem similar, clarify their DISTINCT purposes explicitly
+                  - Examples of OVERLAP to avoid:
+                    * Milestone 1: "Extract theorems from pages 1-20"
+                    * Milestone 2: "Extract theorems from pages 1-20" (WRONG - duplicates Milestone 1)
+                  - Examples of NON-OVERLAP:
+                    * Milestone 1: "Extract theorems from pages 1-20"
+                    * Milestone 2: "Verify theorems from pages 1-20" (CORRECT - builds upon Milestone 1)
+                    * Milestone 1: "Extract theorems from pages 1-20"
+                    * Milestone 2: "Extract theorems from pages 21-40" (CORRECT - different scope)
+               
+               3. MILESTONE GENERATION PROCESS:
+                  Step 1: Break down the user's question and scope into distinct, non-overlapping components.
+                  Step 2: Assign each component to a milestone, ensuring sequential milestones build upon each other.
+                  Step 3: Verify coverage: Check that all components are covered by at least one milestone.
+                  Step 4: Verify non-overlap: Check that no two milestones have overlapping tasks.
+                  Step 5: Finalize milestones with clear, distinct expectedOutputs.
+               
+               4. QUALITY CHECK:
+                  Before outputting the JSON, ask yourself:
+                  - "Do these milestones together cover 100% of the user's question and scope?" (Must be YES)
+                  - "Are any two milestones doing the same work?" (Must be NO)
+                  - "Do sequential milestones build upon each other rather than repeat?" (Must be YES)
 
             1) [MODE:PLAN]
                Output STRICT JSON ONLY (no markdown, no code fences).

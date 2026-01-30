@@ -45,7 +45,11 @@ internal sealed class CreateKnowledgeTool : VibeToolBase
         var entries = ParseKnowledgeEntries(parameters.GetValueOrDefault("entries"));
         if (entries.Count == 0) throw new ArgumentException("entries is required and must be non-empty");
 
+        // Auto-fill missing motivatedByPlanNodeId with active milestone
+        var activeMilestoneId = await GetActiveMilestoneIdAsync(sessionId, logger, ct);
+        
         // Enforce provenance: each node must have a source
+        var fixedEntries = new List<KnowledgeInput>();
         foreach (var e in entries)
         {
             var hasMotivatedBy = !string.IsNullOrWhiteSpace(e.MotivatedByPlanNodeId);
@@ -53,13 +57,61 @@ internal sealed class CreateKnowledgeTool : VibeToolBase
 
             if (!hasMotivatedBy && !hasDependsOn)
             {
-                throw new ArgumentException(
-                    $"Knowledge node '{e.NodeId}' must have a source. " +
-                    "Specify either 'motivatedByPlanNodeId' or 'dependsOnNodeIds'.");
+                // Auto-fill with active milestone if available
+                if (!string.IsNullOrWhiteSpace(activeMilestoneId))
+                {
+                    logger?.LogDebug("[CreateKnowledgeTool] Auto-filling motivatedByPlanNodeId for '{NodeId}' with active milestone '{MilestoneId}'", 
+                        e.NodeId, activeMilestoneId);
+                    fixedEntries.Add(e with { MotivatedByPlanNodeId = activeMilestoneId });
+                }
+                else
+                {
+                    throw new ArgumentException(
+                        $"Knowledge node '{e.NodeId}' must have a source. " +
+                        "Specify either 'motivatedByPlanNodeId' or 'dependsOnNodeIds'. " +
+                        "No active milestone found to use as default.");
+                }
+            }
+            else
+            {
+                fixedEntries.Add(e);
             }
         }
 
-        return await _access.CreateKnowledgeAsync(sessionId, entries, ct);
+        return await _access.CreateKnowledgeAsync(sessionId, fixedEntries, ct);
+    }
+
+    private async Task<string?> GetActiveMilestoneIdAsync(string sessionId, ILogger? logger, CancellationToken ct)
+    {
+        try
+        {
+            var planNodesResult = await _access.GetPlanNodesAsync(sessionId, ct);
+            if (planNodesResult.Fields.TryGetValue("nodes", out var nodesValue))
+            {
+                // Parse the Struct to find active milestone
+                var nodesJson = JsonSerializer.Serialize(nodesValue);
+                using var doc = JsonDocument.Parse(nodesJson);
+                if (doc.RootElement.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var node in doc.RootElement.EnumerateArray())
+                    {
+                        if (node.TryGetProperty("status", out var status) &&
+                            status.GetString() == "Active")
+                        {
+                            if (node.TryGetProperty("nodeId", out var nodeId))
+                            {
+                                return nodeId.GetString();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger?.LogDebug(ex, "[CreateKnowledgeTool] Failed to query active milestone (best-effort)");
+        }
+        return null;
     }
 
     private static List<KnowledgeInput> ParseKnowledgeEntries(object? v)

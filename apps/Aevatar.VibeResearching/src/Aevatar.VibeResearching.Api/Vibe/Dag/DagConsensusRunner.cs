@@ -290,8 +290,9 @@ public sealed partial class DagConsensusRunner
             updatedAt = input.Current.UpdatedAt?.ToDateTime().ToUniversalTime().ToString("O") ?? ""
         };
 
-        return
-            """
+        var verifierContext = BuildVerifierContextSection(input);
+        
+        var basePrompt = """
             You are validating and synthesizing a DAG mutation for a research derivation graph.
 
             Requirements:
@@ -353,8 +354,9 @@ public sealed partial class DagConsensusRunner
             """ + JsonSerializer.Serialize(candidateSummary, Json) + """
 
             CurrentDagStats:
-            """ + JsonSerializer.Serialize(currentStats, Json) + """
-            """ + BuildVerifierContextSection(input) + """
+            """ + JsonSerializer.Serialize(currentStats, Json) + "\n";
+
+        var endPrompt = """
 
             Output JSON schema:
             {
@@ -372,6 +374,16 @@ public sealed partial class DagConsensusRunner
               }
             }
             """;
+
+        // Combine base prompt, verifier context, and end prompt
+        if (string.IsNullOrWhiteSpace(verifierContext))
+        {
+            return basePrompt + endPrompt;
+        }
+        else
+        {
+            return basePrompt + verifierContext + endPrompt;
+        }
     }
 
     private static SraDagMutation BuildMutation(string sessionId, SraDagMutation candidate, DagMutationJson? parsed)
@@ -479,7 +491,7 @@ public sealed partial class DagConsensusRunner
 
         if (string.IsNullOrWhiteSpace(verifierOutput) && string.IsNullOrWhiteSpace(verifierProof))
         {
-            return "";
+            return string.Empty; // Return empty - will be handled by caller
         }
 
         var sb = new StringBuilder();

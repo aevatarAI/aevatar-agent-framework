@@ -306,6 +306,32 @@ public sealed class DagStore
             try
             {
                 await SaveSnapshotAsync(ws, outSnap, ct);
+                
+                // Also save to session directory if mutation has a sessionId and dagId is not "global"
+                // This ensures DAG snapshot is available in workspace/sessions/{sessionId}/artifacts/dag/snapshot.json
+                if (!string.IsNullOrWhiteSpace(mutation.SessionId) && 
+                    ws.DagId != ResearchSession.GlobalDagId)
+                {
+                    try
+                    {
+                        var sessionWs = _workspace.EnsureSessionWorkspace(mutation.SessionId);
+                        var sessionDagDir = Path.Combine(sessionWs.ArtifactsDir, "dag");
+                        Directory.CreateDirectory(sessionDagDir);
+                        var sessionSnapshotPath = Path.Combine(sessionDagDir, "snapshot.json");
+                        var json = Formatter.Format(outSnap);
+                        // Use session's tmp directory for atomic write
+                        Directory.CreateDirectory(sessionWs.TmpDir);
+                        var tmp = Path.Combine(sessionWs.TmpDir, $"{Guid.NewGuid():N}.tmp");
+                        await File.WriteAllTextAsync(tmp, json ?? string.Empty, Encoding.UTF8, ct);
+                        Directory.CreateDirectory(Path.GetDirectoryName(sessionSnapshotPath)!);
+                        File.Move(tmp, sessionSnapshotPath, overwrite: true);
+                        _logger.LogDebug("[DagStore] Also saved snapshot to session directory: {Path}", sessionSnapshotPath);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Failed to save dag snapshot to session directory (best-effort).");
+                    }
+                }
             }
             catch (Exception ex)
             {

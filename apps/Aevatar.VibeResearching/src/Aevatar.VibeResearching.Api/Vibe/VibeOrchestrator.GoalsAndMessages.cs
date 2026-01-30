@@ -79,7 +79,19 @@ internal sealed partial class VibeOrchestrator
         List<string>? attachmentPaths)
     {
         // Reuse the plan message style; brief needs the same context.
-        return BuildPlanMessage(question, dag, trace, toAgents, attachmentPaths);
+        var baseMessage = BuildPlanMessage(question, dag, trace, toAgents, attachmentPaths);
+        
+        // Add reminder about milestone coverage and non-overlap
+        var sb = new StringBuilder(baseMessage.Length + 300);
+        sb.Append(baseMessage);
+        sb.AppendLine();
+        sb.AppendLine("---");
+        sb.AppendLine("IMPORTANT: When generating milestones, ensure:");
+        sb.AppendLine("1. Complete coverage: All milestones together must cover 100% of the user's question and scope.");
+        sb.AppendLine("2. No overlap: Each milestone must focus on distinct, non-overlapping tasks.");
+        sb.AppendLine("3. Sequential building: Later milestones should build upon earlier ones, not repeat them.");
+        
+        return sb.ToString();
     }
 
     private static string BuildSummaryMessage(

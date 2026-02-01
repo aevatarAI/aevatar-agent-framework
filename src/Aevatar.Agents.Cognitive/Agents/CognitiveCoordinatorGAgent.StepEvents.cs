@@ -105,6 +105,29 @@ public partial class CognitiveCoordinatorGAgent
             RedFlagReason = redFlagReason ?? ""
         };
 
+        if (!string.IsNullOrWhiteSpace(evt.AssistantResponse))
+        {
+            // #region agent log
+            System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    sessionId = SessionId ?? string.Empty,
+                    runId = evt.RunId ?? string.Empty,
+                    hypothesisId = "H36",
+                    location = "CognitiveCoordinatorGAgent.StepEvents.cs:EmitStepEvent",
+                    message = "step_event_emitted",
+                    data = new
+                    {
+                        stepId = evt.StepId ?? string.Empty,
+                        status = evt.Status.ToString(),
+                        assistantLen = evt.AssistantResponse.Length,
+                        agentId = Id.ToString()
+                    },
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                }) + Environment.NewLine);
+            // #endregion
+        }
+
         var hasWinner =
             !string.IsNullOrWhiteSpace(winnerProposalId) ||
             !string.IsNullOrWhiteSpace(winnerHash) ||

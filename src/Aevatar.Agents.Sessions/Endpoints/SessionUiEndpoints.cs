@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text.Json;
+using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
 using Aevatar.Agents.AGUI;
 using Aevatar.Agents.Abstractions;
@@ -16,6 +17,7 @@ using Aevatar.Agents.Sessions.Runtime;
 using Aevatar.Agents.Tooling.Catalog;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 
@@ -171,6 +173,20 @@ public static class SessionUiEndpoints
             if (stream == null)
                 return Results.NotFound();
 
+            // #region agent log
+            System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    sessionId,
+                    runId = string.Empty,
+                    hypothesisId = "H63",
+                    location = "SessionUiEndpoints.cs:agui_events",
+                    message = "sse_stream_bound",
+                    data = new { streamHash = RuntimeHelpers.GetHashCode(stream) },
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                }) + Environment.NewLine);
+            // #endregion
+
             http.Response.StatusCode = StatusCodes.Status200OK;
             http.Response.Headers.ContentType = "text/event-stream; charset=utf-8";
             http.Response.Headers.CacheControl = "no-store";
@@ -178,6 +194,19 @@ public static class SessionUiEndpoints
             http.Response.Headers["X-Accel-Buffering"] = "no";
 
             await http.Response.StartAsync(ct);
+            // #region agent log
+            System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    sessionId,
+                    runId = string.Empty,
+                    hypothesisId = "H7",
+                    location = "SessionUiEndpoints.cs:agui_events",
+                    message = "sse_connected",
+                    data = new { sessionId },
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                }) + Environment.NewLine);
+            // #endregion
             await using var writer = new AgUiSseWriter(http.Response, jsonOptions);
 
             // snapshot-first bootstrap
@@ -386,7 +415,7 @@ public static class SessionUiEndpoints
         app.MapGet("/api/tools/catalog", async (
             string sessionId,
             SessionRuntime runtime,
-            AgentToolCatalog catalog,
+            [FromServices] AgentToolCatalog catalog,
             CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(sessionId))
@@ -401,7 +430,7 @@ public static class SessionUiEndpoints
         });
 
         app.MapGet("/api/tools/dotnet", async (
-            AgentToolCatalog catalog,
+            [FromServices] AgentToolCatalog catalog,
             CancellationToken ct) =>
         {
             var tools = await catalog.ListDotNetFilesAsync(ct);
@@ -411,7 +440,7 @@ public static class SessionUiEndpoints
         app.MapPost("/api/tools/dotnet/register", async (
             HttpRequest req,
             SessionRuntime runtime,
-            AgentToolCatalog catalog,
+            [FromServices] AgentToolCatalog catalog,
             CancellationToken ct) =>
         {
             var input = await req.ReadFromJsonAsync<RegisterDotNetToolInput>(cancellationToken: ct);

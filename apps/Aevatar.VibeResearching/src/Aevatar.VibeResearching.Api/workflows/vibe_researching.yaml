@@ -18,6 +18,7 @@ inputs:
     type: object
     required: false
     description: "Attachment path list (optional)"
+    default: []
   - name: plan_context
     type: string
     default: "(no plan nodes yet)"
@@ -34,6 +35,7 @@ inputs:
     type: object
     required: false
     description: "Parsed librarian axioms (optional)"
+    default: []
   - name: planner_excerpt_chars
     type: int
     default: 3000
@@ -67,6 +69,7 @@ defaults:
     max_length: 40000
     strict_parse: false
     timeout_seconds: 600
+    idle_timeout_seconds: 120
 
 steps:
   - id: planner
@@ -75,7 +78,7 @@ steps:
     prompt: |
       Role: planner
       Question: {{ question }}
-      {% if attachments and attachments.size > 0 %}
+      {% if (attachments | size) > 0 %}
 
       AttachmentPaths:
       {% for p in attachments %}
@@ -97,7 +100,7 @@ steps:
     prompt: |
       Role: reasoner
       Question: {{ question }}
-      {% if attachments and attachments.size > 0 %}
+      {% if (attachments | size) > 0 %}
 
       AttachmentPaths:
       {% for p in attachments %}
@@ -122,7 +125,7 @@ steps:
     prompt: |
       Role: librarian
       Question: {{ question }}
-      {% if attachments and attachments.size > 0 %}
+      {% if (attachments | size) > 0 %}
 
       AttachmentPaths:
       {% for p in attachments %}
@@ -144,7 +147,7 @@ steps:
     prompt: |
       Role: verifier
       Question: {{ question }}
-      {% if attachments and attachments.size > 0 %}
+      {% if (attachments | size) > 0 %}
 
       AttachmentPaths:
       {% for p in attachments %}
@@ -168,9 +171,31 @@ steps:
     agent: dag_builder
     prompt: |
       You must output STRICT JSON ONLY.
+      Output JSON schema (camelCase):
+      {
+        "mutationId": "optional-id",
+        "authorAgent": "dag_builder",
+        "nodes": [
+          {
+            "id": "string",
+            "type": "axiom|theorem|assumption|hypothesis|unknown",
+            "label": "short title",
+            "proof": "short evidence or justification",
+            "motivatedByPlanNodeId": "optional plan node id",
+            "tags": { "key": "value" }
+          }
+        ],
+        "edges": [
+          { "from": "nodeId", "to": "nodeId", "type": "depends_on" }
+        ]
+      }
+      Rules:
+      - JSON only, no markdown.
+      - Always include nodes/edges arrays (can be empty).
+      - If no explicit knowledge is found, create at least one hypothesis node that summarizes the best current answer.
 
       Question: {{ question }}
-      {% if attachments and attachments.size > 0 %}
+      {% if (attachments | size) > 0 %}
 
       AttachmentPaths:
       {% for p in attachments %}
@@ -182,7 +207,7 @@ steps:
       {{ plan_context }}
 
       Current DAG: nodes={{ dag_nodes }}, edges={{ dag_edges }}
-      {% if librarian_axioms and librarian_axioms.size > 0 %}
+      {% if (librarian_axioms | size) > 0 %}
 
       Librarian trusted axioms (include as AXIOM nodes when appropriate):
       {{ librarian_axioms | json }}
@@ -292,7 +317,7 @@ steps:
         agent: paper_editor
         prompt: |
           Question: {{ question }}
-          {% if attachments and attachments.size > 0 %}
+          {% if (attachments | size) > 0 %}
 
           AttachmentPaths:
           {% for p in attachments %}

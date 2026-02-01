@@ -1,0 +1,25 @@
+name: vibe_single
+description: "Single-round wrapper for vibe_researching"
+
+inputs:
+  - name: question
+    type: string
+    required: true
+    description: "User question / research task"
+  - name: attachments
+    type: object
+    required: false
+    description: "Attachment path list (optional)"
+    default: []
+
+steps:
+  - id: run_vibe
+    type: workflow_call
+    workflow: vibe_researching
+    params:
+      question: "{{ question }}"
+      attachments: "{{ attachments }}"
+    store: result
+
+output:
+  result: "{{ result }}"

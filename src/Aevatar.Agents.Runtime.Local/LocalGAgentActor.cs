@@ -37,6 +37,7 @@ public class LocalGAgentActor : GAgentActorBase
 
     // Cache for other actors' streams (when using external provider)
     private readonly ConcurrentDictionary<string, IMessageStream> _externalActorStreams = new();
+    private static int _parentTraceLogCount;
 
     public LocalGAgentActor(
         IGAgent agent,
@@ -142,11 +143,37 @@ public class LocalGAgentActor : GAgentActorBase
                 {
                     try
                     {
+                        var typeUrl = envelope.Payload?.TypeUrl ?? string.Empty;
+                        var isTrace = typeUrl.Contains("ExecutionTraceEvent", StringComparison.OrdinalIgnoreCase);
+                        var waitSw = isTrace ? System.Diagnostics.Stopwatch.StartNew() : null;
                         await _eventGate.WaitAsync(ct);
+                        if (waitSw != null)
+                        {
+                            waitSw.Stop();
+                            if (waitSw.ElapsedMilliseconds > 200 || Interlocked.Increment(ref _parentTraceLogCount) <= 3)
+                            {
+                                #region agent log
+                                System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                                    $"{{\"sessionId\":\"\",\"runId\":\"\",\"hypothesisId\":\"H50\",\"location\":\"LocalGAgentActor.cs:SetParentAsync\",\"message\":\"parent_trace_gate_wait\",\"data\":{{\"agentId\":\"{Id}\",\"parentId\":\"{parentId}\",\"eventId\":\"{envelope.Id}\",\"waitMs\":{waitSw.ElapsedMilliseconds}}},\"timestamp\":{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}}}\n");
+                                #endregion
+                            }
+                        }
                         try
                         {
+                            var handleSw = isTrace ? System.Diagnostics.Stopwatch.StartNew() : null;
                             // Route through ActorBase handler to keep propagation semantics consistent.
                             await HandleEventAsync(envelope, ct);
+                            if (handleSw != null)
+                            {
+                                handleSw.Stop();
+                                if (handleSw.ElapsedMilliseconds > 200 || Interlocked.Increment(ref _parentTraceLogCount) <= 3)
+                                {
+                                    #region agent log
+                                    System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                                        $"{{\"sessionId\":\"\",\"runId\":\"\",\"hypothesisId\":\"H51\",\"location\":\"LocalGAgentActor.cs:SetParentAsync\",\"message\":\"parent_trace_handled\",\"data\":{{\"agentId\":\"{Id}\",\"parentId\":\"{parentId}\",\"eventId\":\"{envelope.Id}\",\"handleMs\":{handleSw.ElapsedMilliseconds}}},\"timestamp\":{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}}}\n");
+                                    #endregion
+                                }
+                            }
                         }
                         finally
                         {
@@ -216,6 +243,17 @@ public class LocalGAgentActor : GAgentActorBase
         {
             // Store subscription handle for proper cleanup in OnDeactivateAsync
             // Important: use CancellationToken.None for the callback to avoid premature cancellation
+            bool SelfFilter(EventEnvelope envelope)
+            {
+                var typeUrl = envelope.Payload?.TypeUrl ?? string.Empty;
+                // Skip UI-only tracing events to avoid blocking external subscribers during long runs.
+                if (typeUrl.Contains("ExecutionTraceEvent", StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+                return true;
+            }
+
             _selfStreamSubscription = await _myStream.SubscribeAsync<EventEnvelope>(
                 async envelope =>
                 {
@@ -242,7 +280,7 @@ public class LocalGAgentActor : GAgentActorBase
                         Logger.LogError(ex, "[SUBSCRIPTION] Agent {AgentId} error processing event {EventId}", Id, envelope.Id);
                     }
                 },
-                null,
+                SelfFilter,
                 ct);
         }
 

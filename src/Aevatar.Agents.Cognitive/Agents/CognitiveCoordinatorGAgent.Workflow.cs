@@ -85,6 +85,34 @@ public partial class CognitiveCoordinatorGAgent
                 _workflowVariables[key] = ProtoValueConverter.FromProto(value);
             }
 
+            // #region agent log
+            var inputNames = new List<string>();
+            foreach (var input in workflow.Inputs)
+            {
+                if (!string.IsNullOrWhiteSpace(input.Name))
+                    inputNames.Add(input.Name);
+            }
+            _workflowVariables.TryGetValue("attachments", out var attachmentsValue);
+            System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    sessionId = SessionId ?? string.Empty,
+                    runId = CustomState.ExecutionId ?? string.Empty,
+                    hypothesisId = "H3",
+                    location = "CognitiveCoordinatorGAgent.Workflow.cs:HandleStartWorkflow",
+                    message = "workflow_vars_ready",
+                    data = new
+                    {
+                        workflowName = request.WorkflowName,
+                        inputNames,
+                        variablesKeys = _workflowVariables.Keys,
+                        hasAttachmentsVar = attachmentsValue != null,
+                        attachmentsType = attachmentsValue?.GetType().Name ?? "missing"
+                    },
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                }) + Environment.NewLine);
+            // #endregion
+
             // ============================================================
             //  Input-driven MaxDepth (eliminate hardcoding)
             //
@@ -153,6 +181,25 @@ public partial class CognitiveCoordinatorGAgent
 
     private async Task FailExecutionAsync(string error)
     {
+        // #region agent log
+        System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+            System.Text.Json.JsonSerializer.Serialize(new
+            {
+                sessionId = SessionId ?? string.Empty,
+                runId = CustomState.ExecutionId ?? string.Empty,
+                hypothesisId = "H6",
+                location = "CognitiveCoordinatorGAgent.Workflow.cs:FailExecutionAsync",
+                message = "workflow_failed",
+                data = new
+                {
+                    error,
+                    stepId = CustomState.CurrentStepId ?? string.Empty,
+                    phase = CustomState.CurrentPhase ?? string.Empty
+                },
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            }) + Environment.NewLine);
+        // #endregion
+
         CustomState.Status = ExecutionStatus.EsFailed;
         CustomState.CurrentPhase = "Failed";
         CustomState.Error = error;

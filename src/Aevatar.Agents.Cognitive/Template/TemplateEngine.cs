@@ -33,11 +33,67 @@ public partial class TemplateEngine
     {
         // Preprocess: Convert {{var}} to Scriban's {{ var }}
         var processedTemplate = PreprocessTemplate(template);
+
+        var hasAttachmentsToken = processedTemplate.Contains("attachments", StringComparison.OrdinalIgnoreCase);
+        if (hasAttachmentsToken && !variables.ContainsKey("attachments"))
+        {
+            var sessionId = variables.TryGetValue("session_id", out var sid) ? sid?.ToString() ?? string.Empty : string.Empty;
+            var runId = variables.TryGetValue("run_id", out var rid)
+                ? rid?.ToString() ?? string.Empty
+                : variables.TryGetValue("request_id", out var req)
+                    ? req?.ToString() ?? string.Empty
+                    : string.Empty;
+
+            // #region agent log
+            System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                JsonSerializer.Serialize(new
+                {
+                    sessionId,
+                    runId,
+                    hypothesisId = "H3",
+                    location = "TemplateEngine.cs:Render",
+                    message = "missing_attachments_variable",
+                    data = new
+                    {
+                        templateLength = template.Length,
+                        processedLength = processedTemplate.Length,
+                        variableKeys = variables.Keys
+                    },
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                }) + Environment.NewLine);
+            // #endregion
+        }
         
         // Parse template
         var scribanTemplate = Scriban.Template.Parse(processedTemplate);
         if (scribanTemplate.HasErrors)
         {
+            var sessionId = variables.TryGetValue("session_id", out var sid) ? sid?.ToString() ?? string.Empty : string.Empty;
+            var runId = variables.TryGetValue("run_id", out var rid)
+                ? rid?.ToString() ?? string.Empty
+                : variables.TryGetValue("request_id", out var req)
+                    ? req?.ToString() ?? string.Empty
+                    : string.Empty;
+            var errorText = string.Join(", ", scribanTemplate.Messages);
+
+            #region agent log
+            System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                JsonSerializer.Serialize(new
+                {
+                    sessionId,
+                    runId,
+                    hypothesisId = "H5",
+                    location = "TemplateEngine.cs:Render",
+                    message = "template_parse_error",
+                    data = new
+                    {
+                        error = errorText,
+                        templateLength = template.Length
+                    },
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                }) + Environment.NewLine);
+            #endregion
+
             throw new TemplateParseException(
                 $"Template parse error: {string.Join(", ", scribanTemplate.Messages)}");
         }
@@ -58,7 +114,53 @@ public partial class TemplateEngine
         context.PushGlobal(scriptObject);
         
         // Render
-        var result = scribanTemplate.Render(context);
+        string result;
+        try
+        {
+            result = scribanTemplate.Render(context);
+        }
+        catch (Exception ex)
+        {
+            var sessionId = variables.TryGetValue("session_id", out var sid) ? sid?.ToString() ?? string.Empty : string.Empty;
+            var runId = variables.TryGetValue("run_id", out var rid)
+                ? rid?.ToString() ?? string.Empty
+                : variables.TryGetValue("request_id", out var req)
+                    ? req?.ToString() ?? string.Empty
+                    : string.Empty;
+
+            var attachmentLine = string.Empty;
+            var lines = processedTemplate.Split('\n');
+            for (var i = 0; i < lines.Length; i++)
+            {
+                if (lines[i].Contains("attachments", StringComparison.OrdinalIgnoreCase))
+                {
+                    attachmentLine = $"{i + 1}:{lines[i].Trim()}";
+                    break;
+                }
+            }
+
+            variables.TryGetValue("attachments", out var attachmentsValue);
+            // #region agent log
+            System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                JsonSerializer.Serialize(new
+                {
+                    sessionId,
+                    runId,
+                    hypothesisId = "H8",
+                    location = "TemplateEngine.cs:Render",
+                    message = "template_render_exception",
+                    data = new
+                    {
+                        exception = ex.Message,
+                        attachmentLine,
+                        attachmentsType = attachmentsValue?.GetType().Name ?? "missing"
+                    },
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                }) + Environment.NewLine);
+            // #endregion
+
+            throw;
+        }
         
         // DEBUG: If rendering result contains empty Task, output debug info
         if (result.Contains("Task:") && result.Contains("Task: \n"))
@@ -283,13 +385,17 @@ public partial class TemplateEngine
             task != null && task.Length < 200 && !task.Contains("and") && !task.Contains("then")));
         
         // consensus_k function (returns K value based on reliability)
-        scriptObject.Import("consensus_k", new Func<string?, int>(reliability => reliability?.ToLowerInvariant() switch
+        // Avoid overwriting workflow variable `consensus_k` when provided.
+        if (!scriptObject.ContainsKey("consensus_k"))
         {
-            "low" => 1,
-            "medium" => 2,
-            "high" => 3,
-            _ => 2
-        }));
+            scriptObject.Import("consensus_k", new Func<string?, int>(reliability => reliability?.ToLowerInvariant() switch
+            {
+                "low" => 1,
+                "medium" => 2,
+                "high" => 3,
+                _ => 2
+            }));
+        }
         
         // contains function - string contains check
         // Usage: {{ atomic_check | contains 'ATOMIC' }}

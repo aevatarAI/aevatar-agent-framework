@@ -37,26 +37,118 @@ internal sealed partial class VibeOrchestrator
         public object? Inputs { get; init; }
     }
 
-    private static SraDagMutation? TryParseDagBuilderCandidate(
+    internal static SraDagMutation? TryParseDagBuilderCandidate(
         string sessionId,
         string raw,
         SraDagSnapshot? dag = null,
         string? activeMilestoneId = null)
     {
+        var trimmed = (raw ?? string.Empty).Trim();
+        // #region agent log
+        System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+            JsonSerializer.Serialize(new
+            {
+                sessionId,
+                runId = string.Empty,
+                hypothesisId = "H58",
+                location = "VibeOrchestrator.Parsing.cs:TryParseDagBuilderCandidate",
+                message = "dag_candidate_received",
+                data = new
+                {
+                    rawLength = raw?.Length ?? 0,
+                    trimmedLength = trimmed.Length,
+                    startsWith = trimmed.Length > 0 ? trimmed[0].ToString() : string.Empty,
+                    endsWith = trimmed.Length > 0 ? trimmed[^1].ToString() : string.Empty,
+                    hasBraceOpen = trimmed.Contains('{'),
+                    hasBraceClose = trimmed.Contains('}'),
+                    hasBracketOpen = trimmed.Contains('['),
+                    hasBracketClose = trimmed.Contains(']'),
+                    hasFence = trimmed.Contains("```", StringComparison.Ordinal),
+                    hasJsonFence = trimmed.Contains("```json", StringComparison.OrdinalIgnoreCase)
+                },
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            }) + Environment.NewLine);
+        // #endregion
+
         if (!TryExtractJson(raw, out var json) || string.IsNullOrWhiteSpace(json))
+        {
+            // #region agent log
+            System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                JsonSerializer.Serialize(new
+                {
+                    sessionId,
+                    runId = string.Empty,
+                    hypothesisId = "H59",
+                    location = "VibeOrchestrator.Parsing.cs:TryParseDagBuilderCandidate",
+                    message = "dag_candidate_extract_failed",
+                    data = new
+                    {
+                        rawLength = raw?.Length ?? 0,
+                        trimmedLength = trimmed.Length,
+                        hasBraceOpen = trimmed.Contains('{'),
+                        hasBraceClose = trimmed.Contains('}'),
+                        hasBracketOpen = trimmed.Contains('['),
+                        hasBracketClose = trimmed.Contains(']')
+                    },
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                }) + Environment.NewLine);
+            // #endregion
             return null;
+        }
 
         DagCandidateJson? parsed;
         try
         {
             parsed = JsonSerializer.Deserialize<DagCandidateJson>(json, Json);
         }
-        catch
+        catch (Exception ex)
         {
+            // #region agent log
+            System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                JsonSerializer.Serialize(new
+                {
+                    sessionId,
+                    runId = string.Empty,
+                    hypothesisId = "H60",
+                    location = "VibeOrchestrator.Parsing.cs:TryParseDagBuilderCandidate",
+                    message = "dag_candidate_deserialize_failed",
+                    data = new
+                    {
+                        jsonLength = json?.Length ?? 0,
+                        hasNodesKey = json?.IndexOf("\"nodes\"", StringComparison.OrdinalIgnoreCase) >= 0,
+                        hasEdgesKey = json?.IndexOf("\"edges\"", StringComparison.OrdinalIgnoreCase) >= 0,
+                        hasMutationIdKey = json?.IndexOf("\"mutationId\"", StringComparison.OrdinalIgnoreCase) >= 0,
+                        exceptionType = ex.GetType().Name,
+                        exceptionMessage = ex.Message
+                    },
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                }) + Environment.NewLine);
+            // #endregion
             return null;
         }
 
-        if (parsed == null) return null;
+        if (parsed == null)
+            return null;
+
+        // #region agent log
+        System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+            JsonSerializer.Serialize(new
+            {
+                sessionId,
+                runId = string.Empty,
+                hypothesisId = "H61",
+                location = "VibeOrchestrator.Parsing.cs:TryParseDagBuilderCandidate",
+                message = "dag_candidate_deserialize_ok",
+                data = new
+                {
+                    nodes = parsed.Nodes?.Count ?? 0,
+                    edges = parsed.Edges?.Count ?? 0,
+                    hasMutationId = !string.IsNullOrWhiteSpace(parsed.MutationId),
+                    hasAuthorAgent = !string.IsNullOrWhiteSpace(parsed.AuthorAgent)
+                },
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            }) + Environment.NewLine);
+        // #endregion
 
         var now = Timestamp.FromDateTime(DateTime.UtcNow);
         var mutation = BuildDagMutation(sessionId, parsed, now);

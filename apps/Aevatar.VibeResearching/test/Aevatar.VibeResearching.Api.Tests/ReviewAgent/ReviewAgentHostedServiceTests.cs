@@ -72,7 +72,7 @@ public sealed class ReviewAgentHostedServiceTests
             });
 
         // Act - Start the service and wait for first review round to start
-        var executeTask = hostedService.StartAsync(cts.Token);
+        var executeTask = await StartServiceAndTriggerAsync(hostedService, cts);
 
         // Wait for the review round to start (with timeout)
         var completed = await Task.WhenAny(reviewRoundStarted.Task, Task.Delay(5000));
@@ -157,7 +157,7 @@ public sealed class ReviewAgentHostedServiceTests
             });
 
         // Act
-        var executeTask = hostedService.StartAsync(cts.Token);
+        var executeTask = await StartServiceAndTriggerAsync(hostedService, cts);
 
         // Wait for iteration to be saved (with timeout)
         var completed = await Task.WhenAny(iterationSaved.Task, Task.Delay(5000));
@@ -189,7 +189,7 @@ public sealed class ReviewAgentHostedServiceTests
             });
 
         // Act
-        var executeTask = hostedService.StartAsync(cts.Token);
+        var executeTask = await StartServiceAndTriggerAsync(hostedService, cts);
 
         var completed = await Task.WhenAny(iterationCompletePublished.Task, Task.Delay(5000));
         cts.Cancel();
@@ -224,7 +224,7 @@ public sealed class ReviewAgentHostedServiceTests
             });
 
         // Act - Should not throw even if storage fails
-        var executeTask = hostedService.StartAsync(cts.Token);
+        var executeTask = await StartServiceAndTriggerAsync(hostedService, cts);
 
         var completed = await Task.WhenAny(iterationCompletePublished.Task, Task.Delay(5000));
         cts.Cancel();
@@ -304,5 +304,25 @@ public sealed class ReviewAgentHostedServiceTests
             _storage,
             _optionsMonitor,
             NullLogger<ReviewAgentHostedService>.Instance);
+    }
+
+    private async Task<Task> StartServiceAndTriggerAsync(
+        ReviewAgentHostedService hostedService,
+        CancellationTokenSource cts)
+    {
+        var idlePublished = new TaskCompletionSource();
+
+        _eventPublisher.PublishStatusChangeAsync(ReviewAgentStatus.Idle, Arg.Any<DateTimeOffset?>())
+            .Returns(callInfo =>
+            {
+                idlePublished.TrySetResult();
+                return Task.CompletedTask;
+            });
+
+        var executeTask = hostedService.StartAsync(cts.Token);
+        await Task.WhenAny(idlePublished.Task, Task.Delay(5000));
+        await hostedService.TriggerReviewRoundAsync();
+
+        return executeTask;
     }
 }

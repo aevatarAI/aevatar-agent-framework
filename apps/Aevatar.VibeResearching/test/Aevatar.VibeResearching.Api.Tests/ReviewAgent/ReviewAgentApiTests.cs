@@ -6,6 +6,7 @@ using Shouldly;
 using VibeResearching.Vibe.ReviewAgent;
 using Aevatar.VibeResearching.Api.ReviewAgent.Api;
 using Aevatar.VibeResearching.Api.ReviewAgent.Storage;
+using VibeResearching.Api.Infrastructure;
 using System.Reflection;
 
 namespace VibeResearching.Api.Tests.ReviewAgent;
@@ -18,11 +19,15 @@ public sealed class ReviewAgentApiTests
 {
     private readonly IReviewAgentService _service;
     private readonly IReviewAgentStorage _storage;
+    private readonly IReviewAgentTrigger _trigger;
 
     public ReviewAgentApiTests()
     {
         _service = Substitute.For<IReviewAgentService>();
         _storage = Substitute.For<IReviewAgentStorage>();
+        _trigger = Substitute.For<IReviewAgentTrigger>();
+        _trigger.IsRunning.Returns(false);
+        _trigger.HasStarted.Returns(false);
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -46,7 +51,7 @@ public sealed class ReviewAgentApiTests
         _service.GetState().Returns(state);
 
         // Act
-        var result = InvokeGetStatus(_service);
+        var result = InvokeGetStatus(_service, _trigger);
 
         // Assert
         result.ShouldBeOfType<Ok<ReviewAgentStatusResponse>>();
@@ -71,7 +76,7 @@ public sealed class ReviewAgentApiTests
         _service.GetState().Returns(state);
 
         // Act
-        var result = InvokeGetStatus(_service);
+        var result = InvokeGetStatus(_service, _trigger);
 
         // Assert
         var okResult = (Ok<ReviewAgentStatusResponse>)result;
@@ -335,7 +340,7 @@ public sealed class ReviewAgentApiTests
         var sw = System.Diagnostics.Stopwatch.StartNew();
         for (var i = 0; i < 100; i++)
         {
-            InvokeGetStatus(_service);
+            InvokeGetStatus(_service, _trigger);
         }
         sw.Stop();
 
@@ -347,11 +352,11 @@ public sealed class ReviewAgentApiTests
     //  Helpers - Use reflection to call private static methods
     // ─────────────────────────────────────────────────────────────
 
-    private static IResult InvokeGetStatus(IReviewAgentService service)
+    private static IResult InvokeGetStatus(IReviewAgentService service, IReviewAgentTrigger trigger)
     {
         var method = typeof(ReviewAgentApi).GetMethod("GetStatus",
             BindingFlags.NonPublic | BindingFlags.Static);
-        return (IResult)method!.Invoke(null, [service])!;
+        return (IResult)method!.Invoke(null, [service, trigger])!;
     }
 
     private static IResult InvokeGetSettings(IReviewAgentService service)

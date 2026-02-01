@@ -18,22 +18,30 @@ import type {
 // === Session CRUD ===
 
 export async function listSessions(): Promise<AxiomSession[]> {
-  const data = await fetchJson<{ count: number; sessions: AxiomSession[] }>('/api/sessions')
-  return data?.sessions || []
+  const data = await fetchJson<{ sessions?: Array<{ sessionId: string; createdAt?: string }> }>(
+    '/api/chat/sessions'
+  )
+  return (data?.sessions || []).map((s) => ({
+    sessionId: s.sessionId,
+    createdAt: s.createdAt,
+  }))
 }
 
 export async function listWorkflows(): Promise<string[]> {
-  const data = await fetchJson<string[]>('/api/workflows')
-  return data || ['hypothesis_promotion_loop']
+  const data = await fetchJson<{ workflows?: Array<{ name: string }> }>('/api/chat/workflows')
+  return data?.workflows?.map((w) => w.name) || ['hypothesis_promotion_loop']
 }
 
 export async function createSession(
   providerName?: string
 ): Promise<{ ok: boolean; sessionId?: string; error?: string }> {
-  return fetchJson<{ ok: boolean; sessionId?: string; error?: string }>('/api/sessions', {
-    method: 'POST',
-    body: JSON.stringify(providerName ? { providerName } : {}),
-  })
+  try {
+    const data = await fetchJson<{ sessionId: string }>('/api/chat/sessions/new')
+    return { ok: true, sessionId: data?.sessionId }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'create session failed'
+    return { ok: false, error: message }
+  }
 }
 
 export async function runSession(sessionId: string | null | undefined): Promise<RunResult> {
@@ -204,7 +212,7 @@ export async function getSessionEvents(sessionId: string | null | undefined): Pr
     return ''
   }
   const sessionController = getSessionAbortController()
-  const res = await fetch(`${API_BASE}/api/sessions/${sessionId}/agui/events`, {
+  const res = await fetch(`${API_BASE}/api/chat/sessions/${sessionId}/agui/events`, {
     headers: { Accept: 'text/event-stream' },
     signal: sessionController.signal,
   })

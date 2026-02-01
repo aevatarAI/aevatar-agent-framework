@@ -19,6 +19,23 @@ internal sealed class SessionStore(IStateStore<SessionState> store) : ISessionSt
         if (string.IsNullOrWhiteSpace(sessionId))
             return Task.FromResult<SessionState?>(null);
 
+        // #region agent log
+        System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+            System.Text.Json.JsonSerializer.Serialize(new
+            {
+                sessionId = sessionId.Trim(),
+                runId = string.Empty,
+                hypothesisId = "H21",
+                location = "SessionStore.cs:GetAsync",
+                message = "session_state_get",
+                data = new
+                {
+                    storeType = _store.GetType().FullName ?? _store.GetType().Name
+                },
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            }) + Environment.NewLine);
+        // #endregion
+
         return _store.LoadAsync(sessionId.Trim(), ct);
     }
 
@@ -27,6 +44,24 @@ internal sealed class SessionStore(IStateStore<SessionState> store) : ISessionSt
         ArgumentNullException.ThrowIfNull(state);
         if (string.IsNullOrWhiteSpace(state.SessionId))
             throw new ArgumentException("SessionState.session_id is required.", nameof(state));
+
+        // #region agent log
+        System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+            System.Text.Json.JsonSerializer.Serialize(new
+            {
+                sessionId = state.SessionId.Trim(),
+                runId = string.Empty,
+                hypothesisId = "H20",
+                location = "SessionStore.cs:SaveAsync",
+                message = "session_state_save",
+                data = new
+                {
+                    storeType = _store.GetType().FullName ?? _store.GetType().Name,
+                    workflowName = state.WorkflowName ?? string.Empty
+                },
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            }) + Environment.NewLine);
+        // #endregion
 
         return _store.SaveAsync(state.SessionId.Trim(), state, ct);
     }

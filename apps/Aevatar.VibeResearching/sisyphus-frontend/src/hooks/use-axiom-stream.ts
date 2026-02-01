@@ -185,6 +185,10 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     const stream = createAxiomEventStream(sessionId)
     streamRef.current = stream
 
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/602d30ab-17ad-45f0-a915-8a7cf2e47189',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId,runId:'',hypothesisId:'H33',location:'use-axiom-stream.ts:init',message:'stream_bind',data:{sessionId,storeSessionId:useSisyphusStore.getState().currentSessionId || '',enabled},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+
     // Fallback: Set connected when we receive any event (first event = connected)
     let hasReceivedEvent = false
     
@@ -338,6 +342,9 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
 
     // Text Message Start
     stream.on("TEXT_MESSAGE_START", (event) => {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/602d30ab-17ad-45f0-a915-8a7cf2e47189',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId,runId:(event.messageId || '').split(':').slice(-1)[0] || '',hypothesisId:'H10',location:'use-axiom-stream.ts:TEXT_MESSAGE_START',message:'text_message_start_received',data:{messageId:event.messageId || ''},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       if (import.meta.env.DEV) {
         addRawEvent(event)
       }
@@ -358,24 +365,35 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
 
     // Text Message Content
     stream.on("TEXT_MESSAGE_CONTENT", (event) => {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/602d30ab-17ad-45f0-a915-8a7cf2e47189',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId,runId:(event.messageId || '').split(':').slice(-1)[0] || '',hypothesisId:'H10',location:'use-axiom-stream.ts:TEXT_MESSAGE_CONTENT',message:'text_message_content_received',data:{messageId:event.messageId || '',deltaLength:(event.delta || '').length},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       // Skip rawEvents in production for performance
       if (import.meta.env.DEV) {
         addRawEvent(event)
       }
       
       const parsed = parseMessageId(event.messageId)
+      const parts = event.messageId.split(":")
+      const rawAgent = parts.length >= 4 ? parts[2] : ""
+      const agentName = rawAgent === "assistant" ? "research_assistant" : rawAgent
+      const hasWorkerBefore = Boolean(useSisyphusStore.getState().workers[parsed.workerId])
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/602d30ab-17ad-45f0-a915-8a7cf2e47189',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId,runId:(event.messageId || '').split(':').slice(-1)[0] || '',hypothesisId:'H26',location:'use-axiom-stream.ts:TEXT_MESSAGE_CONTENT',message:'stream_message_parsed',data:{messageId:event.messageId || '',workerId:parsed.workerId || '',stepId:parsed.stepId || '',agentName,hasWorkerBefore,deltaLength:(event.delta || '').length},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       appendWorkerStream(parsed.workerId, event.delta)
 
       // Also update agent message - use ISOLATED store
       // PERFORMANCE FIX: Removed flushSync - React 18 batching handles updates
       // Only components subscribed to this specific agent will re-render
-      const parts = event.messageId.split(":")
-      if (parts.length >= 4) {
-        const agent = parts[2]
-        if (agent && agent !== "user" && !agent.startsWith("worker")) {
-          const agentName = agent === "assistant" ? "research_assistant" : agent
-          // Direct store update - React 18 will batch efficiently
-          appendAgentContent(agentName, event.delta)
+      if (rawAgent && rawAgent !== "user" && !rawAgent.startsWith("worker")) {
+        // Direct store update - React 18 will batch efficiently
+        appendAgentContent(agentName, event.delta)
+        if (agentName !== "research_assistant") {
+          appendAgentContent("research_assistant", event.delta)
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/602d30ab-17ad-45f0-a915-8a7cf2e47189',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId,runId:(event.messageId || '').split(':').slice(-1)[0] || '',hypothesisId:'H27',location:'use-axiom-stream.ts:TEXT_MESSAGE_CONTENT',message:'mirror_to_research_assistant',data:{messageId:event.messageId || '',fromAgent:agentName,deltaLength:(event.delta || '').length},timestamp:Date.now()})}).catch(()=>{});
+          // #endregion
         }
       }
     })
@@ -404,6 +422,9 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
         if (agent && agent !== "user" && !agent.startsWith("worker")) {
           const agentName = agent === "assistant" ? "research_assistant" : agent
           finalizeAgentContent(agentName)
+          if (agentName !== "research_assistant") {
+            finalizeAgentContent("research_assistant")
+          }
         }
       }
     })
@@ -765,9 +786,13 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     // Agents Roster Snapshot
     stream.onCustom("aevatar.vibe.agents_snapshot", (event) => {
       addRawEvent(event)
-      const data = event.value as VibeAgentsSnapshotValue
-      if (Array.isArray(data?.agents)) {
-        setAgentRoster(data.agents)
+      const data = event.value as VibeAgentsSnapshotValue & { roster?: VibeAgentsSnapshotValue["agents"] }
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/602d30ab-17ad-45f0-a915-8a7cf2e47189',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId,runId:'',hypothesisId:'H13',location:'use-axiom-stream.ts:agents_snapshot',message:'agents_snapshot_received',data:{hasAgents:Array.isArray(data?.agents),agentsCount:data?.agents?.length ?? 0,hasRoster:(data as unknown as {roster?: unknown}).roster !== undefined},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      const roster = Array.isArray(data?.agents) ? data.agents : Array.isArray(data?.roster) ? data.roster : null
+      if (roster) {
+        setAgentRoster(roster)
       }
     })
 
@@ -837,6 +862,9 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
       const dagData = ('dag' in raw && raw.dag) ? raw.dag : raw as VibeDagSnapshotValue
       const rawNodes = dagData?.nodes || []
       const rawEdges = dagData?.edges || []
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/602d30ab-17ad-45f0-a915-8a7cf2e47189',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId,runId:'',hypothesisId:'H12',location:'use-axiom-stream.ts:dag_snapshot',message:'dag_snapshot_received',data:{hasDag:('dag' in raw),nodesCount:rawNodes.length,edgesCount:rawEdges.length},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       
       // Always update dag state even if empty (to clear stale data)
       const { setDag } = useSisyphusStore.getState()
@@ -867,6 +895,9 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     // Event value type: VibeDagUpdatedValue (contains sessionId, reason, affectedNodeIds)
     stream.onCustom("aevatar.vibe.dag_updated", async (event) => {
       addRawEvent(event)
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/602d30ab-17ad-45f0-a915-8a7cf2e47189',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId,runId:'',hypothesisId:'H34',location:'use-axiom-stream.ts:dag_updated',message:'dag_updated_received',data:{sessionId,storeSessionId:useSisyphusStore.getState().currentSessionId || '',eventSessionId:((event as { value?: { sessionId?: string } }).value?.sessionId) || ''},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
 
       // Fetch updated DAG from API
       if (sessionId) {

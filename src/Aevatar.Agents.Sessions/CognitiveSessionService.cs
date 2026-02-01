@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Linq;
+using System.Reflection;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Extensions;
 using Aevatar.Agents.Abstractions.Helpers;
@@ -362,10 +363,37 @@ public sealed class CognitiveSessionService
                || ext.Equals(".json", StringComparison.OrdinalIgnoreCase);
     }
 
-    private string ResolveWorkflowsDirectory()
+    private string ResolveWorkflowsDirectory(string? workflowName = null)
     {
         if (!string.IsNullOrWhiteSpace(_options.WorkflowsDirectory))
             return ExpandHome(_options.WorkflowsDirectory!.Trim());
+
+        var cwd = Directory.GetCurrentDirectory();
+        var appName = Assembly.GetEntryAssembly()?.GetName().Name ?? string.Empty;
+        var resolved = CognitiveSessionWorkflows.ResolveWorkflowsDirectory(cwd, appName, workflowName);
+        // #region agent log
+        System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+            System.Text.Json.JsonSerializer.Serialize(new
+            {
+                sessionId = string.Empty,
+                runId = string.Empty,
+                hypothesisId = "H40",
+                location = "CognitiveSessionService.cs:ResolveWorkflowsDirectory",
+                message = "workflows_dir_resolved",
+                data = new
+                {
+                    cwd,
+                    appName,
+                    workflowName = workflowName ?? string.Empty,
+                    resolved,
+                    exists = !string.IsNullOrWhiteSpace(resolved) && Directory.Exists(resolved)
+                },
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            }) + Environment.NewLine);
+        // #endregion
+
+        if (!string.IsNullOrWhiteSpace(resolved) && Directory.Exists(resolved))
+            return resolved!;
 
         var configDir = ResolveAevatarConfigDirectory();
         return Path.Combine(configDir, "workflows");
@@ -380,7 +408,7 @@ public sealed class CognitiveSessionService
         if (File.Exists(name))
             return Path.GetFullPath(name);
 
-        var dir = ResolveWorkflowsDirectory();
+        var dir = ResolveWorkflowsDirectory(name);
         var direct = Path.Combine(dir, name);
         if (File.Exists(direct))
             return Path.GetFullPath(direct);
@@ -399,6 +427,37 @@ public sealed class CognitiveSessionService
             if (File.Exists(json))
                 return Path.GetFullPath(json);
         }
+
+        var fallback = CognitiveSessionWorkflows.TryResolveWorkflowPath(
+            name,
+            Directory.GetCurrentDirectory(),
+            Assembly.GetEntryAssembly()?.GetName().Name);
+        if (!string.IsNullOrWhiteSpace(fallback))
+            return fallback!;
+
+        // #region agent log
+        System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+            System.Text.Json.JsonSerializer.Serialize(new
+            {
+                sessionId = string.Empty,
+                runId = string.Empty,
+                hypothesisId = "H41",
+                location = "CognitiveSessionService.cs:ResolveWorkflowPath",
+                message = "workflow_path_not_found",
+                data = new
+                {
+                    workflowName = workflowName ?? string.Empty,
+                    dir,
+                    directExists = File.Exists(direct),
+                    yamlExists = File.Exists(Path.Combine(dir, $"{name}.yaml")),
+                    ymlExists = File.Exists(Path.Combine(dir, $"{name}.yml")),
+                    jsonExists = File.Exists(Path.Combine(dir, $"{name}.json")),
+                    cwd = Directory.GetCurrentDirectory(),
+                    appName = Assembly.GetEntryAssembly()?.GetName().Name ?? string.Empty
+                },
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            }) + Environment.NewLine);
+        // #endregion
 
         throw new FileNotFoundException($"Workflow '{workflowName}' not found.", workflowName);
     }
@@ -800,6 +859,24 @@ public sealed class CognitiveSessionService
 
         if (string.IsNullOrWhiteSpace(state.SessionId))
             return;
+
+        // #region agent log
+        System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+            JsonSerializer.Serialize(new
+            {
+                sessionId = state.SessionId,
+                runId = string.Empty,
+                hypothesisId = "H22",
+                location = "CognitiveSessionService.cs:AppendSessionIndexEntryAsync",
+                message = "session_index_append",
+                data = new
+                {
+                    memoryStoreType = _memoryStore.GetType().FullName ?? _memoryStore.GetType().Name,
+                    workflowName = state.WorkflowName ?? string.Empty
+                },
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            }) + Environment.NewLine);
+        // #endregion
 
         var scope = new MemoryScope
         {

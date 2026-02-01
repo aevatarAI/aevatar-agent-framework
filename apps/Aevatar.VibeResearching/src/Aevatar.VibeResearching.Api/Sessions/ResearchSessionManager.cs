@@ -76,14 +76,26 @@ public sealed class ResearchSessionManager
 
     public bool TryGet(string sessionId, out ResearchSession session)
     {
-        sessionId = (sessionId ?? string.Empty).Trim();
-        if (sessionId.Length == 0)
+        if (!TryNormalizeSessionId(sessionId, out var normalized))
         {
             session = null!;
             return false;
         }
 
-        return _sessions.TryGetValue(sessionId, out session!);
+        if (_sessions.TryGetValue(normalized, out session!))
+            return true;
+
+        var stream = _runtime.GetSessionStreamAsync(normalized, CancellationToken.None)
+            .GetAwaiter()
+            .GetResult();
+        if (stream == null)
+        {
+            session = null!;
+            return false;
+        }
+
+        session = GetOrCreateWithStream(normalized, stream, providerName: null, createdAt: null, dagId: null);
+        return true;
     }
 
     public async Task LoadPersistedSessionsAsync(CancellationToken ct = default)
@@ -160,27 +172,24 @@ public sealed class ResearchSessionManager
         DateTimeOffset? createdAt = null,
         string? dagId = null)
     {
-        sessionId = (sessionId ?? string.Empty).Trim();
-        if (sessionId.Length == 0)
-            throw new ArgumentException("sessionId is required", nameof(sessionId));
+        if (!TryNormalizeSessionId(sessionId, out var normalized))
+            throw new ArgumentException("sessionId must be alphanumeric", nameof(sessionId));
 
-        // Keep ids filesystem-safe and stable.
-        if (sessionId.Length > 64)
-            sessionId = sessionId[..64];
+        var stream = EnsureStream(normalized);
+        return GetOrCreateWithStream(normalized, stream, providerName, createdAt, dagId);
+    }
 
-        // Normalize to lowercase and strip non-alnum (reject if unsafe).
-        var normalized = sessionId.ToLowerInvariant();
-        foreach (var ch in normalized)
-        {
-            if (!char.IsLetterOrDigit(ch))
-                throw new ArgumentException("sessionId must be alphanumeric", nameof(sessionId));
-        }
-
+    private ResearchSession GetOrCreateWithStream(
+        string normalizedSessionId,
+        SessionAgUiStream stream,
+        string? providerName,
+        DateTimeOffset? createdAt,
+        string? dagId)
+    {
         var p = string.IsNullOrWhiteSpace(providerName) ? null : providerName.Trim();
         var d = string.IsNullOrWhiteSpace(dagId) ? null : dagId.Trim();
 
-        var stream = EnsureStream(normalized);
-        var session = _sessions.GetOrAdd(normalized, id =>
+        var session = _sessions.GetOrAdd(normalizedSessionId, id =>
         {
             var s = new ResearchSession(id, stream, createdAt) { ProviderName = p, DagId = d };
             _uiTrace.Attach(s);
@@ -191,6 +200,28 @@ public sealed class ResearchSessionManager
             session.DagId = d;
 
         return session;
+    }
+
+    private static bool TryNormalizeSessionId(string? sessionId, out string normalized)
+    {
+        normalized = string.Empty;
+        var raw = (sessionId ?? string.Empty).Trim();
+        if (raw.Length == 0)
+            return false;
+
+        // Keep ids filesystem-safe and stable.
+        if (raw.Length > 64)
+            raw = raw[..64];
+
+        var lowered = raw.ToLowerInvariant();
+        foreach (var ch in lowered)
+        {
+            if (!char.IsLetterOrDigit(ch))
+                return false;
+        }
+
+        normalized = lowered;
+        return true;
     }
 
     private async Task<VibeSessionIndex> LoadIndexAsync(CancellationToken ct)

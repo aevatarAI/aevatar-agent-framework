@@ -6,6 +6,7 @@ using Aevatar.Agents.Abstractions.Helpers;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core.Hooks;
 using Aevatar.Agents.AI.Core.Messages;
+using Aevatar.Agents.Core.StateProtection;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 
@@ -224,6 +225,43 @@ public abstract partial class AIGAgentBase
         Logger.LogError(exception, "Error in streaming chat request {RequestId}", request.RequestId);
     }
 
+    private static string EnsureRequestId(ChatRequest request)
+    {
+        var requestId = request.RequestId;
+        if (string.IsNullOrWhiteSpace(requestId))
+        {
+            requestId = Guid.NewGuid().ToString("N");
+            request.RequestId = requestId;
+        }
+
+        return requestId;
+    }
+
+    private static ChatRequestEvent BuildChatRequestEvent(
+        ChatRequest request,
+        string requestId,
+        int streamChunkEveryN)
+    {
+        var evt = new ChatRequestEvent
+        {
+            RequestId = requestId,
+            Message = request.Message ?? string.Empty,
+            MaxTokens = request.MaxTokens,
+            Temperature = request.Temperature,
+            StreamChunkEveryN = streamChunkEveryN
+        };
+
+        if (request.Context.Count > 0)
+        {
+            foreach (var (key, value) in request.Context)
+            {
+                evt.Context[key] = value?.ToString() ?? string.Empty;
+            }
+        }
+
+        return evt;
+    }
+
     /// <summary>
     /// Process a chat request and return a response.
     /// 
@@ -237,12 +275,12 @@ public abstract partial class AIGAgentBase
         ChatRequest request,
         CancellationToken cancellationToken = default)
     {
-        var requestId = request.RequestId;
-        if (string.IsNullOrWhiteSpace(requestId))
+        if (StateProtectionContext.IsModifiable)
         {
-            requestId = Guid.NewGuid().ToString("N");
-            request.RequestId = requestId;
+            return await ChatAsyncCore(request, cancellationToken);
         }
+
+        var requestId = EnsureRequestId(request);
 
         // 1. 先创建 TCS 并放入字典
         var tcs = new TaskCompletionSource<ChatResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -260,22 +298,7 @@ public abstract partial class AIGAgentBase
         try
         {
             // 2. 发布 ChatRequestEvent（StreamChunkEveryN = 0 表示非 streaming）
-            var evt = new ChatRequestEvent
-            {
-                RequestId = requestId,
-                Message = request.Message ?? string.Empty,
-                MaxTokens = request.MaxTokens,
-                Temperature = request.Temperature,
-                StreamChunkEveryN = 0
-            };
-
-            if (request.Context.Count > 0)
-            {
-                foreach (var (key, value) in request.Context)
-                {
-                    evt.Context[key] = value?.ToString() ?? string.Empty;
-                }
-            }
+            var evt = BuildChatRequestEvent(request, requestId, streamChunkEveryN: 0);
 
             await PublishAsync(evt, EventDirection.Self, cancellationToken);
 
@@ -510,12 +533,17 @@ public abstract partial class AIGAgentBase
         ChatRequest request,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var requestId = request.RequestId;
-        if (string.IsNullOrWhiteSpace(requestId))
+        if (StateProtectionContext.IsModifiable)
         {
-            requestId = Guid.NewGuid().ToString("N");
-            request.RequestId = requestId;
+            await foreach (var chunk in ChatStreamAsyncCore(request, cancellationToken))
+            {
+                yield return chunk;
+            }
+
+            yield break;
         }
+
+        var requestId = EnsureRequestId(request);
 
         // 1. 先创建 Channel 并放入字典
         var channel = System.Threading.Channels.Channel.CreateUnbounded<string>(
@@ -529,22 +557,7 @@ public abstract partial class AIGAgentBase
         try
         {
             // 2. 发布 ChatRequestEvent（StreamChunkEveryN > 0 表示 streaming）
-            var evt = new ChatRequestEvent
-            {
-                RequestId = requestId,
-                Message = request.Message ?? string.Empty,
-                MaxTokens = request.MaxTokens,
-                Temperature = request.Temperature,
-                StreamChunkEveryN = 1
-            };
-
-            if (request.Context.Count > 0)
-            {
-                foreach (var (key, value) in request.Context)
-                {
-                    evt.Context[key] = value?.ToString() ?? string.Empty;
-                }
-            }
+            var evt = BuildChatRequestEvent(request, requestId, streamChunkEveryN: 1);
 
             await PublishAsync(evt, EventDirection.Self, cancellationToken);
 

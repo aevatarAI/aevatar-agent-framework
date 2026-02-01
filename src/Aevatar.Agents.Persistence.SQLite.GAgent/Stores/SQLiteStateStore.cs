@@ -149,6 +149,27 @@ public sealed class SQLiteStateStore<TState> : IVersionedStateStore<TState>
 
         agentId = agentId.Trim();
 
+        if (_stateTypeName.EndsWith("SessionState", StringComparison.Ordinal))
+        {
+            // #region agent log
+            System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    sessionId = agentId,
+                    runId = string.Empty,
+                    hypothesisId = "H23",
+                    location = "SQLiteStateStore.cs:SaveInternalAsync",
+                    message = "sqlite_state_save",
+                    data = new
+                    {
+                        stateType = _stateTypeName,
+                        connectionString = _connectionFactory.ConnectionString
+                    },
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                }) + Environment.NewLine);
+            // #endregion
+        }
+
         var data = state.ToByteArray();
         var updatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 

@@ -53,7 +53,14 @@ This project provides a unified interface for scientific research, allowing you 
 3.  **Workflows (Cognitive Session API)**:
     - Project-local workflows live in `src/VibeResearching.Api/workflows/`.
     - Default workflows: `vibe_researching` (planner → reasoner → librarian → verifier → dag_builder → consensus → paper_editor) and `maker`.
+    - Mode mapping (POST `/api/sessions/{id}/input`):
+      - `chat` -> `vibe_chat`
+      - `vibe` / `milestone` / `research` -> `vibe_milestone`
+      - `vibe_loop` / `vibe_goal_loop` -> `vibe_goal_loop`
+      - `single` -> `vibe_single`
+      - `axiom` -> `vibe_axiom`
     - List them via `GET /api/workflows`.
+    - Full mapping reference: `src/Aevatar.VibeResearching.Api/workflows/docs/README.md`.
     - Mesh config (`default_mesh.yaml` / `mesh.json`) is separate from Cognitive workflows.
 
 4.  **(Optional) Seed DAG knowledge**:

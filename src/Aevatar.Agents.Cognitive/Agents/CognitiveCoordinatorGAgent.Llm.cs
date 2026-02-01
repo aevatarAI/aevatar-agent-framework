@@ -188,6 +188,31 @@ public partial class CognitiveCoordinatorGAgent
                         if (string.IsNullOrEmpty(delta))
                             continue;
 
+                        if (chunkIndex == 0)
+                        {
+                            var elapsedMs = (long)(DateTimeOffset.UtcNow - startAt).TotalMilliseconds;
+                            // #region agent log
+                            System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                                JsonSerializer.Serialize(new
+                                {
+                                    sessionId = SessionId ?? Id.ToString(),
+                                    runId = CustomState.ExecutionId ?? string.Empty,
+                                    hypothesisId = "H31",
+                                    location = "CognitiveCoordinatorGAgent.Llm.cs:ExecuteLlmCallWithStreamingAsync",
+                                    message = "llm_first_chunk",
+                                    data = new
+                                    {
+                                        stepId = eventStep.Id ?? string.Empty,
+                                        elapsedMs,
+                                        idleTimeoutSeconds,
+                                        timeoutSeconds,
+                                        deltaLength = delta.Length
+                                    },
+                                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                                }) + Environment.NewLine);
+                            // #endregion
+                        }
+
                         sb.Append(delta);
                         output = sb.ToString();
 

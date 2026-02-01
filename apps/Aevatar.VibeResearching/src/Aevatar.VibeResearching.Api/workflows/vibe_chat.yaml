@@ -1,0 +1,40 @@
+name: vibe_chat
+description: "Single-step research assistant chat"
+
+inputs:
+  - name: question
+    type: string
+    required: true
+    description: "User question / message"
+  - name: attachments
+    type: object
+    required: false
+    description: "Attachment path list (optional)"
+    default: []
+
+defaults:
+  llm_call:
+    max_length: 40000
+    strict_parse: false
+    timeout_seconds: 600
+    idle_timeout_seconds: 120
+
+steps:
+  - id: research_assistant
+    type: llm_call
+    agent: research_assistant
+    prompt: |
+      Role: research_assistant
+      Question: {{ question }}
+      {% if (attachments | size) > 0 %}
+
+      AttachmentPaths:
+      {% for p in attachments %}
+      - {{ p }}
+      {% endfor %}
+      {% endif %}
+    output: text
+    store: response
+
+output:
+  response: "{{ response }}"

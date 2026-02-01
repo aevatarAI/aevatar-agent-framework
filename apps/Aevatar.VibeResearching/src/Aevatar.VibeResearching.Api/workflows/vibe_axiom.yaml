@@ -1,0 +1,61 @@
+name: vibe_axiom
+description: "Axiom-based reasoning (single-pass)"
+
+inputs:
+  - name: task
+    type: string
+    required: true
+    description: "Raw task text with axioms and goal"
+  - name: axioms
+    type: json_array
+    required: false
+    description: "Optional axioms list (if not provided, extract from task)"
+    default: []
+  - name: goal
+    type: string
+    required: false
+    description: "Optional goal statement (if not provided, extract from task)"
+    default: ""
+  - name: language
+    type: string
+    default: "English"
+    description: "Natural language for reasoning and final answer"
+
+defaults:
+  llm_call:
+    max_length: 40000
+    strict_parse: false
+    timeout_seconds: 600
+    idle_timeout_seconds: 120
+
+steps:
+  - id: reason
+    type: llm_call
+    prompt: |
+      You are a careful formal reasoner.
+      Solve the task using axioms and a clear proof outline.
+
+      Raw task:
+      {{ task }}
+
+      {% if axioms %}
+      Axioms (explicit):
+      {{ axioms | json }}
+      {% endif %}
+
+      {% if goal %}
+      Goal:
+      {{ goal }}
+      {% endif %}
+
+      Requirements:
+      - Use only the given axioms and derived steps.
+      - Keep the proof minimal and checkable.
+      - Provide the final answer after the proof.
+
+      Language: {{ language }}
+    output: text
+    store: response
+
+output:
+  response: "{{ response }}"

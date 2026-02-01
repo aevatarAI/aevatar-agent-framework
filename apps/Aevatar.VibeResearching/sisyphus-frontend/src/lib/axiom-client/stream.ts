@@ -33,7 +33,7 @@ interface AxiomCustomEvents {
 // === Event Stream Factory ===
 
 export function createAxiomEventStream(sessionId: string): EventStream<AxiomCustomEvents> {
-  const url = `${API_BASE}/api/sessions/${sessionId}/agui/events`
+  const url = `${API_BASE}/api/chat/sessions/${sessionId}/agui/events`
 
   return createEventStream<AxiomCustomEvents>({
     url,

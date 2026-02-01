@@ -11,6 +11,7 @@ using Aevatar.Agents.Cognitive.Primitives;
 using Aevatar.Agents.Core.Secrets;
 using Aevatar.Agents.Knowledge.Graph;
 using Aevatar.Agents.Sessions;
+using Aevatar.Agents.Sessions.Endpoints;
 using Aevatar.Agents.Sessions.Runtime;
 using Aevatar.Agents.Persistence.InMemory.Graph;
 using Aevatar.Agents.Persistence.MongoDB;
@@ -192,7 +193,31 @@ else
     builder.Services.AddAevatarAgentSystem(b => b.UseLocalRuntime());
 }
 // Cognitive workflows (session API + DAG consensus): load from project-local workflows directory.
-var workflowsDir = Path.Combine(builder.Environment.ContentRootPath, "workflows");
+var defaultWorkflowName = "vibe_researching";
+var workflowsDir = CognitiveSessionWorkflows.ResolveWorkflowsDirectory(
+    builder.Environment.ContentRootPath,
+    builder.Environment.ApplicationName,
+    defaultWorkflowName);
+// #region agent log
+System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+    System.Text.Json.JsonSerializer.Serialize(new
+    {
+        sessionId = string.Empty,
+        runId = string.Empty,
+        hypothesisId = "H42",
+        location = "Program.cs:workflows_dir",
+        message = "workflows_dir_configured",
+        data = new
+        {
+            contentRoot = builder.Environment.ContentRootPath,
+            appName = builder.Environment.ApplicationName,
+            workflowName = defaultWorkflowName,
+            workflowsDir,
+            exists = Directory.Exists(workflowsDir)
+        },
+        timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+    }) + Environment.NewLine);
+// #endregion
 builder.Services.AddCognitiveAgents(options =>
 {
     options.WorkflowsDirectory = workflowsDir;
@@ -204,10 +229,11 @@ builder.Services.AddAevatarCognitiveSessions(options =>
 });
 builder.Services.AddAevatarSessionRuntime(options =>
 {
-    options.WorkflowName = "vibe_researching";
+    options.WorkflowName = defaultWorkflowName;
     options.AgentRole = "planner";
     options.MaxSnapshotMessages = 60;
 });
+builder.Services.AddAevatarSessionTooling();
 builder.Services.RemoveAll<ISessionAgUiBootstrapper>();
 builder.Services.AddSingleton<ISessionAgUiBootstrapper, VibeAgUiBootstrapper>();
 
@@ -228,7 +254,7 @@ builder.Services.AddSingleton<ResearchSessionManager>();
 builder.Services.AddSingleton<SessionUiSnapshotStore>();
 builder.Services.AddSingleton<SessionUiTraceRecorder>();
 builder.Services.AddSingleton<AgentProvidersStore>();
-builder.Services.AddSingleton<ResearchRunExecutor>();
+// builder.Services.AddSingleton<ResearchRunExecutor>();
 
 // File-SSoT collaboration primitives (paper + facts_proposed + mailbox)
 builder.Services.AddSingleton<WorkspaceService>();
@@ -257,13 +283,47 @@ builder.Services.AddSingleton<BriefStore>();
 // - 这里默认用 InMemory 图后端（开发/测试最快，无外部依赖）
 // - DagStore 会把图快照同步落盘到 artifacts/dag/snapshot.json，保证可审阅/可恢复
 // ==========================================
-builder.Services.AddAevatarGraphNeo4j();
-// builder.Services.AddAevatarGraphInMemory();
+var neo4jUri = builder.Configuration["Neo4j:Uri"] ?? Environment.GetEnvironmentVariable("NEO4J_URI");
+var neo4jUsername = builder.Configuration["Neo4j:Username"] ?? Environment.GetEnvironmentVariable("NEO4J_USERNAME");
+var neo4jPassword = builder.Configuration["Neo4j:Password"] ?? Environment.GetEnvironmentVariable("NEO4J_PASSWORD");
+var neo4jDatabase = builder.Configuration["Neo4j:Database"] ?? Environment.GetEnvironmentVariable("NEO4J_DATABASE") ?? "neo4j";
+var useNeo4j = !string.IsNullOrWhiteSpace(neo4jUri)
+               && !string.IsNullOrWhiteSpace(neo4jUsername)
+               && !string.IsNullOrWhiteSpace(neo4jPassword);
+// #region agent log
+System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+    System.Text.Json.JsonSerializer.Serialize(new
+    {
+        sessionId = string.Empty,
+        runId = string.Empty,
+        hypothesisId = "H43",
+        location = "Program.cs:neo4j",
+        message = "neo4j_config_state",
+        data = new
+        {
+            hasUri = !string.IsNullOrWhiteSpace(neo4jUri),
+            hasUsername = !string.IsNullOrWhiteSpace(neo4jUsername),
+            hasPassword = !string.IsNullOrWhiteSpace(neo4jPassword),
+            useNeo4j
+        },
+        timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+    }) + Environment.NewLine);
+// #endregion
+if (useNeo4j)
+{
+    // 仅在显式提供连接信息时启用 Neo4j
+    // Neo4j only when explicit config exists.
+    builder.Services.AddAevatarGraphNeo4j(neo4jUri!, neo4jUsername!, neo4jPassword!, neo4jDatabase);
+}
+else
+{
+    builder.Services.AddAevatarGraphInMemory();
+}
 builder.Services.AddKnowledgeGraph();
 
 // Vibe: DAG/Graph store (SSoT: KnowledgeGraph + file snapshot mirror)
 // DagStore is used by VibeOrchestrator for loading snapshots and applying mutations
-builder.Services.AddSingleton<VibeResearching.Api.Vibe.Dag.DagStore>();
+builder.Services.AddSingleton<DagStore>();
 builder.Services.AddSingleton<IDagGroundingPolicy, DefaultDagGroundingPolicy>();
 
 // Vibe: Unified graph access (FR-007/FR-008 tools)
@@ -281,7 +341,7 @@ builder.Services.AddSingleton<VibeResearching.Api.Vibe.Mesh.MeshExecutionRunner>
 
 // Vibe: DAG consensus gate (default: verifier-quorum; optional: maker via CognitiveStrategy)
 builder.Services.AddSingleton<Aevatar.Agents.Cognitive.Core.Strategies.CognitiveStrategy>();
-builder.Services.AddSingleton<VibeResearching.Api.Vibe.Dag.DagConsensusRunner>();
+builder.Services.AddSingleton<DagConsensusRunner>();
 
 // Vibe: delivery center snapshots (paper + lists) (file-backed)
 builder.Services.AddSingleton<DeliveryCenterStore>();
@@ -366,6 +426,7 @@ app.MapGet("/health", () => Results.Text("ok"));
 // NOTE: Cognitive Session API registers /api/sessions (conflicts with current Vibe API).
 // Enable only when we switch the frontend to the protobuf contract.
 // app.MapAevatarSessionApi();
+app.MapSessionUiEndpoints();
 
 // Workflow list for current frontend (JSON list of names).
 app.MapGet("/api/workflows", (IWorkflowRegistry workflows) =>

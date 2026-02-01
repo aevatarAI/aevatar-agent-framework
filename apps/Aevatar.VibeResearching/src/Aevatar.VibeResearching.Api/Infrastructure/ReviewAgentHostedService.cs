@@ -23,6 +23,7 @@ public sealed class ReviewAgentHostedService : BackgroundService, IReviewAgentTr
     // Manual trigger state
     private volatile bool _hasStarted;
     private volatile bool _isRunning;
+    private volatile bool _pendingTrigger;
     private readonly SemaphoreSlim _triggerSemaphore = new(1, 1);
     private TaskCompletionSource? _triggerSignal;
     private CancellationToken _stoppingToken;
@@ -80,7 +81,13 @@ public sealed class ReviewAgentHostedService : BackgroundService, IReviewAgentTr
             }
 
             // Signal the waiting loop to start a review round
-            _triggerSignal?.TrySetResult();
+            if (_triggerSignal == null)
+            {
+                _pendingTrigger = true;
+                return true;
+            }
+
+            _triggerSignal.TrySetResult();
             return true;
         }
         finally
@@ -168,6 +175,13 @@ public sealed class ReviewAgentHostedService : BackgroundService, IReviewAgentTr
     private async Task WaitForTriggerAsync(CancellationToken stoppingToken)
     {
         _triggerSignal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        if (_pendingTrigger)
+        {
+            _pendingTrigger = false;
+            _triggerSignal.TrySetResult();
+            return;
+        }
 
         try
         {

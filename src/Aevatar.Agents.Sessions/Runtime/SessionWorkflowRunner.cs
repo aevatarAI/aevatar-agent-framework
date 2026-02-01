@@ -37,6 +37,7 @@ public sealed class SessionWorkflowRunner
 
     private readonly ConcurrentDictionary<string, bool> _initializedCoordinators = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, bool> _workerPoolsCreated = new(StringComparer.Ordinal);
+    private static int _workflowDagLogCount;
 
     public SessionWorkflowRunner(
         IGAgentActorManager actorManager,
@@ -81,6 +82,29 @@ public sealed class SessionWorkflowRunner
 
     public Task ExecuteAsync(SessionWorkflowRunContext context, SessionWorkflowRunRequest request, CancellationToken ct)
     {
+        var hasDagSteps = context.Workflow.Steps.Any(step =>
+            step.Id is "dag_builder" or "maker_consensus_parse" or "verifier_quorum");
+        if (Interlocked.Increment(ref _workflowDagLogCount) <= 3)
+        {
+            // #region agent log
+            System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                JsonSerializer.Serialize(new
+                {
+                    sessionId = context.SessionId,
+                    runId = request.RequestId ?? string.Empty,
+                    hypothesisId = "H56",
+                    location = "SessionWorkflowRunner.cs:ExecuteAsync",
+                    message = "workflow_dag_steps_presence",
+                    data = new
+                    {
+                        workflowName = context.WorkflowName,
+                        stepsCount = context.Workflow.Steps.Count,
+                        hasDagSteps
+                    },
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                }) + Environment.NewLine);
+            // #endregion
+        }
         var variables = BuildVariables(context.Workflow, request, context.WorkflowName, context.SessionId);
         var evt = new StartWorkflowRequestEvent
         {
@@ -226,9 +250,9 @@ public sealed class SessionWorkflowRunner
             variables["mode"] = request.Mode!.Trim();
         }
 
+        var messageKey = ResolveMessageKey(inputNames);
         if (!string.IsNullOrWhiteSpace(request.Message))
         {
-            var messageKey = ResolveMessageKey(inputNames);
             if (messageKey != null && !variables.ContainsKey(messageKey))
             {
                 variables[messageKey] = request.Message!.Trim();
@@ -256,6 +280,28 @@ public sealed class SessionWorkflowRunner
                 variables["run_id"] = request.RequestId!.Trim();
             }
         }
+
+        // #region agent log
+        System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+            JsonSerializer.Serialize(new
+            {
+                sessionId,
+                runId = request.RequestId ?? string.Empty,
+                hypothesisId = "H2",
+                location = "SessionWorkflowRunner.cs:BuildVariables",
+                message = "variables_built",
+                data = new
+                {
+                    workflowName,
+                    inputNames,
+                    variablesKeys = variables.Keys,
+                    messageKey,
+                    hasAttachmentsInput = inputNames.Contains("attachments"),
+                    hasAttachmentsVar = variables.ContainsKey("attachments")
+                },
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            }) + Environment.NewLine);
+        // #endregion
 
         return variables;
     }

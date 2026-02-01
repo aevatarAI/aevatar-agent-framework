@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text.Json;
 using Aevatar.Agents.AGUI;
 using Aevatar.Agents.Sessions.Runtime;
 using VibeResearching.Api.Vibe.Brief;
@@ -197,6 +198,48 @@ public sealed class VibeAgUiBootstrapper : ISessionAgUiBootstrapper
         {
             var dagId = session?.EffectiveDagId ?? ResearchSession.GlobalDagId;
             var snap = await _dag.GetSnapshotForListAsync(dagId, ct, currentSessionId: sessionId);
+            var nodesCount = 0;
+            var edgesCount = 0;
+            var hasNodes = false;
+            var hasEdges = false;
+            try
+            {
+                using var doc = JsonDocument.Parse(JsonSerializer.Serialize(snap));
+                if (doc.RootElement.TryGetProperty("nodes", out var nodes) && nodes.ValueKind == JsonValueKind.Array)
+                {
+                    nodesCount = nodes.GetArrayLength();
+                    hasNodes = true;
+                }
+                if (doc.RootElement.TryGetProperty("edges", out var edges) && edges.ValueKind == JsonValueKind.Array)
+                {
+                    edgesCount = edges.GetArrayLength();
+                    hasEdges = true;
+                }
+            }
+            catch
+            {
+                // best-effort
+            }
+            // #region agent log
+            System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                JsonSerializer.Serialize(new
+                {
+                    sessionId,
+                    runId = string.Empty,
+                    hypothesisId = "H12",
+                    location = "VibeAgUiBootstrapper.cs:BuildAsync",
+                    message = "dag_snapshot_prepared",
+                    data = new
+                    {
+                        dagId,
+                        hasNodes,
+                        hasEdges,
+                        nodesCount,
+                        edgesCount
+                    },
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                }) + Environment.NewLine);
+            // #endregion
             events.Add(new CustomEvent
             {
                 Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
@@ -244,24 +287,38 @@ public sealed class VibeAgUiBootstrapper : ISessionAgUiBootstrapper
         try
         {
             var baseId = $"sra-{sessionId}";
+            var roster = new[]
+            {
+                new { agent = "research_assistant", agentId = $"{baseId}-research_assistant" },
+                new { agent = "planner", agentId = $"{baseId}-planner" },
+                new { agent = "reasoner", agentId = $"{baseId}-reasoner" },
+                new { agent = "librarian", agentId = $"{baseId}-librarian" },
+                new { agent = "verifier", agentId = $"{baseId}-verifier" },
+                new { agent = "dag_builder", agentId = $"{baseId}-dag_builder" },
+                new { agent = "paper_editor", agentId = $"{baseId}-paper_editor" }
+            };
+            // #region agent log
+            System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                JsonSerializer.Serialize(new
+                {
+                    sessionId,
+                    runId = string.Empty,
+                    hypothesisId = "H13",
+                    location = "VibeAgUiBootstrapper.cs:BuildAsync",
+                    message = "agents_snapshot_prepared",
+                    data = new
+                    {
+                        rosterCount = roster.Length,
+                        payloadField = "roster"
+                    },
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                }) + Environment.NewLine);
+            // #endregion
             events.Add(new CustomEvent
             {
                 Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 Name = "aevatar.vibe.agents_snapshot",
-                Value = new
-                {
-                    sessionId,
-                    roster = new[]
-                    {
-                        new { agent = "research_assistant", agentId = $"{baseId}-research_assistant" },
-                        new { agent = "planner", agentId = $"{baseId}-planner" },
-                        new { agent = "reasoner", agentId = $"{baseId}-reasoner" },
-                        new { agent = "librarian", agentId = $"{baseId}-librarian" },
-                        new { agent = "verifier", agentId = $"{baseId}-verifier" },
-                        new { agent = "dag_builder", agentId = $"{baseId}-dag_builder" },
-                        new { agent = "paper_editor", agentId = $"{baseId}-paper_editor" }
-                    }
-                }
+                Value = new { sessionId, agents = roster, roster }
             });
         }
         catch

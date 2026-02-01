@@ -29,6 +29,7 @@ namespace VibeResearching.Api.Sessions;
 
 internal sealed class ResearchRunExecutor
 {
+    private readonly SessionRuntime _sessionRuntime;
     private readonly ResearchRuntime _runtime;
     private readonly MaterialsService _materials;
     private readonly WorkspaceService _workspace;
@@ -40,6 +41,7 @@ internal sealed class ResearchRunExecutor
     private readonly ILogger<ResearchRunExecutor> _logger;
 
     public ResearchRunExecutor(
+        SessionRuntime sessionRuntime,
         ResearchRuntime runtime,
         MaterialsService materials,
         WorkspaceService workspace,
@@ -50,6 +52,7 @@ internal sealed class ResearchRunExecutor
         IOptions<LLMProvidersConfig> llm,
         ILogger<ResearchRunExecutor> logger)
     {
+        _sessionRuntime = sessionRuntime ?? throw new ArgumentNullException(nameof(sessionRuntime));
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         _materials = materials ?? throw new ArgumentNullException(nameof(materials));
         _workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
@@ -70,39 +73,60 @@ internal sealed class ResearchRunExecutor
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(input);
 
-        // Default mode changed from "chat" to "milestone" for research-driven workflow.
-        // Milestone mode executes research by iterating through plan milestones.
-        var mode = (input.Mode ?? "milestone").Trim().ToLowerInvariant();
+        // 方案A：统一走 Cognitive Workflow（load workflow -> load role agent）
+        // - 角色与提示词由 workflow + ~/.aevatar/agents/*.yaml 决定
+        // - 避免硬编码的 worker pipeline
+        var mode = NormalizeMode(input.Mode);
+        var workflowName = ResolveWorkflowName(mode);
+        var variables = BuildWorkflowVariables(input);
 
-        // Milestone-driven research: execute by iterating through milestones in order
-        // "vibe" now defaults to milestone loop for full research workflow
-        if (mode is "milestone" or "vibe_milestone" or "research" or "vibe")
+        var request = new SessionWorkflowRunRequest(
+            WorkflowName: workflowName,
+            Message: input.Message,
+            Mode: mode,
+            Variables: variables,
+            RequestId: runId);
+
+        await _sessionRuntime.RunWorkflowAsync(session.Id, request, ct);
+    }
+
+    private static string NormalizeMode(string? mode)
+    {
+        var normalized = (mode ?? string.Empty).Trim();
+        return normalized.Length == 0 ? "vibe" : normalized.ToLowerInvariant();
+    }
+
+    private static string ResolveWorkflowName(string mode)
+        => mode switch
         {
-            await ExecuteMilestoneLoopRunAsync(session, runId, input, ct);
-            return;
-        }
-        // Legacy: iteration-based loop (not milestone-aware)
-        if (mode is "vibe_loop" or "vibe_goal_loop")
+            "chat" => "vibe_chat",
+            "vibe_researching" => "vibe_researching",
+            "single" => "vibe_single",
+            "axiom" => "vibe_axiom",
+            "vibe_loop" or "vibe_goal_loop" => "vibe_goal_loop",
+            "milestone" or "vibe_milestone" or "research" or "vibe" => "vibe_milestone",
+            _ => "vibe_milestone"
+        };
+
+    private static Dictionary<string, object?> BuildWorkflowVariables(SessionInputInDto input)
+    {
+        var variables = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+        if (input.AttachmentPaths is { Count: > 0 })
+            variables["attachments"] = input.AttachmentPaths;
+        if (input.ToAgents is { Count: > 0 })
+            variables["to_agents"] = input.ToAgents;
+        if (input.Loop != null)
         {
-            await ExecuteVibeGoalLoopRunAsync(session, runId, input, ct);
-            return;
-        }
-        // Single-round research (for debugging or quick tests)
-        if (mode is "vibe_researching" or "axiom" or "single")
-        {
-            await ExecuteVibeResearchingRunAsync(session, runId, input, ct);
-            return;
-        }
-        // Pure chat mode (no research orchestration)
-        if (mode is "chat")
-        {
-            await ExecuteChatRunAsync(session, runId, input, ct);
-            return;
+            if (input.Loop.MaxIterations.HasValue)
+            {
+                variables["loop_max_iterations"] = input.Loop.MaxIterations.Value;
+                variables["max_iterations"] = input.Loop.MaxIterations.Value;
+            }
+            if (input.Loop.MaxTotalDurationMs.HasValue)
+                variables["loop_max_duration_ms"] = input.Loop.MaxTotalDurationMs.Value;
         }
 
-        // Unknown mode: default to milestone-driven research
-        _logger.LogWarning("Unknown mode '{Mode}', defaulting to milestone-driven research", mode);
-        await ExecuteMilestoneLoopRunAsync(session, runId, input, ct);
+        return variables;
     }
 
     private async Task ExecuteVibeGoalLoopRunAsync(

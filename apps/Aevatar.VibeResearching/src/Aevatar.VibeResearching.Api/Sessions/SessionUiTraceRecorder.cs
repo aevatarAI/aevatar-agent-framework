@@ -1,6 +1,12 @@
 using System.Text.Json;
+using System.Runtime.CompilerServices;
 using System.Collections.Concurrent;
+using Aevatar.Agents;
 using Aevatar.Agents.AGUI;
+using Aevatar.Agents.Abstractions.Tracing;
+using Google.Protobuf.WellKnownTypes;
+using VibeResearching.Api.Vibe;
+using VibeResearching.Api.Vibe.Dag;
 
 namespace VibeResearching.Api.Sessions;
 
@@ -24,12 +30,20 @@ public sealed class SessionUiTraceRecorder
 
     private readonly SessionUiSnapshotStore _store;
     private readonly ILogger<SessionUiTraceRecorder> _logger;
+    private readonly ResearchRuntime _runtime;
+    private readonly DagStore _dag;
 
     private readonly ConcurrentDictionary<string, byte> _attached = new(StringComparer.Ordinal);
 
-    public SessionUiTraceRecorder(SessionUiSnapshotStore store, ILogger<SessionUiTraceRecorder> logger)
+    public SessionUiTraceRecorder(
+        SessionUiSnapshotStore store,
+        ResearchRuntime runtime,
+        DagStore dag,
+        ILogger<SessionUiTraceRecorder> logger)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
+        _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
+        _dag = dag ?? throw new ArgumentNullException(nameof(dag));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -52,6 +66,11 @@ public sealed class SessionUiTraceRecorder
         var tools = new Dictionary<(string MessageId, string ToolCallId), SessionUiSnapshotStore.UiToolOutput>();
         var runStepsOrder = new List<string>();
         var runStepsMap = new Dictionary<string, SessionUiSnapshotStore.UiRunStep>(StringComparer.Ordinal);
+
+        var dagCandidates = new Dictionary<string, string>(StringComparer.Ordinal);
+        var dagConsensus = new Dictionary<string, bool>(StringComparer.Ordinal);
+        var dagApplied = new HashSet<string>(StringComparer.Ordinal);
+        var rawTraceLogCount = 0;
 
         var currentRunId = string.Empty;
         var version = 0;
@@ -148,6 +167,61 @@ public sealed class SessionUiTraceRecorder
         {
             await foreach (var evt in session.Events.SubscribeAsync(CancellationToken.None))
             {
+                if (evt.RawEvent is ExecutionTraceEvent raw)
+                {
+                    if (rawTraceLogCount < 3)
+                    {
+                        rawTraceLogCount++;
+                        var nodeId = (raw.NodeId ?? string.Empty).Trim();
+                        var status = ReadStringField(raw, ExecutionTraceEventFields.Status) ?? string.Empty;
+                        var stepType = ReadStringField(raw, ExecutionTraceEventFields.StepType) ?? string.Empty;
+                        var assistantLen = ReadStringField(raw, ExecutionTraceEventFields.AssistantResponse)?.Length ?? 0;
+                        // #region agent log
+                        File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                            JsonSerializer.Serialize(new
+                            {
+                                sessionId,
+                                runId = ReadStringField(raw, ExecutionTraceEventFields.ExecutionId) ?? string.Empty,
+                                hypothesisId = "H24",
+                                location = "SessionUiTraceRecorder.cs:RunAsync",
+                                message = "trace_raw_seen",
+                                data = new
+                                {
+                                    nodeId,
+                                    status,
+                                    stepType,
+                                    assistantLen,
+                                    isDagStep = nodeId is "dag_builder" or "maker_consensus_parse" or "verifier_quorum"
+                                },
+                                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                            }) + Environment.NewLine);
+                        // #endregion
+                    }
+
+                    var dagNodeId = (raw.NodeId ?? string.Empty).Trim();
+                    if (dagNodeId is "dag_builder" or "maker_consensus_parse" or "verifier_quorum")
+                    {
+                        // #region agent log
+                        System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                            JsonSerializer.Serialize(new
+                            {
+                                sessionId,
+                                runId = ReadStringField(raw, ExecutionTraceEventFields.ExecutionId) ?? string.Empty,
+                                hypothesisId = "H25",
+                                location = "SessionUiTraceRecorder.cs:RunAsync",
+                                message = "trace_dag_step_seen",
+                                data = new
+                                {
+                                    nodeId = dagNodeId,
+                                    status = ReadStringField(raw, ExecutionTraceEventFields.Status) ?? string.Empty,
+                                    assistantLen = ReadStringField(raw, ExecutionTraceEventFields.AssistantResponse)?.Length ?? 0
+                                },
+                                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                            }) + Environment.NewLine);
+                        // #endregion
+                    }
+                }
+
                 // Persist small "work trace" for audit (best-effort).
                 switch (evt)
                 {
@@ -158,6 +232,20 @@ public sealed class SessionUiTraceRecorder
                         await _store.AppendRunEventAsync(sessionId, currentRunId, new { type = e.Type, ts = e.Timestamp, runId = currentRunId }, CancellationToken.None);
                         await FlushSnapshotAsync();
                         break;
+
+                    case RunErrorEvent e when IsCancelMessage(e.Message):
+                    {
+                        var runId = string.IsNullOrWhiteSpace(currentRunId) ? "run" : currentRunId;
+                        session.Events.Publish(new CustomEvent
+                        {
+                            Timestamp = e.Timestamp,
+                            Name = "aevatar.scientific.run_canceled",
+                            Value = new { threadId = sessionId, runId }
+                        });
+                        await _store.AppendRunEventAsync(sessionId, runId, new { type = e.Type, ts = e.Timestamp, runId, error = e.Message }, CancellationToken.None);
+                        await FlushSnapshotAsync();
+                        break;
+                    }
 
                     case RunFinishedEvent e:
                         await _store.AppendRunEventAsync(sessionId, currentRunId, new { type = e.Type, ts = e.Timestamp, runId = e.RunId }, CancellationToken.None);
@@ -206,10 +294,10 @@ public sealed class SessionUiTraceRecorder
                         try
                         {
                             // Value is typically an anonymous object; parse via JSON for robustness.
-                            var raw = e.Value == null ? "" : JsonSerializer.Serialize(e.Value);
-                            if (string.IsNullOrWhiteSpace(raw)) break;
+                            var metaJson = e.Value == null ? "" : JsonSerializer.Serialize(e.Value);
+                            if (string.IsNullOrWhiteSpace(metaJson)) break;
 
-                            using var doc = JsonDocument.Parse(raw);
+                            using var doc = JsonDocument.Parse(metaJson);
                             var root = doc.RootElement;
 
                             var messageId = root.TryGetProperty("messageId", out var midEl) ? (midEl.GetString() ?? "") : "";
@@ -252,6 +340,7 @@ public sealed class SessionUiTraceRecorder
                             Error: null,
                             StartedAt: e.Timestamp);
 
+                        await PublishToolStartAsync(session, currentRunId, e, tc, CancellationToken.None);
                         await _store.AppendRunEventAsync(sessionId, currentRunId, new { type = e.Type, ts = e.Timestamp, messageId = mid, toolCallId = tc, toolName = e.ToolName }, CancellationToken.None);
                         await FlushSnapshotAsync();
                         break;
@@ -281,11 +370,211 @@ public sealed class SessionUiTraceRecorder
                         var tc = (e.ToolCallId ?? string.Empty).Trim();
                         if (mid.Length == 0 || tc.Length == 0) break;
 
-                        if (tools.TryGetValue((mid, tc), out var prev))
-                            tools[(mid, tc)] = prev with { Status = "done" };
+                        SessionUiSnapshotStore.UiToolOutput? prev = null;
+                        if (tools.TryGetValue((mid, tc), out var stored))
+                        {
+                            prev = stored;
+                            tools[(mid, tc)] = stored with { Status = "done" };
+                        }
 
+                        await PublishToolEndAsync(session, currentRunId, e, tc, prev, CancellationToken.None);
                         await _store.AppendRunEventAsync(sessionId, currentRunId, new { type = e.Type, ts = e.Timestamp, messageId = mid, toolCallId = tc }, CancellationToken.None);
                         await FlushSnapshotAsync();
+                        break;
+                    }
+
+                    case { RawEvent: ExecutionTraceEvent trace }:
+                    {
+                        var status = ReadStringField(trace, ExecutionTraceEventFields.Status) ?? string.Empty;
+                        if (!string.Equals(status, ExecutionTraceEventStatus.Completed, StringComparison.OrdinalIgnoreCase))
+                            break;
+
+                        var runId = ReadStringField(trace, ExecutionTraceEventFields.ExecutionId) ?? string.Empty;
+                        if (string.IsNullOrWhiteSpace(runId))
+                            break;
+
+                        var stepId = (trace.NodeId ?? string.Empty).Trim();
+                        if (string.IsNullOrWhiteSpace(stepId))
+                            break;
+
+                        if (string.Equals(stepId, "dag_builder", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var assistantRaw = ReadStringField(trace, ExecutionTraceEventFields.AssistantResponse) ?? string.Empty;
+                            if (!string.IsNullOrWhiteSpace(assistantRaw))
+                            {
+                                dagCandidates[runId] = assistantRaw;
+                                // #region agent log
+                                System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                                    JsonSerializer.Serialize(new
+                                    {
+                                        sessionId,
+                                        runId,
+                                        hypothesisId = "H14",
+                                        location = "SessionUiTraceRecorder.cs:RunAsync",
+                                        message = "dag_candidate_captured",
+                                        data = new { stepId, length = assistantRaw.Length },
+                                        timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                                    }) + Environment.NewLine);
+                                // #endregion
+                            }
+                        }
+
+                        if (string.Equals(stepId, "maker_consensus_parse", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(stepId, "verifier_quorum", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var assistantRaw = ReadStringField(trace, ExecutionTraceEventFields.AssistantResponse) ?? string.Empty;
+                            if (TryParseDagConsensus(assistantRaw, out var accept, out var redFlagsCount))
+                            {
+                                dagConsensus[runId] = accept;
+                                // #region agent log
+                                System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                                    JsonSerializer.Serialize(new
+                                    {
+                                        sessionId,
+                                        runId,
+                                        hypothesisId = "H15",
+                                        location = "SessionUiTraceRecorder.cs:RunAsync",
+                                        message = "dag_consensus_captured",
+                                        data = new { stepId, accept, redFlagsCount },
+                                        timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                                    }) + Environment.NewLine);
+                                // #endregion
+                            }
+                        }
+
+                        if (!dagApplied.Contains(runId) &&
+                            dagConsensus.TryGetValue(runId, out var accepted) &&
+                            accepted &&
+                            dagCandidates.TryGetValue(runId, out var candidateRaw))
+                        {
+                            var dagId = session.EffectiveDagId;
+                            // #region agent log
+                            System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                                JsonSerializer.Serialize(new
+                                {
+                                    sessionId,
+                                    runId,
+                                    hypothesisId = "H16",
+                                    location = "SessionUiTraceRecorder.cs:RunAsync",
+                                    message = "dag_apply_attempt",
+                                    data = new { dagId, candidateLength = candidateRaw.Length, accepted },
+                                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                                }) + Environment.NewLine);
+                            // #endregion
+
+                            try
+                            {
+                                var currentDag = await _dag.LoadSnapshotAsync(dagId, CancellationToken.None);
+                                var mutation = VibeOrchestrator.TryParseDagBuilderCandidate(session.Id, candidateRaw, currentDag);
+                                if (mutation == null)
+                                {
+                                    // #region agent log
+                                    System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                                        JsonSerializer.Serialize(new
+                                        {
+                                            sessionId,
+                                            runId,
+                                            hypothesisId = "H17",
+                                            location = "SessionUiTraceRecorder.cs:RunAsync",
+                                            message = "dag_apply_skipped",
+                                            data = new { reason = "candidate_parse_failed" },
+                                            timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                                        }) + Environment.NewLine);
+                                    // #endregion
+                                    break;
+                                }
+
+                                if (mutation.UpsertNodes.Count == 0 && mutation.UpsertEdges.Count == 0)
+                                {
+                                    dagApplied.Add(runId);
+                                    // #region agent log
+                                    System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                                        JsonSerializer.Serialize(new
+                                        {
+                                            sessionId,
+                                            runId,
+                                            hypothesisId = "H17",
+                                            location = "SessionUiTraceRecorder.cs:RunAsync",
+                                            message = "dag_apply_skipped",
+                                            data = new { reason = "no_changes" },
+                                            timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                                        }) + Environment.NewLine);
+                                    // #endregion
+                                    break;
+                                }
+
+                                var applied = await _dag.ApplyMutationAsync(dagId, mutation, CancellationToken.None);
+                                dagApplied.Add(runId);
+
+                                session.Events.Publish(new CustomEvent
+                                {
+                                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                                    Name = "aevatar.vibe.dag_updated",
+                                    Value = new
+                                    {
+                                        sessionId = session.Id,
+                                        dagId,
+                                        runId,
+                                        mutationId = mutation.MutationId,
+                                        nodes = mutation.UpsertNodes.Count,
+                                        edges = mutation.UpsertEdges.Count,
+                                        consensusWorkflow = "workflow",
+                                        consensusArtifact = string.Empty,
+                                        updatedAt = applied.UpdatedAt?.ToDateTime().ToUniversalTime().ToString("O") ?? ""
+                                    }
+                                });
+
+                                // #region agent log
+                                System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                                    JsonSerializer.Serialize(new
+                                    {
+                                        sessionId,
+                                        runId,
+                                        hypothesisId = "H62",
+                                        location = "SessionUiTraceRecorder.cs:RunAsync",
+                                        message = "dag_updated_published",
+                                        data = new
+                                        {
+                                            streamHash = RuntimeHelpers.GetHashCode(session.Events),
+                                            dagId,
+                                            nodes = mutation.UpsertNodes.Count,
+                                            edges = mutation.UpsertEdges.Count
+                                        },
+                                        timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                                    }) + Environment.NewLine);
+                                // #endregion
+
+                                // #region agent log
+                                System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                                    JsonSerializer.Serialize(new
+                                    {
+                                        sessionId,
+                                        runId,
+                                        hypothesisId = "H17",
+                                        location = "SessionUiTraceRecorder.cs:RunAsync",
+                                        message = "dag_apply_succeeded",
+                                        data = new { nodes = mutation.UpsertNodes.Count, edges = mutation.UpsertEdges.Count },
+                                        timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                                    }) + Environment.NewLine);
+                                // #endregion
+                            }
+                            catch (Exception ex)
+                            {
+                                // #region agent log
+                                System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                                    JsonSerializer.Serialize(new
+                                    {
+                                        sessionId,
+                                        runId,
+                                        hypothesisId = "H17",
+                                        location = "SessionUiTraceRecorder.cs:RunAsync",
+                                        message = "dag_apply_failed",
+                                        data = new { error = ex.Message },
+                                        timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                                    }) + Environment.NewLine);
+                                // #endregion
+                            }
+                        }
                         break;
                     }
                 }
@@ -294,6 +583,180 @@ public sealed class SessionUiTraceRecorder
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "[UiTrace] Session event tap stopped (best-effort).");
+        }
+    }
+
+    private async Task PublishToolStartAsync(
+        ResearchSession session,
+        string currentRunId,
+        ToolCallStartEvent evt,
+        string toolCallId,
+        CancellationToken ct)
+    {
+        var toolName = (evt.ToolName ?? string.Empty).Trim();
+        if (toolName.Length == 0)
+            return;
+
+        var runId = ResolveRunId(currentRunId, evt.MessageId);
+        var isMcp = await _runtime.IsMcpToolAsync(session.Id, toolName, ct);
+
+        session.Events.Publish(new CustomEvent
+        {
+            Timestamp = evt.Timestamp,
+            Name = "aevatar.scientific.tool_start",
+            Value = new
+            {
+                threadId = session.Id,
+                runId,
+                toolCallId,
+                toolName,
+                isMcp
+            }
+        });
+    }
+
+    private async Task PublishToolEndAsync(
+        ResearchSession session,
+        string currentRunId,
+        ToolCallEndEvent evt,
+        string toolCallId,
+        SessionUiSnapshotStore.UiToolOutput? previous,
+        CancellationToken ct)
+    {
+        var toolName = previous?.ToolName ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(toolName))
+            toolName = ReadStringField(evt.RawEvent as ExecutionTraceEvent, ExecutionTraceEventFields.ToolName) ?? string.Empty;
+        toolName = toolName.Trim();
+        if (toolName.Length == 0)
+            return;
+
+        var runId = ResolveRunId(currentRunId, evt.MessageId);
+        var raw = evt.RawEvent as ExecutionTraceEvent;
+        var status = ReadStringField(raw, ExecutionTraceEventFields.Status);
+        var durationMs = ReadLongField(raw, ExecutionTraceEventFields.DurationMs);
+        var error = ReadStringField(raw, ExecutionTraceEventFields.Error);
+        var success = !IsFailureStatus(status);
+        var isMcp = await _runtime.IsMcpToolAsync(session.Id, toolName, ct);
+
+        session.Events.Publish(new CustomEvent
+        {
+            Timestamp = evt.Timestamp,
+            Name = "aevatar.scientific.tool_end",
+            Value = new
+            {
+                threadId = session.Id,
+                runId,
+                toolCallId,
+                toolName,
+                isMcp,
+                success,
+                durationMs,
+                error,
+                resultPreview = previous?.ResultPreview ?? string.Empty
+            }
+        });
+    }
+
+    private static string ResolveRunId(string currentRunId, string? messageId)
+    {
+        if (!string.IsNullOrWhiteSpace(currentRunId))
+            return currentRunId;
+
+        var mid = (messageId ?? string.Empty).Trim();
+        if (mid.Length == 0)
+            return string.Empty;
+
+        // Expected: msg:{sessionId}:assistant:{runId}
+        var parts = mid.Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length >= 4)
+            return parts[^1];
+
+        return string.Empty;
+    }
+
+    private static bool IsCancelMessage(string? message)
+    {
+        var text = (message ?? string.Empty).Trim();
+        if (text.Length == 0)
+            return false;
+        return text.Contains("cancel", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? ReadStringField(ExecutionTraceEvent? evt, string key)
+    {
+        if (evt?.Fields == null) return null;
+        if (!evt.Fields.TryGetValue(key, out var value)) return null;
+        return value.StringValue;
+    }
+
+    private static long? ReadLongField(ExecutionTraceEvent? evt, string key)
+    {
+        if (evt?.Fields == null) return null;
+        if (!evt.Fields.TryGetValue(key, out var value)) return null;
+        return value.ValueCase switch
+        {
+            ContextValue.ValueOneofCase.IntValue => value.IntValue,
+            ContextValue.ValueOneofCase.DoubleValue => (long)value.DoubleValue,
+            _ => null
+        };
+    }
+
+    private static bool IsFailureStatus(string? status)
+    {
+        return string.Equals(status, ExecutionTraceEventStatus.Failed, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(status, ExecutionTraceEventStatus.Cancelled, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryParseDagConsensus(string raw, out bool accept, out int redFlagsCount)
+    {
+        accept = false;
+        redFlagsCount = 0;
+        if (string.IsNullOrWhiteSpace(raw))
+            return false;
+
+        if (!TryParseJson(raw, out var root))
+            return false;
+
+        if (root.TryGetProperty("accept", out var acceptEl))
+        {
+            accept = acceptEl.ValueKind == JsonValueKind.True ||
+                     (acceptEl.ValueKind == JsonValueKind.String &&
+                      string.Equals(acceptEl.GetString(), "true", StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (root.TryGetProperty("red_flags", out var redFlagsEl) && redFlagsEl.ValueKind == JsonValueKind.Array)
+            redFlagsCount = redFlagsEl.GetArrayLength();
+        else if (root.TryGetProperty("redFlags", out var redFlagsCamel) && redFlagsCamel.ValueKind == JsonValueKind.Array)
+            redFlagsCount = redFlagsCamel.GetArrayLength();
+
+        return true;
+    }
+
+    private static bool TryParseJson(string raw, out JsonElement root)
+    {
+        root = default;
+        try
+        {
+            using var doc = JsonDocument.Parse(raw);
+            root = doc.RootElement.Clone();
+            return true;
+        }
+        catch
+        {
+            var start = raw.IndexOf('{');
+            var end = raw.LastIndexOf('}');
+            if (start < 0 || end <= start) return false;
+
+            try
+            {
+                using var doc = JsonDocument.Parse(raw[start..(end + 1)]);
+                root = doc.RootElement.Clone();
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
     }
 }

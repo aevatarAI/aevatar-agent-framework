@@ -85,7 +85,56 @@ public sealed class CoordinatorWorkflowEventModule : IEventModule
         }
 
         var evt = envelope.Payload.Unpack<StartWorkflowRequestEvent>();
-        await coordinator.HandleStartWorkflowRequest(evt);
+        var workflowName = evt.WorkflowName ?? string.Empty;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var succeeded = false;
+        // #region agent log
+        System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+            System.Text.Json.JsonSerializer.Serialize(new
+            {
+                sessionId = string.Empty,
+                runId = string.Empty,
+                hypothesisId = "H52",
+                location = "CognitiveCoordinatorModules.cs:CoordinatorWorkflowEventModule.HandleAsync",
+                message = "workflow_event_start",
+                data = new
+                {
+                    agentId = coordinator.Id.ToString(),
+                    eventId = envelope.Id ?? string.Empty,
+                    workflowName
+                },
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            }) + Environment.NewLine);
+        // #endregion
+        try
+        {
+            await coordinator.HandleStartWorkflowRequest(evt);
+            succeeded = true;
+        }
+        finally
+        {
+            sw.Stop();
+            // #region agent log
+            System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    sessionId = string.Empty,
+                    runId = string.Empty,
+                    hypothesisId = "H53",
+                    location = "CognitiveCoordinatorModules.cs:CoordinatorWorkflowEventModule.HandleAsync",
+                    message = "workflow_event_end",
+                    data = new
+                    {
+                        agentId = coordinator.Id.ToString(),
+                        eventId = envelope.Id ?? string.Empty,
+                        workflowName,
+                        elapsedMs = sw.ElapsedMilliseconds,
+                        succeeded
+                    },
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                }) + Environment.NewLine);
+            // #endregion
+        }
     }
 }
 

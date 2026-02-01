@@ -1,6 +1,6 @@
 using Aevatar.Agents.AGUI;
-using Aevatar.Agents.AI.Core.Messages;
 using Aevatar.Agents.Sessions.Runtime;
+using System.Text.Json;
 using Microsoft.Extensions.Options;
 using VibeResearching.Api.Facts;
 using VibeResearching.Api.Materials;
@@ -27,40 +27,34 @@ internal static partial class ResearchSessionsApi
             if (string.IsNullOrWhiteSpace(input.Message))
                 return Results.BadRequest(new { error = "message is required" });
 
-            var mode = (input.Mode ?? string.Empty).Trim();
-            if (string.Equals(mode, "chat", StringComparison.OrdinalIgnoreCase))
-            {
-                var chat = new ChatRequestEvent
-                {
-                    Message = input.Message,
-                    RequestId = input.RequestId ?? string.Empty
-                };
-                var chatRunId = await runtime.SendChatAsync(sessionId, chat, ct);
-                return Results.Accepted($"/api/sessions/{session.Id}", new { ok = true, sessionId = session.Id, runId = chatRunId });
-            }
-
-            var variables = new Dictionary<string, object?>();
-            if (input.AttachmentPaths is { Count: > 0 })
-                variables["attachments"] = input.AttachmentPaths;
-            if (input.ToAgents is { Count: > 0 })
-                variables["to_agents"] = input.ToAgents;
-            if (input.Loop != null)
-            {
-                if (input.Loop.MaxIterations.HasValue)
-                    variables["loop_max_iterations"] = input.Loop.MaxIterations.Value;
-                if (input.Loop.MaxTotalDurationMs.HasValue)
-                    variables["loop_max_duration_ms"] = input.Loop.MaxTotalDurationMs.Value;
-            }
+            var mode = NormalizeMode(input.Mode);
+            var workflowName = ResolveWorkflowName(mode);
+            var variables = BuildWorkflowVariables(input);
 
             var runId = string.IsNullOrWhiteSpace(input.RequestId)
                 ? Guid.NewGuid().ToString("N")
                 : input.RequestId!.Trim();
-            var request = new SessionWorkflowRunRequest(
-                WorkflowName: "vibe_researching",
-                Message: input.Message,
-                Mode: mode,
-                Variables: variables,
-                RequestId: runId);
+
+            // #region agent log
+            System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                JsonSerializer.Serialize(new
+                {
+                    sessionId,
+                    runId,
+                    hypothesisId = "H1",
+                    location = "ResearchSessionsApi.InputAndFacts.cs:MapInput",
+                    message = "input_received",
+                    data = new
+                    {
+                        mode,
+                        workflowName,
+                        hasAttachments = input.AttachmentPaths is { Count: > 0 },
+                        attachmentsCount = input.AttachmentPaths?.Count ?? 0,
+                        variablesKeys = variables.Keys
+                    },
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                }) + Environment.NewLine);
+            // #endregion
 
             var interruptedRunId = session.Workspace.Vibe.LastRunId.Trim();
             if (interruptedRunId.Length > 0 && !string.Equals(interruptedRunId, runId, StringComparison.Ordinal))
@@ -106,9 +100,74 @@ internal static partial class ResearchSessionsApi
                 });
             }
 
-            _ = await runtime.RunWorkflowAsync(sessionId, request, ct);
-            return Results.Accepted($"/api/sessions/{session.Id}", new { ok = true, sessionId = session.Id, runId });
+            var request = new SessionWorkflowRunRequest(
+                WorkflowName: workflowName,
+                Message: input.Message,
+                Mode: mode,
+                Variables: variables,
+                RequestId: runId);
+
+            var scheduledRunId = await runtime.RunWorkflowAsync(sessionId, request, ct);
+            // #region agent log
+            System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                JsonSerializer.Serialize(new
+                {
+                    sessionId,
+                    runId,
+                    hypothesisId = "H35",
+                    location = "ResearchSessionsApi.InputAndFacts.cs:MapInput",
+                    message = "workflow_scheduled",
+                    data = new
+                    {
+                        workflowName,
+                        requestRunId = runId,
+                        scheduledRunId
+                    },
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                }) + Environment.NewLine);
+            // #endregion
+            return Results.Accepted($"/api/sessions/{session.Id}", new { ok = true, sessionId = session.Id, runId = scheduledRunId });
         });
+    }
+
+    private static string NormalizeMode(string? mode)
+    {
+        var normalized = (mode ?? string.Empty).Trim();
+        return normalized.Length == 0 ? "vibe" : normalized.ToLowerInvariant();
+    }
+
+    private static string ResolveWorkflowName(string mode)
+        => mode switch
+        {
+            "chat" => "vibe_chat",
+            "vibe_researching" => "vibe_researching",
+            "single" => "vibe_single",
+            "axiom" => "vibe_axiom",
+            "vibe_loop" or "vibe_goal_loop" => "vibe_goal_loop",
+            "vibe" => "vibe_researching",
+            "milestone" or "vibe_milestone" or "research" => "vibe_milestone",
+            _ => "vibe_milestone"
+        };
+
+    private static Dictionary<string, object?> BuildWorkflowVariables(SessionInputInDto input)
+    {
+        var variables = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+        if (input.AttachmentPaths is { Count: > 0 })
+            variables["attachments"] = input.AttachmentPaths;
+        if (input.ToAgents is { Count: > 0 })
+            variables["to_agents"] = input.ToAgents;
+        if (input.Loop != null)
+        {
+            if (input.Loop.MaxIterations.HasValue)
+            {
+                variables["loop_max_iterations"] = input.Loop.MaxIterations.Value;
+                variables["max_iterations"] = input.Loop.MaxIterations.Value;
+            }
+            if (input.Loop.MaxTotalDurationMs.HasValue)
+                variables["loop_max_duration_ms"] = input.Loop.MaxTotalDurationMs.Value;
+        }
+
+        return variables;
     }
 
     private static void MapMcpReconnect(WebApplication app)

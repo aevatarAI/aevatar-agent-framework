@@ -23,8 +23,7 @@ internal static partial class ResearchSessionsApi
     {
         ArgumentNullException.ThrowIfNull(app);
 
-        MapCreate(app);
-        MapList(app);
+        // New session + list moved to Aevatar.Agents.Sessions (MapSessionUiEndpoints).
         MapTools(app);
         MapAgentProviders(app);
         MapAgents(app);

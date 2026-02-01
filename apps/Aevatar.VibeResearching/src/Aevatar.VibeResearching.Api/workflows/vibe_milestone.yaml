@@ -1,0 +1,29 @@
+name: vibe_milestone
+description: "Milestone-mode wrapper for vibe_researching"
+
+inputs:
+  - name: question
+    type: string
+    required: true
+    description: "User question / research task"
+  - name: attachments
+    type: object
+    required: false
+    description: "Attachment path list (optional)"
+    default: []
+  - name: mode
+    type: string
+    default: "milestone"
+    description: "Mode hint (milestone / vibe_milestone / research / vibe)"
+
+steps:
+  - id: run_vibe
+    type: workflow_call
+    workflow: vibe_researching
+    params:
+      question: "{{ question }}"
+      attachments: "{{ attachments }}"
+    store: result
+
+output:
+  result: "{{ result }}"

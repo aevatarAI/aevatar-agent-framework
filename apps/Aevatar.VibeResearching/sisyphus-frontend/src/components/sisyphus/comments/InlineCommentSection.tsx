@@ -31,13 +31,11 @@ export const InlineCommentSection = memo(function InlineCommentSection({
     (content: string, parentId?: string) => {
       if (editorMode.type === 'edit') {
         updateMutation.mutate(
-          { commentId: editorMode.comment.id, input: { content } },
-          { onSuccess: () => setEditorOpen(false) }
+          { commentId: editorMode.comment.id, input: { content } }
         )
       } else {
         createMutation.mutate(
-          { content, parentCommentId: parentId },
-          { onSuccess: () => setEditorOpen(false) }
+          { content, parentCommentId: parentId }
         )
       }
     },

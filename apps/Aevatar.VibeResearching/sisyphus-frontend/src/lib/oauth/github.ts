@@ -13,7 +13,8 @@
 // ============================================================
 
 import { oauthConfig, isGitHubConfigured } from './config'
-import type { OAuthResult, GitHubUser } from './types'
+import type { OAuthResult } from './types'
+import type { AuthUser } from '@/types/user-management'
 
 // State key for CSRF protection
 const STATE_KEY = 'github_oauth_state'
@@ -53,10 +54,16 @@ export function initiateGitHubLogin(): void {
  * Handle GitHub OAuth callback
  * This should be called when user returns from GitHub authorization
  */
+export interface GitHubCallbackResult {
+  success: boolean
+  user?: AuthUser
+  error?: string
+}
+
 export async function handleGitHubCallback(
   code: string,
   state: string
-): Promise<OAuthResult> {
+): Promise<GitHubCallbackResult> {
   // Verify state for CSRF protection
   const savedState = sessionStorage.getItem(STATE_KEY)
   sessionStorage.removeItem(STATE_KEY)
@@ -69,36 +76,26 @@ export async function handleGitHubCallback(
   }
 
   try {
-    // Exchange code for token via backend
-    // Backend endpoint must handle: code -> token -> user info
     const response = await fetch('/api/auth/github/callback', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ code }),
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ code, state }),
     })
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}))
       return {
         success: false,
-        error: error.message || 'GitHub authentication failed',
+        error: error.error || 'GitHub authentication failed',
       }
     }
 
     const data = await response.json()
-    const githubUser = data.user as GitHubUser
 
     return {
       success: true,
-      user: {
-        id: String(githubUser.id),
-        email: githubUser.email || `${githubUser.login}@github.local`,
-        name: githubUser.name || githubUser.login,
-        picture: githubUser.avatar_url,
-        provider: 'github',
-      },
+      user: data.user as AuthUser,
     }
   } catch (error) {
     console.error('[OAuth] GitHub callback error:', error)

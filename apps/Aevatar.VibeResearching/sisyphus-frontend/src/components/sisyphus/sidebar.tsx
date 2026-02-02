@@ -122,7 +122,7 @@ const SessionCard: React.FC<SessionCardProps> = ({
             ENDED
           </span>
         ) : (
-          <span className="text-[10px] font-mono text-neon-green bg-neon-green/10 px-1.5 py-0.5 rounded border border-neon-green/30">
+          <span className="text-[10px] font-mono text-neon-green bg-neon-green/10 px-1.5 py-0.5 rounded border border-neon-green/30 animate-pulse">
             ACTIVE
           </span>
         )}

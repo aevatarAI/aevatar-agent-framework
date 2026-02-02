@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { Loader2, AlertCircle, CheckCircle } from "lucide-react"
 import { AuthLayout } from "@/components/auth"
@@ -17,8 +17,11 @@ export default function OAuthCallbackPage() {
   
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading")
   const [message, setMessage] = useState("Processing authentication...")
+  const calledRef = useRef(false)
 
   useEffect(() => {
+    if (calledRef.current) return
+    calledRef.current = true
     handleCallback()
   }, [])
 
@@ -46,22 +49,13 @@ export default function OAuthCallbackPage() {
       setMessage("Completing authentication...")
       
       const result = await handleGitHubCallback(code, state)
-      
+
       if (result.success && result.user) {
         setStatus("success")
         setMessage("Authentication successful! Redirecting...")
-        
-        // Convert to AuthUser format and login
-        login({
-          id: result.user.id,
-          userName: result.user.email.split('@')[0],
-          email: result.user.email,
-          name: result.user.name.split(' ')[0] || result.user.name,
-          surname: result.user.name.split(' ').slice(1).join(' ') || undefined,
-          roles: ['member'],
-          isAdmin: false,
-          avatarUrl: result.user.picture,
-        })
+
+        // Use the real ABP Identity user returned by backend
+        login(result.user)
         
         // Redirect to app after short delay
         setTimeout(() => navigate("/app"), 1500)

@@ -1,7 +1,10 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
+using System.Threading;
 using Aevatar.Agents.Abstractions.Tracing;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
+using Aevatar.Agents.AI.Core.Utils;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 
@@ -18,6 +21,7 @@ public sealed class ExecutionTraceProgressHook : IAevatarAgentHook
     private readonly ILogger? _logger;
     private readonly ConcurrentDictionary<string, byte> _sessionStarts = new(StringComparer.Ordinal);
     private readonly bool _emitSessionLifecycle;
+    private static int _suppressLogCount;
 
     public int Priority => -1000;
 
@@ -33,6 +37,8 @@ public sealed class ExecutionTraceProgressHook : IAevatarAgentHook
 
     public Task OnSessionStartAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
     {
+        if (IsTraceSuppressed(context))
+            return Task.CompletedTask;
         if (!_emitSessionLifecycle)
             return Task.CompletedTask;
 
@@ -49,6 +55,8 @@ public sealed class ExecutionTraceProgressHook : IAevatarAgentHook
 
     public Task OnStopAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
     {
+        if (IsTraceSuppressed(context))
+            return Task.CompletedTask;
         if (!_emitSessionLifecycle)
             return Task.CompletedTask;
 
@@ -64,13 +72,15 @@ public sealed class ExecutionTraceProgressHook : IAevatarAgentHook
     }
 
     public Task BeforeLLMRequestAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
-        => _emitSessionLifecycle
-            ? EmitSessionIfMissingAndLlmAsync(context, cancellationToken)
-            : EmitLlmAsync(
-                context,
-                ExecutionTraceEventPhase.LlmRequest,
-                ExecutionTraceEventStatus.Running,
-                cancellationToken);
+        => IsTraceSuppressed(context)
+            ? Task.CompletedTask
+            : _emitSessionLifecycle
+                ? EmitSessionIfMissingAndLlmAsync(context, cancellationToken)
+                : EmitLlmAsync(
+                    context,
+                    ExecutionTraceEventPhase.LlmRequest,
+                    ExecutionTraceEventStatus.Running,
+                    cancellationToken);
 
     private async Task EmitSessionIfMissingAndLlmAsync(
         AevatarAgentHookContext context,
@@ -95,6 +105,8 @@ public sealed class ExecutionTraceProgressHook : IAevatarAgentHook
 
     public Task AfterLLMResponseAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
     {
+        if (IsTraceSuppressed(context))
+            return Task.CompletedTask;
         return EmitLlmAsync(
             context,
             ExecutionTraceEventPhase.LlmResponse,
@@ -104,6 +116,8 @@ public sealed class ExecutionTraceProgressHook : IAevatarAgentHook
 
     public Task BeforeToolExecuteAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
     {
+        if (IsTraceSuppressed(context))
+            return Task.CompletedTask;
         return EmitToolAsync(
             context,
             ExecutionTraceEventPhase.ToolStart,
@@ -113,6 +127,8 @@ public sealed class ExecutionTraceProgressHook : IAevatarAgentHook
 
     public Task AfterToolExecuteAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
     {
+        if (IsTraceSuppressed(context))
+            return Task.CompletedTask;
         var status = context.ToolResult?.IsSuccess == false
             ? ExecutionTraceEventStatus.Failed
             : ExecutionTraceEventStatus.Completed;
@@ -125,6 +141,8 @@ public sealed class ExecutionTraceProgressHook : IAevatarAgentHook
 
     public Task BeforeEventHandlerAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
     {
+        if (IsTraceSuppressed(context))
+            return Task.CompletedTask;
         return EmitEventHandlerAsync(
             context,
             ExecutionTraceEventPhase.EventHandlerStart,
@@ -134,6 +152,8 @@ public sealed class ExecutionTraceProgressHook : IAevatarAgentHook
 
     public Task AfterEventHandlerAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
     {
+        if (IsTraceSuppressed(context))
+            return Task.CompletedTask;
         var status = context.EventHandlerException == null
             ? ExecutionTraceEventStatus.Completed
             : ExecutionTraceEventStatus.Failed;
@@ -146,6 +166,8 @@ public sealed class ExecutionTraceProgressHook : IAevatarAgentHook
 
     public Task OnErrorAsync(AevatarAgentHookContext context, Exception exception, CancellationToken cancellationToken)
     {
+        if (IsTraceSuppressed(context))
+            return Task.CompletedTask;
         return EmitErrorAsync(context, exception, cancellationToken);
     }
 
@@ -167,6 +189,77 @@ public sealed class ExecutionTraceProgressHook : IAevatarAgentHook
         }
 
         return PublishBestEffortAsync(evt, cancellationToken);
+    }
+
+    private static bool IsTraceSuppressed(AevatarAgentHookContext context)
+    {
+        if (context == null)
+            return false;
+
+        var chatSuppressed = TryReadSuppressFlag(context.ChatRequest?.Context);
+        var llmSuppressed = TryReadSuppressFlag(context.LlmRequest?.Context);
+        var metaSuppressed = context.Metadata.TryGetValue(AIGAgentKeys.SuppressExecutionTrace, out var meta) &&
+                             IsTruthy(meta);
+
+        var suppressed = chatSuppressed || llmSuppressed || metaSuppressed;
+        if (suppressed && Interlocked.Increment(ref _suppressLogCount) <= 3)
+        {
+            // #region agent log
+            System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                JsonSerializer.Serialize(new
+                {
+                    sessionId = context.ChatRequest?.GetSessionId() ?? string.Empty,
+                    runId = context.RequestId,
+                    hypothesisId = "H4",
+                    location = "ExecutionTraceProgressHook.cs:IsTraceSuppressed",
+                    message = "trace_suppressed",
+                    data = new
+                    {
+                        agentId = context.AgentId,
+                        chatSuppressed,
+                        llmSuppressed,
+                        metaSuppressed
+                    },
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                }) + Environment.NewLine);
+            // #endregion
+        }
+
+        return suppressed;
+    }
+
+    private static bool TryReadSuppressFlag(Google.Protobuf.Collections.MapField<string, string>? context)
+    {
+        if (context == null || context.Count == 0)
+            return false;
+
+        if (!context.TryGetValue(AIGAgentKeys.SuppressExecutionTrace, out var value))
+            return false;
+
+        return IsTruthy(value);
+    }
+
+    private static bool TryReadSuppressFlag(Dictionary<string, object>? context)
+    {
+        if (context == null || context.Count == 0)
+            return false;
+
+        if (!context.TryGetValue(AIGAgentKeys.SuppressExecutionTrace, out var value))
+            return false;
+
+        return IsTruthy(value);
+    }
+
+    private static bool IsTruthy(object? value)
+    {
+        return value switch
+        {
+            bool b => b,
+            string s => s.Equals("true", StringComparison.OrdinalIgnoreCase) ||
+                        s.Equals("1", StringComparison.OrdinalIgnoreCase) ||
+                        s.Equals("yes", StringComparison.OrdinalIgnoreCase),
+            _ => false
+        };
     }
 
     private Task EmitLlmAsync(

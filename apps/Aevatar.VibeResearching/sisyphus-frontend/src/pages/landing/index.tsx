@@ -3,6 +3,7 @@
 //  "The Boulder Never Stops. Neither Does Your Research."
 // ============================================================
 
+import { useEffect } from 'react'
 import { HeroSection } from './hero-section'
 import { PillarsSection } from './pillars-section'
 import { DagShowcaseSection } from './dag-showcase-section'
@@ -10,6 +11,11 @@ import { WorkflowSection } from './workflow-section'
 import { CtaFooter } from './cta-footer'
 
 export function LandingPage() {
+  useEffect(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/602d30ab-17ad-45f0-a915-8a7cf2e47189',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'',runId:'',hypothesisId:'H94',location:'landing/index.tsx:useEffect',message:'landing_mounted',data:{path:window.location.pathname},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+  }, []);
   return (
     <div className="min-h-dvh bg-gradient-subtle overflow-x-hidden">
       {/* ─── Background Grid ─── */}

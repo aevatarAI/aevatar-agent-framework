@@ -11,16 +11,16 @@ using VoteResult = Aevatar.Agents.Maker.VoteResult;
 namespace Aevatar.Agents.Cognitive.Agents;
 
 // ============================================================
-//  CognitiveCoordinatorGAgent - Vote (consensus)
+//  WorkflowCoordinatorAgent - Vote (consensus)
 //
 //  WHY:
 //  - vote is a complex node combining "parallelism + streaming + semantic clustering + red-flag".
 //  - Separate into file to avoid Coordinator main file continuing to expand.
 // ============================================================
 
-public partial class CognitiveCoordinatorGAgent
+public partial class WorkflowCoordinatorAgent
 {
-    internal async Task<PrimitiveResult> ExecuteVoteAsync(StepDefinition step)
+    public async Task<PrimitiveResult> ExecuteVoteAsync(StepDefinition step)
     {
         var k = ResolveIntParameter(step.Parameters, "k", 3);
         var maxRounds = ResolveIntParameter(step.Parameters, "max_rounds", 10);

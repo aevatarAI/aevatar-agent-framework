@@ -17,20 +17,33 @@ using VibeResearching.Contracts.Collab;
 
 namespace VibeResearching.Api.Vibe;
 
-internal sealed partial class VibeOrchestrator
+internal sealed class VibeWorkflowParsing
 {
+    private readonly DagStore _dag;
+    private readonly ILogger<VibeWorkflowParsing> _logger;
+
+    internal static readonly JsonSerializerOptions Json = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
+    public VibeWorkflowParsing(DagStore dag, ILogger<VibeWorkflowParsing> logger)
+    {
+        _dag = dag ?? throw new ArgumentNullException(nameof(dag));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
     // ============================================================
     //  Parsing helpers
     // ============================================================
 
-    private sealed class PlanJson
+    internal sealed class PlanJson
     {
         public string? RoundTitle { get; init; }
         public List<PlanWorkerJson>? Workers { get; init; }
         public List<string>? Notes { get; init; }
     }
 
-    private sealed class PlanWorkerJson
+    internal sealed class PlanWorkerJson
     {
         public string? Agent { get; init; }
         public string? Task { get; init; }
@@ -268,6 +281,13 @@ internal sealed partial class VibeOrchestrator
     private static string Trimmed(string? value) => (value ?? string.Empty).Trim();
     private static string BoundTrimmed(string? value, int max) => Bound(Trimmed(value), max);
 
+    private static string Bound(string? value, int max)
+    {
+        var s = value ?? string.Empty;
+        max = Math.Clamp(max, 0, 100_000);
+        return s.Length <= max ? s : s[..max];
+    }
+
     private static SraDagMutation BuildDagMutation(string sessionId, DagCandidateJson parsed, Timestamp now)
     {
         var id = Trimmed(parsed.MutationId);
@@ -485,7 +505,7 @@ internal sealed partial class VibeOrchestrator
     }
 
     // Best-effort JSON extraction (same spirit as tool runners).
-    private static bool TryExtractJson(string stdout, out string? json)
+    internal static bool TryExtractJson(string stdout, out string? json)
     {
         json = null;
         if (string.IsNullOrWhiteSpace(stdout))
@@ -562,13 +582,13 @@ internal sealed partial class VibeOrchestrator
         public Dictionary<string, string?>? Tags { get; init; }
     }
 
-    private sealed record LibrarianFactWrite(string Title, string Content, string? RelativePath, Dictionary<string, string?>? Tags);
+    internal sealed record LibrarianFactWrite(string Title, string Content, string? RelativePath, Dictionary<string, string?>? Tags);
 
-    private sealed record LibrarianActions(
+    internal sealed record LibrarianActions(
         List<LibrarianFactWrite> FactsWrite,
         List<LibrarianAxiomCandidate> AxiomsForDag);
 
-    private static LibrarianActions? TryParseLibrarianActions(string raw)
+    internal static LibrarianActions? TryParseLibrarianActions(string raw)
     {
         if (!TryExtractJson(raw, out var json) || string.IsNullOrWhiteSpace(json))
             return null;
@@ -633,7 +653,7 @@ internal sealed partial class VibeOrchestrator
         return new LibrarianActions(facts, axioms);
     }
 
-    private async Task<List<string>> TryWriteFactsAsync(ResearchSession session, IReadOnlyList<LibrarianFactWrite> facts, CancellationToken ct)
+    internal async Task<List<string>> TryWriteFactsAsync(ResearchSession session, IReadOnlyList<LibrarianFactWrite> facts, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         if (facts.Count == 0) return [];
@@ -687,14 +707,14 @@ internal sealed partial class VibeOrchestrator
 
         try
         {
-            await _core.Dag.ApplyMutationAsync(session.EffectiveDagId, mutation, ct);
+            await _dag.ApplyMutationAsync(session.EffectiveDagId, mutation, ct);
             return mutation.UpsertNodes
                 .Select(n => $"dag:{n.Id}")
                 .ToList();
         }
         catch (Exception ex)
         {
-            _host.Logger.LogDebug(ex, "[VibeOrchestrator] librarian fact -> dag write failed (best-effort).");
+            _logger.LogDebug(ex, "[VibeWorkflowParsing] librarian fact -> dag write failed (best-effort).");
             return [];
         }
     }
@@ -748,6 +768,13 @@ internal sealed partial class VibeOrchestrator
         var outSlug = sb.ToString().Trim('-').Trim();
         return outSlug.Length == 0 ? "note" : outSlug;
     }
+}
 
-
+internal sealed record LibrarianAxiomCandidate
+{
+    public string? Id { get; init; }
+    public string? Label { get; init; }
+    public string? Citation { get; init; }
+    public string? SourcePath { get; init; }
+    public Dictionary<string, string?>? Tags { get; init; }
 }

@@ -2,6 +2,15 @@ name: vibe_single
 description: "Single-round wrapper for vibe_researching"
 
 inputs:
+  - name: session_id
+    type: string
+    required: true
+    description: "Session id"
+  - name: run_id
+    type: string
+    required: false
+    description: "Run id (request id)"
+    default: ""
   - name: question
     type: string
     required: true
@@ -17,6 +26,8 @@ steps:
     type: workflow_call
     workflow: vibe_researching
     params:
+      session_id: "{{ session_id }}"
+      run_id: "{{ run_id }}"
       question: "{{ question }}"
       attachments: "{{ attachments }}"
     store: result

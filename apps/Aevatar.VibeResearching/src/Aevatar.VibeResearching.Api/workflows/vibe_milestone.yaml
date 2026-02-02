@@ -2,6 +2,15 @@ name: vibe_milestone
 description: "Milestone-mode wrapper for vibe_researching"
 
 inputs:
+  - name: session_id
+    type: string
+    required: true
+    description: "Session id"
+  - name: run_id
+    type: string
+    required: false
+    description: "Run id (request id)"
+    default: ""
   - name: question
     type: string
     required: true
@@ -15,14 +24,21 @@ inputs:
     type: string
     default: "milestone"
     description: "Mode hint (milestone / vibe_milestone / research / vibe)"
+  - name: max_iterations
+    type: int
+    default: 3
+    description: "Fallback loop count (milestone mode)"
 
 steps:
   - id: run_vibe
     type: workflow_call
-    workflow: vibe_researching
+    workflow: vibe_goal_loop
     params:
+      session_id: "{{ session_id }}"
+      run_id: "{{ run_id }}"
       question: "{{ question }}"
       attachments: "{{ attachments }}"
+      max_iterations: "{{ max_iterations }}"
     store: result
 
 output:

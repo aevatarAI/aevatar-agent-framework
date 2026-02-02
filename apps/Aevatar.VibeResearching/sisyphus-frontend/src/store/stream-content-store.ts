@@ -141,6 +141,9 @@ export const useStreamContentStore = create<StreamContentState>((set, get) => ({
     set((state) => {
       const existing = state.agentStreams[agent] || createDefaultAgentStream()
       const newContent = existing.content + delta
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/602d30ab-17ad-45f0-a915-8a7cf2e47189',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'',runId:'',hypothesisId:'H62',location:'stream-content-store.ts:appendAgentContent',message:'agent_stream_append',data:{agent,deltaLen:delta.length,contentLen:newContent.length,wasStreaming:existing.isStreaming},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       return {
         agentStreams: {
           ...state.agentStreams,
@@ -212,6 +215,10 @@ export const useStreamContentStore = create<StreamContentState>((set, get) => ({
   // ── Batch Operations ──
   
   clearAllStreams: () => {
+    const state = get()
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/602d30ab-17ad-45f0-a915-8a7cf2e47189',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'',runId:'',hypothesisId:'H61',location:'stream-content-store.ts:clearAllStreams',message:'stream_store_cleared',data:{workerCount:Object.keys(state.workerStreams).length,agentCount:Object.keys(state.agentStreams).length},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     set({ workerStreams: {}, agentStreams: {} })
   },
 }))

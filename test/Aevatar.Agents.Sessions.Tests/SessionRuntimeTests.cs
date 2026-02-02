@@ -7,6 +7,8 @@ using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
 using Xunit;
+using AgUiTextMessageStartEvent = Aevatar.Agents.AGUI.TextMessageStartEvent;
+using AgUiTextMessageContentEvent = Aevatar.Agents.AGUI.TextMessageContentEvent;
 
 namespace Aevatar.Agents.Sessions.Tests;
 
@@ -31,8 +33,8 @@ public sealed class SessionRuntimeTests(SessionsTestFixture fixture) : IClassFix
 
         var events = await collectTask;
         events.OfType<RunStartedEvent>().ShouldNotBeEmpty();
-        events.OfType<TextMessageStartEvent>().Any(e => e.Role == "assistant").ShouldBeTrue();
-        events.OfType<TextMessageContentEvent>().Any(e => (e.Delta ?? string.Empty).Contains("pong")).ShouldBeTrue();
+        events.OfType<AgUiTextMessageStartEvent>().Any(e => e.Role == "assistant").ShouldBeTrue();
+        events.OfType<AgUiTextMessageContentEvent>().Any(e => (e.Delta ?? string.Empty).Contains("pong")).ShouldBeTrue();
         events.OfType<CustomEvent>().Any(e => e.Name == "SESSION_STATUS").ShouldBeTrue();
     }
 

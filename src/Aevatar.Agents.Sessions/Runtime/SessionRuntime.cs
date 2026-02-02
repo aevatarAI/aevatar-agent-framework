@@ -11,6 +11,9 @@ using Aevatar.Agents.AI.Core.Messages;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using AgUiTextMessageStartEvent = Aevatar.Agents.AGUI.TextMessageStartEvent;
+using AgUiTextMessageContentEvent = Aevatar.Agents.AGUI.TextMessageContentEvent;
+using AgUiTextMessageEndEvent = Aevatar.Agents.AGUI.TextMessageEndEvent;
 
 namespace Aevatar.Agents.Sessions.Runtime;
 
@@ -262,24 +265,24 @@ public sealed class SessionRuntime
 
         // 发布 AG-UI 事件：用户消息 + assistant 开始
         var messageId = $"msg:{sessionId}:assistant:{requestId}";
-        ctx.Stream.Publish(new TextMessageStartEvent
+        ctx.Stream.Publish(new AgUiTextMessageStartEvent
         {
             Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             MessageId = $"msg:{sessionId}:user:{requestId}",
             Role = "user"
         });
-        ctx.Stream.Publish(new TextMessageContentEvent
+        ctx.Stream.Publish(new AgUiTextMessageContentEvent
         {
             Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             MessageId = $"msg:{sessionId}:user:{requestId}",
             Delta = message
         });
-        ctx.Stream.Publish(new TextMessageEndEvent
+        ctx.Stream.Publish(new AgUiTextMessageEndEvent
         {
             Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             MessageId = $"msg:{sessionId}:user:{requestId}"
         });
-        ctx.Stream.Publish(new TextMessageStartEvent
+        ctx.Stream.Publish(new AgUiTextMessageStartEvent
         {
             Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             MessageId = messageId,
@@ -315,7 +318,7 @@ public sealed class SessionRuntime
                 await foreach (var batch in agent.ChatStreamAsync(chatRequest, CancellationToken.None)
                                    .BatchByCountAsync(chunkEvery, CancellationToken.None))
                 {
-                    ctx.Stream.Publish(new TextMessageContentEvent
+                    ctx.Stream.Publish(new AgUiTextMessageContentEvent
                     {
                         Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                         MessageId = messageId,
@@ -323,7 +326,7 @@ public sealed class SessionRuntime
                     });
                 }
 
-                ctx.Stream.Publish(new TextMessageEndEvent
+                ctx.Stream.Publish(new AgUiTextMessageEndEvent
                 {
                     Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                     MessageId = messageId
@@ -338,7 +341,7 @@ public sealed class SessionRuntime
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
                 _logger.LogDebug("[SessionRuntime] Chat canceled: session={SessionId}", sessionId);
-                ctx.Stream.Publish(new TextMessageEndEvent
+                ctx.Stream.Publish(new AgUiTextMessageEndEvent
                 {
                     Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                     MessageId = messageId
@@ -353,13 +356,13 @@ public sealed class SessionRuntime
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "[SessionRuntime] Chat dispatch failed: session={SessionId}", sessionId);
-                ctx.Stream.Publish(new TextMessageContentEvent
+                ctx.Stream.Publish(new AgUiTextMessageContentEvent
                 {
                     Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                     MessageId = messageId,
                     Delta = $"\n[error] {ex.Message}\n"
                 });
-                ctx.Stream.Publish(new TextMessageEndEvent
+                ctx.Stream.Publish(new AgUiTextMessageEndEvent
                 {
                     Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                     MessageId = messageId
@@ -400,6 +403,24 @@ public sealed class SessionRuntime
 
         var ctx = await GetOrCreateContextAsync(state, ct);
         var runContext = await _workflowRunner.PrepareAsync(state, request, _memoryStore != null, ct);
+
+        // #region agent log
+        System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+            System.Text.Json.JsonSerializer.Serialize(new
+            {
+                sessionId,
+                runId,
+                hypothesisId = "H71",
+                location = "SessionRuntime.cs:RunWorkflowAsync",
+                message = "coordinator_context",
+                data = new
+                {
+                    coordinatorActorId = runContext.CoordinatorActorId,
+                    workflowName = runContext.WorkflowName
+                },
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            }) + Environment.NewLine);
+        // #endregion
 
         ctx.Stream.AttachAgent(runContext.CoordinatorActorId);
         AttachWorkerStreams(ctx.Stream, sessionId);

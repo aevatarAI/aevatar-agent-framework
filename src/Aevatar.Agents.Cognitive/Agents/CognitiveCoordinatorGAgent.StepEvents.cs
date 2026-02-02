@@ -8,14 +8,14 @@ using StepDefinition = Aevatar.Agents.Cognitive.Primitives.StepDefinition;
 namespace Aevatar.Agents.Cognitive.Agents;
 
 // ============================================================
-//  CognitiveCoordinatorGAgent - Step Events (UI/Observability)
+//  WorkflowCoordinatorAgent - Step Events (UI/Observability)
 //
 //  WHY:
 //  - Separate "execution engine" and "visualization events" to avoid giant file getting out of control.
 //  - Events must be thread-safe: vote streaming / fan_out will trigger callbacks concurrently.
 // ============================================================
 
-public partial class CognitiveCoordinatorGAgent
+public partial class WorkflowCoordinatorAgent
 {
     /// <summary>
     /// Set step event callback (for real-time visualization)

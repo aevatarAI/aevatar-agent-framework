@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.DependencyInjection;
+using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Runtime.Local;
 using Aevatar.Agents.AI.Tool.MCP.Configuration;
@@ -34,6 +35,8 @@ using VibeResearching.Api.Vibe.Brief;
 using VibeResearching.Api.Vibe.Compute;
 using VibeResearching.Api.Vibe.Delivery;
 using VibeResearching.Api.Vibe.Dag;
+using VibeResearching.Api.Vibe;
+using VibeResearching.Api.Vibe.Steps;
 using VibeResearching.Vibe.Pivot;
 using VibeResearching.Api.Vibe.Pivot;
 using VibeResearching.Vibe.ReviewAgent;
@@ -231,6 +234,7 @@ builder.Services.AddAevatarSessionRuntime(options =>
 {
     options.WorkflowName = defaultWorkflowName;
     options.AgentRole = "planner";
+    options.CoordinatorRole = "vibe_coordinator";
     options.MaxSnapshotMessages = 60;
 });
 builder.Services.AddAevatarSessionTooling();
@@ -325,6 +329,8 @@ builder.Services.AddKnowledgeGraph();
 // DagStore is used by VibeOrchestrator for loading snapshots and applying mutations
 builder.Services.AddSingleton<DagStore>();
 builder.Services.AddSingleton<IDagGroundingPolicy, DefaultDagGroundingPolicy>();
+builder.Services.AddSingleton<VibeWorkflowParsing>();
+builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IEventModuleFactory, VibeEventModuleFactory>());
 
 // Vibe: Unified graph access (FR-007/FR-008 tools)
 // IVibeGraphAccess is the primary interface for all agents' graph operations

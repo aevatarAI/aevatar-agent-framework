@@ -70,6 +70,9 @@ export function useAgentStates({
 
     try {
       const bundles = await getAgentStates(sessionId, includeHistory, historyLimit)
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/602d30ab-17ad-45f0-a915-8a7cf2e47189',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId,runId:'',hypothesisId:'H101',location:'use-agent-states.ts:fetchStates',message:'agent_states_received',data:{bundlesCount:bundles.length,agentIds:bundles.map(b=>b.agentId).slice(0,8),historyCounts:bundles.map(b=>b.state?.history?.length ?? 0).slice(0,8),includeHistory,historyLimit},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       if (bundles.length > 0) {
         const states = transformStates(bundles)
         setAgentStates(states)

@@ -100,7 +100,7 @@ builder.Services.AddHealthChecks();
 // ─────────────────────────────────────────────────────────────
 builder.Services.AddMassTransitStreamPlugin(
     builder.Configuration,
-    typeof(Aevatar.Agents.Cognitive.Agents.CognitiveCoordinatorGAgent).Assembly
+        typeof(Aevatar.Agents.Cognitive.Agents.WorkflowCoordinatorAgent).Assembly
 );
 builder.Services.AddAevatarLocalRuntime();
 builder.Services.AddMEAI();

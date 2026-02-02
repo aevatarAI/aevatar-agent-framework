@@ -10,6 +10,15 @@ name: vibe_researching
 description: "Vibe worker pipeline (planner → reasoner → librarian → verifier → dag_builder → consensus → paper_editor)"
 
 inputs:
+  - name: session_id
+    type: string
+    required: true
+    description: "Session id"
+  - name: run_id
+    type: string
+    required: false
+    description: "Run id (request id)"
+    default: ""
   - name: question
     type: string
     required: true
@@ -19,32 +28,6 @@ inputs:
     required: false
     description: "Attachment path list (optional)"
     default: []
-  - name: plan_context
-    type: string
-    default: "(no plan nodes yet)"
-  - name: dag_nodes
-    type: int
-    default: 0
-  - name: dag_edges
-    type: int
-    default: 0
-  - name: materials_context
-    type: string
-    default: ""
-  - name: librarian_axioms
-    type: object
-    required: false
-    description: "Parsed librarian axioms (optional)"
-    default: []
-  - name: planner_excerpt_chars
-    type: int
-    default: 3000
-  - name: reasoner_excerpt_chars
-    type: int
-    default: 3000
-  - name: worker_excerpt_chars
-    type: int
-    default: 2200
   - name: dag_consensus_mode
     type: string
     default: "verifier-quorum"
@@ -57,12 +40,21 @@ inputs:
   - name: enable_paper_editor
     type: bool
     default: true
-  - name: outline_excerpt
-    type: string
-    default: ""
-  - name: draft_excerpt
-    type: string
-    default: ""
+  - name: outline_excerpt_chars
+    type: int
+    default: 8000
+  - name: draft_excerpt_chars
+    type: int
+    default: 12000
+  - name: planner_excerpt_chars
+    type: int
+    default: 3000
+  - name: reasoner_excerpt_chars
+    type: int
+    default: 3000
+  - name: worker_excerpt_chars
+    type: int
+    default: 2200
 
 defaults:
   llm_call:
@@ -72,6 +64,13 @@ defaults:
     idle_timeout_seconds: 120
 
 steps:
+  - id: vibe_context
+    type: vibe_context
+    store: vibe_context
+
+  - id: pivot_detection
+    type: vibe_pivot_detection
+
   - id: planner
     type: llm_call
     agent: planner
@@ -87,10 +86,10 @@ steps:
       {% endif %}
 
       Plan:
-      {{ plan_context }}
+      {{ vibe_context.plan_context }}
 
       DAG stats:
-      - nodes={{ dag_nodes }}, edges={{ dag_edges }}
+      - nodes={{ vibe_context.dag_nodes }}, edges={{ vibe_context.dag_edges }}
     output: text
     store: planner
 
@@ -109,10 +108,10 @@ steps:
       {% endif %}
 
       Plan:
-      {{ plan_context }}
+      {{ vibe_context.plan_context }}
 
       DAG stats:
-      - nodes={{ dag_nodes }}, edges={{ dag_edges }}
+      - nodes={{ vibe_context.dag_nodes }}, edges={{ vibe_context.dag_edges }}
 
       Planner output (excerpt):
       {{ planner | truncate: planner_excerpt_chars }}
@@ -134,12 +133,16 @@ steps:
       {% endif %}
 
       Plan:
-      {{ plan_context }}
+      {{ vibe_context.plan_context }}
 
       DAG stats:
-      - nodes={{ dag_nodes }}, edges={{ dag_edges }}
+      - nodes={{ vibe_context.dag_nodes }}, edges={{ vibe_context.dag_edges }}
     output: text
     store: librarian
+
+  - id: librarian_effects
+    type: vibe_librarian_effects
+    store: librarian_effects
 
   - id: verifier
     type: llm_call
@@ -156,10 +159,10 @@ steps:
       {% endif %}
 
       Plan:
-      {{ plan_context }}
+      {{ vibe_context.plan_context }}
 
       DAG stats:
-      - nodes={{ dag_nodes }}, edges={{ dag_edges }}
+      - nodes={{ vibe_context.dag_nodes }}, edges={{ vibe_context.dag_edges }}
 
       Reasoner output (excerpt):
       {{ reasoner | truncate: reasoner_excerpt_chars }}
@@ -204,13 +207,13 @@ steps:
       {% endif %}
 
       Plan:
-      {{ plan_context }}
+      {{ vibe_context.plan_context }}
 
-      Current DAG: nodes={{ dag_nodes }}, edges={{ dag_edges }}
-      {% if (librarian_axioms | size) > 0 %}
+      Current DAG: nodes={{ vibe_context.dag_nodes }}, edges={{ vibe_context.dag_edges }}
+      {% if (librarian_effects.axioms | size) > 0 %}
 
       Librarian trusted axioms (include as AXIOM nodes when appropriate):
-      {{ librarian_axioms | json }}
+      {{ librarian_effects.axioms | json }}
       {% endif %}
 
       Worker outputs (excerpts):
@@ -250,8 +253,8 @@ steps:
             {{ dag_builder }}
           context:
             question: "{{ question }}"
-            plan_context: "{{ plan_context }}"
-            materials_context: "{{ materials_context }}"
+            plan_context: "{{ vibe_context.plan_context }}"
+            materials_context: "{{ vibe_context.materials_context }}"
         store: maker_consensus_raw
 
       - id: maker_consensus_parse
@@ -292,11 +295,11 @@ steps:
             {{ dag_builder }}
 
             Current DAG stats:
-            - nodes={{ dag_nodes }}, edges={{ dag_edges }}
-            {% if materials_context %}
+            - nodes={{ vibe_context.dag_nodes }}, edges={{ vibe_context.dag_edges }}
+            {% if vibe_context.materials_context %}
 
             MaterialsContext:
-            {{ materials_context }}
+            {{ vibe_context.materials_context }}
             {% endif %}
 
             Response JSON:
@@ -307,9 +310,13 @@ steps:
             }
         store: dag_consensus
 
+  - id: dag_apply
+    type: vibe_dag_apply
+    store: dag_apply
+
   - id: paper_editor_gate
     type: conditional
-    condition: "{{ enable_paper_editor && dag_consensus.accept == true }}"
+    condition: "{{ enable_paper_editor && dag_apply.accepted == true }}"
 
     if_true:
       - id: paper_editor
@@ -328,20 +335,20 @@ steps:
           Plan: (see DAG plan nodes)
 
           DAG outcome:
-          {% if dag_consensus.accept == true %}
+          {% if dag_apply.accepted == true %}
           - accepted
           {% else %}
           - blocked
-          {% if dag_consensus.red_flags %}
-          redFlags: {{ dag_consensus.red_flags | json }}
+          {% if dag_apply.red_flags %}
+          redFlags: {{ dag_apply.red_flags | json }}
           {% endif %}
           {% endif %}
 
           Current paper outline (excerpt):
-          {{ outline_excerpt | truncate: 8000 }}
+          {{ vibe_context.outline_excerpt | truncate: 8000 }}
 
           Current paper draft (excerpt):
-          {{ draft_excerpt | truncate: 12000 }}
+          {{ vibe_context.draft_excerpt | truncate: 12000 }}
 
           Worker outputs (excerpts):
           [planner]
@@ -358,11 +365,69 @@ steps:
         output: text
         store: paper_editor
 
+  - id: delivery_apply_gate
+    type: conditional
+    condition: "{{ paper_editor | default: '' != '' }}"
+    if_true:
+      - id: delivery_apply
+        type: vibe_delivery_apply
+        store: delivery_apply
+
+  - id: round_summary
+    type: llm_call
+    agent: research_assistant
+    prompt: |
+      You are a research_assistant. Write a concise markdown summary for this round.
+
+      Question:
+      {{ question }}
+
+      Plan:
+      {{ vibe_context.plan_context }}
+
+      DAG outcome:
+      {% if dag_apply.accepted == true %}
+      - accepted mutationId={{ dag_apply.mutation_id }}
+      {% elsif dag_apply.blocked == true %}
+      - blocked
+      {% if dag_apply.red_flags %}
+      redFlags: {{ dag_apply.red_flags | json }}
+      {% endif %}
+      {% else %}
+      - no candidate
+      {% endif %}
+
+      Facts written (ids):
+      {{ librarian_effects.facts_written | json }}
+
+      Worker outputs (excerpts):
+      [planner]
+      {{ planner | truncate: worker_excerpt_chars }}
+
+      [reasoner]
+      {{ reasoner | truncate: worker_excerpt_chars }}
+
+      [librarian]
+      {{ librarian | truncate: worker_excerpt_chars }}
+
+      [verifier]
+      {{ verifier | truncate: worker_excerpt_chars }}
+    output: text
+    store: round_summary
+
+  - id: trace_append
+    type: vibe_trace_append
+    store: trace_append
+
 output:
   planner: "{{ planner }}"
   reasoner: "{{ reasoner }}"
   librarian: "{{ librarian }}"
+  librarian_effects: "{{ librarian_effects }}"
   verifier: "{{ verifier }}"
   dag_builder: "{{ dag_builder }}"
   dag_consensus: "{{ dag_consensus }}"
+  dag_apply: "{{ dag_apply }}"
   paper_editor: "{{ paper_editor | default: '' }}"
+  delivery_apply: "{{ delivery_apply | default: {} }}"
+  round_summary: "{{ round_summary | default: '' }}"

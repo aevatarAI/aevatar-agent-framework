@@ -100,7 +100,7 @@ internal sealed partial class VibeOrchestrator
 
             var resp = await ra.ChatAsync(req, ct);
             var raw = (resp.Content ?? string.Empty).Trim();
-            if (!TryExtractJson(raw, out var json) || string.IsNullOrWhiteSpace(json))
+            if (!VibeWorkflowParsing.TryExtractJson(raw, out var json) || string.IsNullOrWhiteSpace(json))
                 return (null, "failed to parse plan_edit JSON");
 
             PlanEditJson? parsed;

@@ -465,7 +465,10 @@ public sealed class SessionUiTraceRecorder
                             try
                             {
                                 var currentDag = await _dag.LoadSnapshotAsync(dagId, CancellationToken.None);
-                                var mutation = VibeOrchestrator.TryParseDagBuilderCandidate(session.Id, candidateRaw, currentDag);
+                                var mutation = VibeWorkflowParsing.TryParseDagBuilderCandidate(
+                                    session.Id,
+                                    candidateRaw,
+                                    currentDag);
                                 if (mutation == null)
                                 {
                                     // #region agent log

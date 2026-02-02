@@ -95,7 +95,7 @@ builder.Services.AddHealthChecks();
 // MassTransit Stream Plugin (仅 Cognitive Agents)
 builder.Services.AddMassTransitStreamPlugin(
     builder.Configuration,
-    typeof(Aevatar.Agents.Cognitive.Agents.CognitiveCoordinatorGAgent).Assembly
+        typeof(Aevatar.Agents.Cognitive.Agents.WorkflowCoordinatorAgent).Assembly
 );
 
 // Local Runtime

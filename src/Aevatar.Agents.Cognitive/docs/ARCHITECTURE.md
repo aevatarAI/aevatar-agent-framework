@@ -24,6 +24,9 @@ Aevatar.Agents.Cognitive/
 │   └── CognitiveStepExecutionHandler.cs # RoleAIGAgent step handler (ExecuteStepRequestEvent)
 │   └── WorkflowOrchestrator.cs         # workflow 编排主循环（抽离自 Coordinator）
 │   └── CognitiveStepExecutor.cs         # Step 选择与事件派发（抽离自 Coordinator）
+│   └── IWorkflowCoordinatorRuntime.cs  # YAML + EventModule 的协调器接口
+│   └── WorkflowCoordinatorRuntime.cs   # RoleAIGAgent 驱动的 YAML 协调器
+│   └── WorkflowCoordinatorRuntimeAccessor.cs # Runtime 绑定到 Agent 的访问器
 ├── Primitives/                  # DSL 原语
 │   ├── IPrimitive.cs                  # 原语上下文 + PrimitiveResult + 参数扩展
 │   ├── WorkflowDefinition.cs          # WorkflowDefinition/StepDefinition/InputParameter + IWorkflowRegistry
@@ -47,8 +50,15 @@ Aevatar.Agents.Cognitive/
 
 ## 核心组件
 
-### 1. CognitiveCoordinatorGAgent
-**职责**: 工作流协调与执行
+### 1. WorkflowCoordinatorRuntime（YAML + EventModule）
+**职责**: 通过 RoleAIGAgent 执行 YAML Workflow
+
+- 由 `CoordinatorWorkflowEventModule` 触发
+- 组合 `CognitiveStepExecutor` + `ICognitiveStepModule` 执行步骤
+- 逐步迁移掉硬编码 Coordinator 逻辑（旧实现保留用于兼容）
+
+### 2. CognitiveCoordinatorGAgent（Legacy）
+**职责**: 旧版工作流协调与执行（兼容保留）
 
 - 解析并执行 YAML 定义的工作流
 - 协调 Worker 执行并行任务
@@ -64,7 +74,7 @@ Aevatar.Agents.Cognitive/
 - `CognitiveCoordinatorGAgent.StepEvents.cs`：步骤事件（UI/回放）
 - `CognitiveCoordinatorGAgent.Parameters.cs`：输出解析 + 参数/红旗配置解析
 
-### 2. RoleAIGAgent + CognitiveStepExecutionHandler
+### 3. RoleAIGAgent + CognitiveStepExecutionHandler
 **职责**: 并行任务执行
 
 - RoleAIGAgent 作为执行体（YAML 角色驱动）

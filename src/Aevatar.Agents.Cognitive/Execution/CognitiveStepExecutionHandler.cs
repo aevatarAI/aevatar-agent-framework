@@ -4,6 +4,7 @@ using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core;
+using Aevatar.Agents.AI.Core.Utils;
 using Aevatar.Agents.Cognitive.Messages;
 using Aevatar.Agents.Cognitive.Primitives;
 using Aevatar.Agents.Cognitive.Template;
@@ -16,6 +17,10 @@ public sealed class CognitiveStepExecutionHandler : IStepExecutionHandler
 {
     private readonly TemplateEngine _templateEngine = new();
     private readonly OutputParserFactory _parserFactory = new();
+    private const int StreamingEmitMinChars = 32;
+    private static readonly TimeSpan StreamingEmitMaxInterval = TimeSpan.FromMilliseconds(200);
+
+    public Action<ExecuteStepRequestEvent, string>? OnStreamingDelta { get; set; }
 
     public bool CanHandle(EventEnvelope envelope)
         => envelope.Payload?.Is(ExecuteStepRequestEvent.Descriptor) ?? false;
@@ -133,6 +138,7 @@ public sealed class CognitiveStepExecutionHandler : IStepExecutionHandler
             : systemPrompt;
 
         var chat = ChatRequest.Create(prompt);
+        chat.AddContext(AIGAgentKeys.SuppressExecutionTrace, "true");
         if (!string.IsNullOrWhiteSpace(request.RequestId))
         {
             chat.RequestId = request.RequestId;
@@ -171,6 +177,9 @@ public sealed class CognitiveStepExecutionHandler : IStepExecutionHandler
                 var sb = new StringBuilder();
                 var chunkIndex = 0;
                 var startAt = DateTimeOffset.UtcNow;
+                var pendingDelta = new StringBuilder();
+                var emittedAny = false;
+                var lastEmitAt = DateTimeOffset.UtcNow;
 
                 // 直接调用 streaming chat (internal protected，通过 InternalsVisibleTo 访问)
                 var stream = agent.ChatStreamAsync(chat, localCt);
@@ -212,6 +221,31 @@ public sealed class CognitiveStepExecutionHandler : IStepExecutionHandler
                         sb.Append(delta);
                         finalContent = sb.ToString();
 
+                        if (OnStreamingDelta != null)
+                        {
+                            pendingDelta.Append(delta);
+                            var now = DateTimeOffset.UtcNow;
+                            var shouldEmit =
+                                !emittedAny ||
+                                pendingDelta.Length >= StreamingEmitMinChars ||
+                                now - lastEmitAt >= StreamingEmitMaxInterval;
+                            if (shouldEmit && pendingDelta.Length > 0)
+                            {
+                                var payload = pendingDelta.ToString();
+                                pendingDelta.Clear();
+                                try
+                                {
+                                    OnStreamingDelta(request, payload);
+                                }
+                                catch
+                                {
+                                    // best-effort streaming hook
+                                }
+                                emittedAny = true;
+                                lastEmitAt = now;
+                            }
+                        }
+
                         if (finalContent.Length > maxLength)
                         {
                             return new PrimitiveResult { Success = false, Error = $"redflag-length>{maxLength}" };
@@ -235,6 +269,19 @@ public sealed class CognitiveStepExecutionHandler : IStepExecutionHandler
                     {
                         // ignored
                     }
+                }
+
+                if (OnStreamingDelta != null && pendingDelta.Length > 0)
+                {
+                    try
+                    {
+                        OnStreamingDelta(request, pendingDelta.ToString());
+                    }
+                    catch
+                    {
+                        // best-effort streaming hook
+                    }
+                    pendingDelta.Clear();
                 }
 
                 totalPromptTokens = Math.Max(1, prompt.Length / 4);
@@ -283,6 +330,31 @@ public sealed class CognitiveStepExecutionHandler : IStepExecutionHandler
                 }
             }
         }
+
+        var sessionId = TryGetSessionId(variables) ?? string.Empty;
+        var runId = variables.TryGetValue("run_id", out var runValue) && runValue != null
+            ? runValue.ToString() ?? string.Empty
+            : request.RequestId ?? string.Empty;
+        // #region agent log
+        System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+            JsonSerializer.Serialize(new
+            {
+                sessionId,
+                runId,
+                hypothesisId = "H1",
+                location = "CognitiveStepExecutionHandler.cs:ExecuteLlmCallAsync",
+                message = "llm_final_content",
+                data = new
+                {
+                    stepId = request.StepId ?? string.Empty,
+                    requestId = request.RequestId ?? string.Empty,
+                    outputType,
+                    strictParse,
+                    assistantLen = finalContent.Length
+                },
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            }) + Environment.NewLine);
+        // #endregion
 
         return new PrimitiveResult
         {

@@ -11,6 +11,9 @@ using Google.Protobuf.WellKnownTypes;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
+using AgUiTextMessageStartEvent = Aevatar.Agents.AGUI.TextMessageStartEvent;
+using AgUiTextMessageContentEvent = Aevatar.Agents.AGUI.TextMessageContentEvent;
+using AgUiTextMessageEndEvent = Aevatar.Agents.AGUI.TextMessageEndEvent;
 
 namespace Aevatar.Agents.Workspaces.Endpoints;
 
@@ -279,21 +282,21 @@ public static class RoleWorkspaceApiEndpoints
                     continue;
                 }
 
-                if (evt is TextMessageStartEvent start &&
+                if (evt is AgUiTextMessageStartEvent start &&
                     start.MessageId.StartsWith(prefix, StringComparison.Ordinal))
                 {
                     await writer.WriteAsync(start, ct);
                     continue;
                 }
 
-                if (evt is TextMessageContentEvent content &&
+                if (evt is AgUiTextMessageContentEvent content &&
                     content.MessageId.StartsWith(prefix, StringComparison.Ordinal))
                 {
                     await writer.WriteAsync(content, ct);
                     continue;
                 }
 
-                if (evt is TextMessageEndEvent end &&
+                if (evt is AgUiTextMessageEndEvent end &&
                     end.MessageId.StartsWith(prefix, StringComparison.Ordinal))
                 {
                     await writer.WriteAsync(end, ct);

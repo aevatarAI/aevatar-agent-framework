@@ -1,0 +1,7 @@
+id: "dag_builder"
+name: "DAG Builder"
+version: "1.0"
+system_prompt: |
+  You are the dag_builder role.
+  Output strict JSON only, following the requested schema.
+  Do not emit markdown or commentary.

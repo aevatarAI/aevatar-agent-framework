@@ -3,7 +3,7 @@ using System.Text.Json;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Helpers;
 using Aevatar.Agents.AI.Abstractions.Configuration;
-using Aevatar.Agents.Cognitive.Agents;
+using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Cognitive.Engine;
 using Aevatar.Agents.Cognitive.Messages;
 using WorkflowDefinition = Aevatar.Agents.Cognitive.Primitives.WorkflowDefinition;
@@ -23,29 +23,32 @@ public sealed record SessionWorkflowRunRequest(
 public sealed record SessionWorkflowRunContext(
     string SessionId,
     string WorkflowName,
+    string WorkflowPath,
     string CoordinatorActorId,
-    CognitiveCoordinatorGAgent Coordinator,
+    RoleAIGAgent Coordinator,
     WorkflowDefinition Workflow);
 
 public sealed class SessionWorkflowRunner
 {
     private readonly IGAgentActorManager _actorManager;
+    private readonly AgentBootstrapper _bootstrapper;
     private readonly IOptionsMonitor<LLMProvidersConfig> _llmProviders;
     private readonly IOptionsMonitor<SessionRuntimeOptions> _options;
     private readonly ILogger<SessionWorkflowRunner> _logger;
     private readonly WorkflowParser _workflowParser = new();
 
     private readonly ConcurrentDictionary<string, bool> _initializedCoordinators = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, bool> _workerPoolsCreated = new(StringComparer.Ordinal);
     private static int _workflowDagLogCount;
 
     public SessionWorkflowRunner(
         IGAgentActorManager actorManager,
+        AgentBootstrapper bootstrapper,
         IOptionsMonitor<LLMProvidersConfig> llmProviders,
         IOptionsMonitor<SessionRuntimeOptions> options,
         ILogger<SessionWorkflowRunner> logger)
     {
         _actorManager = actorManager ?? throw new ArgumentNullException(nameof(actorManager));
+        _bootstrapper = bootstrapper ?? throw new ArgumentNullException(nameof(bootstrapper));
         _llmProviders = llmProviders ?? throw new ArgumentNullException(nameof(llmProviders));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -68,13 +71,10 @@ public sealed class SessionWorkflowRunner
             workflow.Name = workflowName;
         }
 
-        coordinator.RegisterWorkflow(workflow);
-
-        await EnsureWorkerPoolAsync(coordinator, workflowName, state.SessionId, ct);
-
         return new SessionWorkflowRunContext(
             SessionId: state.SessionId,
             WorkflowName: workflowName,
+            WorkflowPath: (state.WorkflowPath ?? string.Empty).Trim(),
             CoordinatorActorId: coordinator.Id,
             Coordinator: coordinator,
             Workflow: workflow);
@@ -105,18 +105,26 @@ public sealed class SessionWorkflowRunner
                 }) + Environment.NewLine);
             // #endregion
         }
-        var variables = BuildVariables(context.Workflow, request, context.WorkflowName, context.SessionId);
+        var variables = BuildVariables(context.Workflow, request, context.WorkflowName, context.SessionId, context.WorkflowPath);
         var evt = new StartWorkflowRequestEvent
         {
             WorkflowName = context.WorkflowName
         };
-
         foreach (var (key, value) in variables)
         {
             evt.Variables[key] = ProtoValueConverter.ToProto(value);
         }
 
-        return context.Coordinator.HandleStartWorkflowRequest(evt);
+        return PublishStartEventAsync(context.CoordinatorActorId, evt, ct);
+    }
+
+    private async Task PublishStartEventAsync(string coordinatorActorId, StartWorkflowRequestEvent evt, CancellationToken ct)
+    {
+        var actor = await _actorManager.GetActorAsync(coordinatorActorId);
+        if (actor == null)
+            throw new InvalidOperationException("Coordinator actor not available.");
+
+        await actor.PublishEventAsync(evt, EventDirection.Self, ct, isInternalCall: false);
     }
 
     private WorkflowDefinition LoadWorkflowDefinition(SessionState state)
@@ -160,27 +168,30 @@ public sealed class SessionWorkflowRunner
         return string.IsNullOrWhiteSpace(workflow.Name) ? "workflow" : workflow.Name;
     }
 
-    private async Task<CognitiveCoordinatorGAgent> EnsureCoordinatorAsync(
+    private async Task<RoleAIGAgent> EnsureCoordinatorAsync(
         string sessionId,
         string workflowName,
         bool memoryEnabled,
         CancellationToken ct)
     {
         var rawId = DeterministicGuid.FromString($"session:{sessionId}:coordinator:{workflowName}").ToString("D");
-        var actorId = AgentId.Normalize<CognitiveCoordinatorGAgent>(rawId);
+        var actorId = AgentId.Normalize<RoleAIGAgent>(rawId);
 
         var actor = await _actorManager.GetActorAsync(actorId)
-                    ?? await _actorManager.CreateAndRegisterAsync<CognitiveCoordinatorGAgent>(rawId, ct);
+                    ?? await _actorManager.CreateAndRegisterAsync<RoleAIGAgent>(rawId, ct);
 
-        var coordinator = actor.GetAgent() as CognitiveCoordinatorGAgent
+        var coordinator = actor.GetAgent() as RoleAIGAgent
                           ?? throw new InvalidOperationException("Coordinator agent not available.");
 
-        coordinator.SetActorManager(_actorManager);
         coordinator.ConfigureSessionContext(sessionId, memoryEnabled, memoryEnabled);
 
         coordinator.EnableChatHistoryInState = true;
         coordinator.EnableChatHistoryCompaction = false;
         coordinator.ChatHistoryMaxMessages = Math.Max(1, _options.CurrentValue.MaxSnapshotMessages);
+
+        var role = (_options.CurrentValue.CoordinatorRole ?? string.Empty).Trim();
+        if (role.Length == 0)
+            role = "workflow_coordinator";
 
         if (_initializedCoordinators.TryAdd(actorId, true))
         {
@@ -196,30 +207,9 @@ public sealed class SessionWorkflowRunner
             }, ct);
         }
 
+        await _bootstrapper.TryConfigureRoleAgentAsync(actor, role, ct);
+
         return coordinator;
-    }
-
-    private async Task EnsureWorkerPoolAsync(
-        CognitiveCoordinatorGAgent coordinator,
-        string workflowName,
-        string sessionId,
-        CancellationToken ct)
-    {
-        var key = $"{coordinator.Id}:{workflowName}";
-        if (!_workerPoolsCreated.TryAdd(key, true))
-            return;
-
-        var count = _options.CurrentValue.WorkflowWorkerCount;
-        if (count <= 0)
-            return;
-
-        var workerIds = new List<Guid>(capacity: count);
-        for (var i = 0; i < count; i++)
-        {
-            workerIds.Add(DeterministicGuid.FromString($"session:{sessionId}:worker:{i}"));
-        }
-
-        await coordinator.CreateWorkerPoolAsync(count, workerIds);
     }
 
     private static string ResolveProviderName(LLMProvidersConfig config)
@@ -237,7 +227,8 @@ public sealed class SessionWorkflowRunner
         WorkflowDefinition workflow,
         SessionWorkflowRunRequest request,
         string workflowName,
-        string sessionId)
+        string sessionId,
+        string workflowPath)
     {
         var variables = NormalizeVariables(request.Variables);
 
@@ -259,14 +250,23 @@ public sealed class SessionWorkflowRunner
             }
         }
 
-        if (inputNames.Contains("workflow_name") && !variables.ContainsKey("workflow_name"))
+        if (!variables.ContainsKey("workflow_name"))
         {
-            variables["workflow_name"] = workflowName;
+            if (inputNames.Contains("workflow_name"))
+                variables["workflow_name"] = workflowName;
         }
+
+        if (!variables.ContainsKey("workflow_name"))
+            variables["workflow_name"] = workflowName;
 
         if (inputNames.Contains("session_id") && !variables.ContainsKey("session_id"))
         {
             variables["session_id"] = sessionId;
+        }
+
+        if (!string.IsNullOrWhiteSpace(workflowPath) && !variables.ContainsKey("workflow_path"))
+        {
+            variables["workflow_path"] = workflowPath;
         }
 
         if (!string.IsNullOrWhiteSpace(request.RequestId))

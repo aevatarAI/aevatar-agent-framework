@@ -583,6 +583,8 @@ public abstract partial class AIGAgentBase
             Messages = new List<AevatarChatMessage>(),
             Settings = new AevatarLLMSettings()
         };
+        llmRequest.Context ??= new Dictionary<string, object>();
+        llmRequest.Context[AIGAgentKeys.SuppressExecutionTrace] = true;
 
         return await ExecuteAllowedToolWithHooksAsync(
             toolName,

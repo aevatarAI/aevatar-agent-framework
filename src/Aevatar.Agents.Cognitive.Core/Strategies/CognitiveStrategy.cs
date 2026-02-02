@@ -2,6 +2,7 @@ using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Helpers;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
+using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.Core.Embeddings;
 using Aevatar.Agents.Cognitive.Agents;
 using Aevatar.Agents.Cognitive.Engine;
@@ -24,7 +25,7 @@ namespace Aevatar.Agents.Cognitive.Core.Strategies;
 
 /// <summary>
 /// Cognitive DSL strategy adapter.
-/// Uses YAML-defined workflows, executed via CognitiveCoordinatorGAgent.
+/// Uses YAML-defined workflows, executed via WorkflowCoordinatorAgent.
 /// 
 /// Features:
 /// - DSL-defined workflows (YAML)
@@ -34,10 +35,12 @@ namespace Aevatar.Agents.Cognitive.Core.Strategies;
 /// </summary>
 public sealed class CognitiveStrategy : IReasoningStrategy
 {
+    private const string CoordinatorRole = "workflow_coordinator";
     private readonly IGAgentActorManager _actorManager;
     private readonly ILLMProviderFactory _llmFactory;
     private readonly IAIAgentEmbeddingFactory? _embeddingFactory;
     private readonly IConfiguration _configuration;
+    private readonly RoleAgentFactory _roleAgentFactory;
     private readonly ILogger<CognitiveStrategy> _logger;
     private readonly string _workflowsPath;
     
@@ -53,6 +56,7 @@ public sealed class CognitiveStrategy : IReasoningStrategy
         IGAgentActorManager actorManager,
         ILLMProviderFactory llmFactory,
         IConfiguration configuration,
+        RoleAgentFactory roleAgentFactory,
         ILogger<CognitiveStrategy> logger,
         IAIAgentEmbeddingFactory? embeddingFactory = null)
     {
@@ -60,6 +64,7 @@ public sealed class CognitiveStrategy : IReasoningStrategy
         _llmFactory = llmFactory;
         _embeddingFactory = embeddingFactory;
         _configuration = configuration;
+        _roleAgentFactory = roleAgentFactory ?? throw new ArgumentNullException(nameof(roleAgentFactory));
         _logger = logger;
         
         // Workflow file path search (by priority)
@@ -174,9 +179,9 @@ public sealed class CognitiveStrategy : IReasoningStrategy
                 ? DeterministicGuid.FromString($"cognitive:{stableSessionKey}:coordinator").ToString("D")
                 : Guid.NewGuid().ToString("D");
 
-            // NOTE: Returned actor.Id is normalized full ActorId: "CognitiveCoordinatorGAgent:RawId"
-            var coordinatorActor = await _actorManager.CreateAndRegisterAsync<CognitiveCoordinatorGAgent>(rawCoordinatorId, ct);
-            var coordinator = coordinatorActor.GetAgent() as CognitiveCoordinatorGAgent;
+            // NOTE: Returned actor.Id is normalized full ActorId: "WorkflowCoordinatorAgent:RawId"
+            var coordinatorActor = await _actorManager.CreateAndRegisterAsync<WorkflowCoordinatorAgent>(rawCoordinatorId, ct);
+            var coordinator = coordinatorActor.GetAgent() as WorkflowCoordinatorAgent;
             
             if (coordinator == null)
             {
@@ -227,6 +232,9 @@ public sealed class CognitiveStrategy : IReasoningStrategy
                     DateTime.UtcNow - startTime);
             }
             
+            coordinator.InitializeRole(CoordinatorRole);
+            await _roleAgentFactory.ApplyYamlAsync(coordinator, CoordinatorRole, ct);
+
             // Configure Coordinator
             coordinator.SetActorManager(_actorManager);
 
@@ -685,7 +693,7 @@ public sealed class CognitiveStrategy : IReasoningStrategy
     }
     
     private async Task<WorkflowResult> WaitForCompletionAsync(
-        CognitiveCoordinatorGAgent coordinator,
+        WorkflowCoordinatorAgent coordinator,
         IProgress<ReasoningProgress>? progress,
         TimeSpan timeout,
         CancellationToken ct)

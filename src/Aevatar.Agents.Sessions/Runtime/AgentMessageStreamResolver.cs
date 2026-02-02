@@ -1,5 +1,7 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Runtime.Local;
+using System.Runtime.CompilerServices;
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.Sessions.Runtime;
@@ -20,6 +22,7 @@ public sealed class AgentMessageStreamResolver : IAgentMessageStreamResolver
     private readonly IMessageStreamProvider? _provider;
     private readonly LocalMessageStreamRegistry? _localRegistry;
     private readonly ILogger<AgentMessageStreamResolver>? _logger;
+    private static int _resolveLogCount;
 
     public AgentMessageStreamResolver(
         LocalMessageStreamRegistry localRegistry,
@@ -40,13 +43,44 @@ public sealed class AgentMessageStreamResolver : IAgentMessageStreamResolver
         if (string.IsNullOrWhiteSpace(agentId))
             throw new ArgumentException("agentId is required.", nameof(agentId));
 
+        IMessageStream stream;
+        var source = "local";
         if (_provider != null)
         {
             _logger?.LogDebug("[AgentMessageStreamResolver] Using external provider for agent {AgentId}", agentId);
-            return _provider.GetStream(agentId, null);
+            stream = _provider.GetStream(agentId, null);
+            source = "external";
+        }
+        else
+        {
+            _logger?.LogDebug("[AgentMessageStreamResolver] Using local registry for agent {AgentId}", agentId);
+            stream = _localRegistry!.GetOrCreateStream(agentId);
         }
 
-        _logger?.LogDebug("[AgentMessageStreamResolver] Using local registry for agent {AgentId}", agentId);
-        return _localRegistry!.GetOrCreateStream(agentId);
+        if (System.Threading.Interlocked.Increment(ref _resolveLogCount) <= 5)
+        {
+            // #region agent log
+            System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                JsonSerializer.Serialize(new
+                {
+                    sessionId = string.Empty,
+                    runId = string.Empty,
+                    hypothesisId = "H8",
+                    location = "AgentMessageStreamResolver.cs:GetStream",
+                    message = "stream_resolve_source",
+                    data = new
+                    {
+                        agentId,
+                        source,
+                        streamType = stream.GetType().Name,
+                        streamId = stream.StreamId,
+                        streamHash = RuntimeHelpers.GetHashCode(stream)
+                    },
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                }) + Environment.NewLine);
+            // #endregion
+        }
+
+        return stream;
     }
 }

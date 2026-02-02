@@ -25,22 +25,22 @@ using VoteResult = Aevatar.Agents.Maker.VoteResult;
 namespace Aevatar.Agents.Cognitive.Agents;
 
 // ============================================================
-//  Cognitive Coordinator Agent
-//  DSL Workflow Coordinator - True Distributed Parallelism
+//  Workflow Coordinator Agent
+//  YAML Workflow Coordinator - True Distributed Parallelism
 // ============================================================
 
 /// <summary>
-/// Cognitive Coordinator Agent - Workflow Coordinator
+/// Workflow Coordinator Agent
 /// 
 /// Parallelism model:
 /// - Simple steps (single LLM call): Coordinator executes directly
 /// - Parallel steps (fan_out): Distributed to Worker Actors via Protobuf events
 /// 
 /// This follows MAKER design pattern:
-/// - MakerCoordinatorGAgent → CognitiveCoordinatorGAgent
+/// - MakerCoordinatorGAgent → WorkflowCoordinatorAgent
 /// - MakerWorkerGAgent → RoleAIGAgent (Cognitive Step Handler)
 /// </summary>
-public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<CognitiveCoordinatorState>
+public partial class WorkflowCoordinatorAgent : CognitiveAIGAgentBase<CognitiveCoordinatorState>, IWorkflowCoordinatorRuntime
 {
     // ============================================================
     //  Components
@@ -97,11 +97,11 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
     //  Constructor
     // ============================================================
 
-    public CognitiveCoordinatorGAgent()
+    public WorkflowCoordinatorAgent()
     {
     }
 
-    protected override string AgentKind => "cognitive_coordinator";
+    protected override string AgentKind => "workflow_coordinator";
 
     // ============================================================
     //  Tool policy (skills only)
@@ -161,7 +161,7 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
 
         EnsureCoordinatorEventModules();
         
-        Logger.LogDebug("CognitiveCoordinatorGAgent activated. Id={Id}", Id);
+        Logger.LogDebug("WorkflowCoordinatorAgent activated. Id={Id}", Id);
     }
 
     public override Task<string> GetDescriptionAsync()
@@ -365,10 +365,10 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
         return CognitiveStepExecutorFactory.CreateForCoordinator(this, SnapshotStepModules());
     }
 
-    internal void EmitStepStart(StepDefinition step, string? userPrompt, string? systemPrompt)
+    public void EmitStepStart(StepDefinition step, string? userPrompt, string? systemPrompt)
         => EmitStepEvent(step, StepStatus.Running, userPrompt: userPrompt, systemPrompt: systemPrompt);
 
-    internal void EmitStepCompleted(StepDefinition step, PrimitiveResult result)
+    public void EmitStepCompleted(StepDefinition step, PrimitiveResult result)
         => EmitStepEvent(step,
             result.Success ? StepStatus.Completed : StepStatus.Failed,
             result.Success ? null : result.Error,
@@ -384,7 +384,7 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
             winnerSemantic: result.WinnerSemantic,
             winnerIsConsensus: result.WinnerIsConsensus);
 
-    internal void EmitStepError(StepDefinition step, Exception ex)
+    public void EmitStepError(StepDefinition step, Exception ex)
         => EmitStepEvent(step, StepStatus.Failed, ex.Message);
 
     private ICognitiveStepModule[] SnapshotStepModules()
@@ -403,9 +403,25 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
         return list.ToArray();
     }
 
-    internal ILogger CoordinatorLogger => Logger;
-    internal TemplateEngine CoordinatorTemplateEngine => _templateEngine;
-    internal Dictionary<string, object> WorkflowVariables => _workflowVariables;
+    public new ILogger Logger => base.Logger;
+    public TemplateEngine TemplateEngine => _templateEngine;
+    public Dictionary<string, object> WorkflowVariables => _workflowVariables;
+
+    public IReadOnlyDictionary<string, object> GetWorkflowVariablesSnapshot()
+    {
+        return new Dictionary<string, object>(_workflowVariables, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public bool TryGetWorkflowVariable(string key, out object? value)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            value = null;
+            return false;
+        }
+
+        return _workflowVariables.TryGetValue(key, out value);
+    }
 
     private void AddStats(int tokensUsed, int llmCalls)
     {
@@ -425,14 +441,14 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
 
     
 
-    internal Task<PrimitiveResult> ExecuteTransformAsync(StepDefinition step)
+    public Task<PrimitiveResult> ExecuteTransformAsync(StepDefinition step)
     {
         _transformExecutor ??= new TransformExecutor(_templateEngine, Logger);
         var result = _transformExecutor.Execute(step, _workflowVariables);
         return Task.FromResult(result);
     }
 
-    internal Task<PrimitiveResult> ExecuteRetrieveFactsAsync(StepDefinition step)
+    public Task<PrimitiveResult> ExecuteRetrieveFactsAsync(StepDefinition step)
     {
         _retrieveFactsExecutor ??= new RetrieveFactsExecutor(_templateEngine, Logger);
         var result = _retrieveFactsExecutor.Execute(step, _workflowVariables);
@@ -443,7 +459,7 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
     //  Other Steps
     // ============================================================
 
-    internal async Task<PrimitiveResult> ExecuteConditionalAsync(StepDefinition step)
+    public async Task<PrimitiveResult> ExecuteConditionalAsync(StepDefinition step)
     {
         var conditionExpr = step.Condition ?? "false";
         object? conditionResult;
@@ -528,7 +544,7 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
     // NOTE: vote moved to `CognitiveCoordinatorGAgent.Vote.cs`
     // NOTE: parsing/parameters moved to `CognitiveCoordinatorGAgent.Parameters.cs`
 
-    internal async Task<PrimitiveResult> ExecuteWorkflowCallAsync(StepDefinition step)
+    public async Task<PrimitiveResult> ExecuteWorkflowCallAsync(StepDefinition step)
     {
         var rawWorkflowName = step.Workflow ?? "";
         var workflowName = _templateEngine.Render(rawWorkflowName, _workflowVariables).Trim();
@@ -658,7 +674,7 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
         return value > 0;
     }
 
-    internal Task<PrimitiveResult> ExecuteCheckpointAsync(StepDefinition step)
+    public Task<PrimitiveResult> ExecuteCheckpointAsync(StepDefinition step)
     {
         // Checkpoint is a token-free observability primitive.
         // It can optionally emit a JSON snapshot of selected workflow variables (or dotted paths),
@@ -731,7 +747,7 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
     //      from: "recursive_output.state"
     //      store: state
     // ============================================================
-    internal Task<PrimitiveResult> ExecuteAssignAsync(StepDefinition step)
+    public Task<PrimitiveResult> ExecuteAssignAsync(StepDefinition step)
     {
         var from = step.Parameters.GetValueOrDefault("from")?.ToString();
         if (string.IsNullOrWhiteSpace(from))

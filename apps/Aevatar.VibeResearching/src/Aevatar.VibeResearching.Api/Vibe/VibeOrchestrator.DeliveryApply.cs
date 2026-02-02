@@ -79,7 +79,7 @@ internal sealed partial class VibeOrchestrator
         string raw,
         CancellationToken ct)
     {
-        if (!TryExtractJson(raw, out var json) || string.IsNullOrWhiteSpace(json))
+        if (!VibeWorkflowParsing.TryExtractJson(raw, out var json) || string.IsNullOrWhiteSpace(json))
             return null;
 
         PaperEditorOutputJson? parsed;

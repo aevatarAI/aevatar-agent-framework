@@ -43,7 +43,11 @@ internal sealed partial class VibeOrchestrator
         // Pass currentDag to validate motivatedByPlanNodeId references against existing milestones.
         // Pass activeMilestoneId as default for knowledge nodes without motivatedByPlanNodeId.
         var candidateText = outputs.TryGetValue("dag_builder", out var x) ? x : string.Empty;
-        var candidate = TryParseDagBuilderCandidate(session.Id, candidateText, currentDag, activeMilestoneId);
+        var candidate = VibeWorkflowParsing.TryParseDagBuilderCandidate(
+            session.Id,
+            candidateText,
+            currentDag,
+            activeMilestoneId);
 
         if (candidate == null)
         {

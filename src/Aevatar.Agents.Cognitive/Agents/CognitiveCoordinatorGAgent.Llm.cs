@@ -13,20 +13,20 @@ using StepDefinition = Aevatar.Agents.Cognitive.Primitives.StepDefinition;
 namespace Aevatar.Agents.Cognitive.Agents;
 
 // ============================================================
-//  CognitiveCoordinatorGAgent - LLM execution (Coordinator-side)
+//  WorkflowCoordinatorAgent - LLM execution (Coordinator-side)
 //
 //  WHY:
 //  - This code naturally expands (streaming + guardrails + UI events).
 //  - Separate into file to avoid polluting core orchestration logic.
 // ============================================================
 
-public partial class CognitiveCoordinatorGAgent
+public partial class WorkflowCoordinatorAgent
 {
     // ============================================================
     //  Simple Steps - Coordinator executes directly
     // ============================================================
 
-    internal async Task<PrimitiveResult> ExecuteLlmCallDirectAsync(
+    public async Task<PrimitiveResult> ExecuteLlmCallDirectAsync(
         StepDefinition step,
         string? preRenderedPrompt = null,
         string? preRenderedSystem = null)

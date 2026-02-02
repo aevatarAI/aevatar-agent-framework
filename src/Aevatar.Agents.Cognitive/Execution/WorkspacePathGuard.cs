@@ -227,7 +227,7 @@ internal static class WorkspacePathGuard
     {
         var p = (path ?? string.Empty).Trim().Replace('\\', '/');
         if (!p.StartsWith("~/", StringComparison.Ordinal))
-            return path;
+            return p;
 
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         return Path.Combine(home, p[2..]);

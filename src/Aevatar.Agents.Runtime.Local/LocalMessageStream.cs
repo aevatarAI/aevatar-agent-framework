@@ -190,6 +190,13 @@ public class LocalMessageStream : IMessageStream
             if (isExecutionTrace)
             {
                 TryExtractExecutionTrace(envelope, out executionId, out nodeId, out assistantLen, out traceTsMs);
+                if (assistantLen > 0)
+                {
+                    #region agent log
+                    System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                        $"{{\"sessionId\":\"\",\"runId\":\"{executionId}\",\"hypothesisId\":\"H72\",\"location\":\"LocalMessageStream.cs:ProcessMessagesAsync\",\"message\":\"trace_dispatch_probe\",\"data\":{{\"streamId\":\"{StreamId}\",\"eventId\":\"{envelope.Id}\",\"nodeId\":\"{nodeId}\",\"assistantLen\":{assistantLen},\"activeCount\":{activeCount}}},\"timestamp\":{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}}}\n");
+                    #endregion
+                }
                 if (assistantLen > 0 && Interlocked.Increment(ref _traceAssistantLogCount) <= 3)
                 {
                     var nowMsAssist = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();

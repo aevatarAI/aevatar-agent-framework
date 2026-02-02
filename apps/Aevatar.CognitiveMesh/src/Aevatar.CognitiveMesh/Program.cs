@@ -1,4 +1,4 @@
-﻿using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.MEAI.DependencyInjection;
 using Aevatar.Agents.Cognitive.DependencyInjection;
@@ -118,7 +118,7 @@ builder.Services.AddMassTransitStreamPlugin(
     builder.Configuration,
     typeof(Aevatar.Agents.Maker.Agents.MakerCoordinatorGAgent).Assembly,
     typeof(Aevatar.Agents.CreativeReasoning.Agents.UoTCoordinatorGAgent).Assembly,  // 包含 C/E/T-UoT
-    typeof(Aevatar.Agents.Cognitive.Agents.CognitiveCoordinatorGAgent).Assembly      // DSL 驱动的认知系统
+    typeof(Aevatar.Agents.Cognitive.Agents.WorkflowCoordinatorAgent).Assembly      // DSL 驱动的认知系统
 );
 
 // Local Runtime

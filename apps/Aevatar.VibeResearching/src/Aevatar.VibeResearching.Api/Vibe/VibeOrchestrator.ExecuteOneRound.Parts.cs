@@ -654,7 +654,7 @@ internal sealed partial class VibeOrchestrator
 
         try
         {
-            var actions = TryParseLibrarianActions(libOut);
+            var actions = VibeWorkflowParsing.TryParseLibrarianActions(libOut);
             if (actions == null)
                 return;
 
@@ -666,7 +666,7 @@ internal sealed partial class VibeOrchestrator
 
             if (actions.FactsWrite is { Count: > 0 })
             {
-                var written = await TryWriteFactsAsync(ctx.Session, actions.FactsWrite, ct);
+                var written = await _parsing.TryWriteFactsAsync(ctx.Session, actions.FactsWrite, ct);
                 if (written.Count > 0)
                 {
                     factsWritten.AddRange(written);

@@ -180,7 +180,7 @@ system_prompt: |
         };
     }
 
-    private sealed class TestCoordinator : CognitiveCoordinatorGAgent
+    private sealed class TestCoordinator : WorkflowCoordinatorAgent
     {
         public ChatRequest? LastRequest { get; private set; }
 

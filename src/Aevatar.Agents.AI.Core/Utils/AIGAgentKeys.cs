@@ -23,6 +23,8 @@ public static class AIGAgentKeys
 
     public const string ToolAllowlist = "aevatar.allowed_tools";
     public const string ToolAllowlistSourceSkill = "aevatar.allowed_tools.source_skill";
+    // Also accepted from ChatRequest.Context (string -> string).
+    public const string SuppressExecutionTrace = "aevatar.trace.suppress";
 
     // ============================================================
     //  Hook metadata keys (Dictionary<string, object>)

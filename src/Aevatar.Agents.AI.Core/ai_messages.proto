@@ -46,6 +46,27 @@ message ChatStreamChunkEvent {
   google.protobuf.Timestamp timestamp = 4;
 }
 
+// =====================================================
+// Text message streaming (AG-UI compatible)
+// =====================================================
+
+message TextMessageStartEvent {
+  string message_id = 1;
+  string role = 2; // "assistant" | "user" | "system" | ...
+  google.protobuf.Timestamp timestamp = 3;
+}
+
+message TextMessageContentEvent {
+  string message_id = 1;
+  string delta = 2; // Non-empty string
+  google.protobuf.Timestamp timestamp = 3;
+}
+
+message TextMessageEndEvent {
+  string message_id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+}
+
 // Note: ProcessingStep and ProcessingStepType are now defined in 
 // Aevatar.Agents.AI.Abstractions/ai_messages.proto
 

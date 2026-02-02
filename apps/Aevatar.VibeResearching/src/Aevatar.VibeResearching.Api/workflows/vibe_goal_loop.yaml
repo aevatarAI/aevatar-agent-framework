@@ -2,6 +2,15 @@ name: vibe_goal_loop
 description: "Bounded loop wrapper for vibe_researching (goal/loop mode)"
 
 inputs:
+  - name: session_id
+    type: string
+    required: true
+    description: "Session id"
+  - name: run_id
+    type: string
+    required: false
+    description: "Run id (request id)"
+    default: ""
   - name: question
     type: string
     required: true
@@ -51,6 +60,8 @@ steps:
     type: workflow_call
     workflow: vibe_researching
     params:
+      session_id: "{{ session_id }}"
+      run_id: "{{ run_id }}"
       question: "{{ question }}"
       attachments: "{{ attachments }}"
     store: round_result
@@ -75,6 +86,8 @@ steps:
         type: workflow_call
         workflow: vibe_goal_loop
         params:
+          session_id: "{{ session_id }}"
+          run_id: "{{ run_id }}"
           question: "{{ question }}"
           attachments: "{{ attachments }}"
           max_iterations: "{{ max_iterations }}"

@@ -1,15 +1,15 @@
 using System.Threading;
-using Aevatar.Agents.Cognitive.Agents;
 using Aevatar.Agents.Cognitive.Primitives;
 
 namespace Aevatar.Agents.Cognitive.Execution;
 
 public interface ICognitiveStepModule
 {
+    string StepType { get; }
     bool CanHandle(StepDefinition step);
     bool CanHandleType(string stepType);
     Task<PrimitiveResult> ExecuteAsync(
-        CognitiveCoordinatorGAgent agent,
+        IWorkflowCoordinatorRuntime coordinator,
         StepDefinition step,
         string? preRenderedPrompt,
         string? preRenderedSystem,

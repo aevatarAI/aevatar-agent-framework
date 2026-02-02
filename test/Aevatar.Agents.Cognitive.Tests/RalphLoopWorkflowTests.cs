@@ -84,7 +84,7 @@ public class RalphLoopWorkflowTests
         }
     }
 
-    private sealed class TestCognitiveCoordinator : CognitiveCoordinatorGAgent
+    private sealed class TestCognitiveCoordinator : WorkflowCoordinatorAgent
     {
         private int _proposeCalls;
 

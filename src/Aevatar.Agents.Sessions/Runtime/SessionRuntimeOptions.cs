@@ -33,6 +33,11 @@ public sealed class SessionRuntimeOptions
     public string? AgentRole { get; set; } = "sisyphus";
 
     /// <summary>
+    /// Coordinator role name (workflow orchestrator).
+    /// </summary>
+    public string? CoordinatorRole { get; set; } = "workflow_coordinator";
+
+    /// <summary>
     /// Default workflow name.
     /// </summary>
     public string? WorkflowName { get; set; }

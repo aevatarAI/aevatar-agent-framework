@@ -8,15 +8,15 @@ using Microsoft.Extensions.Logging;
 namespace Aevatar.Agents.Cognitive.Agents;
 
 // ============================================================
-//  CognitiveCoordinatorGAgent - Tool steps (tool_call/tool_evolve/tool_validate)
+//  WorkflowCoordinatorAgent - Tool steps (tool_call/tool_evolve/tool_validate)
 //
 //  中文 + ASCII:
 //  - Coordinator 侧负责工具演化与注册。
 //  - Worker 侧只执行 tool_call/tool_validate。
 // ============================================================
-public partial class CognitiveCoordinatorGAgent
+public partial class WorkflowCoordinatorAgent
 {
-    internal async Task<PrimitiveResult> ExecuteToolCallAsync(StepDefinition step)
+    public async Task<PrimitiveResult> ExecuteToolCallAsync(StepDefinition step)
     {
         if (!ToolEvolutionOptions.EnableToolCalls)
             return PrimitiveResult.Fail("tool_call is disabled by ToolEvolutionOptions");
@@ -59,7 +59,7 @@ public partial class CognitiveCoordinatorGAgent
         return PrimitiveResult.Ok(parsed ?? content);
     }
 
-    internal async Task<PrimitiveResult> ExecuteToolValidateAsync(StepDefinition step)
+    public async Task<PrimitiveResult> ExecuteToolValidateAsync(StepDefinition step)
     {
         if (!ToolEvolutionOptions.EnableToolCalls)
             return PrimitiveResult.Fail("tool_validate is disabled by ToolEvolutionOptions");
@@ -78,7 +78,7 @@ public partial class CognitiveCoordinatorGAgent
             : PrimitiveResult.Fail(result.ErrorMessage ?? "tool_validate failed");
     }
 
-    internal async Task<PrimitiveResult> ExecuteToolEvolveAsync(StepDefinition step)
+    public async Task<PrimitiveResult> ExecuteToolEvolveAsync(StepDefinition step)
     {
         if (!ToolEvolutionOptions.Enabled || !ToolEvolutionOptions.EnableToolEvolutionSteps)
             return PrimitiveResult.Fail("tool_evolve is disabled by ToolEvolutionOptions");

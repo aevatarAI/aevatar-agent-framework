@@ -23,7 +23,7 @@ public abstract class CognitiveStepModuleBase : IEventModule, ICognitiveStepModu
         => string.Equals(stepType, StepType, StringComparison.OrdinalIgnoreCase);
 
     public abstract Task<PrimitiveResult> ExecuteAsync(
-        CognitiveCoordinatorGAgent agent,
+        IWorkflowCoordinatorRuntime coordinator,
         StepDefinition step,
         string? preRenderedPrompt,
         string? preRenderedSystem,
@@ -39,12 +39,12 @@ public sealed class CoordinatorStepModule : CognitiveStepModuleBase
 {
     private readonly string _name;
     private readonly string _stepType;
-    private readonly Func<CognitiveCoordinatorGAgent, StepDefinition, string?, string?, CancellationToken, Task<PrimitiveResult>> _execute;
+    private readonly Func<IWorkflowCoordinatorRuntime, StepDefinition, string?, string?, CancellationToken, Task<PrimitiveResult>> _execute;
 
     public CoordinatorStepModule(
         string name,
         string stepType,
-        Func<CognitiveCoordinatorGAgent, StepDefinition, string?, string?, CancellationToken, Task<PrimitiveResult>> execute)
+        Func<IWorkflowCoordinatorRuntime, StepDefinition, string?, string?, CancellationToken, Task<PrimitiveResult>> execute)
     {
         _name = name;
         _stepType = stepType;
@@ -55,12 +55,12 @@ public sealed class CoordinatorStepModule : CognitiveStepModuleBase
     public override string StepType => _stepType;
 
     public override Task<PrimitiveResult> ExecuteAsync(
-        CognitiveCoordinatorGAgent agent,
+        IWorkflowCoordinatorRuntime coordinator,
         StepDefinition step,
         string? preRenderedPrompt,
         string? preRenderedSystem,
         CancellationToken ct)
-        => _execute(agent, step, preRenderedPrompt, preRenderedSystem, ct);
+        => _execute(coordinator, step, preRenderedPrompt, preRenderedSystem, ct);
 }
 
 public sealed class CoordinatorWorkflowEventModule : IEventModule
@@ -77,13 +77,6 @@ public sealed class CoordinatorWorkflowEventModule : IEventModule
         if (envelope.Payload == null)
             return;
 
-        if (host.Agent is not CognitiveCoordinatorGAgent coordinator)
-        {
-            host.Logger.LogWarning("[{Module}] Agent {AgentId} is not CognitiveCoordinatorGAgent",
-                Name, host.AgentId);
-            return;
-        }
-
         var evt = envelope.Payload.Unpack<StartWorkflowRequestEvent>();
         var workflowName = evt.WorkflowName ?? string.Empty;
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -99,7 +92,7 @@ public sealed class CoordinatorWorkflowEventModule : IEventModule
                 message = "workflow_event_start",
                 data = new
                 {
-                    agentId = coordinator.Id.ToString(),
+                    agentId = host.AgentId,
                     eventId = envelope.Id ?? string.Empty,
                     workflowName
                 },
@@ -108,7 +101,43 @@ public sealed class CoordinatorWorkflowEventModule : IEventModule
         // #endregion
         try
         {
-            await coordinator.HandleStartWorkflowRequest(evt);
+            if (host.Agent is WorkflowCoordinatorAgent legacy)
+            {
+                // 将 workflow 执行从 stream handler 中解耦，避免阻塞 UI 事件流
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await legacy.HandleStartWorkflowRequest(evt);
+                    }
+                    catch (Exception ex)
+                    {
+                        host.Logger.LogWarning(ex, "[{Module}] Legacy workflow execution failed: {AgentId}", Name, host.AgentId);
+                    }
+                });
+                succeeded = true;
+                return;
+            }
+
+            if (host.Agent is not RoleAIGAgent roleAgent)
+            {
+                host.Logger.LogWarning("[{Module}] Agent {AgentId} is not RoleAIGAgent", Name, host.AgentId);
+                return;
+            }
+
+            var runtime = WorkflowCoordinatorRuntimeAccessor.GetOrCreate(roleAgent, host.Logger, host.PublishAsync);
+            // 将 workflow 执行从 stream handler 中解耦，避免阻塞 UI 事件流
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await runtime.HandleStartWorkflowRequest(evt);
+                }
+                catch (Exception ex)
+                {
+                    host.Logger.LogWarning(ex, "[{Module}] Workflow execution failed: {AgentId}", Name, host.AgentId);
+                }
+            });
             succeeded = true;
         }
         finally
@@ -125,7 +154,7 @@ public sealed class CoordinatorWorkflowEventModule : IEventModule
                     message = "workflow_event_end",
                     data = new
                     {
-                        agentId = coordinator.Id.ToString(),
+                        agentId = host.AgentId,
                         eventId = envelope.Id ?? string.Empty,
                         workflowName,
                         elapsedMs = sw.ElapsedMilliseconds,
@@ -152,14 +181,18 @@ public sealed class CoordinatorParallelEventModule : IEventModule
         if (envelope.Payload == null)
             return Task.CompletedTask;
 
-        if (host.Agent is not CognitiveCoordinatorGAgent coordinator)
+        var evt = envelope.Payload.Unpack<StepCompletedEventProto>();
+
+        if (host.Agent is WorkflowCoordinatorAgent legacy)
+            return legacy.HandleStepCompletedEvent(evt);
+
+        if (host.Agent is not RoleAIGAgent roleAgent)
         {
-            host.Logger.LogWarning("[{Module}] Agent {AgentId} is not CognitiveCoordinatorGAgent",
-                Name, host.AgentId);
+            host.Logger.LogWarning("[{Module}] Agent {AgentId} is not RoleAIGAgent", Name, host.AgentId);
             return Task.CompletedTask;
         }
 
-        var evt = envelope.Payload.Unpack<StepCompletedEventProto>();
-        return coordinator.HandleStepCompletedEvent(evt);
+        var runtime = WorkflowCoordinatorRuntimeAccessor.GetOrCreate(roleAgent, host.Logger, host.PublishAsync);
+        return runtime.HandleStepCompletedEvent(evt);
     }
 }

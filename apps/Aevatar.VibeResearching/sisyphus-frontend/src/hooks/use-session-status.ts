@@ -40,6 +40,9 @@ export function useSessionStatus({
 
     try {
       const status = await fetchSessionStatus(sessionId)
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/602d30ab-17ad-45f0-a915-8a7cf2e47189',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId,runId:'',hypothesisId:'H102',location:'use-session-status.ts:fetchStatus',message:'session_status_received',data:{hasStatus:!!status,agentsCount:status?.agents?.length ?? 0,runningToolsCount:status?.runningTools?.length ?? 0,stepsRunningCount:status?.steps?.running?.length ?? 0,stepsDoneCount:status?.steps?.done?.length ?? 0,stepsOrderCount:status?.steps?.order?.length ?? 0},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       if (status) {
         // Transform API response to store format
         const sessionStatus: SessionStatus = {

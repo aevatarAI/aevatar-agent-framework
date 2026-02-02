@@ -9,10 +9,10 @@ using StepDefinition = Aevatar.Agents.Cognitive.Primitives.StepDefinition;
 namespace Aevatar.Agents.Cognitive.Agents;
 
 // ============================================================
-//  CognitiveCoordinatorGAgent - Parallel execution (fan_out / parallel)
+//  WorkflowCoordinatorAgent - Parallel execution (fan_out / parallel)
 // ============================================================
 
-public partial class CognitiveCoordinatorGAgent
+public partial class WorkflowCoordinatorAgent
 {
     /// <summary>
     /// Handle Worker completion event (Protobuf event)
@@ -105,7 +105,7 @@ public partial class CognitiveCoordinatorGAgent
     //  Parallel Steps - Distribute to Workers (True Actor Parallelism)
     // ============================================================
 
-    internal async Task<PrimitiveResult> ExecuteFanOutAsync(StepDefinition step)
+    public async Task<PrimitiveResult> ExecuteFanOutAsync(StepDefinition step)
     {
         // Get iteration list
         var forEachVar = step.ForEach ?? "";
@@ -443,7 +443,7 @@ public partial class CognitiveCoordinatorGAgent
         return PrimitiveResult.Ok(reduced, totalTokens, totalCalls);
     }
 
-    internal async Task<PrimitiveResult> ExecuteParallelAsync(StepDefinition step)
+    public async Task<PrimitiveResult> ExecuteParallelAsync(StepDefinition step)
     {
         var steps = step.Parameters.GetValueOrDefault("steps") as List<StepDefinition>;
         if (steps == null || steps.Count == 0)

@@ -14,14 +14,14 @@ namespace Aevatar.Agents.Cognitive.Agents;
 //  - All filesystem/command side effects must be constrained by WorkspacePathGuard.
 // ============================================================
 
-public partial class CognitiveCoordinatorGAgent
+public partial class WorkflowCoordinatorAgent
 {
     private WorkspaceReadFileExecutor? _workspaceReadFileExecutor;
     private WorkspaceCodeSearchExecutor? _workspaceCodeSearchExecutor;
     private WorkspaceApplyPatchExecutor? _workspaceApplyPatchExecutor;
     private SandboxCommandExecutor? _sandboxCommandExecutor;
 
-    internal Task<PrimitiveResult> ExecuteWorkspaceReadFileAsync(StepDefinition step)
+    public Task<PrimitiveResult> ExecuteWorkspaceReadFileAsync(StepDefinition step)
     {
         if (!WorkspacePathGuard.TryGetWorkspaceRoot(out var root, out var rootError))
             return Task.FromResult(PrimitiveResult.Fail(rootError!));
@@ -31,7 +31,7 @@ public partial class CognitiveCoordinatorGAgent
         return Task.FromResult(result);
     }
 
-    internal Task<PrimitiveResult> ExecuteWorkspaceCodeSearchAsync(StepDefinition step)
+    public Task<PrimitiveResult> ExecuteWorkspaceCodeSearchAsync(StepDefinition step)
     {
         if (!WorkspacePathGuard.TryGetWorkspaceRoot(out var root, out var rootError))
             return Task.FromResult(PrimitiveResult.Fail(rootError!));
@@ -41,7 +41,7 @@ public partial class CognitiveCoordinatorGAgent
         return Task.FromResult(result);
     }
 
-    internal Task<PrimitiveResult> ExecuteWorkspaceApplyPatchAsync(StepDefinition step)
+    public Task<PrimitiveResult> ExecuteWorkspaceApplyPatchAsync(StepDefinition step)
     {
         if (!WorkspacePathGuard.TryGetWorkspaceRoot(out var root, out var rootError))
             return Task.FromResult(PrimitiveResult.Fail(rootError!));
@@ -51,7 +51,7 @@ public partial class CognitiveCoordinatorGAgent
         return Task.FromResult(result);
     }
 
-    internal Task<PrimitiveResult> ExecuteSandboxCommandAsync(StepDefinition step)
+    public Task<PrimitiveResult> ExecuteSandboxCommandAsync(StepDefinition step)
     {
         if (!WorkspacePathGuard.TryGetWorkspaceRoot(out var root, out var rootError))
             return Task.FromResult(PrimitiveResult.Fail(rootError!));

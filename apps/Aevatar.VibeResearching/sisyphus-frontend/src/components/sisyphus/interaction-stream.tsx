@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect, useCallback, memo } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback, memo } from 'react';
 import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -808,9 +808,11 @@ interface ResearchAssistantBubbleProps {
 const ResearchAssistantBubble: React.FC<ResearchAssistantBubbleProps> = memo(({ agentName = 'research_assistant' }) => {
   const [collapsed, setCollapsed] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const bubbleRef = useRef<HTMLDivElement | null>(null);
   
   // FINE-GRAINED SUBSCRIPTION: Only re-renders when THIS agent's stream changes
   const streamData = useStreamContentStore(selectAgentStream(agentName));
+  const currentSessionId = useSisyphusStore((s) => s.currentSessionId);
   
   // Derive display values from stream data
   const content = streamData?.content || '';
@@ -819,6 +821,44 @@ const ResearchAssistantBubble: React.FC<ResearchAssistantBubbleProps> = memo(({ 
   const tokenCount = streamData?.tokenCount || 0;
   const providerName = streamData?.providerName;
   const stepName = streamData?.stepName;
+
+  useEffect(() => {
+    if (!content && !isStreaming) return;
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/602d30ab-17ad-45f0-a915-8a7cf2e47189',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:currentSessionId || '',runId:'',hypothesisId:'H63',location:'interaction-stream.tsx:ResearchAssistantBubble',message:'ra_stream_state',data:{agentName,contentLen:content.length,isStreaming,isFinal,tokenCount},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+  }, [content, isStreaming, isFinal, tokenCount, agentName, currentSessionId]);
+
+  useLayoutEffect(() => {
+    if (!content && !isStreaming) return;
+    const el = bubbleRef.current;
+    if (!el || typeof window === 'undefined') return;
+    const rect = el.getBoundingClientRect();
+    const style = window.getComputedStyle(el);
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/602d30ab-17ad-45f0-a915-8a7cf2e47189',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:currentSessionId || '',runId:'',hypothesisId:'H80',location:'interaction-stream.tsx:ResearchAssistantBubble',message:'ra_dom_state',data:{agentName,width:Math.round(rect.width),height:Math.round(rect.height),display:style.display,visibility:style.visibility,opacity:style.opacity,offsetParent:!!el.offsetParent,scrollHeight:el.scrollHeight},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+  }, [content, isStreaming, isFinal, collapsed, agentName, currentSessionId]);
+
+  useLayoutEffect(() => {
+    if (!content && !isStreaming) return;
+    const el = bubbleRef.current;
+    if (!el || typeof window === 'undefined') return;
+    const style = window.getComputedStyle(el);
+    const className = typeof el.className === 'string' ? el.className : String(el.className || '');
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/602d30ab-17ad-45f0-a915-8a7cf2e47189',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:currentSessionId || '',runId:'',hypothesisId:'H96',location:'interaction-stream.tsx:ResearchAssistantBubble',message:'ra_anim_state',data:{agentName,opacity:style.opacity,transform:style.transform,animationName:style.animationName,animationDuration:style.animationDuration,animationDelay:style.animationDelay,animationPlayState:style.animationPlayState,animationFillMode:style.animationFillMode,animationTiming:style.animationTimingFunction,className:className.slice(0,120),classNameLen:className.length},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    const rafId = window.requestAnimationFrame(() => {
+      const nextStyle = window.getComputedStyle(el);
+      const parent = el.parentElement;
+      const parentStyle = parent ? window.getComputedStyle(parent) : null;
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/602d30ab-17ad-45f0-a915-8a7cf2e47189',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:currentSessionId || '',runId:'',hypothesisId:'H97',location:'interaction-stream.tsx:ResearchAssistantBubble',message:'ra_anim_next_frame',data:{agentName,opacity:nextStyle.opacity,transform:nextStyle.transform,animationName:nextStyle.animationName,animationPlayState:nextStyle.animationPlayState,parentOpacity:parentStyle?.opacity ?? '',parentVisibility:parentStyle?.visibility ?? '',parentPointerEvents:parentStyle?.pointerEvents ?? ''},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+    });
+    return () => window.cancelAnimationFrame(rafId);
+  }, [content, isStreaming, isFinal, collapsed, agentName, currentSessionId]);
   
   const preview = useMemo(() => {
     const text = content.replace(/\s+/g, ' ').trim();
@@ -831,7 +871,7 @@ const ResearchAssistantBubble: React.FC<ResearchAssistantBubbleProps> = memo(({ 
   
   return (
     <>
-      <div className="bg-bg-surface/50 border border-border-subtle rounded-2xl animate-fade-in overflow-hidden">
+      <div ref={bubbleRef} className="bg-bg-surface/50 border border-border-subtle rounded-2xl animate-fade-in overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border-subtle/50">
           <div className="flex items-center gap-3 min-w-0">
@@ -1056,6 +1096,7 @@ const InteractionStream: React.FC<InteractionStreamProps> = ({ sessionId }) => {
   // Ref for auto-scroll container
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const scrollEndRef = useRef<HTMLDivElement>(null);
+  const scrollLogCountRef = useRef(0);
 
   // THROTTLED SCROLL: Prevent layout thrashing during rapid updates
   const scrollToBottom = useCallback(
@@ -1072,6 +1113,16 @@ const InteractionStream: React.FC<InteractionStreamProps> = ({ sessionId }) => {
   useEffect(() => {
     scrollToBottom();
   }, [messages.length, raTokenCount, isSending, scrollToBottom]);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container || scrollLogCountRef.current >= 5) return;
+    const endRect = scrollEndRef.current?.getBoundingClientRect();
+    scrollLogCountRef.current += 1;
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/602d30ab-17ad-45f0-a915-8a7cf2e47189',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:sessionId || '',runId:'',hypothesisId:'H81',location:'interaction-stream.tsx:InteractionStream',message:'scroll_state',data:{hasRaContent,messagesCount:messages.length,raTokenCount,scrollTop:Math.round(container.scrollTop),scrollHeight:container.scrollHeight,clientHeight:container.clientHeight,endTop:endRect ? Math.round(endRect.top) : null},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+  }, [messages.length, raTokenCount, isSending, hasRaContent, sessionId]);
 
   const formatTime = useCallback((timestamp: number) => {
     return new Date(timestamp).toLocaleTimeString('en-US', { 
@@ -1099,6 +1150,26 @@ const InteractionStream: React.FC<InteractionStreamProps> = ({ sessionId }) => {
       : FALLBACK_AGENTS.map(a => ({ agent: a }));
     return effectiveRoster.map(r => r.agent);
   }, [agentRoster]);
+  const agentNamesKey = useMemo(() => otherAgentNames.join('|'), [otherAgentNames]);
+
+  useEffect(() => {
+    const store = useStreamContentStore.getState();
+    const streamKeys = Object.keys(store.agentStreams);
+    const summary = otherAgentNames.map((agent) => {
+      const data = store.agentStreams[agent];
+      return {
+        agent,
+        hasContent: Boolean(data?.content),
+        contentLen: data?.content?.length ?? 0,
+        isStreaming: data?.isStreaming ?? false,
+        isFinal: data?.isFinal ?? false,
+      };
+    });
+    const active = summary.filter(s => s.hasContent || s.isStreaming || s.isFinal);
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/602d30ab-17ad-45f0-a915-8a7cf2e47189',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:sessionId || '',runId:currentRunId || '',hypothesisId:'H103',location:'interaction-stream.tsx:InteractionStream',message:'agents_panel_snapshot',data:{rosterCount:otherAgentNames.length,agentNames:otherAgentNames.slice(0,8),streamKeys:streamKeys.slice(0,8),activeCount:active.length,activeAgents:active.map(a=>a.agent).slice(0,8),streamingCount:active.filter(a=>a.isStreaming).length,finalCount:active.filter(a=>a.isFinal).length},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+  }, [sessionId, currentRunId, agentNamesKey]);
 
   return (
     <div className="card p-5 flex flex-col h-full relative overflow-hidden cyber-corners">

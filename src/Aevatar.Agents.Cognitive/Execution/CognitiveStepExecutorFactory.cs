@@ -1,4 +1,3 @@
-using Aevatar.Agents.Cognitive.Agents;
 using Aevatar.Agents.Cognitive.Primitives;
 
 namespace Aevatar.Agents.Cognitive.Execution;
@@ -6,7 +5,7 @@ namespace Aevatar.Agents.Cognitive.Execution;
 public static class CognitiveStepExecutorFactory
 {
     public static CognitiveStepExecutor CreateForCoordinator(
-        CognitiveCoordinatorGAgent coordinator,
+        IWorkflowCoordinatorRuntime coordinator,
         ICognitiveStepModule[] stepModules)
     {
         ArgumentNullException.ThrowIfNull(coordinator);
@@ -16,8 +15,8 @@ public static class CognitiveStepExecutorFactory
 
         return new CognitiveStepExecutor(new CognitiveStepExecutorOptions
         {
-            Logger = coordinator.CoordinatorLogger,
-            TemplateEngine = coordinator.CoordinatorTemplateEngine,
+            Logger = coordinator.Logger,
+            TemplateEngine = coordinator.TemplateEngine,
             WorkflowVariables = coordinator.WorkflowVariables,
             StepHandlers = handlers,
             EmitStart = coordinator.EmitStepStart,
@@ -27,7 +26,7 @@ public static class CognitiveStepExecutorFactory
     }
 
     private static Dictionary<string, Func<StepDefinition, string?, string?, Task<PrimitiveResult>>> BuildHandlers(
-        CognitiveCoordinatorGAgent coordinator,
+        IWorkflowCoordinatorRuntime coordinator,
         ICognitiveStepModule[] modules)
     {
         Func<StepDefinition, string?, string?, Task<PrimitiveResult>> WrapNoPrompt(
@@ -38,7 +37,7 @@ public static class CognitiveStepExecutorFactory
             Func<StepDefinition, string?, string?, Task<PrimitiveResult>> fallback)
             => (step, prompt, system) => Dispatch(modules, coordinator, step, prompt, system, fallback);
 
-        return new Dictionary<string, Func<StepDefinition, string?, string?, Task<PrimitiveResult>>>(
+        var handlers = new Dictionary<string, Func<StepDefinition, string?, string?, Task<PrimitiveResult>>>(
             StringComparer.OrdinalIgnoreCase)
         {
             ["llm_call"] = WrapLlm(coordinator.ExecuteLlmCallDirectAsync),
@@ -59,11 +58,27 @@ public static class CognitiveStepExecutorFactory
             ["workspace_apply_patch"] = WrapNoPrompt(coordinator.ExecuteWorkspaceApplyPatchAsync),
             ["sandbox_command"] = WrapNoPrompt(coordinator.ExecuteSandboxCommandAsync)
         };
+
+        // Register custom step types provided by modules (e.g. vibe_*).
+        foreach (var module in modules)
+        {
+            var stepType = (module.StepType ?? string.Empty).Trim();
+            if (stepType.Length == 0)
+                continue;
+
+            if (handlers.ContainsKey(stepType))
+                continue;
+
+            handlers[stepType] = (step, prompt, system) =>
+                module.ExecuteAsync(coordinator, step, prompt, system, CancellationToken.None);
+        }
+
+        return handlers;
     }
 
     private static Task<PrimitiveResult> Dispatch(
         ICognitiveStepModule[] modules,
-        CognitiveCoordinatorGAgent coordinator,
+        IWorkflowCoordinatorRuntime coordinator,
         StepDefinition step,
         Func<StepDefinition, Task<PrimitiveResult>> fallback)
     {
@@ -80,7 +95,7 @@ public static class CognitiveStepExecutorFactory
 
     private static Task<PrimitiveResult> Dispatch(
         ICognitiveStepModule[] modules,
-        CognitiveCoordinatorGAgent coordinator,
+        IWorkflowCoordinatorRuntime coordinator,
         StepDefinition step,
         string? preRenderedPrompt,
         string? preRenderedSystem,

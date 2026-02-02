@@ -7,8 +7,9 @@ namespace Aevatar.Agents.AI.Core.Configuration;
 //  GlobalAgentYamlRegistry
 //
 //  What:
-//  - Discover + load agent YAML configs from the global user directory:
-//      ~/.aevatar/agents/{role}.yaml
+//  - Discover + load agent YAML configs from:
+//      1) repo-local: <repo>/aevatar/agents/{role}.yaml
+//      2) global user: ~/.aevatar/agents/{role}.yaml
 //
 //  Why:
 //  - Cross-app convention: role-driven agents can be configured globally and reused
@@ -72,6 +73,14 @@ public sealed class GlobalAgentYamlRegistry
         var key = NormalizeRoleKey(role);
         if (key.Length == 0) return null;
 
+        var local = ResolveLocalConfigPath(key);
+        if (!string.IsNullOrWhiteSpace(local))
+        {
+            var localCfg = _loader.TryLoadFromFile(local);
+            if (localCfg != null)
+                return localCfg;
+        }
+
         var path = AgentYamlConfigLoader.GetConfigFilePath(key);
         return _loader.TryLoadFromFile(path);
     }
@@ -105,24 +114,81 @@ public sealed class GlobalAgentYamlRegistry
         var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         try
         {
-            var dir = AgentYamlConfigLoader.GetDefaultConfigDirectory();
-            if (!Directory.Exists(dir))
-                return set;
-
-            foreach (var f in Directory.EnumerateFiles(dir, "*.yaml", SearchOption.TopDirectoryOnly))
+            foreach (var dir in ResolveScanDirectories())
             {
-                var name = Path.GetFileNameWithoutExtension(f);
-                var key = NormalizeRoleKey(name);
-                if (key.Length > 0)
-                    set.Add(key);
+                if (!Directory.Exists(dir))
+                    continue;
+
+                foreach (var f in Directory.EnumerateFiles(dir, "*.yaml", SearchOption.TopDirectoryOnly))
+                {
+                    var name = Path.GetFileNameWithoutExtension(f);
+                    var key = NormalizeRoleKey(name);
+                    if (key.Length > 0)
+                        set.Add(key);
+                }
             }
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Failed to scan ~/.aevatar/agents (best-effort).");
+            _logger.LogDebug(ex, "Failed to scan agent YAML directories (best-effort).");
         }
 
         return set;
+    }
+
+    private static IReadOnlyList<string> ResolveScanDirectories()
+    {
+        var list = new List<string>();
+        var local = ResolveLocalConfigDirectory();
+        if (!string.IsNullOrWhiteSpace(local))
+            list.Add(local!);
+
+        var global = AgentYamlConfigLoader.GetDefaultConfigDirectory();
+        if (!string.IsNullOrWhiteSpace(global))
+            list.Add(global);
+
+        return list;
+    }
+
+    private static string? ResolveLocalConfigPath(string roleKey)
+    {
+        var dir = ResolveLocalConfigDirectory();
+        if (string.IsNullOrWhiteSpace(dir))
+            return null;
+
+        return Path.Combine(dir, $"{roleKey}.yaml");
+    }
+
+    private static string? ResolveLocalConfigDirectory()
+    {
+        var root = TryFindRepoRoot();
+        if (string.IsNullOrWhiteSpace(root))
+            return null;
+
+        return Path.Combine(root, "aevatar", "agents");
+    }
+
+    private static string? TryFindRepoRoot()
+    {
+        var roots = new[]
+        {
+            new DirectoryInfo(Directory.GetCurrentDirectory()),
+            new DirectoryInfo(AppContext.BaseDirectory)
+        };
+
+        foreach (var start in roots)
+        {
+            var dir = start;
+            while (dir != null && !File.Exists(Path.Combine(dir.FullName, "Directory.Packages.props")))
+            {
+                dir = dir.Parent;
+            }
+
+            if (dir != null)
+                return dir.FullName;
+        }
+
+        return null;
     }
 }
 

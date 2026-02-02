@@ -73,13 +73,13 @@ internal sealed partial class VibeOrchestrator
 
             var resp = await ra.ChatAsync(req, ct);
             var raw = (resp.Content ?? string.Empty).Trim();
-            if (!TryExtractJson(raw, out var json) || string.IsNullOrWhiteSpace(json))
+            if (!VibeWorkflowParsing.TryExtractJson(raw, out var json) || string.IsNullOrWhiteSpace(json))
                 return null;
 
             BriefJson? parsed;
             try
             {
-                parsed = JsonSerializer.Deserialize<BriefJson>(json!, Json);
+                parsed = JsonSerializer.Deserialize<BriefJson>(json!, VibeWorkflowParsing.Json);
             }
             catch
             {
@@ -165,15 +165,6 @@ internal sealed partial class VibeOrchestrator
         public string? Task { get; init; }
     }
 
-    private sealed record LibrarianAxiomCandidate
-    {
-        public string? Id { get; init; }
-        public string? Label { get; init; }
-        public string? Citation { get; init; }
-        public string? SourcePath { get; init; }
-        public Dictionary<string, string?>? Tags { get; init; }
-    }
-
     private async Task<PlanResult> TryGetPlanAsync(
         string sessionId,
         SessionInputInDto input,
@@ -200,10 +191,10 @@ internal sealed partial class VibeOrchestrator
 
             var resp = await ra.ChatAsync(req, ct);
             var raw = (resp.Content ?? string.Empty).Trim();
-            if (!TryExtractJson(raw, out var json))
+            if (!VibeWorkflowParsing.TryExtractJson(raw, out var json))
                 return new PlanResult(null, null, null);
 
-            var parsed = JsonSerializer.Deserialize<PlanJson>(json!, Json);
+            var parsed = JsonSerializer.Deserialize<VibeWorkflowParsing.PlanJson>(json!, VibeWorkflowParsing.Json);
             var workers = parsed?.Workers?
                 .Where(w => !string.IsNullOrWhiteSpace(w.Agent))
                 .Select(w => new PlanWorker { Agent = w.Agent, Task = w.Task })

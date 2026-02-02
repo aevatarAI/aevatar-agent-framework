@@ -5,13 +5,15 @@ using Aevatar.Agents.Cognitive.Streaming;
 using Aevatar.Agents.AGUI;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Tracing;
-using Aevatar.Agents.AI.Core.Messages;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 using AgUiToolCallStartEvent = Aevatar.Agents.AGUI.ToolCallStartEvent;
 using AgUiToolCallEndEvent = Aevatar.Agents.AGUI.ToolCallEndEvent;
 using CoreToolCallStartEvent = Aevatar.Agents.AI.Core.Messages.ToolCallStartEvent;
 using CoreToolCallEndEvent = Aevatar.Agents.AI.Core.Messages.ToolCallEndEvent;
+using CoreTextMessageStartEvent = Aevatar.Agents.AI.Core.Messages.TextMessageStartEvent;
+using CoreTextMessageContentEvent = Aevatar.Agents.AI.Core.Messages.TextMessageContentEvent;
+using CoreTextMessageEndEvent = Aevatar.Agents.AI.Core.Messages.TextMessageEndEvent;
 
 namespace Aevatar.Agents.Sessions.Runtime;
 
@@ -26,6 +28,7 @@ namespace Aevatar.Agents.Sessions.Runtime;
 
 public sealed class SessionAgUiStream : IAsyncDisposable
 {
+    private const string MessageMetaEventName = "aevatar.vibe.message_meta";
     private readonly string _sessionId;
     private readonly ILogger _logger;
     private readonly BroadcastEventHub<AgUiEvent> _hub;
@@ -34,10 +37,12 @@ public sealed class SessionAgUiStream : IAsyncDisposable
     private readonly ConcurrentBag<Task<IMessageStreamSubscription>> _subscriptions = new();
     private readonly ConcurrentDictionary<string, int> _textDeltaCounts = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, int> _textLengths = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, bool> _textFromStream = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, long> _traceFirstSeenAt = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, bool> _textStartLogged = new(StringComparer.Ordinal);
     private int _traceSeenCount;
     private int _traceAssistantProbeCount;
+    private int _traceEventLogCount;
     private int _disposed;
 
     public SessionAgUiStream(
@@ -221,6 +226,23 @@ public sealed class SessionAgUiStream : IAsyncDisposable
             return;
 
         var stream = _streamResolver.GetStream(agentId);
+        // #region agent log
+        System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+            JsonSerializer.Serialize(new
+            {
+                sessionId = _sessionId,
+                runId = string.Empty,
+                hypothesisId = "H6",
+                location = "SessionAgUiStream.cs:AttachAgent",
+                message = "stream_resolved",
+                data = new
+                {
+                    agentId,
+                    streamId = stream?.StreamId ?? string.Empty
+                },
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            }) + Environment.NewLine);
+        // #endregion
         SubscribeToAgentEvents(stream, agentId);
     }
 
@@ -248,6 +270,60 @@ public sealed class SessionAgUiStream : IAsyncDisposable
                 Timestamp = ToUnixMs(evt.Timestamp),
                 MessageId = evt.MessageId ?? string.Empty,
                 ToolCallId = evt.ToolCallId ?? string.Empty
+            });
+            return Task.CompletedTask;
+        }, null, CancellationToken.None));
+
+        // Text message streaming from core agent events
+        Track(stream.SubscribeAsync<CoreTextMessageStartEvent>(evt =>
+        {
+            var mid = (evt.MessageId ?? string.Empty).Trim();
+            if (mid.Length == 0)
+                return Task.CompletedTask;
+            _textFromStream.TryAdd(mid, true);
+            var agentKey = ExtractAgentFromMessageId(mid);
+            if (string.IsNullOrWhiteSpace(agentKey))
+                agentKey = "assistant";
+            Publish(new CustomEvent
+            {
+                Name = MessageMetaEventName,
+                Value = new
+                {
+                    messageId = mid,
+                    agent = agentKey,
+                    stepName = agentKey,
+                    providerName = string.Empty
+                }
+            });
+            Publish(new TextMessageStartEvent
+            {
+                Timestamp = ToUnixMs(evt.Timestamp),
+                MessageId = mid,
+                Role = evt.Role ?? "assistant"
+            });
+            return Task.CompletedTask;
+        }, null, CancellationToken.None));
+
+        Track(stream.SubscribeAsync<CoreTextMessageContentEvent>(evt =>
+        {
+            Publish(new TextMessageContentEvent
+            {
+                Timestamp = ToUnixMs(evt.Timestamp),
+                MessageId = evt.MessageId ?? string.Empty,
+                Delta = evt.Delta ?? string.Empty
+            });
+            return Task.CompletedTask;
+        }, null, CancellationToken.None));
+
+        Track(stream.SubscribeAsync<CoreTextMessageEndEvent>(evt =>
+        {
+            var mid = (evt.MessageId ?? string.Empty).Trim();
+            if (mid.Length > 0)
+                _textFromStream.TryRemove(mid, out _);
+            Publish(new TextMessageEndEvent
+            {
+                Timestamp = ToUnixMs(evt.Timestamp),
+                MessageId = mid
             });
             return Task.CompletedTask;
         }, null, CancellationToken.None));
@@ -303,6 +379,32 @@ public sealed class SessionAgUiStream : IAsyncDisposable
                 // #endregion
             }
 
+            if (Interlocked.Increment(ref _traceEventLogCount) <= 3)
+            {
+                // #region agent log
+                System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                    JsonSerializer.Serialize(new
+                    {
+                        sessionId = _sessionId,
+                        runId,
+                        hypothesisId = "H7",
+                        location = "SessionAgUiStream.cs:SubscribeToAgentEvents",
+                        message = "trace_received",
+                        data = new
+                        {
+                            agentId,
+                            nodeId,
+                            status,
+                            stepType,
+                            assistantLen,
+                            hasAssistant,
+                            hasMessageId
+                        },
+                        timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                    }) + Environment.NewLine);
+                // #endregion
+            }
+
             if (assistantLen > 0 && Interlocked.Increment(ref _traceAssistantProbeCount) <= 3)
             {
                 // #region agent log
@@ -335,6 +437,29 @@ public sealed class SessionAgUiStream : IAsyncDisposable
 
             if (isTerminal)
             {
+                // #region agent log
+                System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                    JsonSerializer.Serialize(new
+                    {
+                        sessionId = _sessionId,
+                        runId,
+                        hypothesisId = "H3",
+                        location = "SessionAgUiStream.cs:SubscribeToAgentEvents",
+                        message = "trace_terminal_received",
+                        data = new
+                        {
+                            agentId,
+                            nodeId,
+                            status,
+                            stepType,
+                            assistantLen,
+                            hasAssistant,
+                            hasMessageId
+                        },
+                        timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                    }) + Environment.NewLine);
+                // #endregion
+
                 // #region agent log
                 System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
                     JsonSerializer.Serialize(new
@@ -394,6 +519,28 @@ public sealed class SessionAgUiStream : IAsyncDisposable
                     hasTextMessage = true;
                 Publish(e);
             }
+            if (assistantLen > 0)
+            {
+                // #region agent log
+                System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                    JsonSerializer.Serialize(new
+                    {
+                        sessionId = _sessionId,
+                        runId,
+                        hypothesisId = "H73",
+                        location = "SessionAgUiStream.cs:SubscribeToAgentEvents",
+                        message = "trace_to_agui",
+                        data = new
+                        {
+                            nodeId,
+                            assistantLen,
+                            aguiCount,
+                            hasTextMessage
+                        },
+                        timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                    }) + Environment.NewLine);
+                // #endregion
+            }
             if (isTerminal)
             {
                 // #region agent log
@@ -423,6 +570,9 @@ public sealed class SessionAgUiStream : IAsyncDisposable
                 var response = ReadStringField(evt, ExecutionTraceEventFields.AssistantResponse);
                 if (!string.IsNullOrWhiteSpace(response))
                 {
+                    var rawMessageId = ReadStringField(evt, ExecutionTraceEventFields.MessageId);
+                    if (!string.IsNullOrWhiteSpace(rawMessageId) && _textFromStream.ContainsKey(rawMessageId))
+                        return Task.CompletedTask;
                     var logRunId = ReadStringField(evt, ExecutionTraceEventFields.ExecutionId) ?? string.Empty;
                     // #region agent log
                     System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
@@ -465,6 +615,19 @@ public sealed class SessionAgUiStream : IAsyncDisposable
 
                         if (lastLength == 0)
                         {
+                            var providerName = ReadStringField(evt, ExecutionTraceEventFields.LlmModel) ?? string.Empty;
+                            var stepName = nodeId.Length > 0 ? nodeId : agentKey;
+                            Publish(new CustomEvent
+                            {
+                                Name = MessageMetaEventName,
+                                Value = new
+                                {
+                                    messageId = msgId,
+                                    agent = agentKey,
+                                    stepName,
+                                    providerName
+                                }
+                            });
                             Publish(new TextMessageStartEvent
                             {
                                 Timestamp = ts,
@@ -514,6 +677,14 @@ public sealed class SessionAgUiStream : IAsyncDisposable
         if (!string.IsNullOrWhiteSpace(messageId))
             return messageId;
         return $"msg:{threadId}:{role}:{suffix}";
+    }
+
+    private static string ExtractAgentFromMessageId(string? messageId)
+    {
+        var mid = (messageId ?? string.Empty).Trim();
+        if (mid.Length == 0) return string.Empty;
+        var parts = mid.Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return parts.Length >= 4 ? parts[2] : string.Empty;
     }
 
     private static string ExtractRunId(string? messageId)

@@ -60,7 +60,24 @@ internal sealed class LlmRequestRuntime
             llmRequest.Context["stage_hint"] = request.StageHint!;
         }
 
+        if (request.Context.TryGetValue(AIGAgentKeys.SuppressExecutionTrace, out var suppress) &&
+            IsTruthy(suppress))
+        {
+            llmRequest.Context ??= new Dictionary<string, object>();
+            llmRequest.Context[AIGAgentKeys.SuppressExecutionTrace] = true;
+        }
+
         return llmRequest;
+    }
+
+    private static bool IsTruthy(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        return value.Equals("true", StringComparison.OrdinalIgnoreCase) ||
+               value.Equals("1", StringComparison.OrdinalIgnoreCase) ||
+               value.Equals("yes", StringComparison.OrdinalIgnoreCase);
     }
 }
 

@@ -53,7 +53,8 @@ Workflow:
 ```
 UI -> /api/chat/sessions/{id}/workflow/run
   -> SessionRuntime.RunWorkflowAsync
-    -> SessionWorkflowRunner (CognitiveCoordinatorGAgent)
+    -> SessionWorkflowRunner (RoleAIGAgent + YAML event modules)
+      -> CoordinatorWorkflowEventModule -> WorkflowCoordinatorRuntime
       -> ExecutionTraceEvent
         -> SessionAgUiStream
           -> AgUiSseWriter (SSE)

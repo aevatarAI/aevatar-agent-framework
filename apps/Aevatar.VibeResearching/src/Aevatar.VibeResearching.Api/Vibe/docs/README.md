@@ -1,23 +1,32 @@
 # Vibe Module（后端：vibe researching 运行时）
 
-本目录承载 `mode=vibe` 的核心后端能力：**File-SSoT 存储** + **单轮编排** + **DAG 增量写入**（支持共识门控：verifier-quorum / maker）。
+本目录承载 `mode=vibe` 的核心后端能力：**File-SSoT 存储** + **Workflow-first 编排** + **DAG 增量写入**（支持共识门控：verifier-quorum / maker）。`VibeOrchestrator` 仅保留 Mesh DSL 的 fallback worker 执行。
 
 ## 目录结构（核心骨架）
 
 ```
 Vibe/
-  VibeOrchestrator.cs                       # 入口：ExecuteOneRoundAsync（骨架/时序）
+  Steps/                                    # Workflow step 模块（vibe_*）
+    VibeContextStepModule.cs                # 组装 plan/materials/outline/draft 上下文
+    VibeLibrarianEffectsStepModule.cs       # librarian JSON -> facts/axioms 副作用
+    VibeDagApplyStepModule.cs               # dag_builder + consensus -> DagStore.ApplyMutationAsync
+    VibeDeliveryApplyStepModule.cs          # paper_editor JSON -> paper patches + delivery snapshots
+    VibeTraceAppendStepModule.cs            # summary + outputs -> TraceStore.AppendAsync
+    VibePivotDetectionStepModule.cs         # 方向变更检测（pivot detection）
+    VibeEventModuleFactory.cs               # 注册 workflow step modules
+
+  VibeOrchestrator.cs                       # 入口：ExecuteOneRoundAsync（仅 Mesh worker fallback）
   VibeOrchestrator.MeshSeed.cs              # mesh 缺失时自动 seed（从 default_mesh.yaml）（Option B 默认启用）
   VibeOrchestrator.MeshIntegration.cs       # mesh 执行：错误渲染、fail-fast/fallback、mesh 运行产物落盘（best-effort）
   VibeOrchestrator.PlanDag.cs               # plan/brief milestones -> DAG mutation 构建（plan nodes）
   VibeOrchestrator.Steps.cs                 # step 事件模板封装（StepStarted/Finished best-effort）
-  VibeOrchestrator.ExecuteOneRound.Parts.cs # ExecuteOneRoundAsync 的拆分实现（pivot/plan/workers），主文件只保留骨架
+  VibeOrchestrator.ExecuteOneRound.Parts.cs # ExecuteOneRoundAsync 的拆分实现（mesh worker helpers），主文件只保留骨架
   VibeModules.cs                            # Vibe 子域模块：VibeCore/VibePivot/VibeMesh/VibeHost（见名知意的依赖分组）
   VibeOrchestrator.Workers.cs               # planner/reasoner/librarian/verifier/dag_builder/paper_editor 的流式调用
   VibeOrchestrator.DagConsensus.cs          # DAG 共识门控（verifier-quorum / maker via Cognitive DSL）
   VibeOrchestrator.Trace.cs                 # trace 追加写入 + round_summary SSE
   VibeOrchestrator.ResearchAssistant.cs     # research_assistant 的 brief/plan/summary 调用与解析
-  VibeOrchestrator.Parsing.cs               # JSON 提取/解析 + librarian actions 解析
+  VibeOrchestrator.Parsing.cs               # JSON 提取/解析（workflow step 共享）
   VibeOrchestrator.GoalsAndMessages.cs      # prompt 构造（Plan 从 DAG plan nodes 提取；不再使用 goals）
   VibeOrchestrator.DeliveryApply.cs         # paper_editor 输出解析、patch 应用、delivery snapshots 写入
 
@@ -32,6 +41,7 @@ Vibe/
 
 ## 设计要点（为什么这样拆）
 
+- **Workflow-first**：plan/worker/consensus/summary 全部下沉到 `workflows/vibe_researching.yaml` + `Steps/*`。
 - **单文件 ≤ 800 行**：用 `partial` 拆分 `VibeOrchestrator`，按职责划分，降低认知负担。
 - **编排不崩溃**：所有 stage 都是 *best-effort*；失败只会阻断本 stage，不会炸掉 API 进程。
 - **SSE 以快照优先**：前端 reconnect 先收 `*_snapshot`，再接 live stream，避免依赖 replay。
@@ -63,7 +73,7 @@ Research Assistant 在启动每一轮时，会把 DAG 的一部分节点摘要�
 
 ## Mesh Orchestration（Option B：用 Mesh DSL 描述协作拓扑）
 
-Worker phase（`planner/reasoner/librarian/verifier/dag_builder`）除了默认的“硬编码顺序/计划 workers”外，还支持 **Mesh DSL** 驱动（默认启用）。
+Worker phase（`planner/reasoner/librarian/verifier/dag_builder`）支持 **Mesh DSL** 驱动。`VibeOrchestrator.ExecuteOneRoundAsync` 仅保留 Mesh fallback 的执行路径（workflow 负责其它阶段）。
 
 ### 启用方式
 

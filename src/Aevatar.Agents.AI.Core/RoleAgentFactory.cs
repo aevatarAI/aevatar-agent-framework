@@ -64,7 +64,8 @@ public sealed class RoleAgentFactory
         };
     }
 
-    public async Task ApplyYamlAsync(RoleAIGAgent agent, string? role, CancellationToken ct = default)
+    public async Task ApplyYamlAsync<TState>(RoleAIGAgent<TState> agent, string? role, CancellationToken ct = default)
+        where TState : class, Google.Protobuf.IMessage<TState>, new()
     {
         ArgumentNullException.ThrowIfNull(agent);
         var yaml = _registry.TryLoad(role);
@@ -72,7 +73,8 @@ public sealed class RoleAgentFactory
         ApplyEventModulesFromYaml(agent, yaml);
     }
 
-    private void ApplyEventModulesFromYaml(RoleAIGAgent agent, AgentYamlConfig? yaml)
+    private void ApplyEventModulesFromYaml<TState>(RoleAIGAgent<TState> agent, AgentYamlConfig? yaml)
+        where TState : class, Google.Protobuf.IMessage<TState>, new()
     {
         if (agent == null || yaml == null || yaml.Extensions == null)
             return;

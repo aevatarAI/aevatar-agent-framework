@@ -1,3 +1,4 @@
+using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Tracing;
 using Aevatar.Agents.Cognitive.Execution;
 using Aevatar.Agents.Cognitive.Messages;
@@ -10,19 +11,19 @@ using WorkflowDefinition = Aevatar.Agents.Cognitive.Primitives.WorkflowDefinitio
 namespace Aevatar.Agents.Cognitive.Agents;
 
 // ============================================================
-//  CognitiveCoordinatorGAgent - Workflow lifecycle
+//  WorkflowCoordinatorAgent - Workflow lifecycle
 //
 //  WHY:
 //  - Extract "start/failure/output building/main loop" from giant file.
 //  - Make core execution logic easier to reuse as AevatarKit's Run Orchestrator.
 // ============================================================
 
-public partial class CognitiveCoordinatorGAgent
+public partial class WorkflowCoordinatorAgent
 {
     /// <summary>
     /// Directly start workflow execution (API call)
     /// </summary>
-    public Task StartWorkflowAsync(string workflowName, Dictionary<string, object>? variables = null)
+    public async Task StartWorkflowAsync(string workflowName, Dictionary<string, object>? variables = null)
     {
         var request = new StartWorkflowRequestEvent { WorkflowName = workflowName };
         if (variables != null)
@@ -33,7 +34,17 @@ public partial class CognitiveCoordinatorGAgent
             }
         }
 
-        return HandleStartWorkflowRequest(request);
+        if (EventPublisher != null)
+        {
+            await EventPublisher.PublishEventAsync(
+                request,
+                EventDirection.Self,
+                CancellationToken.None,
+                isInternalCall: false);
+            return;
+        }
+
+        await HandleStartWorkflowRequest(request);
     }
 
     /// <summary>

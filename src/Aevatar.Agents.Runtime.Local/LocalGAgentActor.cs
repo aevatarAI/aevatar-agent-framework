@@ -4,6 +4,8 @@ using Aevatar.Agents.Core.Observability;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
+using System.Text.Json;
 
 namespace Aevatar.Agents.Runtime.Local;
 
@@ -24,6 +26,7 @@ public class LocalGAgentActor : GAgentActorBase
     private IMessageStream? _myStream;
     private IMessageStreamSubscription? _selfStreamSubscription;
     private IMessageStreamSubscription? _parentStreamSubscription;
+    private static int _streamInitLogCount;
 
     // ============================================================
     //  Actor mailbox gate (Local runtime)
@@ -73,6 +76,31 @@ public class LocalGAgentActor : GAgentActorBase
         {
             // Use Local Stream (Default)
             _myStream = _streamRegistry.GetOrCreateStream(Id);
+        }
+
+        if (System.Threading.Interlocked.Increment(ref _streamInitLogCount) <= 5)
+        {
+            // #region agent log
+            System.IO.File.AppendAllText("/Users/zhaoyiqi/Code/aevatar-agent-framework/.cursor/debug.log",
+                JsonSerializer.Serialize(new
+                {
+                    sessionId = string.Empty,
+                    runId = string.Empty,
+                    hypothesisId = "H8",
+                    location = "LocalGAgentActor.cs:InitializeStream",
+                    message = "actor_stream_initialized",
+                    data = new
+                    {
+                        agentId = Id,
+                        providerType = providerType ?? string.Empty,
+                        hasExternalProvider = _externalStreamProvider != null,
+                        streamType = _myStream?.GetType().Name ?? string.Empty,
+                        streamId = _myStream?.StreamId ?? string.Empty,
+                        streamHash = _myStream != null ? RuntimeHelpers.GetHashCode(_myStream) : 0
+                    },
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                }) + Environment.NewLine);
+            // #endregion
         }
     }
 

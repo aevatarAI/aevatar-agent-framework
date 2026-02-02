@@ -34,6 +34,23 @@ const transformDagData = (rawData: unknown): DAGGraph | null => {
 
 const App: React.FC = () => {
   const { currentSessionId, isConnected, setSessions, setCurrentSession, resetForNewSession, setDag, updateWorker, restoreMilestoneForSession, setActiveMilestoneNodeId, restoreRunningSession } = useSisyphusStore();
+
+  useEffect(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/602d30ab-17ad-45f0-a915-8a7cf2e47189',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'',runId:'',hypothesisId:'H93',location:'App.tsx:useEffect',message:'app_mounted',data:{path:window.location.pathname,currentSessionId:currentSessionId || '',connected:isConnected},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    const root = document.getElementById('root');
+    const bodyStyle = window.getComputedStyle(document.body);
+    const rootStyle = root ? window.getComputedStyle(root) : null;
+    const centerX = Math.floor(window.innerWidth / 2);
+    const centerY = Math.floor(window.innerHeight / 2);
+    const topEl = typeof document.elementFromPoint === 'function' ? document.elementFromPoint(centerX, centerY) : null;
+    const topStyle = topEl ? window.getComputedStyle(topEl) : null;
+    const topClass = topEl ? String((topEl as HTMLElement).className || '') : '';
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/602d30ab-17ad-45f0-a915-8a7cf2e47189',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'',runId:'',hypothesisId:'H95',location:'App.tsx:useEffect',message:'ui_surface_state',data:{rootChildren:root?.childElementCount ?? 0,bodyOpacity:bodyStyle.opacity,bodyVisibility:bodyStyle.visibility,bodyOverflow:bodyStyle.overflow,rootOpacity:rootStyle?.opacity ?? '',rootVisibility:rootStyle?.visibility ?? '',rootPointerEvents:rootStyle?.pointerEvents ?? '',topTag:topEl?.tagName ?? '',topId:(topEl as HTMLElement | null)?.id ?? '',topClass:topClass.slice(0,120),topOpacity:topStyle?.opacity ?? '',topVisibility:topStyle?.visibility ?? '',topPointerEvents:topStyle?.pointerEvents ?? ''},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+  }, []);
   
   // Resizable panel state
   const [leftPanelWidth, setLeftPanelWidth] = useState(DEFAULT_LEFT_WIDTH);

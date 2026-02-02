@@ -47,7 +47,7 @@ export default function LoginPage() {
     const githubConfigured = isGitHubConfigured()
     
     if (!googleConfigured && !githubConfigured) {
-      setOauthStatus("OAuth not configured - using mock login")
+      setOauthStatus(null) // Hide status when no OAuth configured
     } else {
       const configured = []
       if (googleConfigured) configured.push("Google")

@@ -6,6 +6,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { ToastProvider } from '@/components/ui/toast'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -44,6 +45,7 @@ import { ProtectedRoute, AdminRoute } from './components/guards'
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
+    <ToastProvider>
     <BrowserRouter>
       <Routes>
         {/* Public Routes */}
@@ -110,6 +112,7 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/403" element={<AccessDeniedPage />} />
       </Routes>
     </BrowserRouter>
+    </ToastProvider>
     </QueryClientProvider>
   </StrictMode>,
 )

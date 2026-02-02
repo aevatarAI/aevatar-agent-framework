@@ -8,6 +8,7 @@
 Vibe/
   Steps/                                    # Workflow step 模块（vibe_*）
     VibeContextStepModule.cs                # 组装 plan/materials/outline/draft 上下文
+    VibePlanApplyStepModule.cs              # planner JSON -> DAG plan nodes（milestones）
     VibeLibrarianEffectsStepModule.cs       # librarian JSON -> facts/axioms 副作用
     VibeDagApplyStepModule.cs               # dag_builder + consensus -> DagStore.ApplyMutationAsync
     VibeDeliveryApplyStepModule.cs          # paper_editor JSON -> paper patches + delivery snapshots

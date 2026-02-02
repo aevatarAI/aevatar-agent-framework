@@ -41,6 +41,7 @@ workflows/
 - `vibe_context`: load plan/materials/DAG stats + paper excerpts
 - `vibe_pivot_detection`: detect direction changes (pivot)
 - `planner` / `reasoner` / `librarian` / `verifier`: core worker roles
+- `plan_json` + `vibe_plan_apply`: planner plan -> DAG plan nodes (milestones)
 - `vibe_librarian_effects`: persist librarian facts + axioms
 - `dag_builder` + `dag_consensus`: propose + gate DAG mutation
 - `vibe_dag_apply`: apply accepted mutation to DagStore

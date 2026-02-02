@@ -93,6 +93,36 @@ steps:
     output: text
     store: planner
 
+  - id: plan_json
+    type: llm_call
+    agent: planner
+    output: json
+    strict_parse: true
+    prompt: |
+      You are extracting a milestone plan from the planner output.
+      Output STRICT JSON ONLY (no markdown, no code fences).
+      Schema:
+      {
+        "milestones": [
+          { "roundIndex": 1, "expectedOutput": "..." }
+        ],
+        "note": "..."
+      }
+
+      Planner output:
+      {{ planner }}
+    store: plan_json
+
+  - id: plan_apply
+    type: vibe_plan_apply
+    store: plan_apply
+    parameters:
+      plan_var: plan_json
+      plan_text_var: planner
+      source: planner
+      author: planner
+      max_milestones: 12
+
   - id: reasoner
     type: llm_call
     agent: reasoner
@@ -421,6 +451,8 @@ steps:
 
 output:
   planner: "{{ planner }}"
+  plan_json: "{{ plan_json | default: {} }}"
+  plan_apply: "{{ plan_apply | default: {} }}"
   reasoner: "{{ reasoner }}"
   librarian: "{{ librarian }}"
   librarian_effects: "{{ librarian_effects }}"

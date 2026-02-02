@@ -17,8 +17,8 @@ public sealed class CognitiveStepExecutionHandler : IStepExecutionHandler
 {
     private readonly TemplateEngine _templateEngine = new();
     private readonly OutputParserFactory _parserFactory = new();
-    private const int StreamingEmitMinChars = 32;
-    private static readonly TimeSpan StreamingEmitMaxInterval = TimeSpan.FromMilliseconds(200);
+    private const int StreamingEmitMinChars = 1;
+    private static readonly TimeSpan StreamingEmitMaxInterval = TimeSpan.FromMilliseconds(60);
 
     public Action<ExecuteStepRequestEvent, string>? OnStreamingDelta { get; set; }
 

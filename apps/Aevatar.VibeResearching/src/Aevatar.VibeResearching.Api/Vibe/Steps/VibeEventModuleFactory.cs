@@ -18,6 +18,7 @@ internal sealed class VibeEventModuleFactory : IEventModuleFactory
         {
             "vibe_context" => ActivatorUtilities.CreateInstance<VibeContextStepModule>(_services),
             "vibe_librarian_effects" => ActivatorUtilities.CreateInstance<VibeLibrarianEffectsStepModule>(_services),
+            "vibe_plan_apply" => ActivatorUtilities.CreateInstance<VibePlanApplyStepModule>(_services),
             "vibe_dag_apply" => ActivatorUtilities.CreateInstance<VibeDagApplyStepModule>(_services),
             "vibe_delivery_apply" => ActivatorUtilities.CreateInstance<VibeDeliveryApplyStepModule>(_services),
             "vibe_trace_append" => ActivatorUtilities.CreateInstance<VibeTraceAppendStepModule>(_services),

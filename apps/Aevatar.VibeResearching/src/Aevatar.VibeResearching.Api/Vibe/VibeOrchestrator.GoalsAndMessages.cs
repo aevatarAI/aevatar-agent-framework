@@ -310,6 +310,17 @@ internal sealed partial class VibeOrchestrator
         sb.AppendLine("DAG stats:");
         sb.AppendLine($"- nodes={dag.Nodes.Count}, edges={dag.Edges.Count}");
 
+        // Add critical reminder for planner: must execute milestone goals, not just evaluate
+        if (role == "planner")
+        {
+            sb.AppendLine();
+            sb.AppendLine("---");
+            sb.AppendLine("CRITICAL: If the Question above contains a milestone goal (e.g., 'extract pages X-Y', 'verify Z', 'identify A'),");
+            sb.AppendLine("you MUST create an execution plan that ACTUALLY PERFORMS those specific tasks.");
+            sb.AppendLine("Do NOT just evaluate whether they're done - create a plan to EXECUTE them.");
+            sb.AppendLine("Check the 'Plan:' section above to identify the current Active milestone and ensure your plan addresses its goal.");
+        }
+
         if (!string.IsNullOrWhiteSpace(extra))
         {
             sb.AppendLine();

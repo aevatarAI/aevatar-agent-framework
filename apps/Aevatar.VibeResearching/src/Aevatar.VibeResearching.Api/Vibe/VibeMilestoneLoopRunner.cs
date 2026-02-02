@@ -779,15 +779,18 @@ internal sealed class VibeMilestoneLoopRunner
             **Goal**: {milestoneGoal}
             **Milestone Node ID**: {milestoneNodeId}
 
+            CRITICAL: You MUST execute the milestone goal above. This is NOT an evaluation - you need to ACTUALLY PERFORM the tasks specified in the milestone goal.
+            
             IMPORTANT: When creating knowledge nodes, use "{milestoneNodeId}" as the motivatedByPlanNodeId value.
             This links the knowledge to this specific milestone in the research DAG.
 
             # Research Instructions
-            You are conducting deep, autonomous research on this milestone.
+            You are conducting deep, autonomous research on this milestone. You MUST execute the tasks specified in the milestone goal.
 
             {iterationGuidance}
 
             ## Required Actions
+            - **Execute**: ACTUALLY PERFORM the tasks specified in the milestone goal (e.g., if goal says "extract pages 41-63", you MUST extract from pages 41-63)
             - **Analyze**: Break down the goal into specific sub-questions
             - **Research**: Use web search to find relevant papers, theories, and data
             - **Derive**: Work through mathematical derivations or logical reasoning step-by-step
@@ -799,8 +802,10 @@ internal sealed class VibeMilestoneLoopRunner
             - DO provide detailed analysis with citations
             - DO show your reasoning process
             - DO identify what you still need to learn
+            - DO execute the specific tasks mentioned in the milestone goal (e.g., specific page ranges, specific sections)
 
-            Focus on achieving the milestone goal with rigor and depth.
+            CRITICAL REMINDER: The milestone goal specifies what needs to be done. You must ACTUALLY DO IT, not just evaluate whether it's done.
+            Focus on achieving the milestone goal with rigor and depth by EXECUTING the specified tasks.
             """;
     }
 
@@ -821,8 +826,11 @@ internal sealed class VibeMilestoneLoopRunner
         try
         {
             // Determine milestone type based on goal keywords (used in both prompt building and auto-completion logic)
+            // Note: "提取" (extract) is also considered as identification task
             var isIdentificationMilestone = milestoneGoal.Contains("识别", StringComparison.OrdinalIgnoreCase) ||
-                                           milestoneGoal.Contains("identify", StringComparison.OrdinalIgnoreCase);
+                                           milestoneGoal.Contains("identify", StringComparison.OrdinalIgnoreCase) ||
+                                           milestoneGoal.Contains("提取", StringComparison.OrdinalIgnoreCase) ||
+                                           milestoneGoal.Contains("extract", StringComparison.OrdinalIgnoreCase);
             var isVerificationMilestone = milestoneGoal.Contains("验证", StringComparison.OrdinalIgnoreCase) ||
                                         milestoneGoal.Contains("verify", StringComparison.OrdinalIgnoreCase);
             
@@ -936,14 +944,25 @@ internal sealed class VibeMilestoneLoopRunner
                 // For identification milestones: focus on completeness of identification
                 sb.AppendLine("CRITICAL: This is an IDENTIFICATION milestone. Focus on whether all required items have been IDENTIFIED and added to the DAG.");
                 sb.AppendLine();
-                sb.AppendLine("Mark isComplete=true if ALL of the following are satisfied:");
+                sb.AppendLine("Mark isComplete=true if ANY of the following conditions are satisfied:");
+                sb.AppendLine();
+                sb.AppendLine("**Option A - Complete Identification (100%):**");
+                sb.AppendLine("ALL of the following are satisfied:");
                 sb.AppendLine("1. All required items (definitions, theorems, lemmas, corollaries, propositions) have been IDENTIFIED from the specified scope");
                 sb.AppendLine("2. Knowledge nodes have been created in the DAG for the identified items");
                 sb.AppendLine("3. The identification is comprehensive (no major items are missing)");
                 sb.AppendLine("4. The knowledge graph structure is established");
                 sb.AppendLine();
-                sb.AppendLine("NOTE: For identification milestones, you do NOT need to verify proofs or derivations. " +
+                sb.AppendLine("**Option B - Substantial Progress (≥80%):**");
+                sb.AppendLine("If completionPercentage >= 80 AND the following are satisfied:");
+                sb.AppendLine("1. Most core items (definitions, theorems, lemmas, corollaries, propositions) have been IDENTIFIED from the specified scope");
+                sb.AppendLine("2. Knowledge nodes have been created in the DAG for the identified items (at least 80% of expected items)");
+                sb.AppendLine("3. The identification covers the major/important items (minor omissions are acceptable)");
+                sb.AppendLine("4. The knowledge graph structure is established");
+                sb.AppendLine();
+                sb.AppendLine("**IMPORTANT:** For identification milestones, you do NOT need to verify proofs or derivations. " +
                              "Verification will be done in subsequent milestones. Focus on COMPLETENESS of identification.");
+                sb.AppendLine("If you estimate completionPercentage >= 80 and most core items are identified, mark isComplete=true.");
             }
             else if (isVerificationMilestone)
             {
@@ -1039,33 +1058,26 @@ internal sealed class VibeMilestoneLoopRunner
             var evaluation = ParseEvaluationResponse(rawOutput, iterationCount);
             
             // Add automatic completion logic for identification milestones
-            // If milestone goal contains "识别" (identify) and we have created substantial knowledge nodes,
-            // and iteration count is reasonable, consider auto-completing
+            // If milestone goal contains "识别"/"提取" (identify/extract) and completion percentage is >= 80%, auto-complete
             // (isIdentificationMilestone was already determined at the beginning of the method)
             if (isIdentificationMilestone && !evaluation.IsComplete)
             {
-                var knowledgeNodeCount = dagSnap.Nodes.Count(n => n.Kind == SraDagNodeKind.Knowledge);
-                var hasSubstantialProgress = knowledgeNodeCount >= 8 && iterationCount >= 2;
-                
-                // If we have substantial progress but LLM says not complete, check if it's a false negative
-                if (hasSubstantialProgress && evaluation.CompletionPercentage >= 70)
+                // If completion percentage is >= 80%, auto-complete regardless of node count
+                if (evaluation.CompletionPercentage >= 80)
                 {
+                    var knowledgeNodeCount = dagSnap.Nodes.Count(n => n.Kind == SraDagNodeKind.Knowledge);
                     _logger.LogInformation(
-                        "[MilestoneLoop] Identification milestone has substantial progress ({NodeCount} nodes, {Completion}% complete, {Iterations} iterations). " +
-                        "Considering auto-completion.",
-                        knowledgeNodeCount, evaluation.CompletionPercentage, iterationCount);
+                        "[MilestoneLoop] Identification milestone has completionPercentage >= 80% ({Completion}% complete, {NodeCount} nodes, {Iterations} iterations). " +
+                        "Auto-completing.",
+                        evaluation.CompletionPercentage, knowledgeNodeCount, iterationCount);
                     
-                    // If completion percentage is high (>=70%) and we have enough nodes, auto-complete
-                    if (evaluation.CompletionPercentage >= 70 && knowledgeNodeCount >= 8)
+                    evaluation = new MilestoneEvaluation
                     {
-                        evaluation = new MilestoneEvaluation
-                        {
-                            IsComplete = true,
-                            CompletionPercentage = Math.Min(100, evaluation.CompletionPercentage + 10),
-                            Summary = $"{evaluation.Summary} (Auto-completed: {knowledgeNodeCount} knowledge nodes created, {evaluation.CompletionPercentage}% completion)",
-                            NextSteps = "Milestone goal achieved"
-                        };
-                    }
+                        IsComplete = true,
+                        CompletionPercentage = Math.Min(100, evaluation.CompletionPercentage + 5),
+                        Summary = $"{evaluation.Summary} (Auto-completed: {evaluation.CompletionPercentage}% completion meets 80% threshold)",
+                        NextSteps = "Milestone goal achieved"
+                    };
                 }
             }
             

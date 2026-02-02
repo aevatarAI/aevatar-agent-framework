@@ -2,11 +2,13 @@ using Aevatar.Agents.AGUI;
 using Aevatar.Agents.Knowledge.Graph;
 using Aevatar.Agents.Knowledge.Graph.Models;
 using System.Text;
+using System.Text.Json;
 using VibeResearching.Api.Materials;
 using VibeResearching.Api.Sessions;
 using VibeResearching.Api.Vibe.Brief;
 using VibeResearching.Api.Vibe.Dag;
 using VibeResearching.Api.Vibe.Trace;
+using VibeResearching.Api.Workspace;
 using VibeResearching.Contracts.Collab;
 using VibeResearching.Vibe;
 
@@ -43,6 +45,7 @@ internal sealed class VibeMilestoneLoopRunner
     private readonly TraceStore _trace;
     private readonly MaterialsService _materials;
     private readonly IKnowledgeGraphClientFactory _graphFactory;
+    private readonly WorkspaceService _workspace;
     private readonly ILogger<VibeMilestoneLoopRunner> _logger;
 
     public VibeMilestoneLoopRunner(
@@ -52,6 +55,7 @@ internal sealed class VibeMilestoneLoopRunner
         TraceStore trace,
         MaterialsService materials,
         IKnowledgeGraphClientFactory graphFactory,
+        WorkspaceService workspace,
         ILogger<VibeMilestoneLoopRunner> logger)
     {
         _vibe = vibe ?? throw new ArgumentNullException(nameof(vibe));
@@ -60,6 +64,7 @@ internal sealed class VibeMilestoneLoopRunner
         _trace = trace ?? throw new ArgumentNullException(nameof(trace));
         _materials = materials ?? throw new ArgumentNullException(nameof(materials));
         _graphFactory = graphFactory ?? throw new ArgumentNullException(nameof(graphFactory));
+        _workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -808,6 +813,11 @@ internal sealed class VibeMilestoneLoopRunner
         string? providerOverride,
         CancellationToken ct)
     {
+        string? finalSystemPrompt = null;
+        string? evaluationPrompt = null;
+        string? rawOutput = null;
+        Exception? evaluationException = null;
+        
         try
         {
             // Determine milestone type based on goal keywords (used in both prompt building and auto-completion logic)
@@ -965,7 +975,7 @@ internal sealed class VibeMilestoneLoopRunner
             sb.AppendLine("- Is the milestone goal fully achieved or only partially?");
             sb.AppendLine($"- Total knowledge nodes in DAG: {dagSnap.Nodes.Count(n => n.Kind == SraDagNodeKind.Knowledge)}");
 
-            var evaluationPrompt = sb.ToString();
+            evaluationPrompt = sb.ToString();
 
             var req = new Aevatar.Agents.AI.ChatRequest
             {
@@ -978,12 +988,12 @@ internal sealed class VibeMilestoneLoopRunner
 
             // Get verifier system prompt
             var verifierSystemPrompt = VibeVerifierAgent.GetSystemPrompt();
-            var finalSystemPrompt = string.IsNullOrWhiteSpace(materials.RenderedContext)
+            finalSystemPrompt = string.IsNullOrWhiteSpace(materials.RenderedContext)
                 ? verifierSystemPrompt
                 : $"{verifierSystemPrompt}\n\nMaterials context:\n{materials.RenderedContext.Trim()}\n";
 
             var resp = await verifier.ChatAsync(req, ct);
-            var content = resp.Content ?? string.Empty;
+            rawOutput = resp.Content ?? string.Empty;
 
             // Save verifier prompt record for milestone evaluation
             try
@@ -993,7 +1003,7 @@ internal sealed class VibeMilestoneLoopRunner
                     SystemPrompt: finalSystemPrompt,
                     UserPrompt: evaluationPrompt,
                     MaterialsContext: materials.RenderedContext,
-                    RawOutput: content,
+                    RawOutput: rawOutput,
                     Timestamp: DateTimeOffset.UtcNow
                 );
 
@@ -1026,7 +1036,7 @@ internal sealed class VibeMilestoneLoopRunner
             }
 
             // Parse JSON response
-            var evaluation = ParseEvaluationResponse(content, iterationCount);
+            var evaluation = ParseEvaluationResponse(rawOutput, iterationCount);
             
             // Add automatic completion logic for identification milestones
             // If milestone goal contains "识别" (identify) and we have created substantial knowledge nodes,
@@ -1059,17 +1069,59 @@ internal sealed class VibeMilestoneLoopRunner
                 }
             }
             
+            // Save evaluation record to file (after auto-completion logic to capture final result)
+            try
+            {
+                await SaveMilestoneEvaluationRecordAsync(
+                    session,
+                    milestoneGoal,
+                    iterationCount,
+                    finalSystemPrompt ?? string.Empty,
+                    evaluationPrompt ?? string.Empty,
+                    materials.RenderedContext,
+                    rawOutput ?? string.Empty,
+                    evaluation,
+                    ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[MilestoneLoop] Failed to save milestone evaluation record (best-effort).");
+            }
+            
             return evaluation;
         }
         catch (Exception ex)
         {
+            evaluationException = ex;
             _logger.LogWarning(ex, "[MilestoneLoop] Evaluation failed, defaulting to continue");
-            return new MilestoneEvaluation
+            
+            var defaultEvaluation = new MilestoneEvaluation
             {
                 IsComplete = iterationCount >= 3, // Default: complete after 3 iterations if evaluation fails
-                Summary = "Evaluation unavailable",
+                Summary = $"Evaluation unavailable: {ex.GetType().Name} - {ex.Message}",
                 NextSteps = "Continue research"
             };
+            
+            // Save evaluation record even on failure (with error information)
+            try
+            {
+                await SaveMilestoneEvaluationRecordAsync(
+                    session,
+                    milestoneGoal,
+                    iterationCount,
+                    finalSystemPrompt ?? string.Empty,
+                    evaluationPrompt ?? string.Empty,
+                    materials.RenderedContext,
+                    rawOutput ?? $"[Error] {ex.GetType().Name}: {ex.Message}\n\nStack trace:\n{ex.StackTrace}",
+                    defaultEvaluation,
+                    ct);
+            }
+            catch (Exception saveEx)
+            {
+                _logger.LogWarning(saveEx, "[MilestoneLoop] Failed to save milestone evaluation record even on error (best-effort).");
+            }
+            
+            return defaultEvaluation;
         }
     }
 
@@ -1077,6 +1129,75 @@ internal sealed class VibeMilestoneLoopRunner
     {
         if (string.IsNullOrEmpty(text)) return string.Empty;
         return text.Length <= maxLength ? text : text[..maxLength] + "...";
+    }
+
+    /// <summary>
+    /// Saves milestone evaluation record (prompts and outputs) to a JSON file in the session artifacts directory.
+    /// </summary>
+    private async Task SaveMilestoneEvaluationRecordAsync(
+        ResearchSession session,
+        string milestoneGoal,
+        int iterationCount,
+        string systemPrompt,
+        string userPrompt,
+        string materialsContext,
+        string rawOutput,
+        MilestoneEvaluation evaluation,
+        CancellationToken ct)
+    {
+        try
+        {
+            var ws = _workspace.EnsureSessionWorkspace(session.Id);
+            var evalDir = Path.Combine(ws.ArtifactsDir, "milestone_evaluations");
+            Directory.CreateDirectory(evalDir);
+
+            var timestamp = DateTimeOffset.UtcNow;
+            var filename = $"eval_{timestamp:yyyyMMdd_HHmmss}_{iterationCount:D3}.json";
+            var filepath = Path.Combine(evalDir, filename);
+
+            var record = new
+            {
+                sessionId = session.Id,
+                timestamp = timestamp.ToString("yyyy-MM-dd HH:mm:ss UTC"),
+                milestoneGoal = milestoneGoal,
+                iterationCount = iterationCount,
+                prompts = new
+                {
+                    systemPrompt = systemPrompt,
+                    userPrompt = userPrompt,
+                    materialsContext = materialsContext
+                },
+                output = new
+                {
+                    rawOutput = rawOutput,
+                    parsedEvaluation = new
+                    {
+                        isComplete = evaluation.IsComplete,
+                        completionPercentage = evaluation.CompletionPercentage,
+                        summary = evaluation.Summary,
+                        nextSteps = evaluation.NextSteps
+                    }
+                }
+            };
+
+            var jsonOptions = new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            };
+
+            var json = JsonSerializer.Serialize(record, jsonOptions);
+            await File.WriteAllTextAsync(filepath, json, Encoding.UTF8, ct);
+
+            _logger.LogDebug(
+                "[MilestoneLoop] Saved milestone evaluation record to {FilePath}",
+                filepath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[MilestoneLoop] Failed to save milestone evaluation record to file.");
+            throw; // Re-throw to be caught by caller
+        }
     }
 
     // ============================================================

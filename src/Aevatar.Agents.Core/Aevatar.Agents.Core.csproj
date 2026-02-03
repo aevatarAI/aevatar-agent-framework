@@ -17,6 +17,7 @@
       <PackageReference Include="Microsoft.Extensions.Configuration" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
       <PackageReference Include="Elastic.Clients.Elasticsearch" />
+      <PackageReference Include="MongoDB.Driver" />
       <PackageReference Include="Newtonsoft.Json" />
       <!-- OpenTelemetry Integration (P3-6) -->
       <PackageReference Include="OpenTelemetry" />

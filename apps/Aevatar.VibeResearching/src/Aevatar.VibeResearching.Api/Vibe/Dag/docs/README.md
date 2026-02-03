@@ -15,6 +15,7 @@
 Dag/
   DagStore.cs                       # KnowledgeGraph SSoT + artifacts/dag/snapshot.json mirror + staged + consensus artifacts
   DagExplain.cs                     # explain(node): topo order / dependencies / cycle check（UI 调试用）
+  PlanDagMutationBuilder.cs         # 统一构建 plan milestone 的 DAG mutation（plan_edit / plan_apply 复用）
 
   DagConsensusRunner.cs             # 共识/验证：maker（Cognitive DSL）或 verifier-quorum
   DagConsensusRunner.Quorum.cs      # verifier-quorum（N verifiers 投票 + red-flag）

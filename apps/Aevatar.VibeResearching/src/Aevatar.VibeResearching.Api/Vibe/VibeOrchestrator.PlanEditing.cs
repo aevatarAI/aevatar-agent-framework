@@ -2,8 +2,8 @@ using System.Text;
 using System.Text.Json;
 using Aevatar.Agents.AGUI;
 using Aevatar.Agents.AI;
-using Google.Protobuf.WellKnownTypes;
 using VibeResearching.Api.Sessions;
+using VibeResearching.Api.Vibe.Dag;
 using VibeResearching.Contracts.Collab;
 
 namespace VibeResearching.Api.Vibe;
@@ -40,21 +40,7 @@ internal sealed partial class VibeOrchestrator
             // Load current plan context from DAG (milestones + current round plan).
             var cur = await _core.Dag.LoadSnapshotAsync(dagId, ct);
 
-            static bool IsDeleted(SraDagNode n)
-            {
-                if (n.Tags == null) return false;
-                if (!n.Tags.TryGetValue("deleted", out var v)) return false;
-                return string.Equals((v ?? string.Empty).Trim(), "true", StringComparison.OrdinalIgnoreCase);
-            }
-
-            bool IsMilestone(SraDagNode n) =>
-                !IsDeleted(n) &&
-                n.Tags != null &&
-                n.Tags.TryGetValue("planKind", out var v) &&
-                string.Equals((v ?? string.Empty).Trim(), "milestone", StringComparison.OrdinalIgnoreCase);
-
-            var existingMilestones = cur.Nodes
-                .Where(n => n != null && n.Kind == SraDagNodeKind.Plan && IsMilestone(n))
+            var existingMilestones = PlanDagMutationBuilder.LoadExistingMilestones(cur)
                 .OrderBy(n =>
                 {
                     n!.Tags.TryGetValue("milestoneRoundIndex", out var s);
@@ -114,95 +100,30 @@ internal sealed partial class VibeOrchestrator
             }
 
             var items = parsed?.Milestones?
-                .Select(m => new
+                .Select(m =>
                 {
-                    round = Math.Clamp(m?.RoundIndex ?? 0, 0, 200),
-                    expected = (m?.ExpectedOutput ?? string.Empty).Replace("\r", "").Trim()
+                    var round = Math.Clamp(m?.RoundIndex ?? 0, 0, 200);
+                    var expected = (m?.ExpectedOutput ?? string.Empty).Replace("\r", "").Trim();
+                    return new PlanDagMutationBuilder.PlanMilestoneItem(round, expected);
                 })
-                .Where(x => x.expected.Length > 0)
+                .Where(x => x.ExpectedOutput.Length > 0)
                 .Take(12)
                 .ToList() ?? [];
 
             if (items.Count == 0)
                 return (null, "no milestones returned");
 
-            // Upsert milestones into DAG using stable ids; mark removed ones as deleted.
-            var now = Timestamp.FromDateTime(DateTime.UtcNow);
-            var mutationId = $"plan_edit_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
-
-            var m = new SraDagMutation
-            {
-                SessionId = session.Id,
-                MutationId = mutationId,
-                AuthorAgent = "research_assistant",
-                CreatedAt = now
-            };
-            m.Labels["kind"] = "plan";
-            m.Labels["planKind"] = "milestone";
-            m.Labels["source"] = "user_chat";
-
-            var desiredIds = new HashSet<string>(StringComparer.Ordinal);
-            var nodeIds = new List<string>(capacity: items.Count); // Collect node IDs for edge creation
-            var i = 0;
-            foreach (var it in items)
-            {
-                i++;
-                var suffix = it.round > 0 ? $"r{it.round}" : $"i{i}";
-                var nodeId = SanitizeId($"plan_{session.Id}_ms_{suffix}");
-                if (nodeId.Length == 0) nodeId = $"plan_{Guid.NewGuid():N}";
-                desiredIds.Add(nodeId);
-                nodeIds.Add(nodeId);
-
-                var label = it.round > 0
-                    ? $"Milestone (Round {it.round}): {Bound(it.expected, 160)}"
-                    : $"Milestone: {Bound(it.expected, 180)}";
-
-                var proof = $"UserEdit:\n{Bound(instruction, 900)}\n\nExpectedOutput:\n{Bound(it.expected, 900)}";
-
-                var node = new SraDagNode
-                {
-                    Id = nodeId,
-                    Type = SraDagNodeType.Assumption,
-                    Label = Bound(label, 200),
-                    Proof = Bound(proof, 1200),
-                    UpdatedAt = now,
-                    Kind = SraDagNodeKind.Plan
-                };
-                node.Tags["originSessionId"] = session.Id;
-                node.Tags["author"] = "research_assistant";
-                node.Tags["planKind"] = "milestone";
-                node.Tags["milestoneRoundIndex"] = it.round.ToString();
-                node.Tags["deleted"] = "false";
-                m.UpsertNodes.Add(node);
-            }
-
-            // Create edges to connect milestones in sequential order.
-            // DAG semantics: fromId (dependency) -> toId (dependent)
-            // i.e., Round 1 is dependency of Round 2, Round 2 is dependency of Round 3, etc.
-            for (var j = 0; j < nodeIds.Count - 1; j++)
-            {
-                var fromId = nodeIds[j];     // Earlier milestone (dependency)
-                var toId = nodeIds[j + 1];   // Later milestone (dependent)
-
-                m.UpsertEdges.Add(new SraDagEdge
-                {
-                    FromId = fromId,
-                    ToId = toId,
-                    Type = "depends_on",
-                    UpdatedAt = now
-                });
-            }
-
-            // Mark removed milestone nodes (for this session) as deleted=true so they stop showing up.
-            foreach (var old in existingMilestones)
-            {
-                var id = (old?.Id ?? string.Empty).Trim();
-                if (id.Length == 0) continue;
-                if (desiredIds.Contains(id)) continue;
-                old!.Tags["deleted"] = "true";
-                old.UpdatedAt = now;
-                m.UpsertNodes.Add(old);
-            }
+            var m = PlanDagMutationBuilder.BuildMilestoneMutation(
+                sessionId: session.Id,
+                author: "research_assistant",
+                source: "user_chat",
+                items: items,
+                currentDag: cur,
+                proofHeader: "UserEdit",
+                proofSource: instruction,
+                mutationIdPrefix: "plan_edit",
+                existingMilestones: existingMilestones,
+                markRemoved: true);
 
             var applied = await _core.Dag.ApplyMutationAsync(dagId, m, ct);
 
@@ -211,7 +132,7 @@ internal sealed partial class VibeOrchestrator
             {
                 Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 Name = "aevatar.vibe.dag_updated",
-                Value = new { sessionId = session.Id, dagId, mutationId }
+                Value = new { sessionId = session.Id, dagId, mutationId = m.MutationId ?? string.Empty }
             });
 
             var note = (parsed?.Note ?? string.Empty).Replace("\r", "").Trim();

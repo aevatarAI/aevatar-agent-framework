@@ -2,11 +2,9 @@ using System.Text.Json;
 using Aevatar.Agents.Cognitive.Execution;
 using Aevatar.Agents.Cognitive.Primitives;
 using Aevatar.Agents.AGUI;
-using Google.Protobuf.WellKnownTypes;
 using VibeResearching.Api.Sessions;
 using VibeResearching.Api.Vibe;
 using VibeResearching.Api.Vibe.Dag;
-using VibeResearching.Contracts.Collab;
 
 namespace VibeResearching.Api.Vibe.Steps;
 
@@ -76,14 +74,16 @@ internal sealed class VibePlanApplyStepModule : VibeStepModuleBase
         {
             var currentDag = await _dag.LoadSnapshotAsync(dagId, ct);
             var proofSource = string.IsNullOrWhiteSpace(planText) ? rawPlan : planText;
-            var mutation = BuildPlanMutation(
-                session.Id,
-                dagId,
-                author,
-                source,
-                proofSource,
-                items,
-                currentDag);
+            var mutation = PlanDagMutationBuilder.BuildMilestoneMutation(
+                sessionId: session.Id,
+                author: author,
+                source: source,
+                items: items,
+                currentDag: currentDag,
+                proofHeader: "PlannerOutput",
+                proofSource: proofSource,
+                mutationIdPrefix: "plan",
+                markRemoved: true);
 
             if (mutation.UpsertNodes.Count == 0 && mutation.UpsertEdges.Count == 0)
             {
@@ -145,7 +145,7 @@ internal sealed class VibePlanApplyStepModule : VibeStepModuleBase
     private static bool TryParsePlan(
         object? value,
         int maxMilestones,
-        out List<PlanItem> items,
+        out List<PlanDagMutationBuilder.PlanMilestoneItem> items,
         out string? note,
         out string rawPlan)
     {
@@ -200,127 +200,11 @@ internal sealed class VibePlanApplyStepModule : VibeStepModuleBase
             var expected = (m?.ExpectedOutput ?? string.Empty).Replace("\r", "").Trim();
             if (expected.Length == 0) continue;
             var round = Math.Clamp(m?.RoundIndex ?? 0, 0, 200);
-            items.Add(new PlanItem(round, expected));
+            items.Add(new PlanDagMutationBuilder.PlanMilestoneItem(round, expected));
             if (items.Count >= maxMilestones) break;
         }
 
         return true;
-    }
-
-    private static SraDagMutation BuildPlanMutation(
-        string sessionId,
-        string dagId,
-        string author,
-        string source,
-        string rawPlan,
-        List<PlanItem> items,
-        SraDagSnapshot currentDag)
-    {
-        var now = Timestamp.FromDateTime(DateTime.UtcNow);
-        var mutationId = $"plan_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
-
-        var mutation = new SraDagMutation
-        {
-            SessionId = sessionId,
-            MutationId = mutationId,
-            AuthorAgent = string.IsNullOrWhiteSpace(author) ? "planner" : author.Trim(),
-            CreatedAt = now
-        };
-        mutation.Labels["kind"] = "plan";
-        mutation.Labels["planKind"] = "milestone";
-        mutation.Labels["source"] = string.IsNullOrWhiteSpace(source) ? "planner" : source.Trim();
-
-        var existingMilestones = LoadExistingMilestones(currentDag);
-        var desiredIds = new HashSet<string>(StringComparer.Ordinal);
-        var nodeIds = new List<string>(capacity: items.Count);
-
-        var index = 0;
-        foreach (var it in items)
-        {
-            index++;
-            var suffix = it.RoundIndex > 0 ? $"r{it.RoundIndex}" : $"i{index}";
-            var nodeId = SanitizeId($"plan_{sessionId}_ms_{suffix}");
-            if (nodeId.Length == 0) nodeId = $"plan_{Guid.NewGuid():N}";
-
-            desiredIds.Add(nodeId);
-            nodeIds.Add(nodeId);
-
-            var label = it.RoundIndex > 0
-                ? $"Milestone (Round {it.RoundIndex}): {Bound(it.ExpectedOutput, 160)}"
-                : $"Milestone: {Bound(it.ExpectedOutput, 180)}";
-
-            var proof = new[]
-            {
-                "PlannerOutput:",
-                Bound(rawPlan, 900),
-                string.Empty,
-                "ExpectedOutput:",
-                Bound(it.ExpectedOutput, 900)
-            };
-
-            var node = new SraDagNode
-            {
-                Id = nodeId,
-                Type = SraDagNodeType.Assumption,
-                Label = Bound(label, 200),
-                Proof = Bound(string.Join("\n", proof).Trim(), 1200),
-                UpdatedAt = now,
-                Kind = SraDagNodeKind.Plan
-            };
-            node.Tags["originSessionId"] = sessionId;
-            node.Tags["author"] = mutation.AuthorAgent ?? "planner";
-            node.Tags["planKind"] = "milestone";
-            node.Tags["milestoneRoundIndex"] = it.RoundIndex.ToString();
-            node.Tags["deleted"] = "false";
-
-            mutation.UpsertNodes.Add(node);
-        }
-
-        // 顺序边：前一个里程碑是后一个的依赖
-        for (var i = 0; i < nodeIds.Count - 1; i++)
-        {
-            mutation.UpsertEdges.Add(new SraDagEdge
-            {
-                FromId = nodeIds[i],
-                ToId = nodeIds[i + 1],
-                Type = "depends_on",
-                UpdatedAt = now
-            });
-        }
-
-        // 标记已移除的里程碑为 deleted=true
-        foreach (var old in existingMilestones)
-        {
-            if (old == null) continue;
-            var id = (old.Id ?? string.Empty).Trim();
-            if (id.Length == 0) continue;
-            if (desiredIds.Contains(id)) continue;
-            old.Tags["deleted"] = "true";
-            old.UpdatedAt = now;
-            mutation.UpsertNodes.Add(old);
-        }
-
-        return mutation;
-    }
-
-    private static List<SraDagNode> LoadExistingMilestones(SraDagSnapshot dag)
-    {
-        bool IsDeleted(SraDagNode n)
-        {
-            if (n.Tags == null) return false;
-            if (!n.Tags.TryGetValue("deleted", out var v)) return false;
-            return string.Equals((v ?? string.Empty).Trim(), "true", StringComparison.OrdinalIgnoreCase);
-        }
-
-        bool IsMilestone(SraDagNode n) =>
-            !IsDeleted(n) &&
-            n.Tags != null &&
-            n.Tags.TryGetValue("planKind", out var v) &&
-            string.Equals((v ?? string.Empty).Trim(), "milestone", StringComparison.OrdinalIgnoreCase);
-
-        return dag.Nodes
-            .Where(n => n != null && n.Kind == SraDagNodeKind.Plan && IsMilestone(n))
-            .ToList();
     }
 
     private static int ResolveIntParameter(Dictionary<string, object?> parameters, string key, int fallback)
@@ -340,26 +224,6 @@ internal sealed class VibePlanApplyStepModule : VibeStepModuleBase
             _ => fallback
         };
     }
-
-    private static string Bound(string s, int max)
-    {
-        var t = (s ?? string.Empty).Replace("\r", "").Trim();
-        if (t.Length <= max) return t;
-        return t[..max];
-    }
-
-    private static string SanitizeId(string s)
-    {
-        var t = (s ?? string.Empty).Trim();
-        if (t.Length == 0) return string.Empty;
-        var sb = new System.Text.StringBuilder(t.Length);
-        foreach (var ch in t)
-            sb.Append(char.IsLetterOrDigit(ch) ? char.ToLowerInvariant(ch) : '_');
-        var outId = sb.ToString().Trim('_');
-        return outId.Length <= 64 ? outId : outId[..64];
-    }
-
-    private sealed record PlanItem(int RoundIndex, string ExpectedOutput);
 
     private sealed class PlanJson
     {

@@ -114,7 +114,7 @@ export const AvatarUploadModal: React.FC<AvatarUploadModalProps> = ({
 interface AvatarCropModalProps {
   open: boolean
   onClose: () => void
-  onSave: (croppedImage: Blob) => void
+  onSave: (croppedImage: Blob) => void | Promise<void>
   imageUrl: string
 }
 
@@ -142,12 +142,11 @@ export const AvatarCropModal: React.FC<AvatarCropModalProps> = ({
   const handleSave = async () => {
     setIsLoading(true)
     try {
-      // In real implementation, would crop the image and return blob
-      await new Promise(resolve => setTimeout(resolve, 500))
-      // Mock: create a blob from the image
+      // Convert image URL to blob
       const response = await fetch(imageUrl)
       const blob = await response.blob()
-      onSave(blob)
+      // Call onSave (may be async for API upload)
+      await onSave(blob)
     } finally {
       setIsLoading(false)
     }

@@ -1242,7 +1242,7 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
 
         // Find knowledge node IDs that have a MOTIVATED_BY edge
         var nodesWithMotivatedBy = edges
-            .Where(e => e.RelationshipType == RelationshipType.MotivatedBy)
+            .Where(e => e.Type == EdgeType.KnowledgeMotivatedByPlan)
             .Select(e => e.FromId)
             .ToHashSet(StringComparer.Ordinal);
 
@@ -1301,7 +1301,7 @@ internal sealed class KnowledgeGraphClient : IKnowledgeGraphClient
 
         var edges = await _store.GetAllEdgesAsync(SessionId, cancellationToken);
         return edges
-            .Where(e => e.ToId == planNodeId && e.RelationshipType == RelationshipType.MotivatedBy)
+            .Where(e => e.ToId == planNodeId && e.Type == EdgeType.KnowledgeMotivatedByPlan)
             .Select(e => e.FromId)
             .Distinct()
             .ToList();

@@ -87,6 +87,14 @@ public sealed class VibeDagBuilderAgent : VibeAgentBase
             - CRITICAL: Use the EXACT plan node ID from the "Plan:" section in the context (e.g., "plan_abc_123_ms_r1").
               Do NOT construct the ID yourself - copy it exactly as shown in the plan context.
             - Look at the current round context to determine which milestone/plan node is being executed.
+            
+            CRITICAL - Page range tracking:
+            - If the milestone goal or plan context mentions specific page ranges (e.g., "pages 41-63", "第41-63页", "sections 10-12"),
+              you MUST extract and add this information to the node's tags as "pageRange" or "sourcePages".
+            - Format: Use the exact page range mentioned in the milestone goal (e.g., "41-63", "pages 1-20", "第21-40页").
+            - If the knowledge item is extracted from a specific section, also add "section" tag (e.g., "section": "10-12").
+            - This helps track which pages/sections have been covered and improves milestone completion evaluation.
+            - Example tags: { "pageRange": "41-63", "section": "10-12", "sourcePages": "pages 41-63" }
 
             Schema (updated):
             {

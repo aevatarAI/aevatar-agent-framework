@@ -69,7 +69,7 @@ internal sealed partial class VibeOrchestrator
         // Fallback to DAG snapshot if not provided
         var effectiveActiveMilestoneId = activeMilestoneId ?? GetActiveMilestoneId(dag);
 
-        AddDagNodes(parsed, now, mutation, motivatedByEdges, existingMilestones, effectiveActiveMilestoneId);
+        AddDagNodes(parsed, now, mutation, motivatedByEdges, existingMilestones, effectiveActiveMilestoneId, dag);
         AddDagEdges(parsed, now, mutation);
         AddMotivatedByEdges(mutation, now, motivatedByEdges);
 
@@ -196,7 +196,8 @@ internal sealed partial class VibeOrchestrator
         SraDagMutation mutation,
         List<(string knowledgeNodeId, string planNodeId)> motivatedByEdges,
         HashSet<string> existingMilestones,
-        string? activeMilestoneId)
+        string? activeMilestoneId,
+        SraDagSnapshot? dag = null)
     {
         var nodes = parsed.Nodes?.OfType<DagNodeJson>();
         if (nodes is null) return;
@@ -285,6 +286,9 @@ internal sealed partial class VibeOrchestrator
             {
                 motivatedByEdges.Add((nid, motivatedBy));
                 node.Tags["motivatedByPlanNodeId"] = motivatedBy;
+                
+                // Extract page range from milestone goal and add to node tags
+                ExtractAndAddPageRangeFromMilestone(node, motivatedBy, dag);
             }
             else if (kind == SraDagNodeKind.Knowledge && existingMilestones.Count > 0)
             {
@@ -294,6 +298,9 @@ internal sealed partial class VibeOrchestrator
                 motivatedByEdges.Add((nid, anyMilestone));
                 node.Tags["motivatedByPlanNodeId"] = anyMilestone;
                 node.Tags["motivatedByPlanNodeId_auto"] = "fallback_any";
+                
+                // Extract page range from milestone goal and add to node tags
+                ExtractAndAddPageRangeFromMilestone(node, anyMilestone, dag);
             }
             else if (kind == SraDagNodeKind.Knowledge)
             {
@@ -655,6 +662,107 @@ internal sealed partial class VibeOrchestrator
 
         var outSlug = sb.ToString().Trim('-').Trim();
         return outSlug.Length == 0 ? "note" : outSlug;
+    }
+
+    /// <summary>
+    /// Extracts page range from milestone goal and adds it to knowledge node tags.
+    /// This helps track which pages/sections have been covered for better milestone evaluation.
+    /// </summary>
+    private static void ExtractAndAddPageRangeFromMilestone(
+        SraDagNode node,
+        string milestoneId,
+        SraDagSnapshot? dag)
+    {
+        if (dag?.Nodes == null || string.IsNullOrWhiteSpace(milestoneId))
+            return;
+
+        // Find the milestone node in DAG
+        var milestoneNode = dag.Nodes.FirstOrDefault(n =>
+            n != null &&
+            n.Kind == SraDagNodeKind.Plan &&
+            string.Equals(n.Id, milestoneId, StringComparison.OrdinalIgnoreCase));
+
+        if (milestoneNode == null)
+            return;
+
+        // Extract goal from milestone node (stored in Proof field as "ExpectedOutput:")
+        var milestoneGoal = milestoneNode.Proof ?? milestoneNode.Label ?? string.Empty;
+        
+        // Extract page range from milestone goal
+        var pageRange = ExtractPageRange(milestoneGoal);
+        if (!string.IsNullOrWhiteSpace(pageRange))
+        {
+            // Only add if not already present (LLM may have added it)
+            if (!node.Tags.ContainsKey("pageRange"))
+            {
+                node.Tags["pageRange"] = BoundTrimmed(pageRange, 200);
+            }
+            if (!node.Tags.ContainsKey("sourcePages"))
+            {
+                node.Tags["sourcePages"] = BoundTrimmed($"pages {pageRange}", 200);
+            }
+        }
+
+        // Extract section range if mentioned
+        var sectionRange = ExtractSectionRange(milestoneGoal);
+        if (!string.IsNullOrWhiteSpace(sectionRange) && !node.Tags.ContainsKey("section"))
+        {
+            node.Tags["section"] = BoundTrimmed(sectionRange, 200);
+        }
+    }
+
+    /// <summary>
+    /// Extracts page range from text (e.g., "pages 41-63", "第41-63页", "41-63页").
+    /// Returns the range as "41-63" or null if not found.
+    /// </summary>
+    private static string? ExtractPageRange(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
+
+        // Pattern 1: "pages 41-63" or "page 41-63"
+        var match1 = System.Text.RegularExpressions.Regex.Match(
+            text,
+            @"(?:pages?|第)\s*(\d+)\s*[-~至]\s*(\d+)\s*页?",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        if (match1.Success && match1.Groups.Count >= 3)
+        {
+            return $"{match1.Groups[1].Value}-{match1.Groups[2].Value}";
+        }
+
+        // Pattern 2: "41-63" (standalone range)
+        var match2 = System.Text.RegularExpressions.Regex.Match(
+            text,
+            @"(\d+)\s*[-~至]\s*(\d+)\s*页",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        if (match2.Success && match2.Groups.Count >= 3)
+        {
+            return $"{match2.Groups[1].Value}-{match2.Groups[2].Value}";
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Extracts section range from text (e.g., "sections 10-12", "第10-12节").
+    /// Returns the range as "10-12" or null if not found.
+    /// </summary>
+    private static string? ExtractSectionRange(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
+
+        // Pattern: "sections 10-12" or "第10-12节"
+        var match = System.Text.RegularExpressions.Regex.Match(
+            text,
+            @"(?:sections?|第)\s*(\d+)\s*[-~至]\s*(\d+)\s*节?",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        if (match.Success && match.Groups.Count >= 3)
+        {
+            return $"{match.Groups[1].Value}-{match.Groups[2].Value}";
+        }
+
+        return null;
     }
 
 

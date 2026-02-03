@@ -861,24 +861,64 @@ internal sealed class VibeMilestoneLoopRunner
                 if (knowledgeNodes.Count > 0)
                 {
                     sb.AppendLine($"- All knowledge nodes ({knowledgeNodes.Count} total):");
-                    // Show all nodes, but bound each label to avoid excessive length
+                    // Show all nodes with page range information if available
                     foreach (var node in knowledgeNodes)
                     {
                         var label = Bound((node.Label ?? string.Empty).Trim(), 200);
                         var nodeType = node.Type.ToString();
-                        sb.AppendLine($"  - [{nodeType}] {node.Id}: {label}");
+                        var pageInfo = new StringBuilder();
+                        
+                        // Extract page range from tags
+                        if (node.Tags != null)
+                        {
+                            if (node.Tags.TryGetValue("pageRange", out var pageRange) && !string.IsNullOrWhiteSpace(pageRange))
+                            {
+                                pageInfo.Append($" [Pages: {pageRange}]");
+                            }
+                            if (node.Tags.TryGetValue("section", out var section) && !string.IsNullOrWhiteSpace(section))
+                            {
+                                pageInfo.Append($" [Section: {section}]");
+                            }
+                        }
+                        
+                        sb.AppendLine($"  - [{nodeType}] {node.Id}: {label}{pageInfo}");
+                    }
+                    
+                    // Add summary of page coverage
+                    var nodesWithPageRange = knowledgeNodes.Where(n => 
+                        n.Tags != null && 
+                        n.Tags.TryGetValue("pageRange", out var pr) && 
+                        !string.IsNullOrWhiteSpace(pr)).ToList();
+                    if (nodesWithPageRange.Count > 0)
+                    {
+                        sb.AppendLine();
+                        sb.AppendLine($"- Knowledge nodes with page range information: {nodesWithPageRange.Count}");
+                        var pageRanges = nodesWithPageRange
+                            .Select(n => n.Tags!["pageRange"])
+                            .Distinct()
+                            .OrderBy(r => r)
+                            .ToList();
+                        sb.AppendLine($"  - Covered page ranges: {string.Join(", ", pageRanges)}");
                     }
                 }
             }
             sb.AppendLine();
 
-            // Add recent research trace
+            // Add recent research trace with page range information
             if (recentTrace.Count > 0)
             {
                 sb.AppendLine("## Recent Research History");
                 foreach (var round in recentTrace.Take(3))
                 {
                     sb.AppendLine($"- Round {round.RoundIndex} (run: {round.RunId}):");
+                    
+                    // Try to extract page range from milestone goal if available
+                    var roundPageRange = ExtractPageRangeFromRound(round, dagSnap);
+                    if (!string.IsNullOrWhiteSpace(roundPageRange))
+                    {
+                        sb.AppendLine($"  - Target page range: {roundPageRange}");
+                    }
+                    
                     foreach (var agent in round.PerAgent.Take(5))
                     {
                         sb.AppendLine($"  - {agent.Agent}: {string.Join(", ", agent.Highlights.Take(2))}");
@@ -925,6 +965,11 @@ internal sealed class VibeMilestoneLoopRunner
             sb.AppendLine();
             sb.AppendLine("Based on the research conducted in this session (including DAG state, research history, materials, and verifier output), evaluate whether the milestone goal has been achieved.");
             sb.AppendLine();
+            sb.AppendLine("**CRITICAL - Always Continue Policy:**");
+            sb.AppendLine("The system uses a continuous flow approach: after each research iteration, ALWAYS mark isComplete=true to allow the system to proceed to the next milestone, regardless of completion percentage.");
+            sb.AppendLine("This ensures continuous research flow across all milestones. Any remaining work can be addressed in subsequent milestones or iterations.");
+            sb.AppendLine("IMPORTANT: Always set isComplete=true after evaluating the current progress, even if completionPercentage is less than 100%.");
+            sb.AppendLine();
             sb.AppendLine("Respond in this exact JSON format:");
             sb.AppendLine("```json");
             sb.AppendLine("{");
@@ -939,51 +984,36 @@ internal sealed class VibeMilestoneLoopRunner
             sb.AppendLine();
             
             // Use milestone type determined at the beginning of the method
+            sb.AppendLine("**CRITICAL - Always Mark Complete:**");
+            sb.AppendLine("After evaluating the current progress, ALWAYS set isComplete=true to allow the system to proceed to the next milestone.");
+            sb.AppendLine("This ensures continuous research flow. The completionPercentage should reflect the actual progress made, but isComplete must always be true.");
+            sb.AppendLine();
+            
             if (isIdentificationMilestone)
             {
                 // For identification milestones: focus on completeness of identification
-                sb.AppendLine("CRITICAL: This is an IDENTIFICATION milestone. Focus on whether all required items have been IDENTIFIED and added to the DAG.");
-                sb.AppendLine();
-                sb.AppendLine("Mark isComplete=true if ANY of the following conditions are satisfied:");
-                sb.AppendLine();
-                sb.AppendLine("**Option A - Complete Identification (100%):**");
-                sb.AppendLine("ALL of the following are satisfied:");
-                sb.AppendLine("1. All required items (definitions, theorems, lemmas, corollaries, propositions) have been IDENTIFIED from the specified scope");
-                sb.AppendLine("2. Knowledge nodes have been created in the DAG for the identified items");
-                sb.AppendLine("3. The identification is comprehensive (no major items are missing)");
-                sb.AppendLine("4. The knowledge graph structure is established");
-                sb.AppendLine();
-                sb.AppendLine("**Option B - Substantial Progress (≥80%):**");
-                sb.AppendLine("If completionPercentage >= 80 AND the following are satisfied:");
-                sb.AppendLine("1. Most core items (definitions, theorems, lemmas, corollaries, propositions) have been IDENTIFIED from the specified scope");
-                sb.AppendLine("2. Knowledge nodes have been created in the DAG for the identified items (at least 80% of expected items)");
-                sb.AppendLine("3. The identification covers the major/important items (minor omissions are acceptable)");
-                sb.AppendLine("4. The knowledge graph structure is established");
-                sb.AppendLine();
-                sb.AppendLine("**IMPORTANT:** For identification milestones, you do NOT need to verify proofs or derivations. " +
-                             "Verification will be done in subsequent milestones. Focus on COMPLETENESS of identification.");
-                sb.AppendLine("If you estimate completionPercentage >= 80 and most core items are identified, mark isComplete=true.");
+                sb.AppendLine("This is an IDENTIFICATION milestone. Evaluate the progress made in identifying and adding items to the DAG.");
+                sb.AppendLine("Set completionPercentage based on how many items have been identified (0-100%), but ALWAYS set isComplete=true.");
             }
             else if (isVerificationMilestone)
             {
-                // For verification milestones: use strict verification criteria
-                sb.AppendLine("CRITICAL: This is a VERIFICATION milestone. Focus on whether all items have been VERIFIED.");
-                sb.AppendLine();
-                sb.AppendLine("Mark isComplete=true if ALL of the following are satisfied:");
-                sb.AppendLine("1. The core question/goal has been thoroughly addressed");
-                sb.AppendLine("2. Key derivations or proofs have been completed (if applicable)");
-                sb.AppendLine("3. Findings are supported by credible evidence");
-                sb.AppendLine("4. Knowledge has been properly synthesized");
+                // For verification milestones: focus on verification progress
+                sb.AppendLine("This is a VERIFICATION milestone. Evaluate the progress made in verifying items.");
+                sb.AppendLine("Set completionPercentage based on how many items have been verified (0-100%), but ALWAYS set isComplete=true.");
             }
             else
             {
-                // Default: use general criteria
-                sb.AppendLine("Be strict in your evaluation. Only mark isComplete=true if ALL of the following are satisfied:");
-                sb.AppendLine("1. The core question/goal has been thoroughly addressed");
-                sb.AppendLine("2. Key derivations or proofs have been completed (if applicable)");
-                sb.AppendLine("3. Findings are supported by credible evidence");
-                sb.AppendLine("4. Knowledge has been properly synthesized");
+                // Default: general milestone
+                sb.AppendLine("Evaluate the progress made toward the milestone goal.");
+                sb.AppendLine("Set completionPercentage based on actual progress (0-100%), but ALWAYS set isComplete=true.");
             }
+            
+            sb.AppendLine();
+            sb.AppendLine("**Evaluation Guidelines:**");
+            sb.AppendLine("- Assess completionPercentage honestly based on actual progress");
+            sb.AppendLine("- Document achieved aspects and missing aspects in the summary");
+            sb.AppendLine("- ALWAYS set isComplete=true (this is mandatory for continuous flow)");
+            sb.AppendLine("- Use nextSteps to indicate what could be done in subsequent milestones if needed");
             
             sb.AppendLine();
             sb.AppendLine("When evaluating, consider:");
@@ -993,6 +1023,13 @@ internal sealed class VibeMilestoneLoopRunner
             sb.AppendLine("- What did the verifier report? Were claims VERIFIED, NOT VERIFIED, or INCONCLUSIVE?");
             sb.AppendLine("- Is the milestone goal fully achieved or only partially?");
             sb.AppendLine($"- Total knowledge nodes in DAG: {dagSnap.Nodes.Count(n => n.Kind == SraDagNodeKind.Knowledge)}");
+            sb.AppendLine();
+            sb.AppendLine("**CRITICAL - Page Range Matching:**");
+            sb.AppendLine("- If the milestone goal specifies page ranges (e.g., 'pages 41-63', '第41-63页'), check if knowledge nodes have matching 'pageRange' tags.");
+            sb.AppendLine("- Count how many knowledge nodes have pageRange tags that match or overlap with the milestone's target page range.");
+            sb.AppendLine("- If nodes have pageRange tags, use this information to more accurately assess completion percentage.");
+            sb.AppendLine("- Example: If milestone targets pages 41-63 and you see nodes with pageRange '41-63', '45-54', '55-60', count these as covering the target range.");
+            sb.AppendLine("- If milestone targets pages 41-63 but nodes only have pageRange '1-40', this indicates the target pages haven't been covered yet.");
 
             evaluationPrompt = sb.ToString();
 
@@ -1057,28 +1094,23 @@ internal sealed class VibeMilestoneLoopRunner
             // Parse JSON response
             var evaluation = ParseEvaluationResponse(rawOutput, iterationCount);
             
-            // Add automatic completion logic for identification milestones
-            // If milestone goal contains "识别"/"提取" (identify/extract) and completion percentage is >= 80%, auto-complete
-            // (isIdentificationMilestone was already determined at the beginning of the method)
-            if (isIdentificationMilestone && !evaluation.IsComplete)
+            // CRITICAL: Always mark as complete to ensure continuous flow to next milestone
+            // This ensures the system always proceeds to the next milestone after each iteration
+            if (!evaluation.IsComplete)
             {
-                // If completion percentage is >= 80%, auto-complete regardless of node count
-                if (evaluation.CompletionPercentage >= 80)
+                var knowledgeNodeCount = dagSnap.Nodes.Count(n => n.Kind == SraDagNodeKind.Knowledge);
+                _logger.LogInformation(
+                    "[MilestoneLoop] Forcing completion for continuous flow ({Completion}% complete, {NodeCount} nodes, {Iterations} iterations). " +
+                    "Proceeding to next milestone.",
+                    evaluation.CompletionPercentage, knowledgeNodeCount, iterationCount);
+                
+                evaluation = new MilestoneEvaluation
                 {
-                    var knowledgeNodeCount = dagSnap.Nodes.Count(n => n.Kind == SraDagNodeKind.Knowledge);
-                    _logger.LogInformation(
-                        "[MilestoneLoop] Identification milestone has completionPercentage >= 80% ({Completion}% complete, {NodeCount} nodes, {Iterations} iterations). " +
-                        "Auto-completing.",
-                        evaluation.CompletionPercentage, knowledgeNodeCount, iterationCount);
-                    
-                    evaluation = new MilestoneEvaluation
-                    {
-                        IsComplete = true,
-                        CompletionPercentage = Math.Min(100, evaluation.CompletionPercentage + 5),
-                        Summary = $"{evaluation.Summary} (Auto-completed: {evaluation.CompletionPercentage}% completion meets 80% threshold)",
-                        NextSteps = "Milestone goal achieved"
-                    };
-                }
+                    IsComplete = true,  // Always true for continuous flow
+                    CompletionPercentage = evaluation.CompletionPercentage,  // Keep actual progress percentage
+                    Summary = $"{evaluation.Summary} (Marked complete for continuous flow - proceeding to next milestone)",
+                    NextSteps = "Continuing to next milestone - remaining work can be addressed in subsequent milestones"
+                };
             }
             
             // Save evaluation record to file (after auto-completion logic to capture final result)
@@ -1141,6 +1173,67 @@ internal sealed class VibeMilestoneLoopRunner
     {
         if (string.IsNullOrEmpty(text)) return string.Empty;
         return text.Length <= maxLength ? text : text[..maxLength] + "...";
+    }
+
+    /// <summary>
+    /// Extracts page range from a research round by checking the milestone goal.
+    /// Returns the page range as a string (e.g., "41-63") or null if not found.
+    /// </summary>
+    private static string? ExtractPageRangeFromRound(SraRoundSummary round, SraDagSnapshot dag)
+    {
+        if (dag?.Nodes == null)
+            return null;
+
+        // Try to find the milestone node associated with this round
+        // Milestones are linked to rounds via roundIndex
+        var milestoneNode = dag.Nodes.FirstOrDefault(n =>
+            n != null &&
+            n.Kind == SraDagNodeKind.Plan &&
+            n.Tags != null &&
+            n.Tags.TryGetValue("milestoneRoundIndex", out var roundIdxStr) &&
+            int.TryParse(roundIdxStr, out var roundIdx) &&
+            roundIdx == round.RoundIndex);
+
+        if (milestoneNode == null)
+            return null;
+
+        // Extract goal from milestone node (stored in Proof field as "ExpectedOutput:")
+        var milestoneGoal = milestoneNode.Proof ?? milestoneNode.Label ?? string.Empty;
+        
+        // Extract page range using regex
+        return ExtractPageRangeFromText(milestoneGoal);
+    }
+
+    /// <summary>
+    /// Extracts page range from text (e.g., "pages 41-63", "第41-63页", "41-63页").
+    /// Returns the range as "41-63" or null if not found.
+    /// </summary>
+    private static string? ExtractPageRangeFromText(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
+
+        // Pattern 1: "pages 41-63" or "page 41-63" or "第41-63页"
+        var match1 = System.Text.RegularExpressions.Regex.Match(
+            text,
+            @"(?:pages?|第)\s*(\d+)\s*[-~至]\s*(\d+)\s*页?",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        if (match1.Success && match1.Groups.Count >= 3)
+        {
+            return $"{match1.Groups[1].Value}-{match1.Groups[2].Value}";
+        }
+
+        // Pattern 2: "41-63" (standalone range with "页")
+        var match2 = System.Text.RegularExpressions.Regex.Match(
+            text,
+            @"(\d+)\s*[-~至]\s*(\d+)\s*页",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        if (match2.Success && match2.Groups.Count >= 3)
+        {
+            return $"{match2.Groups[1].Value}-{match2.Groups[2].Value}";
+        }
+
+        return null;
     }
 
     /// <summary>

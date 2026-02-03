@@ -348,6 +348,36 @@ public sealed class UserSecretsTests
             try { Directory.Delete(dir, recursive: true); } catch { /* ignore */ }
         }
     }
+
+    [Fact]
+    public void AddAevatarUserConfig_WithMongoEnvVar_DoesNotThrow()
+    {
+        var envVar = "AEVATAR_MONGODB_CONNECTION_STRING";
+        var original = Environment.GetEnvironmentVariable(envVar);
+        Environment.SetEnvironmentVariable(envVar, "mongodb://localhost:27017/test_db");
+
+        try
+        {
+            var builder = new ConfigurationBuilder();
+            var act = () => builder.AddAevatarUserConfig();
+            act.Should().NotThrow();
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(envVar, original);
+        }
+    }
+
+    [Fact]
+    public void AddAevatarUserConfig_WithExplicitMongoConfig_DoesNotThrow()
+    {
+        var builder = new ConfigurationBuilder();
+        var act = () => builder.AddAevatarUserConfig(o => 
+        {
+            o.MongoConnectionString = "mongodb://localhost:27017/test_db";
+        });
+        act.Should().NotThrow();
+    }
 }
 
 

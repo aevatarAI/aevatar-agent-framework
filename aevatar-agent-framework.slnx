@@ -97,4 +97,7 @@
     <File Path="test/README.md" />
     <File Path="test\UnitTestDesign.md" />
   </Folder>
+    <Folder Name="/tools/">
+        <Project Path="tools\Aevatar.Tools.Config\Aevatar.Tools.Config.csproj" />
+    </Folder>
 </Solution>

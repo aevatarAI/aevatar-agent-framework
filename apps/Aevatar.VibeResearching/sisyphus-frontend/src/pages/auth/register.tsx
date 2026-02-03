@@ -24,7 +24,6 @@ export default function RegisterPage() {
     userName: "",
     email: "",
     password: "",
-    confirmPassword: "",
   })
   const [isLoading, setIsLoading] = useState(false)
 
@@ -51,12 +50,6 @@ export default function RegisterPage() {
     
     if (trimmedUserName.length > 256) {
       showError("UserName must be 256 characters or less")
-      return
-    }
-
-    // Validate passwords match
-    if (formData.password !== formData.confirmPassword) {
-      showError("Passwords do not match")
       return
     }
 
@@ -153,21 +146,6 @@ export default function RegisterPage() {
           <p className="text-xs text-text-dimmed">
             Min 6 characters with uppercase, lowercase, number & special character
           </p>
-        </div>
-
-        {/* Confirm Password Field */}
-        <div className="space-y-2">
-          <label htmlFor="confirmPassword" className="text-sm font-medium text-text-secondary">
-            Confirm Password
-          </label>
-          <PasswordInput
-            id="confirmPassword"
-            placeholder="Confirm your password"
-            value={formData.confirmPassword}
-            onChange={(e) => updateField("confirmPassword", e.target.value)}
-            required
-            disabled={isLoading}
-          />
         </div>
 
         {/* Submit Button */}

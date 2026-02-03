@@ -31,6 +31,30 @@ secrets 内部是 **IConfiguration 风格的 key/value**（例如 `Foo:Bar`）�
 - `LLMProviders:Providers:openai-gpt4:ApiKey`
 - `ConnectionStrings:MongoDB`
 
+### MongoDB 集成 (分布式配置同步)
+
+如果配置了 MongoDB 连接串，`AddAevatarUserConfig` 会自动启用 **双写 (Dual-Write)** 和 **回退读取 (Fallback-Read)** 模式：
+
+1.  **写入**：通过 `IAevatarUserSecretsStore` 写入配置时，会同时写入本地文件 (`~/.aevatar/secrets.json`) 和 MongoDB (`user_config` 集合)。
+2.  **读取**：优先读取本地文件；如果本地文件不存在或为空，则尝试从 MongoDB 读取。
+
+**启用方式**：
+
+设置环境变量 `AEVATAR_MONGODB_CONNECTION_STRING` 或 `MONGODB_CONNECTION_STRING`。
+
+```bash
+export AEVATAR_MONGODB_CONNECTION_STRING="mongodb://localhost:27017/aevatar_config"
+```
+
+或者在代码中显式配置：
+
+```csharp
+builder.Configuration.AddAevatarUserConfig(options => 
+{
+    options.MongoConnectionString = "mongodb://localhost:27017/aevatar_config";
+});
+```
+
 ### 如何在代码中启用
 
 在 `Program.cs` 里（建议在 `appsettings.secrets.json` 之前）：

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Text.Json;
+using Aevatar.Agents.Core.Config.Mongo;
 using Aevatar.Agents.Core.Secrets;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -170,17 +171,36 @@ public static class ConfigurationBuilderExtensions
     private sealed class AevatarUserConfigConfigurationProvider : ConfigurationProvider, IDisposable
     {
         private readonly AevatarUserSecretsOptions _options;
+        private readonly MongoConfigStore _mongoStore;
         private FileSystemWatcher? _watcher;
 
         public AevatarUserConfigConfigurationProvider(AevatarUserSecretsOptions options)
         {
             _options = options ?? new AevatarUserSecretsOptions();
+            _mongoStore = new MongoConfigStore(_options);
         }
 
         public override void Load()
         {
             var configPath = _options.ResolveConfigPath();
-            if (!File.Exists(configPath))
+            string? json = null;
+
+            if (File.Exists(configPath))
+            {
+                try
+                {
+                    json = File.ReadAllText(configPath);
+                }
+                catch { /* ignore */ }
+            }
+
+            // Fallback to Mongo
+            if (string.IsNullOrWhiteSpace(json) && _mongoStore.IsAvailable)
+            {
+                json = _mongoStore.LoadConfig();
+            }
+
+            if (string.IsNullOrWhiteSpace(json))
             {
                 Data = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
                 return;
@@ -188,7 +208,6 @@ public static class ConfigurationBuilderExtensions
 
             try
             {
-                var json = File.ReadAllText(configPath);
                 var data = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
                 using var doc = JsonDocument.Parse(json);
                 FlattenJson(doc.RootElement, "", data);

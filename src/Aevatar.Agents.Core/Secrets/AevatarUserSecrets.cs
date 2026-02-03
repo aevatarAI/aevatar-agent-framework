@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Core.Config.Mongo;
 
 namespace Aevatar.Agents.Core.Secrets;
 
@@ -81,6 +82,16 @@ public sealed class AevatarUserSecretsOptions
     /// Max time to wait for OS key store commands (avoid hanging app startup).
     /// </summary>
     public TimeSpan OsKeyStoreTimeout { get; set; } = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// MongoDB connection string. If set, configuration will also be read/written to MongoDB.
+    /// </summary>
+    public string? MongoConnectionString { get; set; }
+
+    /// <summary>
+    /// MongoDB database name. Defaults to "aevatar_config".
+    /// </summary>
+    public string MongoDatabaseName { get; set; } = "aevatar_config";
 
     internal string ResolveSecretsPath()
     {
@@ -249,11 +260,13 @@ public sealed class FileAevatarUserSecretsStore : IAevatarUserSecretsStore
     private const string LlmProviderApiKeySuffix = ":ApiKey";
 
     private readonly AevatarUserSecretsOptions _options;
+    private readonly MongoConfigStore _mongoStore;
     private readonly object _gate = new();
 
     public FileAevatarUserSecretsStore(AevatarUserSecretsOptions? options = null)
     {
         _options = options ?? new AevatarUserSecretsOptions();
+        _mongoStore = new MongoConfigStore(_options);
     }
 
     public IReadOnlyDictionary<string, string> GetAll()
@@ -408,15 +421,28 @@ public sealed class FileAevatarUserSecretsStore : IAevatarUserSecretsStore
     private Dictionary<string, string>? TryLoadUnsafe()
     {
         var secretsPath = _options.ResolveSecretsPath();
-        if (!File.Exists(secretsPath))
+        string? text = null;
+
+        if (File.Exists(secretsPath))
+        {
+            try
+            {
+                text = File.ReadAllText(secretsPath, Encoding.UTF8);
+            }
+            catch { /* ignore */ }
+        }
+
+        // Fallback to Mongo if file is missing or empty
+        if (string.IsNullOrWhiteSpace(text) && _mongoStore.IsAvailable)
+        {
+            text = _mongoStore.LoadSecrets();
+        }
+
+        if (string.IsNullOrWhiteSpace(text))
             return null;
 
         try
         {
-            var text = File.ReadAllText(secretsPath, Encoding.UTF8);
-            if (string.IsNullOrWhiteSpace(text))
-                return null;
-
             var envelope = JsonSerializer.Deserialize<EncryptedEnvelope>(text, JsonOptions);
             if (envelope == null || envelope.SchemaVersion != 1)
                 return null;
@@ -467,6 +493,12 @@ public sealed class FileAevatarUserSecretsStore : IAevatarUserSecretsStore
         }
 
         TryHardenFile(secretsPath);
+
+        // Also save to Mongo if available
+        if (_mongoStore.IsAvailable)
+        {
+            _mongoStore.SaveSecrets(json);
+        }
     }
 
     // ============================================================

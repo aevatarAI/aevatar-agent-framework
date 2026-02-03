@@ -97,7 +97,28 @@ app.Lifetime.ApplicationStarted.Register(() =>
 });
 #endif
 
-app.MapGet("/health", () => Results.Text("ok"));
+app.MapGet("/api/health", () => Results.Text("ok"));
+
+app.MapGet("/api/config/source", (AevatarUserSecretsOptions options, HttpContext http) =>
+{
+    if (!IsLocal(http)) return Results.Forbid();
+
+    var mongoConn = options.MongoConnectionString;
+    if (string.IsNullOrWhiteSpace(mongoConn))
+        mongoConn = Environment.GetEnvironmentVariable("AEVATAR_MONGODB_CONNECTION_STRING");
+    if (string.IsNullOrWhiteSpace(mongoConn))
+        mongoConn = Environment.GetEnvironmentVariable("MONGODB_CONNECTION_STRING");
+
+    var mongoConfigured = !string.IsNullOrWhiteSpace(mongoConn);
+
+    return Results.Json(new
+    {
+        ok = true,
+        mongoConfigured,
+        fileConfigured = true,
+        mongoConnectionString = mongoConfigured ? SecretMask.MaskMiddle(mongoConn!) : null
+    });
+});
 
 // ------------------------------------------------------------
 // Local signer identity (secp256k1, Ethereum-compatible curve)

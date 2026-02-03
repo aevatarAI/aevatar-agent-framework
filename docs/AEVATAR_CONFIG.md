@@ -59,7 +59,15 @@ builder.Configuration
 
 ## secrets.json (敏感配置)
 
-**用途**: 存储 API Keys 等敏感信息，加密存储在磁盘上。
+**用途**: 存储 API Keys 等敏感信息，加密存储在磁盘上。支持 **MongoDB 同步**（可选）。
+
+### MongoDB 同步
+
+如果配置了环境变量 `AEVATAR_MONGODB_CONNECTION_STRING`，配置系统会自动启用双写模式：
+- **写入**: 同时写入本地文件和 MongoDB。
+- **读取**: 优先读本地文件；如果本地文件不存在或为空，则从 MongoDB 读取。
+
+这对于分布式部署（如 Kubernetes）非常有用：只需配置一次 MongoDB 连接串，所有节点即可共享配置。
 
 ### 结构 (appsettings.json 风格)
 

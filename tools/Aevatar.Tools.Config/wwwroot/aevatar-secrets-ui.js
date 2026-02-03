@@ -2455,10 +2455,34 @@ system_prompt: |
     $("skillsMpDeleteBtn").onclick = () => deleteSkillsMp();
   }
 
+  async function checkConfigSource() {
+    try {
+      const res = await fetch("/api/config/source");
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.ok) {
+        const hintEl = document.querySelector(".sidebar-footer .hint");
+        if (hintEl) {
+          let html = '<span class="mono">~/.aevatar/</span>';
+          if (data.mongoConfigured) {
+             html += '<br/><span class="mono" style="color:#4caf50; font-size:0.9em;">+ MongoDB</span>';
+             if (data.mongoConnectionString) {
+                 html += `<div style="font-size:0.8em; opacity:0.7; margin-top:2px;">${data.mongoConnectionString}</div>`;
+             }
+          }
+          hintEl.innerHTML = html;
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
   async function init() {
     wire();
     setView("list");
     await refreshProviders();
+    await checkConfigSource();
   }
 
   // Export a tiny "SDK-like" handle for embedding/debugging.

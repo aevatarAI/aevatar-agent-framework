@@ -3,7 +3,7 @@ import { Pencil, Lock, User, Camera, Save, X } from "lucide-react"
 import { useAuthStore } from "@/store/auth-store"
 import { useNavigate } from "react-router-dom"
 import { AvatarUploadModal, AvatarCropModal } from "../avatar-modals"
-import { updateMyProfile } from "@/lib/abp"
+import { updateMyProfile, uploadProfilePicture, getProfilePictureUrl } from "@/lib/abp"
 
 // ============================================================
 //  Profile Panel - With Edit & Avatar Upload
@@ -27,7 +27,11 @@ export const ProfilePanel: React.FC = () => {
   const [showAvatarUpload, setShowAvatarUpload] = useState(false)
   const [showAvatarCrop, setShowAvatarCrop] = useState(false)
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(
+    user?.id ? getProfilePictureUrl(user.id) : null
+  )
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false)
+  const [avatarError, setAvatarError] = useState<string | null>(null)
   
   // Save state
   const [isSaving, setIsSaving] = useState(false)
@@ -95,11 +99,34 @@ export const ProfilePanel: React.FC = () => {
     setShowAvatarCrop(true)
   }
 
-  const handleAvatarSave = (blob: Blob) => {
-    const url = URL.createObjectURL(blob)
-    setAvatarUrl(url)
-    setShowAvatarCrop(false)
-    setSelectedImage(null)
+  const handleAvatarSave = async (blob: Blob) => {
+    setIsUploadingAvatar(true)
+    setAvatarError(null)
+
+    try {
+      // Convert blob to File for upload
+      const file = new File([blob], 'avatar.png', { type: blob.type || 'image/png' })
+      
+      const result = await uploadProfilePicture(file)
+      
+      if (!result.ok) {
+        setAvatarError(result.error || 'Failed to upload avatar')
+        return
+      }
+
+      // Update avatar URL with cache buster
+      if (user?.id) {
+        setAvatarUrl(`${getProfilePictureUrl(user.id)}?t=${Date.now()}`)
+      }
+      
+      setShowAvatarCrop(false)
+      setSelectedImage(null)
+    } catch (error) {
+      console.error('[Profile] Avatar upload error:', error)
+      setAvatarError(error instanceof Error ? error.message : 'Failed to upload avatar')
+    } finally {
+      setIsUploadingAvatar(false)
+    }
   }
 
   return (
@@ -144,14 +171,21 @@ export const ProfilePanel: React.FC = () => {
             {/* Avatar with Camera Badge */}
             <button
               onClick={() => setShowAvatarUpload(true)}
-              className="relative group cursor-pointer"
+              disabled={isUploadingAvatar}
+              className="relative group cursor-pointer disabled:cursor-not-allowed"
             >
               {/* Avatar Circle */}
-              <div className="w-[72px] h-[72px] rounded-full bg-neon-cyan/20 border-2 border-neon-cyan flex items-center justify-center overflow-hidden group-hover:border-neon-cyan/80 transition-colors">
+              <div className={`w-[72px] h-[72px] rounded-full bg-neon-cyan/20 border-2 border-neon-cyan flex items-center justify-center overflow-hidden group-hover:border-neon-cyan/80 transition-colors ${isUploadingAvatar ? 'opacity-50' : ''}`}>
                 {avatarUrl ? (
-                  <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                  <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" onError={() => setAvatarUrl(null)} />
                 ) : (
                   <User className="w-8 h-8 text-neon-cyan" />
+                )}
+                {/* Loading Overlay */}
+                {isUploadingAvatar && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-bg-base/50">
+                    <div className="w-6 h-6 border-2 border-neon-cyan border-t-transparent rounded-full animate-spin" />
+                  </div>
                 )}
               </div>
               {/* Camera Badge - Always Visible */}
@@ -171,10 +205,10 @@ export const ProfilePanel: React.FC = () => {
           </div>
         )}
 
-        {/* Save Error Message */}
-        {saveError && (
+        {/* Error Messages */}
+        {(saveError || avatarError) && (
           <div className="p-3 rounded-lg bg-neon-red/10 border border-neon-red/30 text-neon-red text-sm">
-            {saveError}
+            {saveError || avatarError}
           </div>
         )}
 
@@ -261,10 +295,6 @@ export const ProfilePanel: React.FC = () => {
               <p className="text-xs text-text-dimmed">Phone Number</p>
               <p className="text-sm font-mono text-text-primary">{formData.phone || "-"}</p>
             </div>
-            <div className="space-y-1">
-              <p className="text-xs text-text-dimmed">Member Since</p>
-              <p className="text-sm text-text-primary">January 15, 2024</p>
-            </div>
           </div>
         )}
       </div>
@@ -275,15 +305,14 @@ export const ProfilePanel: React.FC = () => {
 
         {/* Password Row */}
         <div className="flex items-center justify-between p-4 rounded-lg bg-surface-elevated">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-neon-gold/10 flex items-center justify-center">
-              <Lock className="w-5 h-5 text-neon-gold" />
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-neon-gold/10 flex items-center justify-center">
+                <Lock className="w-5 h-5 text-neon-gold" />
+              </div>
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium text-text-primary">Password</p>
+              </div>
             </div>
-            <div className="space-y-0.5">
-              <p className="text-sm font-medium text-text-primary">Password</p>
-              <p className="text-xs text-text-muted">Last changed 30 days ago</p>
-            </div>
-          </div>
           <button
             onClick={() => navigate("/account/password")}
             className="px-3.5 py-2 text-xs font-medium text-bg-base bg-neon-gold rounded-md hover:bg-neon-gold/90 transition-colors"

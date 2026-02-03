@@ -16,12 +16,22 @@ import {
   FileText,
   Clock,
   Zap,
+  Inbox,
+  ArrowDownLeft,
   type LucideIcon
 } from 'lucide-react'
 
 // ------------------------------------------------------------
 //  Types
 // ------------------------------------------------------------
+
+// Event info from upstream agents
+export interface UpstreamEvent {
+  fromAgent: string
+  eventType: string
+  preview: string
+  timestamp: number
+}
 
 export interface AgentNodeData extends Record<string, unknown> {
   label: string
@@ -30,6 +40,7 @@ export interface AgentNodeData extends Record<string, unknown> {
   layer: number  // Layer index for color selection
   stats?: AgentStats  // Statistics for tooltip
   outputPreview?: string  // First N chars of agent output for preview
+  upstreamEvents?: UpstreamEvent[]  // Events received from upstream agents
   onSelect?: (agentType: string) => void  // Click handler for detail view
 }
 
@@ -187,7 +198,7 @@ interface AgentNodeProps {
 }
 
 const AgentNode = memo(({ data }: AgentNodeProps) => {
-  const { label, agentType, status, layer, stats, outputPreview, onSelect } = data
+  const { label, agentType, status, layer, stats, outputPreview, upstreamEvents, onSelect } = data
   const [showTooltip, setShowTooltip] = useState(false)
   
   // Get icon by agent type, color by layer
@@ -197,6 +208,8 @@ const AgentNode = memo(({ data }: AgentNodeProps) => {
   
   const isCompleted = status === 'completed'
   const isError = status === 'error'
+  const isRunning = status === 'running'
+  const hasUpstreamEvents = upstreamEvents && upstreamEvents.length > 0
   
   // Handle click for detail view
   const handleClick = () => {
@@ -205,56 +218,130 @@ const AgentNode = memo(({ data }: AgentNodeProps) => {
   
   return (
     <div 
-      className="relative cursor-grab active:cursor-grabbing group"
+      className="relative cursor-pointer active:cursor-grabbing group"
       onMouseEnter={() => setShowTooltip(true)}
       onMouseLeave={() => setShowTooltip(false)}
       onClick={handleClick}
     >
-      {/* Main node container - Compact size */}
+      {/* Main node container - Enhanced card */}
       <div
         className={cn(
-          "relative flex flex-col items-center gap-1 px-3 py-2 rounded-lg",
+          "relative flex flex-col rounded-xl overflow-hidden",
           "backdrop-blur-sm transition-all duration-300",
-          "hover:scale-105 hover:brightness-110",
-          colorScheme.bgIdle,  // Always use idle bg, status shown via border
-          isCompleted && 'bg-neon-green/20',
-          isError && 'bg-neon-rose/20',
-          statusStyle.ring,
-          statusStyle.animate
+          "hover:scale-[1.02] hover:brightness-110",
+          "border",
+          isRunning && 'border-neon-cyan shadow-glow-cyan',
+          isCompleted && 'border-neon-green/60',
+          isError && 'border-neon-rose',
+          !isRunning && !isCompleted && !isError && 'border-white/10',
         )}
-        style={{ minWidth: 72 }}
+        style={{ minWidth: 140, maxWidth: 180 }}
       >
-        {/* Icon */}
-        <div 
-          className={cn(
-            "size-6 rounded flex items-center justify-center transition-all duration-300",
-            "bg-white/10 group-hover:bg-white/20"
-          )}
-        >
-          <Icon 
-            className="size-3.5"
-            style={{ color: colorScheme.color }}
-          />
+        {/* Header: Icon + Name + Status */}
+        <div className={cn(
+          "flex items-center gap-2 px-3 py-2",
+          "bg-slate-900/80"
+        )}>
+          {/* Icon */}
+          <div 
+            className={cn(
+              "size-7 rounded-lg flex items-center justify-center",
+              colorScheme.bgIdle
+            )}
+          >
+            <Icon 
+              className="size-4"
+              style={{ color: colorScheme.color }}
+            />
+          </div>
+          
+          {/* Name + Status */}
+          <div className="flex-1 min-w-0">
+            <span className="text-[11px] font-mono font-semibold capitalize text-text-primary block truncate">
+              {label}
+            </span>
+            <span className={cn(
+              "text-[9px] font-mono",
+              isRunning && 'text-neon-cyan',
+              isCompleted && 'text-neon-green',
+              isError && 'text-neon-rose',
+              !isRunning && !isCompleted && !isError && 'text-text-muted'
+            )}>
+              {isRunning ? '● streaming' : isCompleted ? '✓ done' : isError ? '✗ error' : '○ idle'}
+            </span>
+          </div>
         </div>
         
-        {/* Label */}
-        <span className="text-[10px] font-mono font-medium tracking-wide capitalize leading-tight text-text-primary">
-          {label}
-        </span>
+        {/* Upstream Info Section - Shows received data from upstream agents */}
+        {hasUpstreamEvents && (
+          <div className="px-3 py-1.5 bg-slate-900/60 border-t border-white/5">
+            <div className="flex items-center gap-1 mb-1">
+              <ArrowDownLeft className="size-2.5 text-text-muted" />
+              <span className="text-[7px] font-mono text-text-muted tracking-wider uppercase">From Upstream</span>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {upstreamEvents.slice(0, 2).map((evt, i) => (
+                <div 
+                  key={i} 
+                  className="flex items-center gap-1.5 text-[8px] px-1.5 py-0.5 bg-slate-700/50 rounded max-w-[90px]"
+                >
+                  <span 
+                    className="size-1.5 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: '#10B981' }}
+                  />
+                  <span className="text-slate-400 truncate capitalize">
+                    {evt.fromAgent.replace(/_/g, ' ')}
+                  </span>
+                </div>
+              ))}
+              {upstreamEvents.length > 2 && (
+                <span className="text-[8px] text-slate-500 px-1">
+                  +{upstreamEvents.length - 2}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
         
-        {/* Live info inside card - show output preview */}
-        {outputPreview && (
-          <div className="flex flex-col items-center gap-0.5 mt-0.5 max-w-[80px]">
-            <span className="text-[7px] leading-tight text-center line-clamp-2 break-all text-text-muted">
+        {/* Body: Output preview */}
+        <div className="px-3 py-2 bg-slate-800/50 min-h-[36px]">
+          {outputPreview ? (
+            <p className="text-[9px] leading-relaxed text-text-secondary line-clamp-2">
               {outputPreview}
-            </span>
+            </p>
+          ) : (
+            <p className="text-[9px] text-text-muted italic">
+              {hasUpstreamEvents ? 'Processing input...' : 'Waiting for input...'}
+            </p>
+          )}
+        </div>
+        
+        {/* Footer: Stats */}
+        {stats && (stats.tokens > 0 || stats.duration) && (
+          <div className="flex items-center gap-3 px-3 py-1.5 bg-slate-900/60 border-t border-white/5">
+            {stats.tokens > 0 && (
+              <div className="flex items-center gap-1">
+                <Zap className="size-2.5" style={{ color: colorScheme.color }} />
+                <span className="text-[8px] font-mono text-text-muted">
+                  {formatTokens(stats.tokens)}
+                </span>
+              </div>
+            )}
+            {stats.duration && (
+              <div className="flex items-center gap-1">
+                <Clock className="size-2.5 text-text-muted" />
+                <span className="text-[8px] font-mono text-text-muted">
+                  {formatDuration(stats.duration)}
+                </span>
+              </div>
+            )}
           </div>
         )}
         
         {/* Status indicator dot */}
         <div 
           className={cn(
-            "absolute -top-0.5 -right-0.5 size-2 rounded-full border border-bg-base transition-all",
+            "absolute top-2 right-2 size-2 rounded-full transition-all",
             status === 'idle' && 'bg-slate-500',
             status === 'running' && 'bg-neon-cyan animate-status-pulse',
             status === 'completed' && 'bg-neon-green',

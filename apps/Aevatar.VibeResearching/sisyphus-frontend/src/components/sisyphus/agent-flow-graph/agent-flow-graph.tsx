@@ -17,14 +17,16 @@ import {
 import '@xyflow/react/dist/style.css'
 import './styles.css'
 
-import AgentNode, { type AgentNodeData } from './agent-node'
+import AgentNode, { type AgentNodeData, type UpstreamEvent } from './agent-node'
 import AnimatedEdge, { type AnimatedEdgeData } from './animated-edge'
+import AgentDetailModal from './agent-detail-modal'
 import { 
   useAgentTopologyStore, 
   selectTopology, 
   selectAgentStatus,
   selectAgentStats,
   selectEdgeStats,
+  selectSSEActiveNodes,
   selectIsLoading,
   type AgentStatus,
   type AgentStats,
@@ -297,11 +299,16 @@ const AgentFlowGraph: React.FC<AgentFlowGraphProps> = ({ className, fullHeight =
   const [isFullscreen, setIsFullscreen] = useState(false)
   const toggleFullscreen = useCallback(() => setIsFullscreen(prev => !prev), [])
   
+  // Modal state for agent detail
+  const [modalAgent, setModalAgent] = useState<string | null>(null)
+  const closeModal = useCallback(() => setModalAgent(null), [])
+  
   // Store subscriptions - Topology store
   const topology = useAgentTopologyStore(selectTopology)
   const agentStatus = useAgentTopologyStore(selectAgentStatus)
   const agentStats = useAgentTopologyStore(selectAgentStats)
   const edgeStats = useAgentTopologyStore(selectEdgeStats)
+  const sseActiveNodes = useAgentTopologyStore(selectSSEActiveNodes)
   const isLoading = useAgentTopologyStore(selectIsLoading)
   const setSelectedAgent = useAgentTopologyStore(state => state.setSelectedAgent)
   
@@ -422,9 +429,10 @@ const AgentFlowGraph: React.FC<AgentFlowGraphProps> = ({ className, fullHeight =
     }
   }, [topology, baseNodes, baseEdges, setNodes, setEdges])
   
-  // Handle node selection for detail view
+  // Handle node selection for detail view - open modal
   const handleNodeSelect = useCallback((agentType: string) => {
     setSelectedAgent(agentType)
+    setModalAgent(agentType)
   }, [setSelectedAgent])
   
   // Update nodes when status/stats change
@@ -479,6 +487,32 @@ const AgentFlowGraph: React.FC<AgentFlowGraphProps> = ({ className, fullHeight =
         derivedStatus = 'completed'
       }
       
+      // Compute upstream events from topology edges and stream data
+      // Keep full content for modal scrollable view
+      const upstreamEvents: UpstreamEvent[] = topology?.edges
+        .filter(edge => edge.to.toLowerCase() === nodeData.agentType.toLowerCase())
+        .map(edge => {
+          const sourceAgentType = edge.from.toLowerCase()
+          const sourceStream = agentStreams[sourceAgentType] || 
+                              agentStreams[sourceAgentType.replace(/_/g, ' ')] ||
+                              agentStreams[sourceAgentType.replace(/ /g, '_')]
+          if (!sourceStream?.content) return null
+          
+          // Keep full content (light cleanup only) for scrollable modal view
+          const fullContent = sourceStream.content
+            .replace(/^#+\s*/gm, '')  // Remove markdown headers
+            .replace(/\*\*/g, '')     // Remove bold markers
+            .trim()
+          
+          return {
+            fromAgent: edge.from,
+            eventType: 'output',
+            preview: fullContent,  // Full content, not truncated
+            timestamp: Date.now(),
+          }
+        })
+        .filter((e): e is UpstreamEvent => e !== null) || []
+      
       return {
         ...node,
         data: {
@@ -486,11 +520,12 @@ const AgentFlowGraph: React.FC<AgentFlowGraphProps> = ({ className, fullHeight =
           status: derivedStatus,
           stats: mergedStats,
           outputPreview,
+          upstreamEvents,
           onSelect: handleNodeSelect,
         },
       }
     })
-  }, [nodes, agentStatus, agentStats, agentStreams, handleNodeSelect])
+  }, [nodes, agentStatus, agentStats, agentStreams, topology, handleNodeSelect])
   
   // Update edges when status changes (preserve edgeIndex/totalFromSource, add message count)
   const edgesWithStatus = useMemo(() => {
@@ -501,9 +536,12 @@ const AgentFlowGraph: React.FC<AgentFlowGraphProps> = ({ className, fullHeight =
       const targetData = targetNode?.data as AgentNodeData | undefined
       const edgeData = edge.data as AnimatedEdgeData | undefined
       
-      // Get edge stats for message count
-      const edgeKey = `${edge.source}-${edge.target}`
+      // Get edge stats for message count (key must be lowercase to match store)
+      const edgeKey = `${edge.source.toLowerCase()}-${edge.target.toLowerCase()}`
       const stats = edgeStats[edgeKey]
+      
+      // Check if source node is actively running via SSE (not from API history)
+      const isSourceSSEActive = sseActiveNodes.has(edge.source.toLowerCase())
       
       return {
         ...edge,
@@ -513,13 +551,47 @@ const AgentFlowGraph: React.FC<AgentFlowGraphProps> = ({ className, fullHeight =
           edgeIndex: edgeData?.edgeIndex,
           totalFromSource: edgeData?.totalFromSource,
           messageCount: stats?.messageCount || 0,
+          isSourceSSEActive,  // Only show animation if triggered by SSE
         },
       }
     })
-  }, [edges, nodesWithStatus, edgeStats])
+  }, [edges, nodesWithStatus, edgeStats, sseActiveNodes])
   
   // Disable interactions for read-only view
   const onNodeDragStop = useCallback(() => {}, [])
+  
+  // Compute upstream events for modal agent (must be before any conditional returns)
+  const modalAgentData = useMemo(() => {
+    if (!modalAgent || !topology) return null
+    
+    // Find upstream agents (those that have edges pointing to this agent)
+    const upstreamAgentTypes = topology.edges
+      .filter(edge => edge.to.toLowerCase() === modalAgent.toLowerCase())
+      .map(edge => edge.from.toLowerCase())
+    
+    // Build upstream events from stream data - full content for scrollable modal
+    const upstreamEvents: UpstreamEvent[] = upstreamAgentTypes
+      .map(fromAgent => {
+        const stream = agentStreams[fromAgent] || agentStreams[fromAgent.replace(/_/g, ' ')]
+        if (!stream?.content) return null
+        
+        return {
+          fromAgent,
+          eventType: 'output',
+          preview: stream.content,  // Full content, not truncated
+          timestamp: Date.now(),
+        }
+      })
+      .filter((e): e is UpstreamEvent => e !== null)
+    
+    // Get modal agent's data
+    const status = agentStatus[modalAgent] || 'idle'
+    const stats = agentStats[modalAgent]
+    const streamData = agentStreams[modalAgent] || agentStreams[modalAgent.replace(/_/g, ' ')]
+    const output = streamData?.content || ''
+    
+    return { status, stats, output, upstreamEvents }
+  }, [modalAgent, topology, agentStreams, agentStatus, agentStats])
   
   // Graph content (reusable for normal and fullscreen modes)
   const graphContent = (
@@ -616,6 +688,19 @@ const AgentFlowGraph: React.FC<AgentFlowGraphProps> = ({ className, fullHeight =
             fill: currentColor !important;
           }
         `}</style>
+        
+        {/* Agent Detail Modal - also in fullscreen */}
+        {modalAgent && modalAgentData && (
+          <AgentDetailModal
+            isOpen={!!modalAgent}
+            onClose={closeModal}
+            agentType={modalAgent}
+            status={modalAgentData.status}
+            stats={modalAgentData.stats}
+            output={modalAgentData.output}
+            upstreamEvents={modalAgentData.upstreamEvents}
+          />
+        )}
       </div>,
       document.body
     )
@@ -643,6 +728,19 @@ const AgentFlowGraph: React.FC<AgentFlowGraphProps> = ({ className, fullHeight =
       >
         {graphContent}
       </div>
+      
+      {/* Agent Detail Modal */}
+      {modalAgent && modalAgentData && (
+        <AgentDetailModal
+          isOpen={!!modalAgent}
+          onClose={closeModal}
+          agentType={modalAgent}
+          status={modalAgentData.status}
+          stats={modalAgentData.stats}
+          output={modalAgentData.output}
+          upstreamEvents={modalAgentData.upstreamEvents}
+        />
+      )}
     </div>
   )
 }

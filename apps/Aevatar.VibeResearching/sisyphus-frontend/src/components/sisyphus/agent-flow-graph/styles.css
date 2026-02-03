@@ -202,3 +202,64 @@
   background: #10b981;
   box-shadow: 0 0 8px #10b98160;
 }
+
+/* ------------------------------------------------------------
+   EventBox Animation (message transfer effect)
+   ------------------------------------------------------------ */
+@keyframes eventBoxPulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.05);
+  }
+}
+
+.event-box-animation {
+  animation: eventBoxPulse 0.3s ease-out;
+}
+
+/* ------------------------------------------------------------
+   Arrow Marker Animation
+   ------------------------------------------------------------ */
+@keyframes arrowPulse {
+  0%, 100% {
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.agent-flow-graph marker path {
+  transition: fill 0.3s ease;
+}
+
+/* ------------------------------------------------------------
+   Enhanced Node Card Styles
+   ------------------------------------------------------------ */
+.agent-flow-graph .react-flow__node.selected {
+  z-index: 1000;
+}
+
+.agent-flow-graph .react-flow__node:focus {
+  outline: none;
+}
+
+/* Glow effects for different status */
+.shadow-glow-cyan {
+  box-shadow: 0 0 20px rgba(34, 211, 238, 0.4), 
+              0 0 40px rgba(34, 211, 238, 0.2);
+}
+
+.shadow-glow-green {
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.3),
+              0 0 32px rgba(16, 185, 129, 0.15);
+}
+
+.shadow-glow-purple {
+  box-shadow: 0 0 16px rgba(139, 92, 246, 0.3),
+              0 0 32px rgba(139, 92, 246, 0.15);
+}

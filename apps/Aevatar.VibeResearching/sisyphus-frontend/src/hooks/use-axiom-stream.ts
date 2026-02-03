@@ -845,12 +845,15 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     stream.onCustom("aevatar.vibe.mesh_node_started", (event) => {
       addRawEvent(event)
       const data = event.value as VibeMeshNodeStartedValue
-      if (data?.nodeType) {
-        const { updateAgentStatus, updateAgentStats } = useAgentTopologyStore.getState()
-        updateAgentStatus(data.nodeType, 'running')
+      const nodeType = data?.nodeType || data?.nodeId
+      if (nodeType) {
+        const { updateAgentStatus, updateAgentStats, markNodeSSEActive } = useAgentTopologyStore.getState()
+        updateAgentStatus(nodeType, 'running')
+        // Mark as SSE-triggered running (enables EventBox animation)
+        markNodeSSEActive(nodeType)
         // Increment message count for this agent
-        updateAgentStats(data.nodeType, { 
-          messageCount: (useAgentTopologyStore.getState().agentStats[data.nodeType.toLowerCase()]?.messageCount || 0) + 1,
+        updateAgentStats(nodeType, { 
+          messageCount: (useAgentTopologyStore.getState().agentStats[nodeType.toLowerCase()]?.messageCount || 0) + 1,
           lastActivity: 'Started processing...'
         })
       }
@@ -860,13 +863,41 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     stream.onCustom("aevatar.vibe.mesh_node_finished", (event) => {
       addRawEvent(event)
       const data = event.value as VibeMeshNodeFinishedValue
-      if (data?.nodeType) {
-        const { updateAgentStatus, updateAgentStats } = useAgentTopologyStore.getState()
-        updateAgentStatus(data.nodeType, data.ok ? 'completed' : 'error')
+      // Backend sends nodeId, use it as nodeType (they are the same in topology)
+      const nodeType = data?.nodeType || data?.nodeId
+      if (nodeType) {
+        const { updateAgentStatus, updateAgentStats, clearNodeSSEActive, topology, incrementEdgeMessages } = useAgentTopologyStore.getState()
+        updateAgentStatus(nodeType, data.ok ? 'completed' : 'error')
+        // Clear SSE active flag (stops EventBox animation)
+        clearNodeSSEActive(nodeType)
         // Update last activity
-        updateAgentStats(data.nodeType, { 
+        updateAgentStats(nodeType, { 
           lastActivity: data.ok ? 'Completed successfully' : `Error: ${data.error || 'Unknown'}`
         })
+        
+        // Trigger EventBox animation on outgoing edges when node completes successfully
+        if (data.ok && topology?.edges) {
+          console.log('[EventBox Debug] Node finished:', nodeType)
+          console.log('[EventBox Debug] All topology edges:', topology.edges.map(e => `${e.from} -> ${e.to}`))
+          const outgoingEdges = topology.edges.filter(
+            e => e.from.toLowerCase() === nodeType.toLowerCase()
+          )
+          console.log('[EventBox Debug] Outgoing edges for', nodeType, ':', outgoingEdges.length, outgoingEdges)
+          if (outgoingEdges.length === 0) {
+            console.log('[EventBox Debug] No outgoing edges found! Trying alternative match...')
+            // Try matching with underscores replaced
+            const altOutgoing = topology.edges.filter(
+              e => e.from.toLowerCase().replace(/_/g, ' ') === nodeType.toLowerCase().replace(/_/g, ' ')
+            )
+            console.log('[EventBox Debug] Alternative match:', altOutgoing)
+          }
+          outgoingEdges.forEach(edge => {
+            console.log('[EventBox Debug] Triggering animation for edge:', edge.from, '->', edge.to)
+            incrementEdgeMessages(edge.from, edge.to)
+          })
+        } else {
+          console.log('[EventBox Debug] Not triggering:', { ok: data.ok, hasEdges: !!topology?.edges, edgeCount: topology?.edges?.length })
+        }
       }
     })
 
@@ -1065,6 +1096,9 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     stream.onCustom("session_terminated", () => {
       const { setLifecycleStatus } = useSisyphusStore.getState()
       setLifecycleStatus("archived")
+      // Disconnect immediately to prevent auto-reconnect attempts
+      // The session is archived, no more events will be sent
+      stream.disconnect()
     })
 
     // Catch-all handler - extract worker data from ProgressEvent

@@ -302,7 +302,6 @@ const AgentFlowGraph: React.FC<AgentFlowGraphProps> = ({ className, fullHeight =
   // Modal state for agent detail
   const [modalAgent, setModalAgent] = useState<string | null>(null)
   const closeModal = useCallback(() => setModalAgent(null), [])
-  
   // Store subscriptions - Topology store
   const topology = useAgentTopologyStore(selectTopology)
   const agentStatus = useAgentTopologyStore(selectAgentStatus)
@@ -592,7 +591,6 @@ const AgentFlowGraph: React.FC<AgentFlowGraphProps> = ({ className, fullHeight =
     
     return { status, stats, output, upstreamEvents }
   }, [modalAgent, topology, agentStreams, agentStatus, agentStats])
-  
   // Graph content (reusable for normal and fullscreen modes)
   const graphContent = (
     <>

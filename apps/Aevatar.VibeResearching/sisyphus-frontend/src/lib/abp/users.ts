@@ -300,6 +300,7 @@ export async function getUserStats(): Promise<{
   active: number
   roles: number
   inactive: number
+  admins: number
 }> {
   // Fetch all users to calculate stats (ABP doesn't have a stats endpoint)
   const result = await abpFetch<AbpPagedResult<AbpIdentityUserDto>>(
@@ -314,11 +315,20 @@ export async function getUserStats(): Promise<{
     '/api/identity/roles'
   )
 
+  // Count admin users by checking each user's roles (batch check first 100 users)
+  const userRolesPromises = users.slice(0, 100).map(async (user) => {
+    const roles = await getUserRoles(user.id)
+    return roles.includes('admin')
+  })
+  const isAdminResults = await Promise.all(userRolesPromises)
+  const adminCount = isAdminResults.filter(Boolean).length
+
   return {
     total: result.totalCount,
     active: activeCount,
     roles: rolesResult.totalCount,
     inactive: result.totalCount - activeCount,
+    admins: adminCount,
   }
 }
 

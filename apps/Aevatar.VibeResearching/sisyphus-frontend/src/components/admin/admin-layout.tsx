@@ -1,7 +1,8 @@
 import React from "react"
-import { Link, useNavigate } from "react-router-dom"
+import { useNavigate } from "react-router-dom"
 import { ArrowLeft } from "lucide-react"
 import { AdminSidebar } from "./admin-sidebar"
+import { UserMenu } from "@/components/ui/user-menu"
 
 // ============================================================
 //  Admin Layout - Administration Panel Container
@@ -47,15 +48,8 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
             </div>
           </div>
 
-          {/* Right - Logo */}
-          <Link to="/" className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-neon-cyan flex items-center justify-center">
-              <span className="text-sm font-display font-bold text-bg-base">S</span>
-            </div>
-            <span className="text-sm font-display font-semibold text-neon-cyan hidden sm:inline">
-              SISYPHUS
-            </span>
-          </Link>
+          {/* Right - User Menu */}
+          <UserMenu />
         </div>
       </header>
 

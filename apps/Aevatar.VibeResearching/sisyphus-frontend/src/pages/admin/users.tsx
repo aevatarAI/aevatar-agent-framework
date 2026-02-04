@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react"
-import { UserPlus, Mail, MoreHorizontal, Edit2, Trash2, Lock, Eye, ChevronDown, Check } from "lucide-react"
+import { UserPlus, MoreHorizontal, Edit2, Trash2, Lock, Eye, ChevronDown, Check } from "lucide-react"
 import { AdminLayout } from "@/components/admin"
-import { CreateUserModal, EditUserModal, DeleteUserModal, SetPasswordModal, UserDetailModal, InviteUserModal } from "@/components/admin/users"
+import { CreateUserModal, EditUserModal, DeleteUserModal, SetPasswordModal, UserDetailModal } from "@/components/admin/users"
 import { Button } from "@/components/ui/button"
 import { SearchInput } from "@/components/ui/input"
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@/components/ui/table"
+import { Pagination } from "@/components/ui/pagination"
 import { Avatar } from "@/components/ui/avatar"
 import { Badge, StatusDot } from "@/components/ui/badge"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
@@ -24,39 +25,55 @@ export default function UsersPage() {
   const [search, setSearch] = useState("")
   const [, setIsLoading] = useState(true)
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
+  const [totalItems, setTotalItems] = useState(0)
+
   // Filter states
   const [roleFilter, setRoleFilter] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
 
+  // Selection state
+  const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set())
+
   // Modal states
   const [showCreateModal, setShowCreateModal] = useState(false)
-  const [showInviteModal, setShowInviteModal] = useState(false)
   const [viewingUser, setViewingUser] = useState<User | null>(null)
   const [editingUser, setEditingUser] = useState<User | null>(null)
   const [deletingUser, setDeletingUser] = useState<User | null>(null)
   const [passwordUser, setPasswordUser] = useState<User | null>(null)
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false)
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false)
 
-  // Load data
+  // Load data and clear selection on page/filter change
   useEffect(() => {
+    setSelectedUsers(new Set())
     loadData()
-  }, [])
+  }, [currentPage, pageSize, roleFilter, statusFilter])
 
   const loadData = async () => {
     setIsLoading(true)
     try {
       const [usersResult, statsResult, rolesResult] = await Promise.all([
-        getUsers({ search }),
+        getUsers({ 
+          search,
+          skip: (currentPage - 1) * pageSize,
+          take: pageSize,
+          role: roleFilter || undefined,
+          status: statusFilter as 'active' | 'inactive' | undefined,
+        }),
         getUserStats(),
         getRoles(),
       ])
       setUsers(usersResult.items)
+      setTotalItems(usersResult.totalCount)
       // Adapt stats to match design (admins instead of inactive)
-      const adminCount = usersResult.items.filter(u => u.roles.includes("admin")).length
       setStats({
         total: statsResult.total,
         active: statsResult.active,
         roles: statsResult.roles,
-        admins: adminCount,
+        admins: statsResult.admins || 0,
       })
       setRoles(rolesResult.map(r => r.name))
     } finally {
@@ -64,10 +81,14 @@ export default function UsersPage() {
     }
   }
 
-  // Search handler
+  // Search handler - reset to page 1 when searching
   useEffect(() => {
     const timer = setTimeout(() => {
-      loadData()
+      if (currentPage !== 1) {
+        setCurrentPage(1)
+      } else {
+        loadData()
+      }
     }, 300)
     return () => clearTimeout(timer)
   }, [search])
@@ -119,21 +140,42 @@ export default function UsersPage() {
     }
   }
 
+  const handleBulkDelete = async () => {
+    if (selectedUsers.size === 0) return
+    setIsBulkDeleting(true)
+    try {
+      // Delete users one by one (ABP doesn't have bulk delete API)
+      const deletePromises = Array.from(selectedUsers).map(id => deleteUser(id))
+      const results = await Promise.allSettled(deletePromises)
+      
+      const succeeded = results.filter(r => r.status === 'fulfilled').length
+      const failed = results.filter(r => r.status === 'rejected').length
+      
+      if (failed === 0) {
+        showSuccess(`Successfully deleted ${succeeded} user(s)`)
+      } else {
+        showError(`Deleted ${succeeded} user(s), but ${failed} failed`)
+      }
+      
+      setSelectedUsers(new Set())
+      setShowBulkDeleteModal(false)
+      loadData()
+    } catch (err) {
+      showError("Bulk delete failed", (err as Error)?.message || "Please try again")
+    } finally {
+      setIsBulkDeleting(false)
+    }
+  }
+
   return (
     <AdminLayout
       title="Users"
       subtitle="Manage system users and their permissions"
       actions={
-        <div className="flex items-center gap-2.5">
-          <Button variant="secondary" onClick={() => setShowInviteModal(true)} className="gap-1.5">
-            <Mail className="w-3.5 h-3.5" />
-            Invite
-          </Button>
-          <Button variant="gold" onClick={() => setShowCreateModal(true)} className="gap-1.5">
-            <UserPlus className="w-3.5 h-3.5" />
-            Add User
-          </Button>
-        </div>
+        <Button variant="gold" onClick={() => setShowCreateModal(true)} className="gap-1.5">
+          <UserPlus className="w-3.5 h-3.5" />
+          Add User
+        </Button>
       }
     >
       {/* Stats Cards - Matching Design */}
@@ -187,13 +229,13 @@ export default function UsersPage() {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="min-w-[140px]">
-            <DropdownMenuItem onClick={() => setRoleFilter(null)}>
+            <DropdownMenuItem onClick={() => { setRoleFilter(null); setCurrentPage(1); }}>
               <span className="flex-1">All Roles</span>
               {roleFilter === null && <Check className="w-3.5 h-3.5 text-neon-cyan" />}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             {roles.map(role => (
-              <DropdownMenuItem key={role} onClick={() => setRoleFilter(role)}>
+              <DropdownMenuItem key={role} onClick={() => { setRoleFilter(role); setCurrentPage(1); }}>
                 <span className="flex-1 capitalize">{role}</span>
                 {roleFilter === role && <Check className="w-3.5 h-3.5 text-neon-cyan" />}
               </DropdownMenuItem>
@@ -210,16 +252,16 @@ export default function UsersPage() {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="min-w-[140px]">
-            <DropdownMenuItem onClick={() => setStatusFilter(null)}>
+            <DropdownMenuItem onClick={() => { setStatusFilter(null); setCurrentPage(1); }}>
               <span className="flex-1">All Status</span>
               {statusFilter === null && <Check className="w-3.5 h-3.5 text-neon-cyan" />}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => setStatusFilter("active")}>
+            <DropdownMenuItem onClick={() => { setStatusFilter("active"); setCurrentPage(1); }}>
               <span className="flex-1">Active</span>
               {statusFilter === "active" && <Check className="w-3.5 h-3.5 text-neon-cyan" />}
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setStatusFilter("inactive")}>
+            <DropdownMenuItem onClick={() => { setStatusFilter("inactive"); setCurrentPage(1); }}>
               <span className="flex-1">Inactive</span>
               {statusFilter === "inactive" && <Check className="w-3.5 h-3.5 text-neon-cyan" />}
             </DropdownMenuItem>
@@ -227,30 +269,78 @@ export default function UsersPage() {
         </DropdownMenu>
       </div>
 
+      {/* Bulk Action Bar - Show when users are selected */}
+      {selectedUsers.size > 0 && (
+        <div className="flex items-center justify-between px-4 py-3 mb-4 rounded-xl bg-neon-cyan/10 border border-neon-cyan/30">
+          <span className="text-sm text-text-primary">
+            <span className="font-medium text-neon-cyan">{selectedUsers.size}</span> user(s) selected
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setSelectedUsers(new Set())}
+            >
+              Clear Selection
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => setShowBulkDeleteModal(true)}
+              className="gap-1.5"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Delete Selected
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Users Table - Matching Design: USER, EMAIL, ROLE, STATUS, ACTIONS */}
       <div className="border border-border-subtle rounded-xl overflow-hidden bg-surface">
-        <Table>
+        <Table className="table-fixed">
           <TableHeader>
             <TableRow>
-              <TableHead className="w-8">
-                <div className="w-4 h-4 rounded border-2 border-border-default" />
+              <TableHead className="w-10">
+                <input
+                  type="checkbox"
+                  checked={users.length > 0 && selectedUsers.size === users.length}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSelectedUsers(new Set(users.map(u => u.id)))
+                    } else {
+                      setSelectedUsers(new Set())
+                    }
+                  }}
+                  className="w-4 h-4 rounded border-2 border-border-default accent-neon-cyan cursor-pointer"
+                />
               </TableHead>
-              <TableHead className="w-[200px]">USER</TableHead>
-              <TableHead>EMAIL</TableHead>
+              <TableHead className="w-[180px]">USER</TableHead>
+              <TableHead className="w-[240px]">EMAIL</TableHead>
               <TableHead className="w-[100px]">ROLE</TableHead>
               <TableHead className="w-[80px]">STATUS</TableHead>
               <TableHead className="w-[60px]">ACTIONS</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {users
-              .filter(user => !roleFilter || user.roles.includes(roleFilter))
-              .filter(user => !statusFilter || (statusFilter === "active" ? user.isActive : !user.isActive))
-              .map((user) => (
-              <TableRow key={user.id}>
+            {users.map((user) => (
+              <TableRow key={user.id} className={selectedUsers.has(user.id) ? "bg-neon-cyan/5" : ""}>
                 {/* Checkbox */}
                 <TableCell>
-                  <div className="w-4 h-4 rounded border-2 border-border-default" />
+                  <input
+                    type="checkbox"
+                    checked={selectedUsers.has(user.id)}
+                    onChange={(e) => {
+                      const newSelected = new Set(selectedUsers)
+                      if (e.target.checked) {
+                        newSelected.add(user.id)
+                      } else {
+                        newSelected.delete(user.id)
+                      }
+                      setSelectedUsers(newSelected)
+                    }}
+                    className="w-4 h-4 rounded border-2 border-border-default accent-neon-cyan cursor-pointer"
+                  />
                 </TableCell>
 
                 {/* USER - Avatar + Name */}
@@ -260,9 +350,9 @@ export default function UsersPage() {
                     const fullName = [user.name, user.surname].filter(Boolean).join(' ').trim()
                     const displayName = fullName || user.userName || user.email.split('@')[0]
                     return (
-                      <div className="flex items-center gap-2.5">
-                        <Avatar name={displayName} size="sm" />
-                        <span className="text-sm text-text-primary">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <Avatar name={displayName} size="sm" className="flex-shrink-0" />
+                        <span className="text-sm text-text-primary truncate" title={displayName}>
                           {displayName}
                         </span>
                       </div>
@@ -271,7 +361,7 @@ export default function UsersPage() {
                 </TableCell>
 
                 {/* EMAIL */}
-                <TableCell className="text-sm text-text-secondary">
+                <TableCell className="text-sm text-text-secondary truncate" title={user.email}>
                   {user.email}
                 </TableCell>
 
@@ -335,6 +425,19 @@ export default function UsersPage() {
             ))}
           </TableBody>
         </Table>
+
+        {/* Pagination */}
+        <Pagination
+          currentPage={currentPage}
+          totalPages={Math.ceil(totalItems / pageSize)}
+          totalItems={totalItems}
+          pageSize={pageSize}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size)
+            setCurrentPage(1)
+          }}
+        />
       </div>
 
       {/* Modals */}
@@ -374,11 +477,48 @@ export default function UsersPage() {
         user={passwordUser}
       />
 
-      <InviteUserModal
-        open={showInviteModal}
-        onClose={() => setShowInviteModal(false)}
-        roles={roles}
-      />
+      {/* Bulk Delete Confirmation Modal */}
+      {showBulkDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-bg-base/80 backdrop-blur-sm" onClick={() => !isBulkDeleting && setShowBulkDeleteModal(false)} />
+          <div className="relative z-10 w-[400px] rounded-xl bg-surface border border-border-subtle p-6 space-y-4">
+            <div className="space-y-2">
+              <h3 className="text-lg font-semibold text-text-primary">Confirm Bulk Delete</h3>
+              <p className="text-sm text-text-secondary">
+                Are you sure you want to delete <span className="font-medium text-neon-red">{selectedUsers.size}</span> user(s)? 
+                This action cannot be undone.
+              </p>
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <Button
+                variant="secondary"
+                onClick={() => setShowBulkDeleteModal(false)}
+                disabled={isBulkDeleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleBulkDelete}
+                disabled={isBulkDeleting}
+                className="gap-1.5"
+              >
+                {isBulkDeleting ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Delete {selectedUsers.size} User(s)
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </AdminLayout>
   )
 }

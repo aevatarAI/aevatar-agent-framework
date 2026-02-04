@@ -93,6 +93,23 @@ export const ProfilePanel: React.FC = () => {
   }
 
   const handleAvatarUpload = (file: File) => {
+    // Validate file size (max 2MB)
+    const MAX_SIZE = 2 * 1024 * 1024
+    if (file.size > MAX_SIZE) {
+      setAvatarError('File too large. Maximum size is 2MB.')
+      setShowAvatarUpload(false)
+      return
+    }
+
+    // Validate file type
+    const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp']
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      setAvatarError('Invalid file type. Allowed: JPG, PNG, WebP.')
+      setShowAvatarUpload(false)
+      return
+    }
+
+    setAvatarError(null)
     const url = URL.createObjectURL(file)
     setSelectedImage(url)
     setShowAvatarUpload(false)

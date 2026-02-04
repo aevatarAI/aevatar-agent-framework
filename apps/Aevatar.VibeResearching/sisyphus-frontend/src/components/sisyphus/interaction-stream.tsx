@@ -144,7 +144,7 @@ const AgentDashboardDrawer: React.FC<AgentDashboardDrawerProps> = memo(({ open, 
       
       {/* Drawer Panel */}
       <div className={cn(
-        "absolute top-0 right-0 h-full w-full max-w-2xl",
+        "absolute top-0 right-0 h-full w-full max-w-5xl",
         "bg-bg-surface/95 backdrop-blur-md border-l border-border-default",
         "shadow-2xl shadow-black/20",
         "animate-in slide-in-from-right duration-300",

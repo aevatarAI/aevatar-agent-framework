@@ -83,14 +83,14 @@ export const AvatarUploadModal: React.FC<AvatarUploadModalProps> = ({
               or click to browse files
             </p>
             <p className="text-xs text-text-dimmed">
-              Supports: JPG, PNG, GIF (max 5MB)
+              Supports: JPG, PNG, WebP (max 2MB)
             </p>
           </div>
 
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/jpeg,image/png,image/gif"
+            accept="image/jpeg,image/png,image/webp"
             onChange={handleFileSelect}
             className="hidden"
           />

@@ -1,15 +1,15 @@
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
-using VibeResearching.Api.Vibe.Trace;
-using VibeResearching.Api.Workspace;
-using VibeResearching.Contracts.Collab;
+using Aevatar.VibeResearching.Infrastructure.MongoDB.Trace;
+using Aevatar.VibeResearching.Infrastructure.MongoDB.Workspace;
+using Aevatar.VibeResearching.Agents.Contracts.Collab;
 using Shouldly;
 using Google.Protobuf.WellKnownTypes;
 
 namespace VibeResearching.Tests;
 
-public sealed class TraceStoreTests
+public sealed class TraceRepositoryTests
 {
     [Fact]
     public async Task AppendAsync_ShouldWriteTraceJsonl_AndSummaryMd()
@@ -22,7 +22,7 @@ public sealed class TraceStoreTests
 
             var env = new TestHostEnvironment(Path.Combine(root, "src", "VibeResearching.Api"));
             var ws = new WorkspaceService(env, NullLogger<WorkspaceService>.Instance);
-            var store = new TraceStore(ws, NullLogger<TraceStore>.Instance);
+            var store = new TraceRepository(ws, NullLogger<TraceRepository>.Instance);
 
             var summary = new SraRoundSummary
             {
@@ -66,7 +66,7 @@ public sealed class TraceStoreTests
 
             var env = new TestHostEnvironment(Path.Combine(root, "src", "VibeResearching.Api"));
             var ws = new WorkspaceService(env, NullLogger<WorkspaceService>.Instance);
-            var store = new TraceStore(ws, NullLogger<TraceStore>.Instance);
+            var store = new TraceRepository(ws, NullLogger<TraceRepository>.Instance);
 
             for (var i = 0; i < 4; i++)
             {

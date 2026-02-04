@@ -13,6 +13,8 @@ import { cn } from '@/lib/utils'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogCloseButton } from '@/components/ui/dialog'
 import { SummaryModal } from '../summary-modal'
 import { SubGraphViewer } from '../sub-graph-viewer'
+import { InlineCommentSection } from '../comments/InlineCommentSection'
+import { CommentPreviewTooltip } from '../comments/CommentPreviewTooltip'
 
 import { type NodeFilterMode } from './dag-node-styles'
 import {
@@ -46,17 +48,25 @@ interface TooltipProps {
   node: LayoutNode
   x: number
   y: number
+  sessionId: string
+  onOpenComments: (nodeId: string) => void
+  onDismiss?: () => void
+  onMouseEnterTooltip?: () => void
 }
 
-function NodeTooltip({ node, x, y }: TooltipProps) {
+function NodeTooltip({ node, x, y, sessionId, onOpenComments, onDismiss, onMouseEnterTooltip }: TooltipProps) {
   const style = node.kind === 'Plan'
     ? { bg: '#3b82f6', border: '#60a5fa' }
     : { bg: '#22c55e', border: '#4ade80' }
 
+  const isKnowledge = node.kind === 'Knowledge'
+
   return (
     <div
-      className="fixed z-[100] pointer-events-none"
+      className={cn("fixed z-[100]", !isKnowledge && "pointer-events-none")}
       style={{ left: x + 15, top: y - 10 }}
+      onMouseEnter={isKnowledge ? onMouseEnterTooltip : undefined}
+      onMouseLeave={isKnowledge ? onDismiss : undefined}
     >
       <div
         className="px-3 py-2.5 rounded-lg text-xs font-mono"
@@ -106,6 +116,16 @@ function NodeTooltip({ node, x, y }: TooltipProps) {
         <div className="text-slate-200 leading-relaxed text-[11px] line-clamp-2" title={node.label}>
           {node.label}
         </div>
+        {/* Comment preview for Knowledge nodes */}
+        {node.kind === 'Knowledge' && (
+          <div className="mt-2 pt-1.5 border-t border-slate-600/30">
+            <CommentPreviewTooltip
+              sessionId={sessionId}
+              nodeId={node.id}
+              onViewAll={() => onOpenComments(node.id)}
+            />
+          </div>
+        )}
       </div>
     </div>
   )
@@ -126,6 +146,9 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
   const interactionRef = useRef<InteractionManager | null>(null)
   const simulationRef = useRef<SimulationManager | null>(null)
   const positionCacheRef = useRef<Map<string, { x: number; y: number }>>(new Map())
+  const needsRenderRef = useRef<boolean>(true)  // Track if render is needed
+  const lastSessionIdRef = useRef<string>(sessionId)
+  const initialFitDoneRef = useRef<string>('')
 
   // State
   const [refreshing, setRefreshing] = useState(false)
@@ -135,6 +158,8 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, scale: 1 })
   const [hoveredNode, setHoveredNode] = useState<{ node: LayoutNode; x: number; y: number } | null>(null)
+  const hoverDismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const tooltipHovered = useRef(false)
   const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 })
   const [isRendererReady, setIsRendererReady] = useState(false)
 
@@ -200,6 +225,16 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
     return { filteredNodes: nodes, filteredEdges: edges, centerNodeId: center }
   }, [dag, selectedNodeId, highlightMode, highlightedNodeIds, sessionId, activeMilestoneNodeId, filterMode])
 
+  // ── Clear position cache on session change ──
+  useEffect(() => {
+    if (sessionId !== lastSessionIdRef.current) {
+      // Session changed - clear position cache to avoid cross-session contamination
+      positionCacheRef.current.clear()
+      lastSessionIdRef.current = sessionId
+      needsRenderRef.current = true
+    }
+  }, [sessionId])
+
   // ── Calculate layout with persistent simulation ──
   useEffect(() => {
     // Wait for renderer to be ready before creating simulation
@@ -230,6 +265,7 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
       (nodes) => {
         // Update layout and cache positions
         setLayoutNodes([...nodes])
+        needsRenderRef.current = true  // Mark render needed when layout updates
         // Update position cache
         nodes.forEach(n => {
           if (n.x !== undefined && n.y !== undefined) {
@@ -242,6 +278,7 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
     simulationRef.current = manager
     setLayoutNodes([...manager.nodes])
     setLayoutEdges([...manager.edges])
+    needsRenderRef.current = true  // Mark render needed for initial layout
 
     // Initial cache update
     manager.nodes.forEach(n => {
@@ -297,7 +334,28 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
           }
         },
         onNodeHover: (node, x, y) => {
-          setHoveredNode(node ? { node, x, y } : null)
+          // Clear any pending dismiss
+          if (hoverDismissTimer.current) {
+            clearTimeout(hoverDismissTimer.current)
+            hoverDismissTimer.current = null
+          }
+
+          if (!node) {
+            // Delay dismiss so mouse can travel to the tooltip
+            hoverDismissTimer.current = setTimeout(() => {
+              if (!tooltipHovered.current) {
+                setHoveredNode(null)
+              }
+            }, 300)
+            return
+          }
+
+          tooltipHovered.current = false
+          setHoveredNode(prev => {
+            // For Knowledge nodes, pin position on first hover (don't follow mouse)
+            if (node.kind === 'Knowledge' && prev?.node.id === node.id) return prev
+            return { node, x, y }
+          })
         },
         onNodeDrag: (node, x, y) => {
           // Update position in simulation - this will push other nodes away
@@ -352,8 +410,9 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
       if (actualWidth > 0 && actualHeight > 0) {
         rendererRef.current.resize(actualWidth, actualHeight)
         setCanvasSize({ width: actualWidth, height: actualHeight })
+        needsRenderRef.current = true  // Request re-render after resize
       }
-    }, 50)
+    }, 100)  // Increased delay for smoother session switch
     return () => clearTimeout(timeoutId)
   }, [sessionId])
 
@@ -368,6 +427,11 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
     renderer.setTransform(transform)
     renderer.render(layoutNodes, layoutEdges)
   }, [layoutNodes, layoutEdges, transform])
+  
+  // Mark render needed when transform changes
+  useEffect(() => {
+    needsRenderRef.current = true
+  }, [transform])
 
   // ── Update interaction manager nodes ──
   useEffect(() => {
@@ -395,16 +459,25 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
     return () => resizeObserver.disconnect()
   }, [])
 
-  // ── Auto-fit on initial load or session change ──
+  // ── Auto-fit on initial load or session change (debounced) ──
   useEffect(() => {
-    if (layoutNodes.length > 0 && interactionRef.current && canvasSize.width > 0) {
-      // Use requestAnimationFrame to ensure DOM is ready, then fit view
-      const rafId = requestAnimationFrame(() => {
-        setTimeout(() => {
-          interactionRef.current?.fitView(layoutNodes, canvasSize.width, canvasSize.height)
-        }, 50)
-      })
-      return () => cancelAnimationFrame(rafId)
+    // Only auto-fit once per session, when we have nodes and renderer is ready
+    if (
+      layoutNodes.length > 0 &&
+      interactionRef.current &&
+      canvasSize.width > 0 &&
+      initialFitDoneRef.current !== sessionId
+    ) {
+      // Mark fit as done for this session immediately to prevent re-triggers
+      initialFitDoneRef.current = sessionId
+      
+      // Use longer delay to ensure simulation has settled
+      const timeoutId = setTimeout(() => {
+        interactionRef.current?.fitView(layoutNodes, canvasSize.width, canvasSize.height)
+        needsRenderRef.current = true
+      }, 200)  // Increased delay for smoother transition
+      
+      return () => clearTimeout(timeoutId)
     }
   }, [sessionId, layoutNodes.length, canvasSize.width, canvasSize.height])
 
@@ -607,7 +680,30 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
       </div>
 
       {/* Tooltip */}
-      {hoveredNode && <NodeTooltip node={hoveredNode.node} x={hoveredNode.x} y={hoveredNode.y} />}
+      {hoveredNode && (
+        <NodeTooltip
+          node={hoveredNode.node}
+          x={hoveredNode.x}
+          y={hoveredNode.y}
+          sessionId={sessionId}
+          onOpenComments={(nodeId) => {
+            setHoveredNode(null)
+            setSelectedNode(nodeId)
+            setDetailsOpen(true)
+          }}
+          onDismiss={() => {
+            tooltipHovered.current = false
+            setHoveredNode(null)
+          }}
+          onMouseEnterTooltip={() => {
+            tooltipHovered.current = true
+            if (hoverDismissTimer.current) {
+              clearTimeout(hoverDismissTimer.current)
+              hoverDismissTimer.current = null
+            }
+          }}
+        />
+      )}
 
       {/* Node details modal */}
       <Dialog open={detailsOpen} onOpenChange={(open) => { setDetailsOpen(open); if (!open) { setSelectedNode(null); clearHighlight() } }}>
@@ -663,6 +759,13 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
                     )}
                   </div>
                 )}
+                {/* Inline comments for Knowledge nodes */}
+                {selectedNodeForDialog?.kind === 'Knowledge' && selectedNodeId && (
+                  <InlineCommentSection
+                    sessionId={sessionId}
+                    nodeId={selectedNodeId}
+                  />
+                )}
               </div>
             </div>
           </div>
@@ -670,6 +773,7 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
       </Dialog>
 
       <SummaryModal open={summaryOpen} onOpenChange={setSummaryOpen} sessionId={sessionId} />
+
     </div>
   )
 }

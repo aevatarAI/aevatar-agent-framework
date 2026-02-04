@@ -20,7 +20,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Aevatar.VibeResearching.Api\Aevatar.VibeResearching.Api.csproj" />
+    <ProjectReference Include="..\..\src\modules\Sessions\Domain\Aevatar.VibeResearching.Sessions.Domain.csproj" />
+    <ProjectReference Include="..\..\src\modules\Agents\Domain.Shared\Aevatar.VibeResearching.Agents.Domain.Shared.csproj" />
+    <ProjectReference Include="..\..\src\modules\Agents\Domain\Aevatar.VibeResearching.Agents.Domain.csproj" />
+    <ProjectReference Include="..\..\src\modules\Infrastructure\MongoDB\Aevatar.VibeResearching.Infrastructure.MongoDB.csproj" />
+    <ProjectReference Include="..\..\src\modules\Knowledge\Neo4j\Aevatar.VibeResearching.Knowledge.Neo4j.csproj" />
   </ItemGroup>
 
 </Project>

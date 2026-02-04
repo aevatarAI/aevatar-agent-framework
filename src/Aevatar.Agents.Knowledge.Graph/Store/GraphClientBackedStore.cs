@@ -461,11 +461,24 @@ internal sealed class GraphClientBackedStore : IKnowledgeGraphStore
 
     public async Task<IGraphNode?> GetNodeAsync(string sessionId, string nodeId, CancellationToken cancellationToken)
     {
-        // Try to get as PlanNode first, then KnowledgeNode
+        // Try to get as PlanNode first, then KnowledgeNode (fast path via composite ID)
         var planNode = await GetPlanNodeAsync(sessionId, nodeId, cancellationToken);
         if (planNode != null) return planNode;
 
-        return await GetKnowledgeNodeAsync(sessionId, nodeId, cancellationToken);
+        var knowledgeNode = await GetKnowledgeNodeAsync(sessionId, nodeId, cancellationToken);
+        if (knowledgeNode != null) return knowledgeNode;
+
+        // Fallback: node may belong to a different session — search by nodeId property
+        var query = new NodeQuery
+        {
+            Type = KnowledgeNodeGraphType,
+            Conditions = [new Condition(PropNodeId, Operator.Equals, new StringValue(nodeId))]
+        };
+        var matches = await _graphClient.QueryAsync(query);
+        if (matches.Count > 0 && matches[0].Properties.ContainsKey(PropNodeType))
+            return ToKnowledgeNode(matches[0]);
+
+        return null;
     }
 
     public async Task<bool> RemoveNodeAsync(string sessionId, string nodeId, CancellationToken cancellationToken)
@@ -559,6 +572,18 @@ internal sealed class GraphClientBackedStore : IKnowledgeGraphStore
             .Where(e => e.Properties.TryGetValue(PropSessionId, out var sv) &&
                         sv is StringValue sessionVal && sessionVal.Data == sessionId &&
                         e.Properties.TryGetValue(PropFromNodeId, out var fromVal) &&
+                        fromVal is StringValue fromStr && fromStr.Data == nodeId)
+            .Select(e => GetStringProp(e.Properties, PropToNodeId, null)
+                         ?? ExtractNodeIdFromComposite(e.To.Value))
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<string>> GetDependenciesGlobalAsync(string nodeId, CancellationToken cancellationToken)
+    {
+        var allEdges = await _graphClient.QueryAsync(new EdgeQuery { Type = EdgeType });
+
+        return allEdges
+            .Where(e => e.Properties.TryGetValue(PropFromNodeId, out var fromVal) &&
                         fromVal is StringValue fromStr && fromStr.Data == nodeId)
             .Select(e => GetStringProp(e.Properties, PropToNodeId, null)
                          ?? ExtractNodeIdFromComposite(e.To.Value))

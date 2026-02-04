@@ -16,15 +16,21 @@ export default defineConfig({
   server: {
     port: parseInt(process.env.PORT || '5173', 10),
     proxy: {
-      // Proxy to backend
+      // All API requests go to Backend (includes /api/auth, /api/account, etc.)
       '/api': {
         target: backendTarget,
         changeOrigin: true,
       },
+      // OpenIddict endpoints (for token mode)
+      '/connect': {
+        target: backendTarget,
+        changeOrigin: true,
+      },
+      // OIDC Discovery
+      '/.well-known': {
+        target: backendTarget,
+        changeOrigin: true,
+      },
     },
-  },
-  // Environment variables
-  define: {
-    'import.meta.env.VITE_AXIOM_API_BASE': JSON.stringify(process.env.VITE_AXIOM_API_BASE || ''),
   },
 })

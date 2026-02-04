@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
-using VibeResearching.Vibe.ReviewAgent;
-using Aevatar.VibeResearching.Api.ReviewAgent.Storage;
+using FileReviewAgentStorage = Aevatar.VibeResearching.Agents.MongoDB.ReviewAgent.FileReviewAgentStorage;
+using Aevatar.VibeResearching.Agents.ReviewAgent;
 
 namespace VibeResearching.Api.Tests.ReviewAgent;
 

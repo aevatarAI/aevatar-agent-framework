@@ -24,7 +24,20 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Aevatar.VibeResearching.Api\Aevatar.VibeResearching.Api.csproj" />
+    <ProjectReference Include="..\..\src\modules\Sessions\Domain\Aevatar.VibeResearching.Sessions.Domain.csproj" />
+    <ProjectReference Include="..\..\src\modules\Agents\Domain.Shared\Aevatar.VibeResearching.Agents.Domain.Shared.csproj" />
+    <ProjectReference Include="..\..\src\modules\Agents\Application.Contracts\Aevatar.VibeResearching.Agents.Application.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\modules\Agents\Domain\Aevatar.VibeResearching.Agents.Domain.csproj" />
+    <ProjectReference Include="..\..\src\modules\Agents\Application\Aevatar.VibeResearching.Agents.Application.csproj" />
+    <ProjectReference Include="..\..\src\modules\Agents\HttpApi\Aevatar.VibeResearching.Agents.HttpApi.csproj" />
+    <ProjectReference Include="..\..\src\modules\Agents\MongoDB\Aevatar.VibeResearching.Agents.MongoDB.csproj" />
+    <ProjectReference Include="..\..\src\modules\Infrastructure\Domain\Aevatar.VibeResearching.Infrastructure.Domain.csproj" />
+    <ProjectReference Include="..\..\src\modules\Infrastructure\MongoDB\Aevatar.VibeResearching.Infrastructure.MongoDB.csproj" />
+    <ProjectReference Include="..\..\src\modules\Knowledge\Domain\Aevatar.VibeResearching.Knowledge.Domain.csproj" />
+    <ProjectReference Include="..\..\src\modules\Knowledge\Neo4j\Aevatar.VibeResearching.Knowledge.Neo4j.csproj" />
+    <!-- Framework project references -->
+    <ProjectReference Include="..\..\..\..\src\Aevatar.Agents.Persistence.InMemory.Graph\Aevatar.Agents.Persistence.InMemory.Graph.csproj" />
+    <ProjectReference Include="..\..\src\host\HttpApi.Host\Aevatar.VibeResearching.HttpApi.Host.csproj" />
   </ItemGroup>
 
 </Project>

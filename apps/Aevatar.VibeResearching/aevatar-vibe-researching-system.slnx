@@ -1,11 +1,42 @@
 <Solution>
-  <Folder Name="/src/">
-    <Project Path="src\Aevatar.VibeResearching\Aevatar.VibeResearching.csproj" />
-    <Project Path="src\Aevatar.VibeResearching.Api\Aevatar.VibeResearching.Api.csproj" />
-    <Project Path="src\Aevatar.VibeResearching.Contracts\Aevatar.VibeResearching.Contracts.csproj" />
-    <Project Path="src\Aevatar.VibeResearching.AppHost\Aevatar.VibeResearching.AppHost.csproj" />
-    <File Path="README.md" />
-    <File Path="boot.sh" />
+  <Folder Name="/host/">
+    <Project Path="src\host\HttpApi.Host\Aevatar.VibeResearching.HttpApi.Host.csproj" />
+    <Project Path="src\host\AppHost\Aevatar.VibeResearching.AppHost.csproj" />
+  </Folder>
+
+  <Folder Name="/modules/">
+    <Folder Name="Sessions">
+      <Project Path="src\modules\Sessions\Domain.Shared\Aevatar.VibeResearching.Sessions.Domain.Shared.csproj" />
+      <Project Path="src\modules\Sessions\Domain\Aevatar.VibeResearching.Sessions.Domain.csproj" />
+      <Project Path="src\modules\Sessions\Application.Contracts\Aevatar.VibeResearching.Sessions.Application.Contracts.csproj" />
+      <Project Path="src\modules\Sessions\Application\Aevatar.VibeResearching.Sessions.Application.csproj" />
+      <Project Path="src\modules\Sessions\MongoDB\Aevatar.VibeResearching.Sessions.MongoDB.csproj" />
+      <Project Path="src\modules\Sessions\HttpApi\Aevatar.VibeResearching.Sessions.HttpApi.csproj" />
+    </Folder>
+    <Folder Name="Knowledge">
+      <Project Path="src\modules\Knowledge\Domain.Shared\Aevatar.VibeResearching.Knowledge.Domain.Shared.csproj" />
+      <Project Path="src\modules\Knowledge\Domain\Aevatar.VibeResearching.Knowledge.Domain.csproj" />
+      <Project Path="src\modules\Knowledge\Application.Contracts\Aevatar.VibeResearching.Knowledge.Application.Contracts.csproj" />
+      <Project Path="src\modules\Knowledge\Application\Aevatar.VibeResearching.Knowledge.Application.csproj" />
+      <Project Path="src\modules\Knowledge\Neo4j\Aevatar.VibeResearching.Knowledge.Neo4j.csproj" />
+      <Project Path="src\modules\Knowledge\HttpApi\Aevatar.VibeResearching.Knowledge.HttpApi.csproj" />
+    </Folder>
+    <Folder Name="Agents">
+      <Project Path="src\modules\Agents\Domain.Shared\Aevatar.VibeResearching.Agents.Domain.Shared.csproj" />
+      <Project Path="src\modules\Agents\Domain\Aevatar.VibeResearching.Agents.Domain.csproj" />
+      <Project Path="src\modules\Agents\Application.Contracts\Aevatar.VibeResearching.Agents.Application.Contracts.csproj" />
+      <Project Path="src\modules\Agents\Application\Aevatar.VibeResearching.Agents.Application.csproj" />
+      <Project Path="src\modules\Agents\MongoDB\Aevatar.VibeResearching.Agents.MongoDB.csproj" />
+      <Project Path="src\modules\Agents\HttpApi\Aevatar.VibeResearching.Agents.HttpApi.csproj" />
+    </Folder>
+    <Folder Name="Infrastructure">
+      <Project Path="src\modules\Infrastructure\Domain.Shared\Aevatar.VibeResearching.Infrastructure.Domain.Shared.csproj" />
+      <Project Path="src\modules\Infrastructure\Domain\Aevatar.VibeResearching.Infrastructure.Domain.csproj" />
+      <Project Path="src\modules\Infrastructure\Application.Contracts\Aevatar.VibeResearching.Infrastructure.Application.Contracts.csproj" />
+      <Project Path="src\modules\Infrastructure\Application\Aevatar.VibeResearching.Infrastructure.Application.csproj" />
+      <Project Path="src\modules\Infrastructure\MongoDB\Aevatar.VibeResearching.Infrastructure.MongoDB.csproj" />
+      <Project Path="src\modules\Infrastructure\HttpApi\Aevatar.VibeResearching.Infrastructure.HttpApi.csproj" />
+    </Folder>
   </Folder>
 
   <Folder Name="/docs/">
@@ -15,6 +46,7 @@
     <File Path="docs\CONFIGURATION.md" />
     <File Path="docs\DEVELOPMENT.md" />
   </Folder>
+
   <Folder Name="/test/">
     <Project Path="test\Aevatar.VibeResearching.Tests\Aevatar.VibeResearching.Tests.csproj" />
     <Project Path="test\Aevatar.VibeResearching.Api.Tests\Aevatar.VibeResearching.Api.Tests.csproj" />
@@ -35,18 +67,16 @@
     <Project Path="..\..\src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
     <Project Path="..\..\src\Aevatar.Agents.Cognitive.Streaming\Aevatar.Agents.Cognitive.Streaming.csproj" />
     <Project Path="..\..\src\Aevatar.Agents.Sessions\Aevatar.Agents.Sessions.csproj" />
-    <Project Path="..\..\src\Aevatar.Agents.Persistence.InMemory.Graph\Aevatar.Agents.Persistence.InMemory.Graph.csproj" />
     <Project Path="..\..\src\Aevatar.Agents.Persistence.MongoDB\Aevatar.Agents.Persistence.MongoDB.csproj" />
     <Project Path="..\..\src\Aevatar.Agents.Persistence.MongoDB.GAgent\Aevatar.Agents.Persistence.MongoDB.GAgent.csproj" />
     <Project Path="..\..\src\Aevatar.Agents.Persistence.SQLite\Aevatar.Agents.Persistence.SQLite.csproj" />
     <Project Path="..\..\src\Aevatar.Agents.Persistence.SQLite.GAgent\Aevatar.Agents.Persistence.SQLite.GAgent.csproj" />
-    <Project Path="..\..\src\Aevatar.Agents.Persistence.Neo4j.Graph\Aevatar.Agents.Persistence.Neo4j.Graph.csproj" />
   </Folder>
 
   <Folder Name="/root/">
+    <File Path="README.md" />
+    <File Path="boot.sh" />
     <File Path="..\..\AGENTS.md" />
     <File Path="..\..\Directory.Packages.props" />
   </Folder>
 </Solution>
-
-

@@ -3,11 +3,118 @@ import { useEffect, useRef, useCallback } from "react"
 // flushSync was blocking main thread on every token during LLM streaming
 import { useSisyphusStore } from "@/store/sisyphus-store"
 import { useStreamContentStore } from "@/store/stream-content-store"
+import { useAgentTopologyStore } from "@/store/agent-topology-store"
 import { createAxiomEventStream, getToolsSnapshot, getDagSnapshot } from "@/lib/axiom-client"
 import { classifyEvent, parseCustomEvent } from "@/lib/event-classifier"
 import type { EventStream } from "@aevatar/kit-protocol"
 import { parseMessageId } from "@aevatar/kit-protocol"
-import type { ToolOutput, NodeKind } from "@/types"
+import type { ToolOutput, NodeKind, PlanNodeStatus } from "@/types"
+
+// ============================================================================
+//  Vibe Protocol Types (locally defined for type safety)
+// ============================================================================
+
+interface VibeDagNode {
+  id?: string
+  label?: string
+  status?: string
+  type?: string
+  kind?: string
+  owner?: string
+  proof?: string
+  attestations?: Array<{ pubkey?: string; signature?: string }>
+  attestationsCount?: number
+  planStatus?: string
+  sessionId?: string
+}
+
+interface VibeDagEdge {
+  fromId?: string
+  toId?: string
+  type?: string
+}
+
+interface VibeDagSnapshotValue {
+  nodes?: VibeDagNode[]
+  edges?: VibeDagEdge[]
+}
+
+interface VibeAgentsSnapshotValue {
+  agents?: Array<{
+    agent: string
+    agentId?: string
+    name?: string
+    role?: string
+    status?: string
+  }>
+}
+
+interface VibeAgentProvidersSnapshotValue {
+  providers?: Record<string, string>
+}
+
+interface VibeMessageMetaValue {
+  messageId?: string
+  agent?: string
+  stepName?: string
+  providerName?: string
+  role?: string
+  status?: string
+}
+
+interface VibeMilestoneStartedValue {
+  milestoneId?: string
+  milestoneNodeId?: string
+  sessionId?: string
+  name?: string
+  description?: string
+}
+
+interface VibeMilestoneFinishedValue {
+  milestoneId?: string
+  sessionId?: string
+  name?: string
+  success?: boolean
+  summary?: string
+}
+
+interface AevatarAgentStatusReportValue {
+  agentId?: string
+  agentName?: string
+  statusText?: string
+  progress?: number
+  status?: string
+  message?: string
+}
+
+// Mesh Execution Events (Agent Flow Graph)
+interface VibeMeshStartedValue {
+  sessionId?: string
+  runId?: string
+  dslVersion?: string
+  nodeCount?: number
+  edgeCount?: number
+  topology?: {
+    nodes?: Array<{ id: string; type: string }>
+    edges?: Array<{ from: string; to: string }>
+  }
+}
+
+interface VibeMeshNodeStartedValue {
+  sessionId?: string
+  runId?: string
+  nodeId?: string
+  nodeType?: string
+}
+
+interface VibeMeshNodeFinishedValue {
+  sessionId?: string
+  runId?: string
+  nodeId?: string
+  nodeType?: string
+  ok?: boolean
+  error?: string
+}
 
 // ============================================================================
 //  Axiom Event Stream Hook
@@ -323,12 +430,25 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
         lastResponse: finalContent,
       })
       
-      // Finalize agent message in isolated store
+      // Finalize agent message in isolated store and update topology stats
       const parts = event.messageId.split(":")
       if (parts.length >= 4) {
         const agent = parts[2]
         if (agent && agent !== "user" && !agent.startsWith("worker")) {
+          // Update agent topology stats with estimated token count
           const agentName = agent === "assistant" ? "research_assistant" : agent
+          const agentStream = useStreamContentStore.getState().agentStreams[agentName]
+          if (agentStream?.content) {
+            const estimatedTokens = Math.ceil(agentStream.content.length / 4)
+            const { updateAgentStats, agentStats } = useAgentTopologyStore.getState()
+            const currentStats = agentStats[agentName.toLowerCase()]
+            if (currentStats) {
+              updateAgentStats(agentName, {
+                tokens: (currentStats.tokens || 0) + estimatedTokens,
+              })
+            }
+          }
+          // Finalize the agent content stream
           finalizeAgentContent(agentName)
         }
       }
@@ -691,7 +811,7 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     // Agents Roster Snapshot
     stream.onCustom("aevatar.vibe.agents_snapshot", (event) => {
       addRawEvent(event)
-      const data = event.value as { agents?: Array<{ agent: string; agentId?: string }> }
+      const data = event.value as VibeAgentsSnapshotValue
       if (Array.isArray(data?.agents)) {
         setAgentRoster(data.agents)
       }
@@ -700,21 +820,94 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     // Agent Providers Snapshot
     stream.onCustom("aevatar.vibe.agent_providers_snapshot", (event) => {
       addRawEvent(event)
-      const data = event.value as { providers?: Record<string, string> }
+      const data = event.value as VibeAgentProvidersSnapshotValue
       if (data?.providers) {
         setAgentProviders(data.providers)
+      }
+    })
+
+    // ================================================================
+    //  Mesh Execution Events (Agent Flow Graph Topology)
+    // ================================================================
+
+    // Mesh Started - Receive full topology for visualization
+    stream.onCustom("aevatar.vibe.mesh_started", (event) => {
+      addRawEvent(event)
+      const data = event.value as VibeMeshStartedValue
+      if (data?.topology?.nodes && data?.topology?.edges) {
+        const { setTopology } = useAgentTopologyStore.getState()
+        setTopology(
+          { nodes: data.topology.nodes, edges: data.topology.edges },
+          data.sessionId,
+          data.runId
+        )
+      }
+    })
+
+    // Mesh Node Started - Agent begins execution
+    stream.onCustom("aevatar.vibe.mesh_node_started", (event) => {
+      addRawEvent(event)
+      const data = event.value as VibeMeshNodeStartedValue
+      const nodeType = data?.nodeType || data?.nodeId
+      if (nodeType) {
+        const { updateAgentStatus, updateAgentStats, markNodeSSEActive } = useAgentTopologyStore.getState()
+        updateAgentStatus(nodeType, 'running')
+        // Mark as SSE-triggered running (enables EventBox animation)
+        markNodeSSEActive(nodeType)
+        // Increment message count for this agent
+        updateAgentStats(nodeType, { 
+          messageCount: (useAgentTopologyStore.getState().agentStats[nodeType.toLowerCase()]?.messageCount || 0) + 1,
+          lastActivity: 'Started processing...'
+        })
+      }
+    })
+
+    // Mesh Node Finished - Agent completes execution
+    stream.onCustom("aevatar.vibe.mesh_node_finished", (event) => {
+      addRawEvent(event)
+      const data = event.value as VibeMeshNodeFinishedValue
+      // Backend sends nodeId, use it as nodeType (they are the same in topology)
+      const nodeType = data?.nodeType || data?.nodeId
+      if (nodeType) {
+        const { updateAgentStatus, updateAgentStats, clearNodeSSEActive, topology, incrementEdgeMessages } = useAgentTopologyStore.getState()
+        updateAgentStatus(nodeType, data.ok ? 'completed' : 'error')
+        // Clear SSE active flag (stops EventBox animation)
+        clearNodeSSEActive(nodeType)
+        // Update last activity
+        updateAgentStats(nodeType, { 
+          lastActivity: data.ok ? 'Completed successfully' : `Error: ${data.error || 'Unknown'}`
+        })
+        
+        // Trigger EventBox animation on outgoing edges when node completes successfully
+        if (data.ok && topology?.edges) {
+          console.log('[EventBox Debug] Node finished:', nodeType)
+          console.log('[EventBox Debug] All topology edges:', topology.edges.map(e => `${e.from} -> ${e.to}`))
+          const outgoingEdges = topology.edges.filter(
+            e => e.from.toLowerCase() === nodeType.toLowerCase()
+          )
+          console.log('[EventBox Debug] Outgoing edges for', nodeType, ':', outgoingEdges.length, outgoingEdges)
+          if (outgoingEdges.length === 0) {
+            console.log('[EventBox Debug] No outgoing edges found! Trying alternative match...')
+            // Try matching with underscores replaced
+            const altOutgoing = topology.edges.filter(
+              e => e.from.toLowerCase().replace(/_/g, ' ') === nodeType.toLowerCase().replace(/_/g, ' ')
+            )
+            console.log('[EventBox Debug] Alternative match:', altOutgoing)
+          }
+          outgoingEdges.forEach(edge => {
+            console.log('[EventBox Debug] Triggering animation for edge:', edge.from, '->', edge.to)
+            incrementEdgeMessages(edge.from, edge.to)
+          })
+        } else {
+          console.log('[EventBox Debug] Not triggering:', { ok: data.ok, hasEdges: !!topology?.edges, edgeCount: topology?.edges?.length })
+        }
       }
     })
 
     // Agent Status Report (real-time work status from agents)
     stream.onCustom("aevatar.vibe.agent_status_report", (event) => {
       addRawEvent(event)
-      const data = event.value as {
-        agentId?: string
-        agentName?: string
-        statusText?: string
-        progress?: number
-      }
+      const data = event.value as AevatarAgentStatusReportValue
       if (data?.agentName && data?.statusText) {
         updateAgentStatusReport({
           agentId: data.agentId || data.agentName,
@@ -731,12 +924,7 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
       if (import.meta.env.DEV) {
         addRawEvent(event)
       }
-      const data = event.value as {
-        messageId?: string
-        agent?: string
-        stepName?: string
-        providerName?: string
-      }
+      const data = event.value as VibeMessageMetaValue
       if (data?.messageId && data?.agent) {
         const { setAgentMessageMeta } = useSisyphusStore.getState()
         setAgentMessageMeta({
@@ -767,43 +955,40 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     stream.onCustom("aevatar.vibe.dag_snapshot", (event) => {
       addRawEvent(event)
       // Flexible parsing: data may be nested differently
-      const raw = event.value as Record<string, unknown>
+      const raw = event.value as VibeDagSnapshotValue | { dag?: VibeDagSnapshotValue }
       
       // Try to find nodes/edges at various paths
-      const dagData = (raw?.dag || raw) as Record<string, unknown>
-      const rawNodes = (dagData?.nodes || []) as unknown[]
-      const rawEdges = (dagData?.edges || []) as unknown[]
+      const dagData = ('dag' in raw && raw.dag) ? raw.dag : raw as VibeDagSnapshotValue
+      const rawNodes = dagData?.nodes || []
+      const rawEdges = dagData?.edges || []
       
       // Always update dag state even if empty (to clear stale data)
       const { setDag } = useSisyphusStore.getState()
-      // Transform nodes
-      const nodes = rawNodes.map((n: unknown) => {
-        const node = n as Record<string, unknown>
-        return {
-          id: String(node.id || ''),
-          label: String(node.label || node.id || ''),
-          status: String(node.status || 'pending'),
-          type: String(node.type || ''),
-          kind: node.kind as NodeKind | undefined,
-          owner: node.owner as string | undefined,
-          proof: node.proof as string | undefined,
-          attestations: node.attestations as { pubkey?: string; signature?: string }[] | undefined,
-          attestationsCount: node.attestationsCount as number | undefined,
-        }
-      })
+      // Transform nodes (VibeDagNode -> DAGNode)
+      const nodes = rawNodes.map((node) => ({
+        id: node.id || '',
+        label: node.label || node.id || '',
+        status: node.status || 'pending',
+        type: node.type || '',
+        kind: node.kind as NodeKind | undefined,
+        owner: node.owner,
+        proof: node.proof,
+        attestations: node.attestations,
+        attestationsCount: node.attestationsCount,
+        planStatus: node.planStatus as PlanNodeStatus | undefined,
+        sessionId: node.sessionId,
+      }))
       // Transform edges from {fromId, toId} to {source, target} format
-      const edges = rawEdges.map((e: unknown) => {
-        const edge = e as Record<string, unknown>
-        return {
-          source: String(edge.fromId || edge.source || ''),
-          target: String(edge.toId || edge.target || ''),
-          type: edge.type as string | undefined,
-        }
-      })
+      const edges = rawEdges.map((edge) => ({
+        source: edge.fromId || '',
+        target: edge.toId || '',
+        type: edge.type,
+      }))
       setDag({ nodes, edges })
     })
 
     // DAG Updated - Trigger refresh by fetching latest DAG
+    // Event value type: VibeDagUpdatedValue (contains sessionId, reason, affectedNodeIds)
     stream.onCustom("aevatar.vibe.dag_updated", async (event) => {
       addRawEvent(event)
 
@@ -841,12 +1026,7 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     // Milestone Started - Highlight the active plan node
     stream.onCustom("aevatar.vibe.milestone_started", (event) => {
       addRawEvent(event)
-      const data = event.value as {
-        sessionId?: string
-        milestoneNodeId?: string
-        milestoneIndex?: number
-        totalMilestones?: number
-      }
+      const data = event.value as VibeMilestoneStartedValue
       if (data.milestoneNodeId) {
         const { setActiveMilestoneNodeId } = useSisyphusStore.getState()
         // Pass sessionId to store milestone per-session
@@ -857,11 +1037,7 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
     // Milestone Finished - Clear the active highlight
     stream.onCustom("aevatar.vibe.milestone_finished", (event) => {
       addRawEvent(event)
-      const data = event.value as {
-        sessionId?: string
-        milestoneNodeId?: string
-        milestoneIndex?: number
-      }
+      const data = event.value as VibeMilestoneFinishedValue
       // Clear the active milestone highlight for this session
       const { setActiveMilestoneNodeId } = useSisyphusStore.getState()
       setActiveMilestoneNodeId(null, data.sessionId || sessionId)
@@ -929,6 +1105,31 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
       }
       // Clear isolated streams for the new run
       clearAllStreams()
+    })
+
+    // === Session Lifecycle Events ===
+
+    stream.onCustom("auto_paused", () => {
+      const { setLifecycleStatus } = useSisyphusStore.getState()
+      setLifecycleStatus("paused")
+    })
+
+    stream.onCustom("session_paused", () => {
+      const { setLifecycleStatus } = useSisyphusStore.getState()
+      setLifecycleStatus("paused")
+    })
+
+    stream.onCustom("session_resumed", () => {
+      const { setLifecycleStatus } = useSisyphusStore.getState()
+      setLifecycleStatus("active")
+    })
+
+    stream.onCustom("session_terminated", () => {
+      const { setLifecycleStatus } = useSisyphusStore.getState()
+      setLifecycleStatus("archived")
+      // Disconnect immediately to prevent auto-reconnect attempts
+      // The session is archived, no more events will be sent
+      stream.disconnect()
     })
 
     // Catch-all handler - extract worker data from ProgressEvent

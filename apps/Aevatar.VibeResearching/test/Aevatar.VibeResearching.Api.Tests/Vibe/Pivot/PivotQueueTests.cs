@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using VibeResearching.Vibe.Pivot;
-using VibeResearching.Vibe.Pivot.Models;
+using Aevatar.VibeResearching.Agents.Pivot;
+using Aevatar.VibeResearching.Agents.Pivot.Models;
 using Shouldly;
 
 namespace VibeResearching.Api.Tests.Vibe.Pivot;

@@ -3,7 +3,7 @@ using Aevatar.Agents.AI.Abstractions.Providers;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using NSubstitute;
-using VibeResearching.Vibe.Pivot;
+using Aevatar.VibeResearching.Agents.Pivot;
 using Shouldly;
 
 namespace VibeResearching.Api.Tests.Vibe.Pivot;

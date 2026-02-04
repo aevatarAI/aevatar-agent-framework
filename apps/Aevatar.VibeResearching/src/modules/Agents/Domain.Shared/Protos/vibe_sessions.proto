@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package VibeResearching.Sessions;
+
+option csharp_namespace = "Aevatar.VibeResearching.Agents.Contracts.Sessions";
+
+import "google/protobuf/timestamp.proto";
+
+// ============================================================
+//  Session Registry (DB-backed, process-agnostic)
+//
+//  Purpose:
+//  - Persist session list metadata for VibeResearching API.
+//  - Restore sessions after process restart when a DB is connected.
+// ============================================================
+
+enum SessionStatus {
+  SESSION_STATUS_UNSPECIFIED = 0;
+  SESSION_STATUS_ACTIVE = 1;
+  SESSION_STATUS_PAUSED = 2;
+  SESSION_STATUS_ARCHIVED = 3;
+}
+
+message VibeSessionRecord {
+  string session_id = 1;
+  string provider_name = 2;
+  string dag_id = 3; // empty => per-session
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
+  string coordinator_id = 6;
+  repeated string worker_ids = 7;
+  repeated string agent_ids = 8;
+  string owner_id = 9; // user ID of the session creator (empty => legacy/anonymous)
+  SessionStatus status = 10;
+  google.protobuf.Timestamp paused_at = 11;
+  google.protobuf.Timestamp archived_at = 12;
+  string last_user_message = 13;  // last user message text (for resume context)
+  string last_run_mode = 14;      // last input mode used (chat/vibe/vibe_loop)
+  string owner_name = 15;         // display name of the session creator
+}
+
+message VibeSessionIndex {
+  repeated VibeSessionRecord sessions = 1;
+}

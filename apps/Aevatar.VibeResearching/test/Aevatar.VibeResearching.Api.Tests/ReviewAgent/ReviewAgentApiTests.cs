@@ -3,9 +3,8 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 using Shouldly;
-using VibeResearching.Vibe.ReviewAgent;
-using Aevatar.VibeResearching.Api.ReviewAgent.Api;
-using Aevatar.VibeResearching.Api.ReviewAgent.Storage;
+using Aevatar.VibeResearching.Agents.MinimalApis;
+using Aevatar.VibeResearching.Agents.ReviewAgent;
 using System.Reflection;
 
 namespace VibeResearching.Api.Tests.ReviewAgent;
@@ -349,14 +348,14 @@ public sealed class ReviewAgentApiTests
 
     private static IResult InvokeGetStatus(IReviewAgentService service)
     {
-        var method = typeof(ReviewAgentApi).GetMethod("GetStatus",
+        var method = typeof(ReviewAgentEndpoints).GetMethod("GetStatus",
             BindingFlags.NonPublic | BindingFlags.Static);
         return (IResult)method!.Invoke(null, [service])!;
     }
 
     private static IResult InvokeGetSettings(IReviewAgentService service)
     {
-        var method = typeof(ReviewAgentApi).GetMethod("GetSettings",
+        var method = typeof(ReviewAgentEndpoints).GetMethod("GetSettings",
             BindingFlags.NonPublic | BindingFlags.Static);
         return (IResult)method!.Invoke(null, [service])!;
     }
@@ -366,7 +365,7 @@ public sealed class ReviewAgentApiTests
         IReviewAgentService service,
         IReviewAgentStorage storage)
     {
-        var method = typeof(ReviewAgentApi).GetMethod("UpdateSettings",
+        var method = typeof(ReviewAgentEndpoints).GetMethod("UpdateSettings",
             BindingFlags.NonPublic | BindingFlags.Static);
         var task = (Task<IResult>)method!.Invoke(null, [update, service, storage, CancellationToken.None])!;
         return await task;
@@ -377,7 +376,7 @@ public sealed class ReviewAgentApiTests
         int limit = 10,
         int offset = 0)
     {
-        var method = typeof(ReviewAgentApi).GetMethod("GetIterations",
+        var method = typeof(ReviewAgentEndpoints).GetMethod("GetIterations",
             BindingFlags.NonPublic | BindingFlags.Static);
         var task = (Task<IResult>)method!.Invoke(null, [storage, limit, offset, CancellationToken.None])!;
         return await task;
@@ -387,7 +386,7 @@ public sealed class ReviewAgentApiTests
         string iterationId,
         IReviewAgentStorage storage)
     {
-        var method = typeof(ReviewAgentApi).GetMethod("GetIteration",
+        var method = typeof(ReviewAgentEndpoints).GetMethod("GetIteration",
             BindingFlags.NonPublic | BindingFlags.Static);
         var task = (Task<IResult>)method!.Invoke(null, [iterationId, storage, CancellationToken.None])!;
         return await task;

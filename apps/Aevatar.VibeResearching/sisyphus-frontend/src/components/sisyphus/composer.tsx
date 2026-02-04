@@ -1,7 +1,10 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useSisyphusStore, type InputMode } from '@/store/sisyphus-store'
 import { sendMessage, uploadWithExtraction } from '@/lib/axiom-client'
+import { usePermission } from '@/hooks/use-permission'
+import { useToast } from '@/components/ui/toast'
 
 // ============================================================
 //  Composer - Enhanced message input with mode switch,
@@ -41,13 +44,17 @@ const MODE_CONFIG = {
 }
 
 const Composer: React.FC<ComposerProps> = ({ sessionId, connected }) => {
+  const { isAnonymous, isAdmin, isOwner } = usePermission()
+
   // FINE-GRAINED SUBSCRIPTIONS: Only subscribe to what we need
   const inputMode = useSisyphusStore((s) => s.inputMode)
   const setInputMode = useSisyphusStore((s) => s.setInputMode)
   const agentRoster = useSisyphusStore((s) => s.agentRoster)
   const isSending = useSisyphusStore((s) => s.isSending)
+  const lifecycleStatus = useSisyphusStore((s) => s.lifecycleStatus)
   const setIsSending = useSisyphusStore((s) => s.setIsSending)
   const addMessage = useSisyphusStore((s) => s.addMessage)
+  const { error: showError } = useToast()
 
   const [text, setText] = useState("")
   const [files, setFiles] = useState<File[]>([])
@@ -181,11 +188,12 @@ const Composer: React.FC<ComposerProps> = ({ sessionId, connected }) => {
       setFiles([])
     } catch (e) {
       console.error("Failed to send message:", e)
+      showError("Failed to send message", (e as Error)?.message || "Please try again")
     } finally {
       setIsSending(false)
       setUploadStatus(null)
     }
-  }, [sessionId, connected, isSending, text, inputMode, toAgents, files, setIsSending, addMessage])
+  }, [sessionId, connected, isSending, text, inputMode, toAgents, files, setIsSending, addMessage, showError])
 
   // Handle enter key
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -196,7 +204,39 @@ const Composer: React.FC<ComposerProps> = ({ sessionId, connected }) => {
   }
 
   const config = MODE_CONFIG[inputMode]
-  const disabled = !connected || !sessionId || isSending
+
+  // Permission: check if user can interact with this session
+  const currentSession = useSisyphusStore((s) => s.sessions.find((sess) => sess.id === sessionId))
+  const canInteract = isAdmin || (currentSession ? (!currentSession.ownerId || isOwner(currentSession.ownerId)) : false)
+  const disabled = !connected || !sessionId || isSending || lifecycleStatus !== 'active'
+
+  // Anonymous users: show sign-in prompt
+  if (isAnonymous) {
+    return (
+      <div className="p-3 bg-surface/30 border-t border-border-subtle backdrop-blur-sm">
+        <div className="rounded-xl border border-border-subtle bg-bg-surface/80 p-4 text-center">
+          <p className="text-sm text-text-secondary mb-2">Sign in to start researching</p>
+          <Link
+            to="/login"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-neon-cyan text-bg-base text-sm font-semibold hover:bg-neon-sky transition-colors"
+          >
+            Sign In
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
+  // Non-owner members: show read-only message
+  if (!canInteract) {
+    return (
+      <div className="p-3 bg-surface/30 border-t border-border-subtle backdrop-blur-sm">
+        <div className="rounded-xl border border-border-subtle bg-bg-surface/80 p-3 text-center">
+          <p className="text-xs text-text-muted font-mono">Read-only — you can only interact with your own sessions</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="p-3 bg-surface/30 border-t border-border-subtle backdrop-blur-sm">

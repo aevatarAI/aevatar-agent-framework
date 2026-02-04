@@ -1,0 +1,11 @@
+<svg width="280" height="280" viewBox="0 0 280 280" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="280" height="280" rx="16" fill="#f8fafc"/>
+  <!-- Icon -->
+  <circle cx="140" cy="100" r="36" stroke="#0891b2" stroke-width="4" fill="none"/>
+  <circle cx="140" cy="100" r="18" fill="#0891b2"/>
+  <!-- Text: SISYPHUS -->
+  <text x="140" y="175" font-family="Orbitron, monospace" font-size="24" font-weight="700" fill="#0891b2" letter-spacing="2" text-anchor="middle">SISYPHUS</text>
+  <!-- Tagline -->
+  <text x="140" y="200" font-family="Space Grotesk, sans-serif" font-size="11" font-weight="500" fill="#64748b" letter-spacing="1" text-anchor="middle">AI Research Platform</text>
+</svg>

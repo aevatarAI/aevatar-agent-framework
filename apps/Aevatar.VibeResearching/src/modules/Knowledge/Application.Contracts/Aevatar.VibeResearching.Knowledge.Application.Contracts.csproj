@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Aevatar.VibeResearching.Knowledge</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Volo.Abp.Ddd.Application.Contracts" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain.Shared/Aevatar.VibeResearching.Knowledge.Domain.Shared.csproj" />
+    <ProjectReference Include="../../Agents/Domain.Shared/Aevatar.VibeResearching.Agents.Domain.Shared.csproj" />
+  </ItemGroup>
+</Project>

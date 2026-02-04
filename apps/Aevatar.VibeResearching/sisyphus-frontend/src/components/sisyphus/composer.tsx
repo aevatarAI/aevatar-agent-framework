@@ -32,12 +32,6 @@ const MODE_CONFIG = {
     hoverColor: "hover:bg-neon-cyan/10 hover:text-neon-cyan",
     placeholder: "Vibe researching... (goals + DAG + trace + multi-agent)",
   },
-  vibe_loop: {
-    label: "vibe_loop",
-    color: "bg-neon-purple text-bg-base",
-    hoverColor: "hover:bg-neon-purple/10 hover:text-neon-purple",
-    placeholder: "Vibe loop... (auto multi-round until budget exhausted)",
-  },
 }
 
 const Composer: React.FC<ComposerProps> = ({ sessionId, connected }) => {
@@ -252,7 +246,7 @@ const Composer: React.FC<ComposerProps> = ({ sessionId, connected }) => {
         <div className="flex items-center gap-2 px-2.5 pb-2.5">
           {/* Mode Pills */}
           <div className="inline-flex rounded-lg bg-surface-elevated/50 p-0.5">
-            {(["chat", "vibe", "vibe_loop"] as InputMode[]).map((mode) => {
+            {(["chat", "vibe"] as InputMode[]).map((mode) => {
               const modeConfig = MODE_CONFIG[mode]
               const isActive = inputMode === mode
               return (

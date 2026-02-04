@@ -49,6 +49,7 @@ public static class ServiceCollectionExtensions
         configureStores?.Invoke(options);
 
         services.TryAddSingleton<IGAgentManager, GAgentManager>();
+        services.TryAddSingleton<IGAgentFactory, DefaultGAgentFactory>();
         services.TryAddSingleton<IGAgentActorFactoryProvider, DefaultGAgentActorFactoryProvider>();
 
         RegisterStateStore(services, options);

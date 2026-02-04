@@ -10,14 +10,14 @@ using WorkflowDefinition = Aevatar.Agents.Cognitive.Primitives.WorkflowDefinitio
 namespace Aevatar.Agents.Cognitive.Agents;
 
 // ============================================================
-//  CognitiveCoordinatorGAgent - Workflow lifecycle
+//  CoordinatorAgent - Workflow lifecycle
 //
 //  WHY:
 //  - Extract "start/failure/output building/main loop" from giant file.
 //  - Make core execution logic easier to reuse as AevatarKit's Run Orchestrator.
 // ============================================================
 
-public partial class CognitiveCoordinatorGAgent
+public partial class CoordinatorAgent
 {
     /// <summary>
     /// Directly start workflow execution (API call)
@@ -48,6 +48,7 @@ public partial class CognitiveCoordinatorGAgent
         CustomState.WorkflowName = request.WorkflowName;
         CustomState.Status = ExecutionStatus.EsRunning;
         CustomState.CurrentPhase = "Starting";
+        TryPersistCustomStateSnapshot();
 
         try
         {
@@ -113,6 +114,7 @@ public partial class CognitiveCoordinatorGAgent
             // Complete
             CustomState.Status = ExecutionStatus.EsCompleted;
             CustomState.CurrentPhase = "Completed";
+            TryPersistCustomStateSnapshot();
 
             await TryExportExecutionTraceAsync();
 
@@ -156,6 +158,7 @@ public partial class CognitiveCoordinatorGAgent
         CustomState.Status = ExecutionStatus.EsFailed;
         CustomState.CurrentPhase = "Failed";
         CustomState.Error = error;
+        TryPersistCustomStateSnapshot();
 
         // IMPORTANT:
         // - Previously no logging here, causing illusion of "backend didn't error but system stopped"

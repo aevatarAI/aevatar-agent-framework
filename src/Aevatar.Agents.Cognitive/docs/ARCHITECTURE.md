@@ -5,7 +5,7 @@
 ```
 Aevatar.Agents.Cognitive/
 ├── Agents/                      # Agent 实现
-│   ├── CognitiveCoordinatorGAgent.cs                     # Coordinator: state + lifecycle + step dispatcher
+│   ├── CognitiveCoordinatorGAgent.cs                     # CoordinatorAgent: state + lifecycle + step dispatcher
 │   ├── CognitiveCoordinatorGAgent.Workflow.cs            # Workflow start/fail/output build
 │   ├── CognitiveCoordinatorGAgent.Parallel.cs            # fan_out/parallel + worker completion
 │   ├── CognitiveCoordinatorGAgent.Llm.cs                 # Coordinator-side LLM (via AIGAgentBase chat pipeline)
@@ -47,7 +47,7 @@ Aevatar.Agents.Cognitive/
 
 ## 核心组件
 
-### 1. CognitiveCoordinatorGAgent
+### 1. CoordinatorAgent（原 CognitiveCoordinatorGAgent）
 **职责**: 工作流协调与执行
 
 - 解析并执行 YAML 定义的工作流
@@ -57,12 +57,12 @@ Aevatar.Agents.Cognitive/
 
 **实现形态**：`partial` 拆分（避免巨型文件、降低耦合）
 
-- `CognitiveCoordinatorGAgent.Workflow.cs`：启动/失败/输出构建/主循环
-- `CognitiveCoordinatorGAgent.Parallel.cs`：`fan_out`/`parallel` + Worker 完成事件聚合
-- `CognitiveCoordinatorGAgent.Llm.cs`：Coordinator LLM 调用（复用 `AIGAgentBase.ChatAsync/ChatStreamAsync`，含 streaming & 超时护栏）
-- `CognitiveCoordinatorGAgent.Vote.cs`：投票共识（语义聚类 + 红旗）
-- `CognitiveCoordinatorGAgent.StepEvents.cs`：步骤事件（UI/回放）
-- `CognitiveCoordinatorGAgent.Parameters.cs`：输出解析 + 参数/红旗配置解析
+- `CognitiveCoordinatorGAgent.Workflow.cs`（class=`CoordinatorAgent`）：启动/失败/输出构建/主循环
+- `CognitiveCoordinatorGAgent.Parallel.cs`（class=`CoordinatorAgent`）：`fan_out`/`parallel` + Worker 完成事件聚合
+- `CognitiveCoordinatorGAgent.Llm.cs`（class=`CoordinatorAgent`）：Coordinator LLM 调用（复用 `AIGAgentBase.ChatAsync/ChatStreamAsync`，含 streaming & 超时护栏）
+- `CognitiveCoordinatorGAgent.Vote.cs`（class=`CoordinatorAgent`）：投票共识（语义聚类 + 红旗）
+- `CognitiveCoordinatorGAgent.StepEvents.cs`（class=`CoordinatorAgent`）：步骤事件（UI/回放）
+- `CognitiveCoordinatorGAgent.Parameters.cs`（class=`CoordinatorAgent`）：输出解析 + 参数/红旗配置解析
 
 ### 2. RoleAIGAgent + CognitiveStepExecutionHandler
 **职责**: 并行任务执行
@@ -125,7 +125,7 @@ YAML Workflow
      │
      ▼
 ┌──────────────────────────────┐
-│ CognitiveCoordinatorGAgent    │
+│ CoordinatorAgent              │
 │ (Workflow/Parallel/LLM/Vote)  │ ──协调──▶ 步骤执行
 └──────────────────────────────┘
      │                 │
@@ -137,7 +137,7 @@ YAML Workflow
 ## 组件依赖关系
 
 ```
-CognitiveCoordinatorGAgent
+CoordinatorAgent
 ├── TemplateEngine          # 模板渲染
 ├── OutputParserFactory     # 输出解析
 ├── ProtoValueConverter     # Protobuf 转换
@@ -149,13 +149,13 @@ CognitiveCoordinatorGAgent
 1. **自定义步骤类型**: 在 `ExecuteStepAsync` 中添加新的 case
 2. **自定义输出解析器**: 实现 `IOutputParser` 接口
 3. **自定义 Red-Flag 策略**: 实现 `IRedFlagStrategy` 接口
-4. **自定义聚合器**: 在 `CognitiveCoordinatorGAgent.ApplyReducer` 中添加（fan_out.reduce）
+4. **自定义聚合器**: 在 `CoordinatorAgent.ApplyReducer` 中添加（fan_out.reduce）
 
 ## 变更日志
 
 - 2025-12: 新增 token-free 原语 `transform` / `retrieve_facts`，用于把确定性数据处理与相关事实选择从 LLM 中剥离，减少 token 浪费。
 - 2025-12: DSL 支持 workflow-level `defaults` + `max_length/strict_parse/timeout_seconds/idle_timeout_seconds/include_failures` 护栏，使配置不再“写了但不生效”。 
 - 2025-12: 新增工作流 `hypothesis_promotion_loop.yaml`（HPL：Hypothesis→验证→升级定理）。
-- 2025-12: Coordinator 去味：移除未被引用的 `StepEventEmitter/FanOutExecutor`，并将 `CognitiveCoordinatorGAgent` 拆分为多个 `partial` 文件以控制复杂度。
+- 2025-12: Coordinator 去味：移除未被引用的 `StepEventEmitter/FanOutExecutor`，并将 `CoordinatorAgent`（原 `CognitiveCoordinatorGAgent`）拆分为多个 `partial` 文件以控制复杂度。
 - 2025-12: 去味：移除未被引用的 `ParameterResolver/*Primitive.cs`，补齐 DSL 数据模型（`WorkflowDefinition/StepDefinition`），并修正 Worker streaming 中间态事件的统计累加语义（只在终态累计 tokens/calls）。
 - 2026-01: 合并版本化工作流，统一为 `maker` / `uot-combinational`。

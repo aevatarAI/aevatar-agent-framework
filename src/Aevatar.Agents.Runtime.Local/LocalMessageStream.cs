@@ -3,6 +3,7 @@ using System.Threading.Channels;
 using Aevatar.Agents.Abstractions;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Aevatar.Agents.Runtime.Local;
 
@@ -21,13 +22,9 @@ public class LocalMessageStream : IMessageStream
 
     static LocalMessageStream()
     {
-        // Best-effort static logger initialization
-        try
-        {
-            _staticLogger = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Debug))
-                .CreateLogger<LocalMessageStream>();
-        }
-        catch { /* ignore */ }
+        // Best-effort static logger initialization.
+        // Keep Local runtime dependency-minimal (no console logger dependency here).
+        _staticLogger = NullLogger<LocalMessageStream>.Instance;
     }
 
     public LocalMessageStream(string streamId, int capacity = 1000)

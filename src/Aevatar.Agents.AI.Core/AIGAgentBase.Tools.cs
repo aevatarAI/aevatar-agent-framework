@@ -2,9 +2,13 @@ using System.Text;
 using System.Text.Json;
 using Aevatar.Agents.Abstractions.CQRS;
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions.Memory;
 using Aevatar.Agents.AI.Abstractions;
+using Aevatar.Agents.AI.Core.Hooks;
+using Aevatar.Agents.AI.Core.Hooks.BuiltIn;
 using Aevatar.Agents.AI.Core.Utils;
 using Aevatar.Agents.AI.Tool.Abstractions;
+using Aevatar.Agents.AI.Tool.Evolution;
 using Aevatar.Agents.AI.Tool.Messages;
 using Aevatar.Agents.AI.Tool.Tools;
 using Aevatar.Agents.AI.Tool.Tools.BuiltIn;
@@ -14,6 +18,7 @@ using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.Abstractions.Tracing;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -24,60 +29,32 @@ namespace Aevatar.Agents.AI.Core;
 // ReSharper disable InconsistentNaming
 public abstract partial class AIGAgentBase
 {
-    /// <summary>
-    /// Safety switch (default: true):
-    /// - When false, tools marked <c>RequiresConfirmation</c> or <c>IsDangerous</c> will not be exposed/executed.
-    /// - Disable in derived agents if you want to prevent side-effect tools (HTTP, publish_event, dotnet-file/python-file tools, etc).
-    /// </summary>
+    // Safety: side-effect tools (dangerous/confirmation).
     public bool AllowDangerousTools { get; set; } = true;
 
-    /// <summary>
-    /// Safety switch (default: true):
-    /// - Controls tools marked <c>RequiresInternalAccess</c> (state query, event publishing, skills tools...).
-    /// - If you want to hard-disable internal introspection tools, set to false.
-    /// </summary>
+    // Safety: internal tools (state introspection, event publishing, skills tools...).
     public bool AllowInternalTools { get; set; } = true;
 
-    /// <summary>
-    /// Optional CQRS query facade (injected by runtime).
-    /// <para/>
-    /// Used by tools (e.g. <c>search_memory</c>) to query projected state read-model (e.g. Elasticsearch).
-    /// </summary>
+    // Optional read-model query service for tools (e.g. search_memory).
     protected IStateQueryService? CqrsStateQueryService { get; set; }
 
-    // ============================================================
-    //  Tool system (now part of AIGAgentBase)
-    // ============================================================
-
     private ToolingRuntime? _toolingRuntime;
-    private ToolingRuntime Tooling => _toolingRuntime ??= new ToolingRuntime(ToolingInitHost, ToolingLoopHost);
+    private ToolingRuntime Tooling => _toolingRuntime ??= new ToolingRuntime(this, this);
 
     private IReadOnlyList<ToolDefinition> RegisteredToolsCache => Tooling.RegisteredToolsCache;
     private IReadOnlyList<AevatarFunctionDefinition> FunctionDefinitionsCache => Tooling.FunctionDefinitionsCache;
 
-    /// <summary>
-    /// Gets or sets the tool manager (DI injectable).
-    /// </summary>
+    private AIGAgentToolsRuntime? _agentToolsRuntime;
+    private AIGAgentToolsRuntime AgentTools => _agentToolsRuntime ??= new AIGAgentToolsRuntime(this);
+
     protected IAevatarToolManager ToolManager
     {
-        get
-        {
-            return Tooling.ToolManager;
-        }
-        set
-        {
-            Tooling.ToolManager = value ?? throw new ArgumentNullException(nameof(value));
-        }
+        get => Tooling.ToolManager;
+        set => Tooling.ToolManager = value ?? throw new ArgumentNullException(nameof(value));
     }
 
-    private void EnsureToolManagerInitialized()
-    {
-        Tooling.EnsureToolManagerInitialized();
-    }
+    private void EnsureToolManagerInitialized() => Tooling.EnsureToolManagerInitialized();
 
-    /// <summary>
-    /// Creates the tool manager. Override to customize.
-    /// </summary>
     protected virtual IAevatarToolManager CreateToolManager()
     {
         var logger = new LoggerAdapter<AevatarToolManager>(Logger);
@@ -107,70 +84,101 @@ public abstract partial class AIGAgentBase
     /// </summary>
     protected virtual async Task RegisterToolsAsync(CancellationToken cancellationToken = default)
     {
-        // Core: state query
-        await RegisterToolAsync(new StateQueryTool(), cancellationToken: cancellationToken);
+        var contributors = new IAIGAgentToolContributor[]
+        {
+            new CoreToolsContributor(new CoreToolsContributorHost(this)),
+            new MemorySearchToolsContributor(new MemorySearchToolsContributorHost(this)),
 
-        // Core: event publishing (requires PublishEventCallback)
-        await RegisterToolAsync(new EventPublisherTool(), cancellationToken: cancellationToken);
+            new WebSearchToolsContributor(new WebSearchToolsContributorHost(this)),
+            new AgentSkillsToolsContributor(new AgentSkillsToolsContributorHost(this)),
+            new McpToolsContributor(new McpToolsContributorHost(this))
+        };
 
-        // Built-in: memory search (uses CQRS read-model + State snapshot)
-        await RegisterToolAsync(
-            new AevatarMemorySearchTool(
-                new LoggerAdapter<AevatarMemorySearchTool>(Logger),
-                CqrsStateQueryService,
-                MemoryStore,
-                MemoryVectorIndex),
-            cancellationToken: cancellationToken);
+        // Core stage: fail-fast (tools are expected to be available for normal operation).
+        foreach (var c in contributors.Where(x => x.Stage == ToolContributionStage.Core))
+        {
+            await c.ContributeAsync(cancellationToken);
+        }
 
-        // Built-in: web search + Agent Skills + MCP servers
-        // 中文 + ASCII:
-        // - 这些是 best-effort + 可能 I/O / network-heavy
-        // - 并行初始化以降低首轮耗时
-        var webSearchTask = RegisterWebSearchToolBestEffortAsync(cancellationToken);
-        var skillsTask = RegisterAgentSkillsToolsAsync(cancellationToken);
-        var mcpTask = RegisterMcpServersFromConfigurationBestEffortAsync(isRetry: false, cancellationToken);
-        await Task.WhenAll(webSearchTask, skillsTask, mcpTask);
+        // Best-effort stage: run in parallel, do not block agent startup.
+        var bestEffort = contributors
+            .Where(x => x.Stage == ToolContributionStage.BestEffort)
+            .Select(async c =>
+            {
+                try
+                {
+                    await c.ContributeAsync(cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogDebug(ex, "Tool contributor '{Name}' failed (best-effort).", c.GetType().Name);
+                }
+            })
+            .ToArray();
+
+        await Task.WhenAll(bestEffort);
     }
 
-    /// <summary>
-    /// Import a single-file C# "skill" as a tool via <c>dotnet run --file</c>.
-    /// </summary>
+    private sealed class CoreToolsContributorHost(AIGAgentBase owner) : ICoreToolsContributorHost
+    {
+        private readonly AIGAgentBase _owner = owner ?? throw new ArgumentNullException(nameof(owner));
+
+        public async Task RegisterToolAsync(IAevatarTool tool, CancellationToken ct)
+            => await _owner.RegisterToolDefinitionNoRefreshAsync(tool, _owner.Logger, ct);
+    }
+
+    private sealed class MemorySearchToolsContributorHost(AIGAgentBase owner) : IMemorySearchToolsContributorHost
+    {
+        private readonly AIGAgentBase _owner = owner ?? throw new ArgumentNullException(nameof(owner));
+
+        public ILogger Logger => _owner.Logger;
+        public IStateQueryService? CqrsStateQueryService => _owner.CqrsStateQueryService;
+        public IMemoryStore? MemoryStore => _owner.MemoryStore;
+        public IMemoryVectorIndex? MemoryVectorIndex => _owner.MemoryVectorIndex;
+
+        public async Task RegisterToolAsync(IAevatarTool tool, CancellationToken ct)
+            => await _owner.RegisterToolDefinitionNoRefreshAsync(tool, _owner.Logger, ct);
+    }
+
+    private sealed class WebSearchToolsContributorHost(AIGAgentBase owner) : IWebSearchToolsContributorHost
+    {
+        private readonly AIGAgentBase _owner = owner ?? throw new ArgumentNullException(nameof(owner));
+        public Task<bool> RegisterWebSearchToolBestEffortAsync(CancellationToken ct)
+            => _owner.RegisterWebSearchToolBestEffortAsync(ct);
+    }
+
+    private sealed class AgentSkillsToolsContributorHost(AIGAgentBase owner) : IAgentSkillsToolsContributorHost
+    {
+        private readonly AIGAgentBase _owner = owner ?? throw new ArgumentNullException(nameof(owner));
+        public Task RegisterAgentSkillsToolsAsync(CancellationToken ct)
+            => _owner.RegisterAgentSkillsToolsAsync(ct);
+    }
+
+    private sealed class McpToolsContributorHost(AIGAgentBase owner) : IMcpToolsContributorHost
+    {
+        private readonly AIGAgentBase _owner = owner ?? throw new ArgumentNullException(nameof(owner));
+        public Task<bool> RegisterMcpServersFromConfigurationBestEffortAsync(bool isRetry, CancellationToken ct)
+            => _owner.RegisterMcpServersFromConfigurationBestEffortAsync(isRetry, ct);
+    }
+
     public async Task RegisterDotNetFileSkillAsync(
         string filePath,
         CancellationToken cancellationToken = default)
     {
-        var tool = await DotNetFileSkillTool.LoadFromFileAsync(
-            filePath,
-            logger: Logger,
-            cancellationToken: cancellationToken);
-
-        await RegisterToolAsync(tool, Logger, cancellationToken);
+        await AgentTools.RegisterDotNetFileSkillAsync(filePath, cancellationToken);
     }
 
-    /// <summary>
-    /// Import a single-file Python "skill" as a tool via <c>python3 -I -u</c>.
-    /// </summary>
     public async Task RegisterPythonFileSkillAsync(
         string filePath,
         CancellationToken cancellationToken = default)
     {
-        var tool = await PythonFileSkillTool.LoadFromFileAsync(
-            filePath,
-            logger: Logger,
-            cancellationToken: cancellationToken);
-
-        await RegisterToolAsync(tool, Logger, cancellationToken);
+        await AgentTools.RegisterPythonFileSkillAsync(filePath, cancellationToken);
     }
 
-    /// <summary>
-    /// Auto-register file-based tools from a directory.
-    /// <para/>
-    /// By default this registers:
-    /// - dotnet-file tools: <c>*.cs</c> that contain <c>/*aevatar_tool</c> within the first 16KB
-    /// - python-file tools: <c>*.py</c> that contain <c>"""aevatar_tool</c> or <c>'''aevatar_tool</c> within the first 16KB
-    /// <para/>
-    /// This is intended for demo/dev convenience (so agents don't have to list each tool file manually).
-    /// </summary>
     public async Task RegisterFileSkillsFromDirectoryAsync(
         string directoryPath,
         bool includeDotNet = true,
@@ -180,107 +188,17 @@ public abstract partial class AIGAgentBase
         bool requireManifestMarker = true,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(directoryPath))
-            return;
-
-        string fullDir;
-        try
-        {
-            fullDir = Path.GetFullPath(directoryPath.Trim());
-        }
-        catch
-        {
-            return;
-        }
-
-        if (!Directory.Exists(fullDir))
-            return;
-
         EnsureToolManagerInitialized();
-
-        // Build once and reuse (avoid per-file cache refresh cost).
-        var toolContext = BuildToolRegistrationContext();
-        var registeredAny = false;
-
-        if (includeDotNet)
-        {
-            IEnumerable<string> files = Array.Empty<string>();
-            try
-            {
-                files = Directory.EnumerateFiles(fullDir, "*.cs", searchOption);
-            }
-            catch (Exception ex)
-            {
-                Logger.LogDebug(ex, "Failed to enumerate dotnet-file skills under '{Dir}' (best-effort).", fullDir);
-            }
-
-            foreach (var file in files
-                         .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
-                         .Take(Math.Clamp(maxFilesPerType, 0, 512)))
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                if (requireManifestMarker && !LooksLikeAevatarDotNetToolFile(file))
-                    continue;
-
-                try
-                {
-                    var tool = await DotNetFileSkillTool.LoadFromFileAsync(file, Logger, cancellationToken);
-                    var def = tool.CreateToolDefinition(toolContext, Logger);
-                    await ToolManager.RegisterToolAsync(def, cancellationToken);
-                    registeredAny = true;
-                }
-                catch (Exception ex)
-                {
-                    Logger.LogWarning(ex, "Failed to register dotnet-file skill '{File}' (best-effort).", file);
-                }
-            }
-        }
-
-        if (includePython)
-        {
-            IEnumerable<string> files = Array.Empty<string>();
-            try
-            {
-                files = Directory.EnumerateFiles(fullDir, "*.py", searchOption);
-            }
-            catch (Exception ex)
-            {
-                Logger.LogDebug(ex, "Failed to enumerate python-file skills under '{Dir}' (best-effort).", fullDir);
-            }
-
-            foreach (var file in files
-                         .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
-                         .Take(Math.Clamp(maxFilesPerType, 0, 512)))
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                if (requireManifestMarker && !LooksLikeAevatarPythonToolFile(file))
-                    continue;
-
-                try
-                {
-                    var tool = await PythonFileSkillTool.LoadFromFileAsync(file, Logger, cancellationToken);
-                    var def = tool.CreateToolDefinition(toolContext, Logger);
-                    await ToolManager.RegisterToolAsync(def, cancellationToken);
-                    registeredAny = true;
-                }
-                catch (Exception ex)
-                {
-                    Logger.LogWarning(ex, "Failed to register python-file skill '{File}' (best-effort).", file);
-                }
-            }
-        }
-
-        if (registeredAny)
-        {
-            await RefreshToolCachesAsync(cancellationToken);
-        }
+        await AgentTools.RegisterFileSkillsFromDirectoryAsync(
+            directoryPath,
+            includeDotNet,
+            includePython,
+            searchOption,
+            maxFilesPerType,
+            requireManifestMarker,
+            cancellationToken);
     }
 
-    /// <summary>
-    /// Helper to register a tool with current agent context.
-    /// </summary>
     protected async Task RegisterToolAsync(
         IAevatarTool tool,
         ILogger? logger = null,
@@ -289,112 +207,41 @@ public abstract partial class AIGAgentBase
         await RegisterToolDefinitionAsync(tool, logger, cancellationToken);
     }
 
-    /// <summary>
-    /// Register a tool and return its definition (for evolution registry).
-    /// </summary>
     protected async Task<ToolDefinition> RegisterToolDefinitionAsync(
         IAevatarTool tool,
         ILogger? logger = null,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(tool);
-
         EnsureToolManagerInitialized();
-
-        var context = BuildToolRegistrationContext();
-        var toolDefinition = tool.CreateToolDefinition(context, logger ?? Logger);
-        await ToolManager.RegisterToolAsync(toolDefinition, cancellationToken);
-
-        await RefreshToolCachesAsync(cancellationToken);
-        return toolDefinition;
+        return await AgentTools.RegisterToolDefinitionAsync(
+            tool,
+            logger ?? Logger,
+            refreshToolCaches: true,
+            cancellationToken);
     }
 
-    private ToolContext BuildToolRegistrationContext()
+    private async Task<ToolDefinition> RegisterToolDefinitionNoRefreshAsync(
+        IAevatarTool tool,
+        ILogger? logger,
+        CancellationToken cancellationToken)
     {
-        return new ToolContext
-        {
-            AgentId = Id.ToString(),
-            AgentType = GetType().FullName ?? GetType().Name,
-            GetStateCallback = () => GetState(),
-            GenerateEmbeddingsAsync = HasEmbeddingGenerator
-                ? (inputs, ct) => GenerateEmbeddingsAsync(inputs, cancellationToken: ct)
-                : null,
-            PublishEventCallback = msg => PublishToolEventAsync(msg, EventDirection.Down, CancellationToken.None),
-            PublishEventWithDirectionCallback = (msg, direction, ct) => PublishToolEventAsync(msg, direction, ct),
-            GetSessionIdCallback = () => Id.ToString(),
-            Logger = Logger
-        };
+        EnsureToolManagerInitialized();
+        return await AgentTools.RegisterToolDefinitionAsync(
+            tool,
+            logger ?? Logger,
+            refreshToolCaches: false,
+            cancellationToken);
     }
 
-    private static bool LooksLikeAevatarPythonToolFile(string filePath)
-    {
-        try
-        {
-            using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            var max = (int)Math.Min(16 * 1024, fs.Length);
-            if (max <= 0) return false;
-
-            var buf = new byte[max];
-            var read = fs.Read(buf, 0, max);
-            if (read <= 0) return false;
-
-            var head = Encoding.UTF8.GetString(buf, 0, read);
-            return head.Contains("\"\"\"aevatar_tool", StringComparison.OrdinalIgnoreCase) ||
-                   head.Contains("'''aevatar_tool", StringComparison.OrdinalIgnoreCase);
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static bool LooksLikeAevatarDotNetToolFile(string filePath)
-    {
-        try
-        {
-            using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            var max = (int)Math.Min(16 * 1024, fs.Length);
-            if (max <= 0) return false;
-
-            var buf = new byte[max];
-            var read = fs.Read(buf, 0, max);
-            if (read <= 0) return false;
-
-            var head = Encoding.UTF8.GetString(buf, 0, read);
-            return head.Contains("/*aevatar_tool", StringComparison.Ordinal);
-        }
-        catch
-        {
-            return false;
-        }
-    }
+    private ToolContext BuildToolRegistrationContext() => AgentTools.BuildToolRegistrationContext();
 
     private ToolExecutionContext BuildToolExecutionContext(string sessionId, CancellationToken cancellationToken)
-    {
-        return new ToolExecutionContext
-        {
-            AgentId = Id.ToString(),
-            ToolManager = ToolManager,
-            PublishEventCallback = msg => PublishToolEventAsync(msg, EventDirection.Down, cancellationToken),
-            PublishEventWithDirectionCallback = (msg, direction, ct) => PublishToolEventAsync(msg, direction, ct),
-            Logger = Logger,
-            GetSessionId = () => sessionId,
-            AllowInternalTools = AllowInternalTools,
-            AllowDangerousTools = AllowDangerousTools
-        };
-    }
+        => AgentTools.BuildToolExecutionContext(sessionId, cancellationToken);
 
     private Task<string> PublishToolEventAsync(IMessage message, EventDirection direction, CancellationToken ct)
-    {
         // Use dynamic to preserve the runtime message type for metrics/logging (instead of "IMessage").
-        return PublishAsync((dynamic)message, direction, ct);
-    }
+        => PublishAsync((dynamic)message, direction, ct);
 
-    /// <summary>
-    /// Refresh internal tool caches (definitions + function schema) used for LLM tool calling.
-    /// <para/>
-    /// NOTE: Derived agents may call this after dynamically registering tools (e.g. MCP reconnect).
-    /// </summary>
     protected async Task RefreshToolCachesAsync(CancellationToken cancellationToken = default)
     {
         await Tooling.RefreshToolCachesAsync(cancellationToken);
@@ -411,9 +258,6 @@ public abstract partial class AIGAgentBase
         return tools.Count > 0;
     }
 
-    /// <summary>
-    /// Execute a tool by name with parameters.
-    /// </summary>
     protected async Task<ToolExecutionResult> ExecuteToolAsync(
         string toolName,
         Dictionary<string, object> parameters,
@@ -421,150 +265,38 @@ public abstract partial class AIGAgentBase
         CancellationToken cancellationToken = default)
     {
         EnsureToolManagerInitialized();
-
-        cancellationToken.ThrowIfCancellationRequested();
-
-        var msgId = Guid.NewGuid().ToString("N");
-        var tcId = context?.ToolCallId;
-        if (string.IsNullOrWhiteSpace(tcId))
-            tcId = Guid.NewGuid().ToString("N");
-        if (context != null)
-        {
-            context.ToolCallId = tcId;
-            context.ToolName ??= toolName;
-        }
-
-        var sessionId = context?.GetSessionId?.Invoke() ?? Guid.NewGuid().ToString("N");
-        var lastProgressAtMs = 0L;
-        string? lastProgressMsg = null;
-
-        async Task EmitTraceProgressAsync(string msg, CancellationToken ct)
-        {
-            msg = NormalizeProgressMessage(msg);
-            if (msg.Length == 0)
-                return;
-
-            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            var since = now - lastProgressAtMs;
-            if (since < 800 && string.Equals(lastProgressMsg, msg, StringComparison.Ordinal))
-                return;
-            if (since < 500)
-                return;
-
-            lastProgressAtMs = now;
-            lastProgressMsg = msg;
-
-            var evt = new ExecutionTraceEvent
-            {
-                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
-                Phase = ExecutionTraceEventPhase.ToolProgress,
-                Message = msg,
-                NodeId = $"tool:{tcId}"
-            };
-
-            evt.Fields[ExecutionTraceEventFields.Status] =
-                ExecutionTraceEventFieldValue.FromString(ExecutionTraceEventStatus.Running);
-            evt.Fields[ExecutionTraceEventFields.SessionId] =
-                ExecutionTraceEventFieldValue.FromString(sessionId);
-            evt.Fields[ExecutionTraceEventFields.ExecutionId] =
-                ExecutionTraceEventFieldValue.FromString(sessionId);
-            evt.Fields[ExecutionTraceEventFields.AgentId] =
-                ExecutionTraceEventFieldValue.FromString(Id.ToString());
-            evt.Fields[ExecutionTraceEventFields.ToolName] =
-                ExecutionTraceEventFieldValue.FromString(toolName);
-            evt.Fields[ExecutionTraceEventFields.ToolCallId] =
-                ExecutionTraceEventFieldValue.FromString(tcId);
-            evt.Fields[ExecutionTraceEventFields.Phase] =
-                ExecutionTraceEventFieldValue.FromString(ExecutionTraceEventPhase.ToolProgress);
-            evt.Fields[ExecutionTraceEventFields.MessageId] =
-                ExecutionTraceEventFieldValue.FromString(sessionId);
-
-            try
-            {
-                await PublishAsync(evt, EventDirection.Down, ct);
-            }
-            catch
-            {
-                // best-effort only
-            }
-        }
-
-        if (context != null)
-        {
-            var previous = context.ReportProgressAsync;
-            context.ReportProgressAsync = async (msg, ct) =>
-            {
-                if (previous != null)
-                {
-                    await previous(msg, ct);
-                }
-
-                await EmitTraceProgressAsync(msg, ct);
-            };
-        }
-
-        // Publish START (Protobuf)
-        await PublishAsync(new ToolCallStartEvent
-        {
-            MessageId = msgId,
-            ToolCallId = tcId,
-            ToolName = toolName,
-            ArgumentsJson = JsonSerializer.Serialize(parameters),
-            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
-        }, EventDirection.Down, cancellationToken);
-
-        ToolExecutionResult result;
-        try
-        {
-            result = await ToolManager.ExecuteToolAsync(toolName, parameters, context, cancellationToken);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            // Expected: cooperative cancellation. Do NOT publish "error" events on cancel,
-            // and do not try to publish extra events using an already-canceled token.
-            throw;
-        }
-        catch (Exception ex)
-        {
-            // Publish ERROR result
-            await PublishAsync(new ToolCallResultEvent
-            {
-                MessageId = msgId,
-                ToolCallId = tcId,
-                Result = "",
-                IsSuccess = false,
-                ErrorMessage = ex.Message,
-                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
-            }, EventDirection.Down, cancellationToken);
-            throw;
-        }
-
-        cancellationToken.ThrowIfCancellationRequested();
-
-        // Publish SUCCESS result
-        await PublishAsync(new ToolCallResultEvent
-        {
-            MessageId = msgId,
-            ToolCallId = tcId,
-            Result = result.Content ?? "",
-            IsSuccess = result.IsSuccess,
-            ErrorMessage = result.ErrorMessage ?? "",
-            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
-        }, EventDirection.Down, cancellationToken);
-
-        await PublishAsync(new ToolCallEndEvent
-        {
-            MessageId = msgId,
-            ToolCallId = tcId,
-            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
-        }, EventDirection.Down, cancellationToken);
-
-        return result;
+        return await AgentTools.ExecuteToolAsync(toolName, parameters, context, cancellationToken);
     }
 
-    /// <summary>
-    /// Execute a tool directly (workflow step), without LLM tool loop.
-    /// </summary>
+    private async Task<(AevatarLLMResponse FinalResponse, ToolCallInfo? ToolCall)> ExecuteToolCallLoopAsync(
+        ChatRequest request,
+        AevatarLLMRequest llmRequest,
+        AevatarLLMResponse initialResponse,
+        CancellationToken cancellationToken)
+    {
+        return await Tooling.ExecuteToolCallLoopAsync(request, llmRequest, initialResponse, cancellationToken);
+    }
+
+    [EventHandler]
+    protected virtual async Task HandleToolExecutionRequestEvent(ToolExecutionRequestEvent evt)
+    {
+        await InitializeToolsAsync();
+
+        var parameters = Tooling.ParseToolArguments(evt.Arguments);
+        var executionContext = BuildToolExecutionContext(evt.RequestId, CancellationToken.None);
+        var result = await ExecuteToolAsync(evt.ToolName, parameters, executionContext, CancellationToken.None);
+
+        await PublishAsync(new ToolExecutionResponseEvent
+        {
+            RequestId = evt.RequestId,
+            ToolName = evt.ToolName,
+            Success = result.IsSuccess,
+            Result = result.Content ?? string.Empty,
+            Error = result.ErrorMessage ?? string.Empty,
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+        });
+    }
+
     public async Task<ToolExecutionResult> ExecuteToolForWorkflowAsync(
         string toolName,
         Dictionary<string, object> parameters,
@@ -572,126 +304,253 @@ public abstract partial class AIGAgentBase
         CancellationToken cancellationToken = default)
     {
         EnsureToolManagerInitialized();
-        await InitializeToolsAsync(cancellationToken);
+        return await AgentTools.ExecuteToolForWorkflowAsync(toolName, parameters, sessionId, cancellationToken);
+    }
 
-        var sid = string.IsNullOrWhiteSpace(sessionId) ? Id.ToString() : sessionId.Trim();
-        var executionContext = BuildToolExecutionContext(sid, cancellationToken);
+    private string BuildToolInstructionBlock() => AgentTools.BuildToolInstructionBlock();
 
-        var llmRequest = new AevatarLLMRequest
+    private void AttachToolsToRequest(AevatarLLMRequest llmRequest) => AgentTools.AttachToolsToRequest(llmRequest);
+
+    // ---- Hook / harness runtime (best-effort) --------------------------------
+
+    private AIGAgentHookRuntime? _hookRuntime;
+    private AIGAgentHookRuntime HookRuntime => _hookRuntime ??= new AIGAgentHookRuntime(this);
+
+    protected IEnumerable<IAevatarAgentHook> AdditionalHooks { get; set; } = Array.Empty<IAevatarAgentHook>();
+    protected AevatarAgentHookOptions HookOptions { get; set; } = new();
+
+    protected virtual IEnumerable<IAevatarAgentHook> CreateBuiltInHooks()
+    {
+        var hooks = new List<IAevatarAgentHook>
         {
-            UserPrompt = string.Empty,
-            Messages = new List<AevatarChatMessage>(),
-            Settings = new AevatarLLMSettings()
+            new ExecutionTraceProgressHook((evt, ct) => PublishAsync(evt, EventDirection.Down, ct), Logger),
+            new ToolOutputTruncationHook(),
+            new ContextBudgetMonitorHook(Logger)
         };
 
-        return await ExecuteAllowedToolWithHooksAsync(
-            toolName,
-            parameters,
-            executionContext,
-            llmRequest,
-            cancellationToken);
+        if (ToolEvolutionOptions.Enabled && ToolEvolutionOptions.EnableFeedbackHooks)
+        {
+            hooks.Add(new ToolExecutionHistoryHook(
+                ToolEvolutionOptions,
+                publishEvent: (evt, ct) => PublishAsync(evt, EventDirection.Down, ct),
+                appendMemory: AppendToolFeedbackMemoryAsync,
+                logger: Logger));
+
+            hooks.Add(new ToolMetricsHook(
+                ToolEvolutionOptions,
+                ToolMetricsStore,
+                publishSnapshot: (snapshot, ct) => PublishAsync(snapshot, EventDirection.Down, ct),
+                logger: Logger));
+        }
+
+        return hooks;
     }
 
-    private static string NormalizeProgressMessage(string? msg, int maxChars = 2000)
+    internal void InjectHookOptions(AevatarAgentHookOptions? options)
     {
-        var text = (msg ?? string.Empty).Replace("\r", "").Trim();
-        if (text.Length == 0)
-            return string.Empty;
-        return text.Length <= maxChars ? text : text[..maxChars];
+        if (options == null) return;
+        HookOptions = options;
+        HookRuntime.Invalidate();
     }
 
-    private string BuildToolInstructionBlock()
+    internal void InjectAdditionalHooks(IEnumerable<IAevatarAgentHook>? hooks)
     {
-        if (RegisteredToolsCache.Count == 0)
-            return string.Empty;
-
-        var visibleTools = RegisteredToolsCache
-            .Where(IsToolAllowedByPolicy)
-            .ToList();
-
-        if (visibleTools.Count == 0)
-            return string.Empty;
-
-        var sb = new StringBuilder();
-
-        sb.AppendLine();
-        sb.AppendLine("You can call tools (function calling). Available tools:");
-        foreach (var tool in visibleTools)
-        {
-            sb.AppendLine($"- {tool.Name}: {tool.Description}");
-        }
-
-        sb.AppendLine();
-        sb.AppendLine("Rules:");
-        sb.AppendLine("- If a tool can answer more accurately/efficiently, call the tool first, then answer.");
-
-        if (visibleTools.Any(t => string.Equals(t.Name, "search_memory", StringComparison.OrdinalIgnoreCase)))
-        {
-            sb.AppendLine("- If you need details from earlier conversation, call 'search_memory' before answering.");
-        }
-
-        if (visibleTools.Any(t => string.Equals(t.Name, "find_helpful_skills", StringComparison.OrdinalIgnoreCase)) &&
-            visibleTools.Any(t => string.Equals(t.Name, "skills_load", StringComparison.OrdinalIgnoreCase)))
-        {
-            sb.AppendLine(
-                "- Skills: call 'find_helpful_skills' with the user task, then 'skills_load' only the top 1-2 candidates. Do NOT load all skills.");
-        }
-
-        return sb.ToString().TrimEnd();
+        if (hooks == null) return;
+        AdditionalHooks = hooks as IAevatarAgentHook[] ?? hooks.ToArray();
+        HookRuntime.Invalidate();
     }
 
-    private void AttachToolsToRequest(AevatarLLMRequest llmRequest)
+    protected override Task OnEventHandlerStartAsync(
+        EventEnvelope envelope,
+        EventHandlerMetadata handler,
+        object? payload,
+        CancellationToken ct)
+        => HookRuntime.OnEventHandlerStartAsync(envelope, handler, payload, ct);
+
+    protected override Task OnEventHandlerEndAsync(
+        EventEnvelope envelope,
+        EventHandlerMetadata handler,
+        object? payload,
+        TimeSpan duration,
+        Exception? exception,
+        CancellationToken ct)
+        => HookRuntime.OnEventHandlerEndAsync(envelope, handler, payload, duration, exception, ct);
+
+    private Task RunSessionStartHooksAsync(ChatRequest request, bool isStreaming, CancellationToken ct)
+        => HookRuntime.RunSessionStartHooksAsync(request, isStreaming, ct);
+
+    private Task RunStopHooksAsync(
+        ChatRequest request,
+        bool isStreaming,
+        AevatarAgentHookStopStatus status,
+        TimeSpan duration,
+        Exception? exception)
+        => HookRuntime.RunStopHooksAsync(request, isStreaming, status, duration, exception);
+
+    private Task RunSessionEndHooksAsync(
+        ChatRequest request,
+        bool isStreaming,
+        AevatarAgentHookStopStatus status,
+        TimeSpan duration,
+        Exception? exception)
+        => HookRuntime.RunSessionEndHooksAsync(request, isStreaming, status, duration, exception);
+
+    protected Task<AevatarLLMResponse> GenerateLLMWithHooksAsync(
+        string requestId,
+        AevatarLLMRequest llmRequest,
+        CancellationToken cancellationToken)
+        => HookRuntime.GenerateLLMWithHooksAsync(requestId, llmRequest, cancellationToken);
+
+    protected IAsyncEnumerable<AevatarLLMToken> GenerateLLMStreamWithHooksAsync(
+        string requestId,
+        AevatarLLMRequest llmRequest,
+        CancellationToken ct)
+        => HookRuntime.GenerateLLMStreamWithHooksAsync(requestId, llmRequest, ct);
+
+    private Task<AevatarLLMResponse> GenerateLLMWithHooksAsync(
+        ChatRequest request,
+        AevatarLLMRequest llmRequest,
+        CancellationToken ct)
+        => HookRuntime.GenerateLLMWithHooksAsync(request, llmRequest, ct);
+
+    private Task<ToolExecutionResult> ExecuteAllowedToolWithHooksAsync(
+        string toolName,
+        Dictionary<string, object> args,
+        ToolExecutionContext executionContext,
+        AevatarLLMRequest llmRequest,
+        CancellationToken ct)
+        => HookRuntime.ExecuteAllowedToolWithHooksAsync(toolName, args, executionContext, llmRequest, ct);
+
+    private static string ResolveEventRequestId(EventEnvelope envelope)
+        => !string.IsNullOrWhiteSpace(envelope.Id)
+            ? envelope.Id
+            : !string.IsNullOrWhiteSpace(envelope.CorrelationId)
+                ? envelope.CorrelationId
+                : Guid.NewGuid().ToString("N");
+
+    private static string? ResolveEventType(EventEnvelope envelope, object? payload)
     {
-        if (FunctionDefinitionsCache.Count == 0)
-            return;
-
-        // Apply runtime policy: keep dangerous tools hidden unless explicitly enabled.
-        var allowedNames = RegisteredToolsCache
-            .Where(IsToolAllowedByPolicy)
-            .Select(t => t.Name)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        if (allowedNames.Count == 0)
+        if (payload is IMessage message)
         {
-            llmRequest.Functions = new List<AevatarFunctionDefinition>();
-            return;
+            var descriptorName = message.Descriptor?.FullName;
+            if (!string.IsNullOrWhiteSpace(descriptorName))
+                return descriptorName;
         }
 
-        // Optional: apply a runtime allowlist (e.g. from Agent Skills front matter `allowed-tools`).
-        // This keeps the model from seeing / calling tools outside the allowed set.
-        if (AIGAgentKeys.TryGetToolAllowlist(llmRequest, out var allowlist) && allowlist.Count > 0)
-        {
-            llmRequest.Functions = FunctionDefinitionsCache
-                .Where(d => allowlist.Contains(d.Name) && allowedNames.Contains(d.Name))
-                .ToList();
-            return;
-        }
+        var typeUrl = envelope.Payload?.TypeUrl;
+        if (string.IsNullOrWhiteSpace(typeUrl))
+            return null;
 
-        llmRequest.Functions = FunctionDefinitionsCache
-            .Where(d => allowedNames.Contains(d.Name))
-            .ToList();
+        return typeUrl.Split('/').LastOrDefault() ?? typeUrl;
     }
 
-    /// <summary>
-    /// Logger adapter to convert ILogger to ILogger{T}.
-    /// </summary>
-    private sealed class LoggerAdapter<T> : ILogger<T>
-    {
-        private readonly ILogger _inner;
+    ILogger IAIGAgentHookRuntimeHost.Logger => Logger;
+    string IAIGAgentHookRuntimeHost.AgentId => Id.ToString();
+    string IAIGAgentHookRuntimeHost.AgentType => GetType().FullName ?? GetType().Name;
+    bool IAIGAgentHookRuntimeHost.AllowInternalTools => AllowInternalTools;
+    bool IAIGAgentHookRuntimeHost.AllowDangerousTools => AllowDangerousTools;
+    IAevatarLLMProvider IAIGAgentHookRuntimeHost.LLMProvider => LLMProvider;
+    IEnumerable<IAevatarAgentHook> IAIGAgentHookRuntimeHost.CreateBuiltInHooks() => CreateBuiltInHooks();
+    IEnumerable<IAevatarAgentHook> IAIGAgentHookRuntimeHost.AdditionalHooks => AdditionalHooks;
+    AevatarAgentHookOptions IAIGAgentHookRuntimeHost.HookOptions => HookOptions;
+    void IAIGAgentHookRuntimeHost.AttachToolsToRequest(AevatarLLMRequest llmRequest) => AttachToolsToRequest(llmRequest);
 
-        public LoggerAdapter(ILogger inner) => _inner = inner ?? NullLogger.Instance;
+    Task<ToolExecutionResult> IAIGAgentHookRuntimeHost.ExecuteAllowedToolAsync(
+        string toolName,
+        Dictionary<string, object> args,
+        ToolExecutionContext executionContext,
+        AevatarLLMRequest llmRequest,
+        CancellationToken ct)
+        => ExecuteAllowedToolAsync(toolName, args, executionContext, llmRequest, ct);
 
-        public IDisposable? BeginScope<TLogState>(TLogState state) where TLogState : notnull
-            => _inner.BeginScope(state);
+    Task IAIGAgentHookRuntimeHost.PublishAsync(IMessage message, EventDirection direction, CancellationToken ct)
+        => PublishAsync((dynamic)message, direction, ct);
 
-        public bool IsEnabled(LogLevel logLevel) => _inner.IsEnabled(logLevel);
+    string? IAIGAgentHookRuntimeHost.ResolveEventType(EventEnvelope envelope, object? payload)
+        => ResolveEventType(envelope, payload);
 
-        public void Log<TLogState>(
-            LogLevel logLevel,
-            EventId eventId,
-            TLogState state,
-            Exception? exception,
-            Func<TLogState, Exception?, string> formatter)
-            => _inner.Log(logLevel, eventId, state, exception, formatter);
-    }
+    string IAIGAgentHookRuntimeHost.ResolveEventRequestId(EventEnvelope envelope)
+        => ResolveEventRequestId(envelope);
+
+    IAevatarToolManager IToolingInitHost.CreateToolManager() => CreateToolManager();
+    Task IToolingInitHost.RegisterToolsAsync(CancellationToken cancellationToken) => RegisterToolsAsync(cancellationToken);
+
+    ILogger IToolingLoopHost.Logger => Logger;
+    IAevatarLLMProvider IToolingLoopHost.LLMProvider => LLMProvider;
+    bool IToolingLoopHost.EnableChatHistoryInState => EnableChatHistoryInState;
+
+    ToolExecutionContext IToolingLoopHost.BuildToolExecutionContext(string sessionId, CancellationToken cancellationToken)
+        => BuildToolExecutionContext(sessionId, cancellationToken);
+
+    Task<ToolExecutionResult> IToolingLoopHost.ExecuteAllowedToolWithHooksAsync(
+        string toolName,
+        Dictionary<string, object> args,
+        ToolExecutionContext executionContext,
+        AevatarLLMRequest llmRequest,
+        CancellationToken cancellationToken)
+        => ExecuteAllowedToolWithHooksAsync(toolName, args, executionContext, llmRequest, cancellationToken);
+
+    Task<ToolExecutionResult> IToolingLoopHost.ExecuteToolAsync(
+        string toolName,
+        Dictionary<string, object> parameters,
+        ToolExecutionContext executionContext,
+        CancellationToken cancellationToken)
+        => ExecuteToolAsync(toolName, parameters, executionContext, cancellationToken);
+
+    Task IToolingLoopHost.PublishAsync(IMessage message, EventDirection direction, CancellationToken ct)
+        => PublishAsync((dynamic)message, direction, ct);
+
+    void IToolingLoopHost.AttachToolsToRequest(AevatarLLMRequest llmRequest) => AttachToolsToRequest(llmRequest);
+
+    void IToolingLoopHost.TryApplyToolAllowlistFromSkillsLoadResult(
+        AevatarLLMRequest llmRequest,
+        string toolName,
+        string? toolResultJson)
+        => TryApplyToolAllowlistFromSkillsLoadResult(llmRequest, toolName, toolResultJson);
+
+    bool IToolingLoopHost.IsToolAllowedByPolicy(ToolDefinition tool) => IsToolAllowedByPolicy(tool);
+    string IToolingLoopHost.BuildToolPolicyDenyReason(ToolDefinition tool) => BuildToolPolicyDenyReason(tool);
+
+    void IToolingLoopHost.AddMessageToHistory(AevatarChatMessage message) => AddMessageToHistory(message);
+
+    Task<AevatarLLMResponse> IToolingLoopHost.GenerateLLMWithHooksAsync(
+        ChatRequest request,
+        AevatarLLMRequest llmRequest,
+        CancellationToken cancellationToken)
+        => GenerateLLMWithHooksAsync(request, llmRequest, cancellationToken);
+
+    string IAIGAgentToolsRuntimeHost.AgentId => Id.ToString();
+    string IAIGAgentToolsRuntimeHost.AgentType => GetType().FullName ?? GetType().Name;
+    ILogger IAIGAgentToolsRuntimeHost.Logger => Logger;
+    bool IAIGAgentToolsRuntimeHost.AllowInternalTools => AllowInternalTools;
+    bool IAIGAgentToolsRuntimeHost.AllowDangerousTools => AllowDangerousTools;
+    IAevatarToolManager IAIGAgentToolsRuntimeHost.ToolManager => ToolManager;
+    IReadOnlyList<ToolDefinition> IAIGAgentToolsRuntimeHost.RegisteredToolsCache => RegisteredToolsCache;
+    IReadOnlyList<AevatarFunctionDefinition> IAIGAgentToolsRuntimeHost.FunctionDefinitionsCache => FunctionDefinitionsCache;
+    bool IAIGAgentToolsRuntimeHost.HasEmbeddingGenerator => HasEmbeddingGenerator;
+
+    async Task<IReadOnlyList<Embedding<float>>> IAIGAgentToolsRuntimeHost.GenerateEmbeddingsAsync(
+        IReadOnlyList<string> inputs,
+        CancellationToken ct)
+        => await GenerateEmbeddingsAsync(inputs, cancellationToken: ct);
+
+    IMessage IAIGAgentToolsRuntimeHost.GetState() => GetState();
+
+    Task IAIGAgentToolsRuntimeHost.PublishAsync(IMessage message, EventDirection direction, CancellationToken ct)
+        => PublishAsync((dynamic)message, direction, ct);
+
+    Task<string> IAIGAgentToolsRuntimeHost.PublishToolEventAsync(IMessage message, EventDirection direction, CancellationToken ct)
+        => PublishToolEventAsync(message, direction, ct);
+
+    bool IAIGAgentToolsRuntimeHost.IsToolAllowedByPolicy(ToolDefinition tool) => IsToolAllowedByPolicy(tool);
+    Task IAIGAgentToolsRuntimeHost.InitializeToolsAsync(CancellationToken ct) => InitializeToolsAsync(ct);
+    Task IAIGAgentToolsRuntimeHost.RefreshToolCachesAsync(CancellationToken ct) => RefreshToolCachesAsync(ct);
+
+    Task<ToolExecutionResult> IAIGAgentToolsRuntimeHost.ExecuteAllowedToolWithHooksAsync(
+        string toolName,
+        Dictionary<string, object> args,
+        ToolExecutionContext executionContext,
+        AevatarLLMRequest llmRequest,
+        CancellationToken ct)
+        => ExecuteAllowedToolWithHooksAsync(toolName, args, executionContext, llmRequest, ct);
 }

@@ -7,7 +7,7 @@ namespace Aevatar.Agents.AI.Core.Tests.Hooks;
 
 public class ToolOutputTruncationHookTests
 {
-    [Fact]
+    [Fact(DisplayName = "ToolOutputTruncationHook truncates tool output when exceeding policy max")]
     public async Task Truncates_WhenContentExceedsPolicyMax()
     {
         var hook = new ToolOutputTruncationHook();
@@ -40,7 +40,7 @@ public class ToolOutputTruncationHookTests
         ctx.Metadata["tool_output_truncated"].Should().Be(true);
     }
 
-    [Fact]
+    [Fact(DisplayName = "ToolOutputTruncationHook is a no-op when tool output is within limit")]
     public async Task NoOp_WhenContentWithinLimit()
     {
         var hook = new ToolOutputTruncationHook();

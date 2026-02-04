@@ -11,14 +11,14 @@ using VoteResult = Aevatar.Agents.Maker.VoteResult;
 namespace Aevatar.Agents.Cognitive.Agents;
 
 // ============================================================
-//  CognitiveCoordinatorGAgent - Vote (consensus)
+//  CoordinatorAgent - Vote (consensus)
 //
 //  WHY:
 //  - vote is a complex node combining "parallelism + streaming + semantic clustering + red-flag".
 //  - Separate into file to avoid Coordinator main file continuing to expand.
 // ============================================================
 
-public partial class CognitiveCoordinatorGAgent
+public partial class CoordinatorAgent
 {
     internal async Task<PrimitiveResult> ExecuteVoteAsync(StepDefinition step)
     {

@@ -2,8 +2,9 @@ using System.Linq;
 using Aevatar.Agents.AGUI;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
-using VibeResearching.Api.Vibe.Mesh;
-using VibeResearching.Api.Workspace;
+using Aevatar.Agents.Cognitive.Researching.Mesh;
+using Aevatar.Agents.Cognitive.Researching.Sessions;
+using Aevatar.Agents.Cognitive.Researching.Workspace;
 
 namespace VibeResearching.Api.Sessions;
 

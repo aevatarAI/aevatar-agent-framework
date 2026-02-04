@@ -1,8 +1,8 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
-using VibeResearching.Api.Vibe.Brief;
-using VibeResearching.Api.Vibe.Delivery;
+using Aevatar.Agents.Cognitive.Researching.Brief;
+using Aevatar.Agents.Cognitive.Researching.Delivery;
 using VibeResearching.Api.Workspace;
 using VibeResearching.Contracts.Collab;
 

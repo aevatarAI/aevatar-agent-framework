@@ -1,5 +1,4 @@
 using Aevatar.Agents.Abstractions;
-using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Core.Factory;
 using Aevatar.Agents.Runtime.Local.Subscription;
 using Microsoft.Extensions.DependencyInjection;
@@ -30,13 +29,15 @@ public static class ServiceCollectionExtensions
         // Register Local-specific components
         services.TryAddSingleton<LocalMessageStreamRegistry>();
         services.TryAddSingleton<LocalSubscriptionManager>();
+        services.TryAddSingleton<LocalMessageStreamProvider>();
+        services.TryAddSingleton<IMessageStreamProvider>(sp => sp.GetRequiredService<LocalMessageStreamProvider>());
 
         // Register Handler required for MassTransit support (even if it just throws exception)
         services.TryAddSingleton<IStreamNotFoundHandler, LocalStreamNotFoundHandler>();
 
         // Register default factory provider (if not registered)
         services.TryAddSingleton<IGAgentActorFactoryProvider, DefaultGAgentActorFactoryProvider>();
-        services.TryAddSingleton<IGAgentFactory, AIGAgentFactory>();
+        services.TryAddSingleton<IGAgentFactory, DefaultGAgentFactory>();
 
         return services;
     }

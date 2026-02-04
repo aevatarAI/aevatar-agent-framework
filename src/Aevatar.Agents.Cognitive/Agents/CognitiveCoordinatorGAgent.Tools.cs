@@ -8,13 +8,13 @@ using Microsoft.Extensions.Logging;
 namespace Aevatar.Agents.Cognitive.Agents;
 
 // ============================================================
-//  CognitiveCoordinatorGAgent - Tool steps (tool_call/tool_evolve/tool_validate)
+//  CoordinatorAgent - Tool steps (tool_call/tool_evolve/tool_validate)
 //
 //  中文 + ASCII:
 //  - Coordinator 侧负责工具演化与注册。
 //  - Worker 侧只执行 tool_call/tool_validate。
 // ============================================================
-public partial class CognitiveCoordinatorGAgent
+public partial class CoordinatorAgent
 {
     internal async Task<PrimitiveResult> ExecuteToolCallAsync(StepDefinition step)
     {

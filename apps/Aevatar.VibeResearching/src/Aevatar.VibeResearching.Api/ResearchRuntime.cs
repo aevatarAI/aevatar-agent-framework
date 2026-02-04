@@ -10,8 +10,8 @@ using Google.Protobuf.WellKnownTypes;
 using VibeResearching.Vibe;
 using VibeResearching.Api.Infrastructure;
 using VibeResearching.Api.Sessions;
-using VibeResearching.Api.Vibe.Mesh;
 using VibeResearching.Contracts.Sessions;
+using Aevatar.Agents.Cognitive.Researching.Runtime;
 
 namespace VibeResearching.Api;
 
@@ -23,7 +23,7 @@ namespace VibeResearching.Api;
 //  - Keep agent state bounded so AG-UI can snapshot on reconnect.
 // ============================================================
 
-public sealed class ResearchRuntime
+public sealed class ResearchRuntime : IResearchingRuntime
 {
     private readonly IGAgentActorFactory _actorFactory;
     private readonly ILogger<ResearchRuntime> _logger;
@@ -118,7 +118,7 @@ public sealed class ResearchRuntime
         return (entry.MainAgent, entry.MainAgentId);
     }
 
-    public async Task<(VibePlannerAgent Agent, string AgentId)> GetPlannerAgentAsync(
+    public async Task<(AIGAgentBase Agent, string AgentId)> GetPlannerAgentAsync(
         string sessionId,
         string? providerName,
         CancellationToken ct)
@@ -130,7 +130,7 @@ public sealed class ResearchRuntime
         return (entry.PlannerAgent, entry.PlannerAgentId);
     }
 
-    public async Task<(VibeReasonerAgent Agent, string AgentId)> GetReasonerAgentAsync(
+    public async Task<(AIGAgentBase Agent, string AgentId)> GetReasonerAgentAsync(
         string sessionId,
         string? providerName,
         CancellationToken ct)
@@ -142,7 +142,7 @@ public sealed class ResearchRuntime
         return (entry.ReasonerAgent, entry.ReasonerAgentId);
     }
 
-    public async Task<(VibeResearchAssistantAgent Agent, string AgentId)> GetResearchAssistantAgentAsync(
+    public async Task<(AIGAgentBase Agent, string AgentId)> GetResearchAssistantAgentAsync(
         string sessionId,
         string? providerName,
         CancellationToken ct)
@@ -154,7 +154,7 @@ public sealed class ResearchRuntime
         return (entry.ResearchAssistantAgent, entry.ResearchAssistantAgentId);
     }
 
-    public async Task<(VibeLibrarianAgent Agent, string AgentId)> GetLibrarianAgentAsync(
+    public async Task<(AIGAgentBase Agent, string AgentId)> GetLibrarianAgentAsync(
         string sessionId,
         string? providerName,
         CancellationToken ct)
@@ -166,7 +166,7 @@ public sealed class ResearchRuntime
         return (entry.LibrarianAgent, entry.LibrarianAgentId);
     }
 
-    public async Task<(VibeVerifierAgent Agent, string AgentId)> GetVerifierAgentAsync(
+    public async Task<(AIGAgentBase Agent, string AgentId)> GetVerifierAgentAsync(
         string sessionId,
         string? providerName,
         CancellationToken ct)
@@ -178,7 +178,7 @@ public sealed class ResearchRuntime
         return (entry.VerifierAgent, entry.VerifierAgentId);
     }
 
-    public async Task<(VibeVerifierAgent Agent, string AgentId)> GetVerifierAgentAsync(
+    public async Task<(AIGAgentBase Agent, string AgentId)> GetVerifierAgentAsync(
         string sessionId,
         string? providerName,
         string verifierKey,
@@ -198,7 +198,7 @@ public sealed class ResearchRuntime
         return (inst.Agent, inst.AgentId);
     }
 
-    public async Task<(VibeDagBuilderAgent Agent, string AgentId)> GetDagBuilderAgentAsync(
+    public async Task<(AIGAgentBase Agent, string AgentId)> GetDagBuilderAgentAsync(
         string sessionId,
         string? providerName,
         CancellationToken ct)
@@ -230,7 +230,7 @@ public sealed class ResearchRuntime
         return (inst.Agent, inst.AgentId);
     }
 
-    public async Task<(VibePaperEditorAgent Agent, string AgentId)> GetPaperEditorAgentAsync(
+    public async Task<(AIGAgentBase Agent, string AgentId)> GetPaperEditorAgentAsync(
         string sessionId,
         string? providerName,
         CancellationToken ct)

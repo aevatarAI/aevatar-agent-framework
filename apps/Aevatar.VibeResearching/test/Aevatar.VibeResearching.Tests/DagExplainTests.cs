@@ -1,4 +1,4 @@
-using VibeResearching.Api.Vibe.Dag;
+using Aevatar.Agents.Cognitive.Researching.Dag;
 using VibeResearching.Contracts.Collab;
 using Shouldly;
 

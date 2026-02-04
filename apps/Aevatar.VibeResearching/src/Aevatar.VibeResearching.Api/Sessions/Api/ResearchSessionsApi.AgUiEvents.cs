@@ -6,12 +6,13 @@ using System.Text.Json;
 using Aevatar.Agents.AGUI;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Aevatar.Agents.Cognitive.Researching.Brief;
+using Aevatar.Agents.Cognitive.Researching.Dag;
+using Aevatar.Agents.Cognitive.Researching.Delivery;
+using Aevatar.Agents.Cognitive.Researching.Sessions;
+using Aevatar.Agents.Cognitive.Researching.Trace;
+using Aevatar.Agents.Cognitive.Researching.Workspace;
 using VibeResearching.Api;
-using VibeResearching.Api.Vibe.Brief;
-using VibeResearching.Api.Vibe.Delivery;
-using VibeResearching.Api.Vibe.Dag;
-using VibeResearching.Api.Vibe.Trace;
-using VibeResearching.Api.Workspace;
 
 namespace VibeResearching.Api.Sessions;
 
@@ -98,7 +99,7 @@ internal static partial class ResearchSessionsApi
             await WriteSseAsync(new MessagesSnapshotEvent
             {
                 Timestamp = Ts(DateTimeOffset.UtcNow),
-                Messages = session.GetMessagesSnapshot(maxMessages: 60)
+                Messages = session.GetMessagesSnapshot(maxMessages: 60).ToList()
             }, ct);
 
             // Extra bootstrap: UI meta + tool cards + run steps (file-backed)

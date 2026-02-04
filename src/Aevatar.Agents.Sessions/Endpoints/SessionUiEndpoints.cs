@@ -7,6 +7,7 @@ using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.Abstractions.Extensions;
 using Aevatar.Agents.Abstractions.Memory;
 using Aevatar.Agents.AI;
+using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.Core.Configuration;

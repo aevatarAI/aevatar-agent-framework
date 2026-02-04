@@ -9,10 +9,7 @@ using Aevatar.Agents.Abstractions.Tracing;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.Core.Configuration;
-using Aevatar.CognitiveMesh.Dsl;
-using Aevatar.CognitiveMesh.Dsl.Models;
-using Aevatar.CognitiveMesh.Dsl.Options;
-using Aevatar.CognitiveMesh.Dsl.Validation;
+using Aevatar.Agents.Sessions.Abstractions.Workflows;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -25,6 +22,7 @@ public sealed class CognitiveSessionService
     private readonly ISessionStore _sessionStore;
     private readonly RoleAgentFactory _roleAgentFactory;
     private readonly GlobalAgentYamlRegistry _roleRegistry;
+    private readonly IWorkflowCompiler _workflowCompiler;
     private readonly IMemoryStore? _memoryStore;
     private readonly IExecutionTraceStore? _executionTraceStore;
     private readonly CognitiveSessionOptions _options;
@@ -37,6 +35,7 @@ public sealed class CognitiveSessionService
         ISessionStore sessionStore,
         RoleAgentFactory roleAgentFactory,
         GlobalAgentYamlRegistry roleRegistry,
+        IWorkflowCompiler workflowCompiler,
         IMemoryStore? memoryStore,
         IExecutionTraceStore? executionTraceStore,
         IOptions<CognitiveSessionOptions> options,
@@ -46,6 +45,7 @@ public sealed class CognitiveSessionService
         _sessionStore = sessionStore ?? throw new ArgumentNullException(nameof(sessionStore));
         _roleAgentFactory = roleAgentFactory ?? throw new ArgumentNullException(nameof(roleAgentFactory));
         _roleRegistry = roleRegistry ?? throw new ArgumentNullException(nameof(roleRegistry));
+        _workflowCompiler = workflowCompiler ?? throw new ArgumentNullException(nameof(workflowCompiler));
         _memoryStore = memoryStore;
         _executionTraceStore = executionTraceStore;
         _options = options?.Value ?? new CognitiveSessionOptions();
@@ -105,21 +105,17 @@ public sealed class CognitiveSessionService
             throw new InvalidOperationException($"Failed to read workflow '{workflowName}': {ex.Message}", ex);
         }
 
-        MeshDefinition def;
-        try
+        CompiledWorkflowDefinition def;
+        var compile = _workflowCompiler.Compile(new WorkflowCompileRequest(
+            Raw: raw,
+            KnownRoles: _roleRegistry.GetKnownRoles()));
+        if (!compile.Ok || compile.Definition == null)
         {
-            def = CompileWorkflow(raw);
-        }
-        catch (DslCompilationException ex)
-        {
-            var errors = ex.Errors?.Select(e => $"{e.Code}:{e.Message}") ?? Array.Empty<string>();
+            var errors = compile.Errors?.Select(e => $"{e.Code}:{e.Message}") ?? Array.Empty<string>();
             var message = string.Join("; ", errors);
-            throw new InvalidOperationException($"Workflow compile failed: {message}", ex);
+            throw new InvalidOperationException($"Workflow compile failed: {message}");
         }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException($"Workflow compile failed: {ex.Message}", ex);
-        }
+        def = compile.Definition;
 
         var now = Timestamp.FromDateTime(DateTime.UtcNow);
         var lazy = _options.LazyLoadRoles;
@@ -390,35 +386,7 @@ public sealed class CognitiveSessionService
         throw new FileNotFoundException($"Workflow '{workflowName}' not found.", workflowName);
     }
 
-    private MeshDefinition CompileWorkflow(string raw)
-    {
-        raw = (raw ?? string.Empty).Replace("\r", "").Trim();
-        if (raw.Length == 0)
-            throw new ArgumentException("workflow YAML is empty.");
-
-        var (json, nodeTypes) = MeshInputCoercer.CoerceToJson(raw);
-
-        var options = CognitiveDslOptions.Default.With(
-            allowedAgentTypes: MergeAllowedAgentTypes(nodeTypes),
-            allowedConstraintTypes: CognitiveDslOptions.Default.AllowedConstraintTypes,
-            metaAgentTypeName: "meta");
-
-        var compiler = new CognitiveDslCompiler(options);
-        return compiler.Compile(json);
-    }
-
-    private IReadOnlySet<string> MergeAllowedAgentTypes(IReadOnlySet<string> nodeTypes)
-    {
-        var set = new HashSet<string>(CognitiveDslOptions.Default.AllowedAgentTypes, StringComparer.OrdinalIgnoreCase);
-        foreach (var role in _roleRegistry.GetKnownRoles())
-            set.Add(role);
-        foreach (var t in nodeTypes)
-            set.Add(t);
-        set.Add("meta");
-        return set;
-    }
-
-    private List<SessionRole> BuildSessionRoles(MeshDefinition def, string sessionId, bool loaded)
+    private List<SessionRole> BuildSessionRoles(CompiledWorkflowDefinition def, string sessionId, bool loaded)
     {
         var list = new List<SessionRole>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -442,7 +410,7 @@ public sealed class CognitiveSessionService
         return list;
     }
 
-    private static string ResolveRole(NodeSpec node)
+    private static string ResolveRole(WorkflowNodeSpec node)
     {
         if (node.Params != null &&
             node.Params.TryGetValue("role", out var roleElem) &&

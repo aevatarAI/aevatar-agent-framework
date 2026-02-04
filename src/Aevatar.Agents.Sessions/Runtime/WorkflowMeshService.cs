@@ -2,8 +2,7 @@ using System.Text.Json;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.Core.Configuration;
-using Aevatar.CognitiveMesh.Dsl.Models;
-using Aevatar.CognitiveMesh.Dsl.Validation;
+using Aevatar.Agents.Sessions.Abstractions.Workflows;
 using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.Sessions.Runtime;
@@ -29,7 +28,7 @@ public sealed record WorkflowEdgeDto(
 public sealed record WorkflowLoadResult(
     bool Ok,
     WorkflowGraphSnapshot? Graph,
-    IReadOnlyList<DslValidationError> Errors,
+    IReadOnlyList<WorkflowValidationError> Errors,
     IReadOnlyList<WorkflowAgentInfo> Agents);
 
 public sealed record WorkflowAgentInfo(
@@ -74,10 +73,10 @@ public sealed class WorkflowMeshService
         var graph = BuildGraph(def);
         _latest = graph;
 
-        return new WorkflowLoadResult(true, graph, Array.Empty<DslValidationError>(), agents);
+        return new WorkflowLoadResult(true, graph, Array.Empty<WorkflowValidationError>(), agents);
     }
 
-    private async Task<IReadOnlyList<WorkflowAgentInfo>> InstantiateAgentsAsync(MeshDefinition def, CancellationToken ct)
+    private async Task<IReadOnlyList<WorkflowAgentInfo>> InstantiateAgentsAsync(CompiledWorkflowDefinition def, CancellationToken ct)
     {
         var results = new List<WorkflowAgentInfo>();
         foreach (var node in def.Nodes)
@@ -108,7 +107,7 @@ public sealed class WorkflowMeshService
         return results;
     }
 
-    private static string ResolveRole(NodeSpec node)
+    private static string ResolveRole(WorkflowNodeSpec node)
     {
         if (node.Params != null &&
             node.Params.TryGetValue("role", out var roleElem) &&
@@ -122,7 +121,7 @@ public sealed class WorkflowMeshService
         return type.Length == 0 ? "role" : type;
     }
 
-    private static WorkflowGraphSnapshot BuildGraph(MeshDefinition def)
+    private static WorkflowGraphSnapshot BuildGraph(CompiledWorkflowDefinition def)
     {
         var nodeList = def.Nodes.ToList();
         var edgeList = def.Edges.ToList();
@@ -148,8 +147,8 @@ public sealed class WorkflowMeshService
     }
 
     private static Dictionary<string, int> BuildDepthMap(
-        IReadOnlyList<NodeSpec> nodes,
-        IReadOnlyList<EdgeSpec> edges)
+        IReadOnlyList<WorkflowNodeSpec> nodes,
+        IReadOnlyList<WorkflowEdgeSpec> edges)
     {
         var depth = nodes.ToDictionary(n => n.Id, _ => 0, StringComparer.Ordinal);
         var indeg = nodes.ToDictionary(n => n.Id, _ => 0, StringComparer.Ordinal);

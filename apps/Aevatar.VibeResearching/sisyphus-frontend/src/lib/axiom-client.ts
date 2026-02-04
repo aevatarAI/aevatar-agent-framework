@@ -255,13 +255,13 @@ export async function runSession(sessionId: string | null | undefined): Promise<
  */
 export interface SendMessagePayload {
   text: string
-  mode?: "chat" | "vibe" | "vibe_loop"
+  mode?: "chat" | "vibe"
   toAgents?: string[]
   attachmentPaths?: string[]
 }
 
 /**
- * Send a message to the session (chat/vibe/vibe_loop)
+ * Send a message to the session (chat/vibe)
  * Uses /api/sessions/:id/input endpoint
  */
 export async function sendMessage(
@@ -290,14 +290,6 @@ export async function sendMessage(
   // Handle attachments
   if (payload.attachmentPaths && payload.attachmentPaths.length > 0) {
     body.attachmentPaths = payload.attachmentPaths
-  }
-  
-  // vibe_loop specific config
-  if (payload.mode === "vibe_loop") {
-    body.loop = {
-      maxIterations: 10,
-      maxTotalDurationMs: 300000, // 5 minutes
-    }
   }
   
   return fetchJson<{ ok: boolean; runId?: string; error?: string }>(endpoint, {

@@ -3,7 +3,7 @@ using Aevatar.Agents.Cognitive.Streaming;
 
 namespace Aevatar.Agents.Workspaces.Hubs;
 
-public sealed class RoleAgUiHub
+public sealed class RoleAgUiHub : IAgUiEventStream
 {
     // ============================================================
     // 中文 + ASCII:

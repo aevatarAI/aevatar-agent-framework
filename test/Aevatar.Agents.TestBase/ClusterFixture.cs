@@ -3,7 +3,7 @@ using System.Collections.Concurrent;
 using System.Linq;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.EventSourcing;
-using Aevatar.Agents.AI.Core;
+using Aevatar.Agents.Core.Factory;
 using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Runtime.Orleans.EventSourcing;
 using Microsoft.Extensions.Configuration;
@@ -93,7 +93,7 @@ public class ClusterFixture : IDisposable
                     // Register OrleansEventStore
                     services.AddSingleton<IEventStore, OrleansEventStore>();
 
-                    services.AddSingleton<IGAgentFactory, AIGAgentFactory>();
+                    services.AddSingleton<IGAgentFactory, DefaultGAgentFactory>();
 
                     services.AddSerializer(serializerBuilder => { serializerBuilder.AddProtobufSerializer(); });
                 })
@@ -127,7 +127,7 @@ public class ClusterFixture : IDisposable
                     // Register OrleansEventStore
                     services.AddSingleton<IEventStore, OrleansEventStore>();
 
-                    services.AddSingleton<IGAgentFactory, AIGAgentFactory>();
+                    services.AddSingleton<IGAgentFactory, DefaultGAgentFactory>();
 
                     services.AddSerializer(serializerBuilder => { serializerBuilder.AddProtobufSerializer(); });
                 });

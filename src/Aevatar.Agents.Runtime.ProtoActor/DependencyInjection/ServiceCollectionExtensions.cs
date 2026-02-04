@@ -1,6 +1,5 @@
 using System;
 using Aevatar.Agents.Abstractions;
-using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Core.Factory;
 using Aevatar.Agents.Runtime.ProtoActor.Subscription;
 using Microsoft.Extensions.DependencyInjection;
@@ -55,7 +54,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ProtoActorMessageStreamRegistry>();
         services.AddSingleton<ProtoActorSubscriptionManager>();
         services.TryAddSingleton<IGAgentActorFactoryProvider, DefaultGAgentActorFactoryProvider>();
-        services.TryAddSingleton<IGAgentFactory, AIGAgentFactory>();
+        services.TryAddSingleton<IGAgentFactory, DefaultGAgentFactory>();
 
         return services;
     }

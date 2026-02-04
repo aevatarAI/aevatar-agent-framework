@@ -96,8 +96,8 @@ public sealed class MultiAgentAgUiWorkflowTests
             provider = BuildServiceProvider(hook);
             actorManager = provider.GetRequiredService<IGAgentActorManager>();
 
-            var coordinatorActor = await actorManager.CreateAndRegisterAsync<CognitiveCoordinatorGAgent>("coordinator");
-            var coordinator = (CognitiveCoordinatorGAgent)coordinatorActor.GetAgent();
+            var coordinatorActor = await actorManager.CreateAndRegisterAsync<CoordinatorAgent>("coordinator");
+            var coordinator = (CoordinatorAgent)coordinatorActor.GetAgent();
             coordinator.SetActorManager(actorManager);
             await coordinator.InitializeAsync("test-provider");
 
@@ -176,12 +176,12 @@ public sealed class MultiAgentAgUiWorkflowTests
     }
 
     private static async Task ConfigureWorkerRolesAsync(
-        CognitiveCoordinatorGAgent coordinator,
+        CoordinatorAgent coordinator,
         IGAgentActorManager actorManager,
         IReadOnlyList<string> roles,
         string workspaceRoot)
     {
-        var field = typeof(CognitiveCoordinatorGAgent)
+        var field = typeof(CoordinatorAgent)
             .GetField("_workerIds", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
         var workerIds = field?.GetValue(coordinator) as List<string> ?? new List<string>();
 

@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI;
+using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.Core.Configuration;
@@ -43,7 +44,7 @@ public sealed class AgentBootstrapper
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    public void ConfigureAgentDefaults(string agentId, AIGAgentBase agent, bool memoryEnabled)
+    public void ConfigureAgentDefaults(string agentId, IAIGAgent agent, bool memoryEnabled)
     {
         if (!_configuredAgents.TryAdd(agentId, true))
             return;
@@ -61,7 +62,7 @@ public sealed class AgentBootstrapper
 
     public async Task EnsureInitializedAsync(
         SessionAgUiStream stream,
-        AIGAgentBase agent,
+        IAIGAgent agent,
         string requestId,
         string? role,
         CancellationToken ct)

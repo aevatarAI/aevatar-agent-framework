@@ -6,7 +6,7 @@ namespace Aevatar.Agents.AI.Core.Tests.ToolEvolution;
 
 public class ToolMetricsStoreTests
 {
-    [Fact]
+    [Fact(DisplayName = "ToolMetricsStore creates snapshot when threshold is reached")]
     public void Record_ShouldCreateSnapshot_WhenThresholdReached()
     {
         var store = new ToolMetricsStore();

@@ -9,7 +9,7 @@ namespace Aevatar.Agents.AI.Core.Tests;
 public class CqrsStateQueryInjectionTests(CqrsStateQueryInjectionFixture fixture)
     : IClassFixture<CqrsStateQueryInjectionFixture>
 {
-    [Fact]
+    [Fact(DisplayName = "GAgent factory injects IStateQueryService into AIGAgentBase when registered")]
     public void CreateGAgent_ShouldInject_IStateQueryService_IntoAIGAgentBase_WhenRegistered()
     {
         // Arrange

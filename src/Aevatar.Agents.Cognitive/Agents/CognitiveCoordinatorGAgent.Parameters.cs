@@ -5,14 +5,14 @@ using Microsoft.Extensions.Logging;
 namespace Aevatar.Agents.Cognitive.Agents;
 
 // ============================================================
-//  CognitiveCoordinatorGAgent - Parameters / Red-Flag / Parsing
+//  CoordinatorAgent - Parameters / Red-Flag / Parsing
 //
 //  WHY:
 //  - These methods are shared by multiple paths like vote / fan_out / llm_call.
 //  - Centralized management to avoid "same configuration semantics" scattered causing drift.
 // ============================================================
 
-public partial class CognitiveCoordinatorGAgent
+public partial class CoordinatorAgent
 {
     /// <summary>
     /// Parse LLM returned content based on output type

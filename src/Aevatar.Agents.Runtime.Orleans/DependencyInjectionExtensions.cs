@@ -1,5 +1,5 @@
 using Aevatar.Agents.Abstractions;
-using Aevatar.Agents.AI.Core;
+using Aevatar.Agents.Core.Factory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -16,7 +16,7 @@ public static class DependencyInjectionExtensions
     public static IServiceCollection AddOrleansActorFactory(this IServiceCollection services)
     {
         services.AddSingleton<IGAgentActorFactory, OrleansGAgentActorFactory>();
-        services.TryAddSingleton<IGAgentFactory, AIGAgentFactory>();
+        services.TryAddSingleton<IGAgentFactory, DefaultGAgentFactory>();
         return services;
     }
 }

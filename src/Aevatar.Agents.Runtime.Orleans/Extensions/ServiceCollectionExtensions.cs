@@ -1,5 +1,5 @@
 using Aevatar.Agents.Abstractions;
-using Aevatar.Agents.AI.Core;
+using Aevatar.Agents.Core.Factory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -16,7 +16,7 @@ public static class ServiceCollectionExtensions
         // Core Orleans runtime services
         services.AddSingleton<IGAgentActorFactory, OrleansGAgentActorFactory>();
         services.AddSingleton<IGAgentActorManager, OrleansGAgentActorManager>();
-        services.TryAddSingleton<IGAgentFactory, AIGAgentFactory>();
+        services.TryAddSingleton<IGAgentFactory, DefaultGAgentFactory>();
         
         // MassTransit integration handlers (required for MassTransit stream routing)
         // These enable StreamMessageDispatcher to route events to Orleans Grains

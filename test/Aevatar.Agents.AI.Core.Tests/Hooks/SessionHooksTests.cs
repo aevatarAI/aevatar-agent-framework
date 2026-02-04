@@ -17,7 +17,7 @@ public class SessionHooksTests(SessionHooksFixture fixture) : IClassFixture<Sess
 
     private MockLLMProvider MockProvider => (MockLLMProvider)fixture.LLMProviderFactory.GetProvider("test-provider");
 
-    [Fact]
+    [Fact(DisplayName = "ChatAsync runs session start/stop/end hooks")]
     public async Task ChatAsync_ShouldRun_SessionHooks()
     {
         _recorder.Reset();
@@ -38,7 +38,7 @@ public class SessionHooksTests(SessionHooksFixture fixture) : IClassFixture<Sess
         _recorder.LastIsStreaming.Value.ShouldBeFalse();
     }
 
-    [Fact]
+    [Fact(DisplayName = "ChatStreamAsync runs session start/stop/end hooks")]
     public async Task ChatStreamAsync_ShouldRun_SessionHooks()
     {
         _recorder.Reset();

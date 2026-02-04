@@ -2,9 +2,9 @@ using System.Reflection;
 using System.Text.Json;
 using Aevatar.Agents.AGUI;
 using Aevatar.Agents.Cognitive.Core;
+using Aevatar.Agents.Cognitive.Researching.Round;
 using Shouldly;
 using VibeResearching.Api.Sessions;
-using VibeResearching.Api.Vibe;
 
 namespace VibeResearching.Api.Tests;
 
@@ -73,7 +73,7 @@ public sealed class DagConsensusAgUiProgressTests
         string runId,
         string workflowName)
     {
-        var method = typeof(VibeOrchestrator).GetMethod(
+        var method = typeof(ResearchingRoundServices).GetMethod(
             "BuildDagConsensusAgUiProgress",
             BindingFlags.NonPublic | BindingFlags.Static);
 

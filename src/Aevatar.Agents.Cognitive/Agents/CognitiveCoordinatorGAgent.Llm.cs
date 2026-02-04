@@ -13,14 +13,14 @@ using StepDefinition = Aevatar.Agents.Cognitive.Primitives.StepDefinition;
 namespace Aevatar.Agents.Cognitive.Agents;
 
 // ============================================================
-//  CognitiveCoordinatorGAgent - LLM execution (Coordinator-side)
+//  CoordinatorAgent - LLM execution (Coordinator-side)
 //
 //  WHY:
 //  - This code naturally expands (streaming + guardrails + UI events).
 //  - Separate into file to avoid polluting core orchestration logic.
 // ============================================================
 
-public partial class CognitiveCoordinatorGAgent
+public partial class CoordinatorAgent
 {
     // ============================================================
     //  Simple Steps - Coordinator executes directly

@@ -4,37 +4,39 @@
 
 ## 目录结构（核心骨架）
 
+**框架层（核心逻辑已迁移）**
+
+```
+src/Aevatar.Agents.Cognitive/Researching/
+  Round/ResearchingRoundServices*.cs        # 共享服务/解析逻辑（以 workflow step module 为入口）
+  Workflow/ResearchingWorkflowRunner.cs     # workflow 运行器（vibe_round）
+  Workflow/ResearchingMeshExecutionRunnerAdapter.cs
+  Modules/ResearchingModules.cs             # ResearchingCore/Pivot/Mesh/Host
+  Dag/*                                     # DAG snapshot + explain + consensus gate
+  Brief/*                                   # deliverables/brief.json
+  Delivery/*                                # deliverables/*（结论/证据/任务/快照）
+  Compute/*                                 # artifacts/compute/decisions（MVP）
+  Trace/*                                   # artifacts/trace/trace.jsonl + runs/*/summary.md
+  Uploads/*                                 # artifacts/uploads + 文件抽取
+  Mesh/*                                    # Mesh DSL 编译/规划/执行/存储
+```
+
+**应用层（Vibe 仅保留 AG-UI 适配与 API 配置）**
+
 ```
 Vibe/
-  VibeOrchestrator.cs                       # 入口：ExecuteOneRoundAsync（骨架/时序）
-  VibeOrchestrator.MeshSeed.cs              # mesh 缺失时自动 seed（从 default_mesh.yaml）（Option B 默认启用）
-  VibeOrchestrator.MeshIntegration.cs       # mesh 执行：错误渲染、fail-fast/fallback、mesh 运行产物落盘（best-effort）
-  VibeOrchestrator.PlanDag.cs               # plan/brief milestones -> DAG mutation 构建（plan nodes）
-  VibeOrchestrator.Steps.cs                 # step 事件模板封装（StepStarted/Finished best-effort）
-  VibeOrchestrator.ExecuteOneRound.Parts.cs # ExecuteOneRoundAsync 的拆分实现（pivot/plan/workers），主文件只保留骨架
-  VibeModules.cs                            # Vibe 子域模块：VibeCore/VibePivot/VibeMesh/VibeHost（见名知意的依赖分组）
-  VibeOrchestrator.Workers.cs               # planner/reasoner/librarian/verifier/dag_builder/paper_editor 的流式调用
-  VibeOrchestrator.DagConsensus.cs          # DAG 共识门控（verifier-quorum / maker via Cognitive DSL）
-  VibeOrchestrator.Trace.cs                 # trace 追加写入 + round_summary SSE
-  VibeOrchestrator.ResearchAssistant.cs     # research_assistant 的 brief/plan/summary 调用与解析
-  VibeOrchestrator.Parsing.cs               # JSON 提取/解析 + librarian actions 解析
-  VibeOrchestrator.GoalsAndMessages.cs      # prompt 构造（Plan 从 DAG plan nodes 提取；不再使用 goals）
-  VibeOrchestrator.DeliveryApply.cs         # paper_editor 输出解析、patch 应用、delivery snapshots 写入
-
-  Brief/BriefStore.cs                       # deliverables/brief.json（Protobuf-JSON）
-  Delivery/DeliveryCenterStore.cs           # deliverables/*（结论/证据/任务/快照）
-  Compute/ComputeDecisionStore.cs           # artifacts/compute/decisions（MVP）
-  (removed) GoalsStore                      # goals are now represented as DAG plan nodes
-  Trace/TraceStore.cs                       # artifacts/trace/trace.jsonl + runs/*/summary.md
-  Uploads/UploadsStore.cs                   # artifacts/uploads
-  Dag/                                      # DAG snapshot + explain + consensus gate（见子目录 docs）
+  Workflow/VibeRunEventSinks.cs             # AG-UI 事件适配（工具进度流）
+  Pivot/PivotApi.cs                         # pivot HTTP API
+  Mesh/default_mesh.yaml                    # 默认 mesh 模板
+  docs/README.md                            # 本文档
 ```
 
 ## 设计要点（为什么这样拆）
 
-- **单文件 ≤ 800 行**：用 `partial` 拆分 `VibeOrchestrator`，按职责划分，降低认知负担。
+- **单文件 ≤ 800 行**：用 `partial` 拆分 `ResearchingRoundServices`，按职责划分，降低认知负担。
 - **编排不崩溃**：所有 stage 都是 *best-effort*；失败只会阻断本 stage，不会炸掉 API 进程。
 - **SSE 以快照优先**：前端 reconnect 先收 `*_snapshot`，再接 live stream，避免依赖 replay。
+- **编排入口**：`workflows/vibe_round.yaml` + `ResearchingWorkflowRunner` + step modules（框架层 `WorkflowRunExecutor`）。
 
 ## DAG grounded context 过滤（可配置）
 
@@ -63,7 +65,7 @@ Research Assistant 在启动每一轮时，会把 DAG 的一部分节点摘要�
 
 ## Mesh Orchestration（Option B：用 Mesh DSL 描述协作拓扑）
 
-Worker phase（`planner/reasoner/librarian/verifier/dag_builder`）除了默认的“硬编码顺序/计划 workers”外，还支持 **Mesh DSL** 驱动（默认启用）。
+Worker phase（`planner/reasoner/librarian/verifier/dag_builder`）由 **Mesh DSL** 驱动（默认启用）。
 
 ### 启用方式
 
@@ -73,18 +75,15 @@ Worker phase（`planner/reasoner/librarian/verifier/dag_builder`）除了默认�
 {
   "Vibe": {
     "MeshOrchestration": {
-      "Enabled": true,
-      "OnCompileError": "fallback" // fallback | fail
+      "Enabled": true
     }
   }
 }
 ```
 
 语义：
-- `Enabled`: 为 true 时，`VibeOrchestrator` 会尝试加载 session 的 `mesh.yaml`（优先）或 `mesh.json` 并执行 mesh worker phase；缺失时会自动 seed
-- `OnCompileError`:
-  - `fallback`（默认）：mesh 无效时回退到默认 worker pipeline
-  - `fail`：mesh 无效时 **不回退**，直接跳过 worker phase（本轮仍会走 DAG apply/summary/trace，但通常不会有 DAG candidate）
+- `Enabled`: 为 true 时，`ResearchingRoundServices` 会尝试加载 session 的 `mesh.yaml`（优先）或 `mesh.json` 并执行 mesh worker phase；缺失时会自动 seed
+- mesh 无效（编译/计划失败）或缺失时：worker phase 直接跳过（本轮仍会走 DAG apply/summary/trace）
 
 ### 存储位置（File-SSoT）
 
@@ -99,7 +98,7 @@ MeshDefinition 的 raw（YAML/JSON）存放在：
 
 默认模板文件（仓库内）：
 
-- `apps/Aevatar.VibeResearching/src/VibeResearching.Api/Vibe/Mesh/default_mesh.yaml`
+- `apps/Aevatar.VibeResearching/src/Aevatar.VibeResearching.Api/Vibe/Mesh/default_mesh.yaml`
 
 ### Session Mesh API（本地回环限制）
 
@@ -188,7 +187,7 @@ constraints: []
   - 执行阶段会用通用 `VibeRoleAgent` 跑该节点，并应用 YAML 的模型参数与 `system_prompt`
   - provider 解析优先级：request override > `~/.aevatar/agents/{role}.yaml` > `agent_providers.json` > session.ProviderName
 
-#### Built-in Roles 也可用 YAML 覆盖（并保持 fallback）
+#### Built-in Roles 也可用 YAML 覆盖（并保持默认实现）
 
 内置的 `planner/reasoner/librarian/verifier/dag_builder/paper_editor` 也会尝试读取同名 YAML：
 

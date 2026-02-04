@@ -5,7 +5,7 @@ namespace Aevatar.Agents.AI.Core.Tests.Hooks;
 
 public class DenyToolHookTests
 {
-    [Fact]
+    [Fact(DisplayName = "DenyTool sets typed state and metadata keys")]
     public void DenyTool_SetsTypedState_AndMetadataKeys()
     {
         var ctx = new AevatarAgentHookContext(
@@ -29,7 +29,7 @@ public class DenyToolHookTests
         ctx.Metadata["deny_reason"].Should().Be("nope");
     }
 
-    [Fact]
+    [Fact(DisplayName = "TryGetToolDenyReason falls back to metadata for backward compatibility")]
     public void TryGetToolDenyReason_FallsBackToMetadata_ForBackwardCompatibility()
     {
         var ctx = new AevatarAgentHookContext(

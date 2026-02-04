@@ -3,7 +3,7 @@
 本文档面向维护者，目标是回答一个具体问题：
 **当用户提出一个研究方向/问题后，各个 AI agents 分别做什么？什么时候会更新 Brief / DAG（plan/knowledge）/ Trace / UI 消息？**
 
-内容基于当前代码实现（以 `src/VibeResearching.Api/Vibe/VibeOrchestrator*.cs` 为准）。
+内容基于当前代码实现（以 `workflows/vibe_round.yaml` + `ResearchingWorkflowRunner` + `ResearchingRoundServices.*` 为准）。
 
 ---
 
@@ -19,17 +19,17 @@
 
 用户在 UI 中提交输入（`POST /api/sessions/{id}/input`，`mode` 为 `vibe|vibe_researching`）后：
 
-- `ResearchRunExecutor.ExecuteVibeResearchingRunAsync(...)` 会先：
-  - 发 `RunStartedEvent`
+- `ResearchRunExecutor.ExecuteVibeResearchingRunAsync(...)` → `ResearchingWorkflowRunner.ExecuteRoundAsync(...)`：
+  - `WorkflowRunExecutor` 发 `RunStartedEvent`
   - 发一条 `user` 消息到 AG-UI（messageId：`msg:{sessionId}:user:{runId}`）
   - 开始一条合并的主 assistant 流（messageId：`msg:{sessionId}:assistant:{runId}`）
   - **Step: `vibe.materials`**：加载 DAG facts，构建 bounded materials context，并发 `StateSnapshotEvent`（Workspace 面板刷新）
-  - 调用 `VibeOrchestrator.ExecuteOneRoundAsync(...)` 执行这一轮
+  - 依次执行 `vibe_round` workflow 的各 step（pivot/brief/plan/mesh/dag_consensus/delivery/trace）
   - 结束主 assistant 流并发 `RunFinishedEvent`
 
 ---
 
-### 3) `VibeOrchestrator.ExecuteOneRoundAsync`：一轮的真实执行顺序
+### 3) `WorkflowRunExecutor` + `vibe_round`：一轮的真实执行顺序
 
 核心顺序（**按当前代码**）：
 
@@ -38,7 +38,7 @@
    - `TraceStore.LoadLatestAsync(sessionId, max:5)`：拿最近 trace 作为回忆
 
 2. **（可选）LLM Provider 暂停门控（缺 API Key 时）**
-   - 在真正调用 LLM 之前（例如 `research_assistant` 的 BRIEF/PLAN/SUMMARY，或各 worker）会先检查 provider 是否已配置 `ApiKey`
+   - 由框架层 `LlmProviderGate` 在真正调用 LLM 之前统一检查 provider 是否已配置 `ApiKey`
    - 若未配置：
      - 发 `CustomEvent aevatar.vibe.llm_api_key_required`
      - 在主 assistant 流输出“已暂停，请配置 API Key”
@@ -163,10 +163,12 @@ Trace 条目内容（MVP）：
 
 ### 8) 相关代码入口（便于继续追）
 
-- Orchestrator 总控：`src/VibeResearching.Api/Vibe/VibeOrchestrator.cs`
-- RA 的 BRIEF/PLAN/SUMMARY：`src/VibeResearching.Api/Vibe/VibeOrchestrator.ResearchAssistant.cs`
-- Workers（per-agent streaming + message_meta）：`src/VibeResearching.Api/Vibe/VibeOrchestrator.Workers.cs`
-- DAG candidate 解析 + apply：`src/VibeResearching.Api/Vibe/VibeOrchestrator.Parsing.cs`、`src/VibeResearching.Api/Vibe/VibeOrchestrator.DagConsensus.cs`
+- Workflow 入口：`src/Aevatar.Agents.Cognitive/Researching/Workflow/ResearchingWorkflowRunner.cs` + `workflows/vibe_round.yaml`
+- Workflow step modules：`src/Aevatar.Agents.Cognitive/Researching/Round/ResearchingRoundServices.StepModules.cs`
+- 共享服务/子步骤实现：`src/Aevatar.Agents.Cognitive/Researching/Round/ResearchingRoundServices.*.cs`
+- RA 的 BRIEF/PLAN/SUMMARY：`src/Aevatar.Agents.Cognitive/Researching/Round/ResearchingRoundServices.ResearchAssistant.cs`
+- Workers（per-agent streaming + message_meta）：`src/Aevatar.Agents.Cognitive/Researching/Round/ResearchingRoundServices.Workers.cs`
+- DAG candidate 解析 + apply：`src/Aevatar.Agents.Cognitive/Researching/Round/ResearchingRoundServices.Parsing.cs`、`src/Aevatar.Agents.Cognitive/Researching/Round/ResearchingRoundServices.DagConsensus.cs`
 - Brief/Trace 的 File-SSoT：`src/VibeResearching.Api/Vibe/Brief/BriefStore.cs`、`src/VibeResearching.Api/Vibe/Trace/TraceStore.cs`
 - Grounding policy：`src/VibeResearching.Api/Vibe/Dag/DagGroundingPolicy.cs`
 

@@ -16,7 +16,7 @@ public class ChatStreamHooksTests(ChatStreamHooksFixture fixture) : IClassFixtur
 
     private MockLLMProvider MockProvider => (MockLLMProvider)fixture.LLMProviderFactory.GetProvider("test-provider");
 
-    [Fact]
+    [Fact(DisplayName = "ChatStreamAsync runs BeforeLLMRequest hooks")]
     public async Task ChatStreamAsync_ShouldRun_BeforeLLMRequest_Hooks()
     {
         // Arrange
@@ -40,7 +40,7 @@ public class ChatStreamHooksTests(ChatStreamHooksFixture fixture) : IClassFixtur
         _recorder.LastBeforeRequestId.ShouldNotBeNullOrWhiteSpace();
     }
 
-    [Fact]
+    [Fact(DisplayName = "ChatStreamAsync runs OnError hook when provider throws")]
     public async Task ChatStreamAsync_WhenProviderThrows_ShouldRun_OnError_Hook()
     {
         // Arrange

@@ -9,7 +9,7 @@ namespace Aevatar.Agents.AI.Core.Tests;
 
 public class AgenticRagLoopTests
 {
-    [Fact]
+    [Fact(DisplayName = "AgenticRagLoop stops with BudgetExceeded when critic never passes")]
     public async Task AnswerAsync_ShouldStopWithBudgetExceeded_WhenCriticNeverPasses()
     {
         var planner = new FixedPlanner();
@@ -37,7 +37,7 @@ public class AgenticRagLoopTests
         retriever.CallCount.ShouldBe(2);
     }
 
-    [Fact]
+    [Fact(DisplayName = "AgenticRagLoop stops with NoEvidence when retriever returns empty")]
     public async Task AnswerAsync_ShouldStopWithNoEvidence_WhenRetrieverAlwaysReturnsEmpty()
     {
         var planner = new FixedPlanner();
@@ -63,7 +63,7 @@ public class AgenticRagLoopTests
         resp.Evidence.Count.ShouldBe(0);
     }
 
-    [Fact]
+    [Fact(DisplayName = "AgenticRagLoop iterates until critic passes")]
     public async Task AnswerAsync_ShouldBounceBackUntilCriticPasses()
     {
         var planner = new FixedPlanner();

@@ -11,7 +11,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Aevatar.Agents.Runtime\Aevatar.Agents.Runtime.csproj" />
+    <ProjectReference Include="..\..\src\Aevatar.Agents.Runtime.Abstractions\Aevatar.Agents.Runtime.Abstractions.csproj" />
   </ItemGroup>
 
   <ItemGroup>

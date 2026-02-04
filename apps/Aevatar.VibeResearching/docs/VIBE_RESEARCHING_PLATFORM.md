@@ -2,6 +2,8 @@
 
 本文件描述 `Aevatar.VibeResearching` 子系统扩展后的 **Vibe Researching 平台**：用户默认只与一个 `research_assistant` 对话（单入口），由它在后台调度多个辅助 agents，产出可解释的 DAG（推导图）与可回放的 Derivation Trace（推导轨迹）。
 
+**重要变更**：核心 researching 编排与存储逻辑已迁移到框架层 `src/Aevatar.Agents.Cognitive/Researching/`，Vibe 应用仅保留 API 接入与 AG-UI 适配/配置。
+
 ---
 
 ### 1) 核心理念：File-SSoT + Snapshot-first SSE
@@ -13,22 +15,18 @@
 
 ### 2) 运行时结构（Round Lifecycle）
 
-一次 `mode=vibe` 的 run（单轮）由 `VibeOrchestrator` 执行：
+一次 `mode=vibe` 的 run（单轮）由 `WorkflowRunExecutor` + `workflows/vibe_round.yaml` + `ResearchingWorkflowRunner` 执行：
 
 1. **materials**：从 DAG knowledge nodes 形成 bounded context（注入 system prompt）
-2. **research_assistant（plan）**：生成本轮计划（STRICT JSON）
-3. **workers**：按计划运行（MVP 顺序/可并行）
-   - `planner`：可执行计划/证据需求
-   - `reasoner`：基于 materials 推理（可选 python_exec）
-   - `librarian`：证据/资料整理与缺口
-   - `verifier`：硬验证（可选 python_exec）
-   - `dag_builder`：产出 DAG mutation candidate（STRICT JSON）
-4. **DAG apply（当前实现：no verification / no consensus）**：
-   - 解析 `dag_builder` 产出的 candidate（JSON）并直接 apply 到 DAG
-   - apply 成功后发 `aevatar.vibe.dag_updated`
-5. **research_assistant（summary）**：生成本轮总结（Markdown），并落盘为 Derivation Trace
+2. **pivot**：方向变更检测（必要时更新 DAG + 用户反馈）
+3. **research_assistant（brief）**：生成 1-page 研究简报
+4. **research_assistant（plan）**：生成本轮计划（STRICT JSON）
+5. **mesh workers**：执行 mesh worker phase（planner/reasoner/librarian/verifier/dag_builder）
+6. **DAG consensus**：verifier-quorum / maker via Cognitive DSL
+7. **delivery**：paper_editor 输出解析与 delivery 快照更新
+8. **trace/summary**：生成本轮总结（Markdown），并落盘为 Derivation Trace
 
-> 可选：worker phase 支持 **Mesh DSL（Option B）** 驱动（默认关闭）。开启后会从 `workspace/sessions/{sessionId}/decisions/mesh.json` 读取拓扑并执行，失败可配置回退/FailFast（见下文“Mesh Orchestration”）。
+> 可选：worker phase 支持 **Mesh DSL（Option B）** 驱动（默认开启）。开启后会从 `workspace/sessions/{sessionId}/decisions/mesh.yaml`（优先）或 `mesh.json` 读取拓扑并执行，失败可配置回退/FailFast（见下文“Mesh Orchestration”）。
 
 补充：更细的“谁在什么时候更新 brief / plan nodes / trace / UI message_meta”等，见：
 - `docs/VIBE_VIBE_ORCHESTRATION_CODEWALK.md`
@@ -190,8 +188,7 @@ Vibe__DagConsensus__Mode=maker dotnet run --project src/VibeResearching.Api/Vibe
 {
   "Vibe": {
     "MeshOrchestration": {
-      "Enabled": true,
-      "OnCompileError": "fallback" // fallback | fail
+      "Enabled": true
     }
   }
 }
@@ -199,9 +196,7 @@ Vibe__DagConsensus__Mode=maker dotnet run --project src/VibeResearching.Api/Vibe
 
 语义：
 - `Enabled=true`：默认启用 mesh worker phase（优先尝试加载 `decisions/mesh.yaml`，其次 `decisions/mesh.json`；缺失时会自动 seed）
-- `OnCompileError`：
-  - `fallback`：mesh 无效 → 回退到默认 worker pipeline（更适合生产）
-  - `fail`：mesh 无效 → 不回退，跳过 worker phase（更适合调试“必须用 mesh”）
+- mesh 无效（编译/计划失败）或缺失时：worker phase 直接跳过
 
 #### 9.2 Sample mesh.yaml（等价默认 pipeline，推荐 YAML）
 

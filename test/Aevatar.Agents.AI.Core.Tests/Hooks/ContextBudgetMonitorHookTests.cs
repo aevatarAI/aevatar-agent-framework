@@ -8,7 +8,7 @@ namespace Aevatar.Agents.AI.Core.Tests.Hooks;
 
 public class ContextBudgetMonitorHookTests
 {
-    [Fact]
+    [Fact(DisplayName = "ContextBudgetMonitorHook sets warning metadata when budget thresholds are exceeded")]
     public async Task SetsWarningMetadata_WhenThresholdExceeded()
     {
         var hook = new ContextBudgetMonitorHook(NullLogger.Instance);
@@ -43,7 +43,7 @@ public class ContextBudgetMonitorHookTests
         ctx.Metadata.Should().ContainKey("context_budget_total_chars");
     }
 
-    [Fact]
+    [Fact(DisplayName = "ContextBudgetMonitorHook is a no-op when below thresholds")]
     public async Task NoOp_WhenBelowThreshold()
     {
         var hook = new ContextBudgetMonitorHook(NullLogger.Instance);

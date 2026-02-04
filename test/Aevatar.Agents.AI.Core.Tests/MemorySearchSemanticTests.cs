@@ -15,7 +15,7 @@ namespace Aevatar.Agents.AI.Core.Tests;
 
 public class MemorySearchSemanticTests
 {
-    [Fact]
+    [Fact(DisplayName = "search_memory falls back to semantic rerank for state history when lexical match is empty")]
     public async Task SearchMemory_ShouldFallbackToSemantic_ForStateHistory_WhenNoLexicalMatch()
     {
         var tool = new AevatarMemorySearchTool(NullLogger<AevatarMemorySearchTool>.Instance);
@@ -64,7 +64,7 @@ public class MemorySearchSemanticTests
         first.GetProperty("Metadata").GetProperty("ranking").GetString().ShouldBe("semantic");
     }
 
-    [Fact]
+    [Fact(DisplayName = "search_memory keeps lexical behavior when embeddings are not provided")]
     public async Task SearchMemory_ShouldKeepLexicalBehavior_WhenEmbeddingsNotProvided()
     {
         var tool = new AevatarMemorySearchTool(NullLogger<AevatarMemorySearchTool>.Instance);
@@ -106,7 +106,7 @@ public class MemorySearchSemanticTests
         results[0].GetProperty("Metadata").GetProperty("source").GetString().ShouldBe("state.history");
     }
 
-    [Fact]
+    [Fact(DisplayName = "search_memory falls back to semantic rerank for CQRS docs when lexical match is empty")]
     public async Task SearchMemory_ShouldFallbackToSemantic_ForCqrsDoc_WhenNoLexicalMatch()
     {
         var cqrs = new FakeStateQueryService();
@@ -143,7 +143,7 @@ public class MemorySearchSemanticTests
         first.GetProperty("Metadata").GetProperty("source").GetString().ShouldStartWith("cqrs.semantic");
     }
 
-    [Fact]
+    [Fact(DisplayName = "search_memory uses vector index when available")]
     public async Task SearchMemory_ShouldUseVectorIndex_WhenAvailable()
     {
         var vectorIndex = new FakeMemoryVectorIndex();
@@ -184,7 +184,7 @@ public class MemorySearchSemanticTests
         vectorIndex.LastMemoryId.ShouldBe("privateagent::agent-1");
     }
 
-    [Fact]
+    [Fact(DisplayName = "search_memory passes explicit memoryId to vector index")]
     public async Task SearchMemory_ShouldPassExplicitMemoryId_ToVectorIndex()
     {
         var vectorIndex = new FakeMemoryVectorIndex();
@@ -222,7 +222,7 @@ public class MemorySearchSemanticTests
         vectorIndex.LastMemoryId.ShouldBe("session::s1");
     }
 
-    [Fact]
+    [Fact(DisplayName = "search_memory falls back to memory store lexical when vector index returns empty")]
     public async Task SearchMemory_ShouldFallbackToMemoryStoreLexical_WhenVectorIndexReturnsEmpty()
     {
         var store = new InMemoryMemoryStore();
@@ -273,7 +273,7 @@ public class MemorySearchSemanticTests
         first.GetProperty("Metadata").GetProperty("ranking").GetString().ShouldBe("lexical");
     }
 
-    [Fact]
+    [Fact(DisplayName = "search_memory falls back to memory store lexical when embeddings are not provided")]
     public async Task SearchMemory_ShouldFallbackToMemoryStoreLexical_WhenNoEmbeddings()
     {
         var store = new InMemoryMemoryStore();

@@ -18,7 +18,7 @@ public class AevatarAgentHookPipelineTests
                 ContextMessageWarn: 10,
                 ContextCharsWarn: 1000));
 
-    [Fact]
+    [Fact(DisplayName = "Hook pipeline orders hooks by priority then name")]
     public async Task Orders_ByPriorityThenName()
     {
         var calls = new List<string>();
@@ -37,7 +37,7 @@ public class AevatarAgentHookPipelineTests
         calls.Should().Equal("z", "a", "b");
     }
 
-    [Fact]
+    [Fact(DisplayName = "Hook pipeline skips disabled hooks (case-insensitive)")]
     public async Task DisabledHooks_AreSkipped_CaseInsensitive()
     {
         var calls = new List<string>();
@@ -60,7 +60,7 @@ public class AevatarAgentHookPipelineTests
         calls.Should().Equal("Keep");
     }
 
-    [Fact]
+    [Fact(DisplayName = "Hook pipeline isolates hook exception and continues")]
     public async Task HookException_IsIsolated_AndDoesNotBlockOthers()
     {
         var calls = new List<string>();
@@ -79,7 +79,7 @@ public class AevatarAgentHookPipelineTests
         calls.Should().Equal("Good");
     }
 
-    [Fact]
+    [Fact(DisplayName = "Hook pipeline keeps last hook when names are duplicated")]
     public async Task DuplicateHookName_LastWins()
     {
         var calls = new List<string>();
@@ -97,7 +97,7 @@ public class AevatarAgentHookPipelineTests
         calls.Should().Equal("last");
     }
 
-    [Fact]
+    [Fact(DisplayName = "Hook pipeline skips disabled hooks by type name")]
     public async Task DisabledHooks_ByTypeName_AreSkipped()
     {
         var calls = new List<string>();
@@ -118,7 +118,7 @@ public class AevatarAgentHookPipelineTests
         calls.Should().BeEmpty();
     }
 
-    [Fact]
+    [Fact(DisplayName = "Hook pipeline clamps policy budgets")]
     public void CreatePolicySnapshot_ShouldClampBudgets()
     {
         var pipeline = new AevatarAgentHookPipeline(
@@ -142,7 +142,7 @@ public class AevatarAgentHookPipelineTests
         policy.ContextCharsWarn.Should().Be(1000);
     }
 
-    [Fact]
+    [Fact(DisplayName = "Hook pipeline stops and bubbles OperationCanceledException on cancellation")]
     public async Task Cancellation_ShouldStopPipeline_AndBubbleOperationCanceled()
     {
         var calls = new List<string>();

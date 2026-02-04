@@ -10,7 +10,7 @@ namespace Aevatar.Agents.AI.Core.Tests.Hooks;
 
 public class ExecutionTraceProgressHookTests
 {
-    [Fact]
+    [Fact(DisplayName = "ExecutionTraceProgressHook publishes session lifecycle trace events")]
     public async Task SessionHooks_ShouldPublish_ExecutionTraceEvents()
     {
         var published = new List<ExecutionTraceEvent>();
@@ -42,7 +42,7 @@ public class ExecutionTraceProgressHookTests
         stop.Fields[ExecutionTraceEventFields.Progress].DoubleValue.ShouldBe(1d);
     }
 
-    [Fact]
+    [Fact(DisplayName = "ExecutionTraceProgressHook publishes LLM/tool/error trace events")]
     public async Task LlmAndToolHooks_ShouldPublish_ExecutionTraceEvents()
     {
         var published = new List<ExecutionTraceEvent>();

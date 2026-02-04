@@ -1,11 +1,16 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
+using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.Abstractions.Helpers;
+using Aevatar.Agents.Abstractions.Memory;
+using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core.Hooks;
 using Aevatar.Agents.AI.Core.Messages;
+using Aevatar.Agents.AI.Core.Utils;
+using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 
@@ -14,23 +19,14 @@ namespace Aevatar.Agents.AI.Core;
 
 public abstract partial class AIGAgentBase
 {
-    // ------------------------------------------------------------
-    //  Baseline tool allowlist (framework-level)
-    //
-    //  WHY:
-    //  - Some platforms want role-driven tool surfaces configured by YAML / policy.
-    //  - We already support per-request allowlists via AIGAgentKeys.ToolAllowlist;
-    //    this adds a *baseline* allowlist applied to every LLM request.
-    //
-    //  NOTE:
-    //  - This affects both:
-    //    - tool visibility (function schema)
-    //    - tool execution (defense-in-depth recheck)
-    // ------------------------------------------------------------
+    // Baseline tool allowlist applied to every LLM request.
 
     private HashSet<string>? _fixedToolAllowlist;
     private LlmRequestRuntime? _llmRequestRuntime;
-    private LlmRequestRuntime LlmRequest => _llmRequestRuntime ??= new LlmRequestRuntime(LlmRequestContext);
+    private LlmRequestRuntime LlmRequest => _llmRequestRuntime ??= new LlmRequestRuntime(this);
+
+    private AIGAgentChatRuntime? _chatRuntime;
+    private AIGAgentChatRuntime ChatRuntime => _chatRuntime ??= new AIGAgentChatRuntime(this);
 
     private static readonly MethodInfo ChatRequestHandlerMethod =
         typeof(AIGAgentBase).GetMethod(nameof(HandleChatRequestEvent),
@@ -52,9 +48,6 @@ public abstract partial class AIGAgentBase
         return false;
     }
 
-    /// <summary>
-    /// Event-driven chat entry (for YAML/role-based agents).
-    /// </summary>
     [EventHandler(AllowSelfHandling = true)]
     protected virtual async Task HandleChatRequestEvent(ChatRequestEvent evt)
     {
@@ -176,219 +169,32 @@ public abstract partial class AIGAgentBase
             : new HashSet<string>(list, StringComparer.OrdinalIgnoreCase);
     }
 
-    /// <summary>
-    /// Streaming tool-call handling mode.
-    ///
-    /// 中文 + ASCII:
-    /// - 默认：遇到工具调用时，停止 streaming，执行 tools（non-streaming），并把最终答案作为一个 chunk 返回
-    /// - 目的：把“策略”从 while 循环里抽离出来，避免以后改行为时动到核心 streaming 逻辑
-    /// </summary>
-    protected enum StreamingToolCallMode
+    public enum StreamingToolCallMode
     {
         EmitFinalAnswerAsSingleChunk = 0,
         ContinueStreamingAfterTools = 1
     }
 
-    /// <summary>
-    /// Controls how <see cref="ChatStreamAsync"/> behaves when the model returns a function call mid-stream.
-    /// Default: <see cref="StreamingToolCallMode.EmitFinalAnswerAsSingleChunk"/>.
-    /// </summary>
     protected virtual StreamingToolCallMode StreamingToolCalls => StreamingToolCallMode.EmitFinalAnswerAsSingleChunk;
 
-    /// <summary>
-    /// Streaming token read error logging hook.
-    ///
-    /// 中文 + ASCII:
-    /// - 默认：LogError + throw（保持现有行为）
-    /// - Override：允许把特定 provider 的 mid-stream 断连降级为 Warning/Debug（但仍然 throw）
-    /// </summary>
     protected virtual void LogChatStreamTokenReadException(Exception exception, ChatRequest request)
     {
         Logger.LogError(exception, "Error in streaming chat request {RequestId}", request.RequestId);
     }
 
-    /// <summary>
-    /// Process a chat request and return a response.
-    /// </summary>
-    /// <param name="request">Chat request</param>
-    /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>Chat response</returns>
     public virtual async Task<ChatResponse> ChatAsync(
         ChatRequest request,
         CancellationToken cancellationToken = default)
     {
-        EnsureInitialized();
-
-        var sessionStartedAt = DateTimeOffset.UtcNow;
-        var sessionStarted = false;
-        var stopStatus = AevatarAgentHookStopStatus.Completed;
-        Exception? stopException = null;
-
-        await RunSessionStartHooksAsync(request, isStreaming: false, cancellationToken);
-        sessionStarted = true;
-
-        var (provider, model) = GetProviderAndModelForTelemetry();
-        using var llmCall = new LlmCallInstrumentationScope(Logger, Id, provider, model, isStreaming: false);
-
-        try
-        {
-            // Keep history bounded before building request (prevents token blow-up).
-            await CompactChatHistoryIfNeededAsync(cancellationToken);
-
-            // Ensure built-in tools are registered and cached.
-            await InitializeToolsAsync(cancellationToken);
-
-            // Best-effort: if MCP servers are configured but were unreachable earlier,
-            // retry per chat call (throttled) so tools can "eventually become available".
-            await TryReconnectMcpOnChatAsync(cancellationToken);
-
-            // Build LLM request from chat request
-            var llmRequest = BuildLLMRequest(request);
-
-            // Optional: persist conversation to State.History (default off)
-            if (EnableChatHistoryInState)
-            {
-                AddMessageToHistory(request.Message, AevatarChatRole.User);
-            }
-
-            // Optional: persist conversation to MemoryStore (default off, best-effort)
-            await AppendChatMemoryAsync(AevatarChatRole.User, request.Message ?? string.Empty, request,
-                cancellationToken);
-
-            // Call LLM
-            var llmResponse = await GenerateLLMWithHooksAsync(request, llmRequest, cancellationToken);
-            ToolCallInfo? toolCall = null;
-
-            // Tool/function calling loop
-            if (llmResponse.AevatarFunctionCall != null)
-            {
-                var (finalResponse, lastToolCall) = await ExecuteToolCallLoopAsync(
-                    request,
-                    llmRequest,
-                    llmResponse,
-                    cancellationToken);
-                llmResponse = finalResponse;
-                toolCall = lastToolCall;
-            }
-
-            // Build chat response
-            var response = new ChatResponse
-            {
-                Content = llmResponse.Content,
-                RequestId = request.RequestId
-            };
-
-            if (toolCall != null)
-            {
-                response.ToolCalled = true;
-                response.ToolCall = toolCall;
-            }
-
-            if (EnableChatHistoryInState && !string.IsNullOrEmpty(response.Content))
-            {
-                AddMessageToHistory(response.Content, AevatarChatRole.Assistant);
-            }
-
-            // Optional: persist assistant output to MemoryStore (default off, best-effort)
-            if (!string.IsNullOrWhiteSpace(response.Content))
-            {
-                await AppendChatMemoryAsync(AevatarChatRole.Assistant, response.Content!, request, cancellationToken);
-            }
-
-            // Compact again after appending new messages (keeps state bounded for next call).
-            await CompactChatHistoryIfNeededAsync(cancellationToken);
-
-            // Add token usage if available
-            var promptTokens = 0;
-            var completionTokens = 0;
-            if (llmResponse.Usage != null)
-            {
-                promptTokens = llmResponse.Usage.PromptTokens;
-                completionTokens = llmResponse.Usage.CompletionTokens;
-
-                response.Usage = new AevatarTokenUsage
-                {
-                    PromptTokens = promptTokens,
-                    CompletionTokens = completionTokens,
-                    TotalTokens = llmResponse.Usage.TotalTokens
-                };
-            }
-
-            llmCall.RecordCompleted(
-                promptTokens,
-                completionTokens,
-                promptChars: request.Message?.Length ?? 0,
-                responseChars: response.Content?.Length ?? 0);
-
-            // Publish chat response event
-            await PublishAsync(new ChatResponseEvent
-            {
-                RequestId = request.RequestId,
-                Content = response.Content,
-                TokensUsed = response.Usage?.TotalTokens ?? 0,
-                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
-            }, ct: cancellationToken);
-
-            // Record the AI decision as an event (Event Sourcing)
-            RaiseAIDecision(
-                request.Message ?? string.Empty,
-                response.Content ?? string.Empty,
-                response.Usage?.TotalTokens ?? 0,
-                new Dictionary<string, string>
-                {
-                    ["request_id"] = request.RequestId,
-                    ["chat_type"] = toolCall != null ? "tool_execution" : "sync"
-                });
-
-            // Auto-confirm if configured and EventStore is present
-            if (AutoConfirmEvents && EventStore != null)
-            {
-                await ConfirmEventsAsync(cancellationToken);
-            }
-
-            return response;
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            llmCall.StopWithoutRecording();
-            stopStatus = AevatarAgentHookStopStatus.Aborted;
-
-            // External cancellation (e.g., HTTP request aborted). This is expected and should not be
-            // logged as an error-level "LLM call failed".
-            Logger.LogDebug("Agent [{AgentId}] LLM call canceled by caller.", Id);
-            throw;
-        }
-        catch (Exception ex)
-        {
-            llmCall.RecordFailed(ex);
-            stopStatus = AevatarAgentHookStopStatus.Error;
-            stopException = ex;
-
-            throw;
-        }
-        finally
-        {
-            if (sessionStarted)
-            {
-                var duration = DateTimeOffset.UtcNow - sessionStartedAt;
-                await RunStopHooksAsync(request, isStreaming: false, stopStatus, duration, stopException);
-                await RunSessionEndHooksAsync(request, isStreaming: false, stopStatus, duration, stopException);
-            }
-        }
+        return await ChatRuntime.ChatAsync(request, cancellationToken);
     }
 
-    /// <summary>
-    /// Build LLM request from chat request.
-    /// </summary>
     protected virtual AevatarLLMRequest BuildLLMRequest(
         ChatRequest request)
     {
         return LlmRequest.BuildRequest(request);
     }
 
-    /// <summary>
-    /// Determine the effective system prompt, preferring configuration override.
-    /// </summary>
     protected virtual string? GetEffectiveSystemPrompt()
     {
         return !string.IsNullOrWhiteSpace(Config.SystemPrompt)
@@ -437,183 +243,10 @@ public abstract partial class AIGAgentBase
     /// <summary>
     /// Generate a streaming response to a chat request.
     /// </summary>
-    public virtual async IAsyncEnumerable<string> ChatStreamAsync(
+    public virtual IAsyncEnumerable<string> ChatStreamAsync(
         ChatRequest request,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
-    {
-        EnsureInitialized();
-
-        var sessionStartedAt = DateTimeOffset.UtcNow;
-        var sessionStarted = false;
-        var stopStatus = AevatarAgentHookStopStatus.Completed;
-        Exception? stopException = null;
-
-        await RunSessionStartHooksAsync(request, isStreaming: true, cancellationToken);
-        sessionStarted = true;
-
-        AevatarLLMRequest? llmRequest = null;
-        IAsyncEnumerator<AevatarLLMToken>? enumerator = null;
-
-        var assistantBuffer = EnableChatHistoryInState
-            ? new StringBuilder()
-            : null;
-        var reasoningBuffer = EnableChatHistoryInState
-            ? new StringBuilder()
-            : null;
-        var completedSuccessfully = false;
-
-        try
-        {
-            llmRequest = await PrepareChatStreamAsync(request, cancellationToken);
-
-            // Stream from LLM (with Hook/Harness stages; best-effort)
-            Logger.LogDebug("[ChatStreamAsync] Getting async enumerator from GenerateLLMStreamWithHooksAsync...");
-            enumerator = GenerateLLMStreamWithHooksAsync(request.RequestId, llmRequest, cancellationToken)
-                .GetAsyncEnumerator(cancellationToken);
-            Logger.LogDebug("[ChatStreamAsync] Got enumerator, entering streaming loop...");
-
-            var loopIteration = 0;
-            while (true)
-            {
-                loopIteration++;
-                Logger.LogDebug("[ChatStreamAsync] Loop iteration {Iter}, calling MoveNextAsync...", loopIteration);
-                cancellationToken.ThrowIfCancellationRequested();
-
-                AevatarLLMToken? token;
-                try
-                {
-                    token = await TryReadNextStreamingTokenAsync(enumerator, request, cancellationToken);
-                }
-                catch (OperationCanceledException oce) when (cancellationToken.IsCancellationRequested)
-                {
-                    stopStatus = AevatarAgentHookStopStatus.Aborted;
-                    stopException = oce;
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    stopStatus = AevatarAgentHookStopStatus.Error;
-                    stopException = ex;
-                    throw;
-                }
-
-            if (token == null)
-            {
-                Logger.LogDebug("[ChatStreamAsync] Token is null, breaking loop");
-                break;
-            }
-            Logger.LogDebug("[ChatStreamAsync] Got token: Content={ContentLen}chars, FunctionCall={HasFunc}, IsComplete={IsComplete}",
-                token.Content?.Length ?? 0, token.AevatarFunctionCall != null, token.IsComplete);
-
-                // Streaming + tools:
-                // - If the model returns a function call mid-stream, execute tools non-streaming and
-                //   emit the final answer as a single chunk (best-effort).
-                if (token.AevatarFunctionCall != null)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    string? finalText;
-                    try
-                    {
-                        switch (StreamingToolCalls)
-                        {
-                            case StreamingToolCallMode.EmitFinalAnswerAsSingleChunk:
-                            {
-                                finalText = await ExecuteToolCallFromStreamingTokenAsync(
-                                    request,
-                                    llmRequest,
-                                    token,
-                                    assistantBuffer,
-                                    reasoningBuffer,
-                                    cancellationToken);
-                                break;
-                            }
-                            case StreamingToolCallMode.ContinueStreamingAfterTools:
-                                throw new NotSupportedException(
-                                    "ContinueStreamingAfterTools is not supported yet. " +
-                                    "The current provider streaming pipeline cannot resume after executing tool calls.");
-                            default:
-                                throw new ArgumentOutOfRangeException();
-                        }
-                    }
-                    catch (OperationCanceledException oce) when (cancellationToken.IsCancellationRequested)
-                    {
-                        stopStatus = AevatarAgentHookStopStatus.Aborted;
-                        stopException = oce;
-                        throw;
-                    }
-                    catch (Exception ex)
-                    {
-                        stopStatus = AevatarAgentHookStopStatus.Error;
-                        stopException = ex;
-                        throw;
-                    }
-
-                    if (!string.IsNullOrEmpty(finalText))
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        assistantBuffer?.Append(finalText);
-                        yield return finalText;
-                    }
-
-                    completedSuccessfully = true;
-                    yield break;
-                }
-
-                var content = token.Content;
-                var reasoning = token.ReasoningContent;
-                var isComplete = token.IsComplete;
-
-                if (!string.IsNullOrEmpty(reasoning))
-                {
-                    reasoningBuffer?.Append(reasoning);
-                }
-
-                if (!string.IsNullOrEmpty(content))
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    assistantBuffer?.Append(content);
-                    yield return content;
-                }
-
-                if (isComplete)
-                    break;
-            }
-
-            completedSuccessfully = true;
-        }
-        finally
-        {
-            if (enumerator != null)
-            {
-                await enumerator.DisposeAsync();
-            }
-
-            await PersistStreamingAssistantOutputAsync(
-                request,
-                assistantBuffer,
-                reasoningBuffer,
-                completedSuccessfully,
-                cancellationToken);
-
-            // Compact after streaming finishes (keeps state bounded for next call).
-            // If caller canceled, skip to avoid surfacing extra TaskCanceledException noise.
-            if (!cancellationToken.IsCancellationRequested)
-            {
-                await CompactChatHistoryIfNeededAsync(cancellationToken);
-            }
-
-            if (sessionStarted)
-            {
-                if (!completedSuccessfully && stopStatus == AevatarAgentHookStopStatus.Completed)
-                    stopStatus = AevatarAgentHookStopStatus.Aborted;
-
-                var duration = DateTimeOffset.UtcNow - sessionStartedAt;
-                await RunStopHooksAsync(request, isStreaming: true, stopStatus, duration, stopException);
-                await RunSessionEndHooksAsync(request, isStreaming: true, stopStatus, duration, stopException);
-            }
-        }
-    }
+        CancellationToken cancellationToken = default)
+        => ChatRuntime.ChatStreamAsync(request, cancellationToken);
 
     private async Task<AevatarLLMRequest> PrepareChatStreamAsync(ChatRequest request, CancellationToken cancellationToken)
     {
@@ -763,4 +396,242 @@ public abstract partial class AIGAgentBase
         var modelInfo = await LLMProvider.GetModelInfoAsync(cancellationToken);
         return modelInfo.SupportsStreaming;
     }
+
+    // Streaming sink registry (DI injected, best-effort).
+    internal IStreamChunkSinkRegistry? StreamChunkSinkRegistry { get; set; }
+
+    private HistoryRuntime? _historyRuntime;
+    private HistoryRuntime History => _historyRuntime ??= new HistoryRuntime(this);
+
+    public bool EnableChatHistoryInState { get; set; }
+    public bool EnableChatHistoryCompaction { get; set; }
+    public int ChatHistoryMaxMessages { get; set; } = 40;
+    public int ChatHistorySummaryMaxChars { get; set; } = 4000;
+
+    protected virtual void AddMessageToHistory(string content, AevatarChatRole role, string? name = null)
+        => History.AddMessage(content, role, name);
+
+    protected virtual void AddMessageToHistory(AevatarChatMessage message)
+        => History.AddMessage(message);
+
+    protected virtual Task CompactChatHistoryIfNeededAsync(CancellationToken cancellationToken = default)
+        => History.CompactIfNeededAsync(cancellationToken);
+
+    private string BuildEffectiveSystemPromptWithSummary()
+    {
+        var basePrompt = GetEffectiveSystemPrompt() ?? string.Empty;
+
+        var toolBlock = BuildToolInstructionBlock();
+        var mergedPrompt = string.IsNullOrWhiteSpace(toolBlock)
+            ? basePrompt
+            : string.IsNullOrWhiteSpace(basePrompt)
+                ? toolBlock
+                : $"{basePrompt}\n\n{toolBlock}";
+
+        return History.AppendSummaryToSystemPrompt(mergedPrompt);
+    }
+
+    protected virtual IReadOnlyList<AevatarChatMessage> SnapshotChatHistoryMessages()
+        => History.SnapshotHistoryMessages();
+
+    protected IMemoryStore? MemoryStore { get; set; }
+    protected IMemoryVectorIndex? MemoryVectorIndex { get; set; }
+
+    public bool EnableMemoryStoreAppend { get; set; }
+    public bool EnableSessionMemoryStoreAppend { get; set; }
+    public bool EnableMemoryVectorIndexAppend { get; set; }
+
+    public MemoryScopeType MemoryStoreScopeType { get; set; } = MemoryScopeType.PrivateAgent;
+    public string? MemoryStoreScopeIdOverride { get; set; }
+    public string? MemoryIdOverride { get; set; }
+
+    private MemoryStoreRuntime? _memoryStoreRuntime;
+    private MemoryStoreRuntime MemoryRuntime => _memoryStoreRuntime ??= new MemoryStoreRuntime(this);
+
+    protected virtual async Task AppendChatMemoryAsync(
+        AevatarChatRole role,
+        string content,
+        ChatRequest request,
+        CancellationToken ct)
+    {
+        await MemoryRuntime.AppendChatMemoryAsync(role, content, request, ct);
+        await AppendSessionChatMemoryAsync(role, content, request, ct);
+    }
+
+    protected virtual Task AppendMemoryVectorAsync(MemoryEntry entry, CancellationToken ct)
+        => MemoryRuntime.AppendMemoryVectorAsync(entry, ct);
+
+    protected virtual MemoryScope BuildMemoryScope(ChatRequest request)
+    {
+        var type = MemoryStoreScopeType == MemoryScopeType.Unspecified
+            ? MemoryScopeType.PrivateAgent
+            : MemoryStoreScopeType;
+
+        var scopeId = MemoryStoreScopeIdOverride;
+        if (string.IsNullOrWhiteSpace(scopeId))
+        {
+            scopeId = type switch
+            {
+                MemoryScopeType.Session => TryGetContextValue(
+                    request,
+                    ChatRequest.SessionIdKey,
+                    ChatRequest.SessionIdKeyCamel),
+                MemoryScopeType.Run => TryGetContextValue(request, "run_id", "runId"),
+                MemoryScopeType.Execution => TryGetContextValue(request, "execution_id", "executionId"),
+                MemoryScopeType.Graph => TryGetContextValue(request, "graph_id", "graphId"),
+                MemoryScopeType.Tenant => TryGetContextValue(request, "tenant_id", "tenantId"),
+                _ => Id.ToString()
+            };
+        }
+
+        scopeId = string.IsNullOrWhiteSpace(scopeId) ? Id.ToString() : scopeId.Trim();
+
+        return new MemoryScope
+        {
+            Type = type,
+            ScopeId = scopeId
+        };
+    }
+
+    protected virtual string BuildMemoryId(MemoryScope scope)
+    {
+        if (!string.IsNullOrWhiteSpace(MemoryIdOverride))
+            return MemoryIdOverride.Trim();
+
+        var type = scope.Type.ToString().ToLowerInvariant();
+        var id = (scope.ScopeId ?? string.Empty).Trim();
+        return $"{type}::{id}";
+    }
+
+    protected virtual async Task AppendSessionChatMemoryAsync(
+        AevatarChatRole role,
+        string content,
+        ChatRequest request,
+        CancellationToken ct)
+    {
+        if (!EnableSessionMemoryStoreAppend)
+            return;
+
+        if (!TryGetSessionId(request, out var sessionId))
+            return;
+
+        var scope = BuildSessionMemoryScope(sessionId);
+        var memoryId = BuildSessionMemoryId(sessionId);
+        await MemoryRuntime.AppendChatMemoryOverrideAsync(role, content, request, scope, memoryId, ct);
+    }
+
+    protected virtual bool TryGetSessionId(ChatRequest request, out string sessionId)
+    {
+        sessionId = string.Empty;
+        var value = TryGetContextValue(request, ChatRequest.SessionIdKey, ChatRequest.SessionIdKeyCamel);
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        sessionId = value.Trim();
+        return sessionId.Length > 0;
+    }
+
+    protected virtual MemoryScope BuildSessionMemoryScope(string sessionId)
+        => new() { Type = MemoryScopeType.Session, ScopeId = sessionId.Trim() };
+
+    protected virtual string BuildSessionMemoryId(string sessionId)
+        => $"{MemoryScopeType.Session.ToString().ToLowerInvariant()}::{(sessionId ?? string.Empty).Trim()}";
+
+    private static string? TryGetContextValue(ChatRequest request, params string[] keys)
+    {
+        if (request?.Context == null || request.Context.Count == 0)
+            return null;
+
+        foreach (var k in keys)
+        {
+            if (string.IsNullOrWhiteSpace(k)) continue;
+            if (!request.Context.TryGetValue(k, out var v)) continue;
+            if (string.IsNullOrWhiteSpace(v)) continue;
+            return v.Trim();
+        }
+
+        return null;
+    }
+
+    bool ILlmRequestHost.EnableChatHistoryInState => EnableChatHistoryInState;
+    IReadOnlyCollection<string>? ILlmRequestHost.FixedToolAllowlist => _fixedToolAllowlist;
+    AevatarLLMSettings ILlmRequestHost.GetLLMSettings(ChatRequest request) => GetLLMSettings(request);
+    string ILlmRequestHost.BuildEffectiveSystemPromptWithSummary() => BuildEffectiveSystemPromptWithSummary();
+    IReadOnlyList<AevatarChatMessage> ILlmRequestHost.SnapshotChatHistoryMessages() => SnapshotChatHistoryMessages();
+    void ILlmRequestHost.AttachToolsToRequest(AevatarLLMRequest llmRequest) => AttachToolsToRequest(llmRequest);
+
+    ILogger IAIGAgentChatRuntimeHost.Logger => Logger;
+    string IAIGAgentChatRuntimeHost.AgentId => Id.ToString();
+    bool IAIGAgentChatRuntimeHost.EnableChatHistoryInState => EnableChatHistoryInState;
+    bool IAIGAgentChatRuntimeHost.AutoConfirmEvents => AutoConfirmEvents;
+    object? IAIGAgentChatRuntimeHost.EventStore => EventStore;
+    void IAIGAgentChatRuntimeHost.EnsureInitialized() => EnsureInitialized();
+
+    Task IAIGAgentChatRuntimeHost.RunSessionStartHooksAsync(ChatRequest request, bool isStreaming, CancellationToken ct)
+        => RunSessionStartHooksAsync(request, isStreaming, ct);
+
+    Task IAIGAgentChatRuntimeHost.RunStopHooksAsync(
+        ChatRequest request,
+        bool isStreaming,
+        AevatarAgentHookStopStatus status,
+        TimeSpan duration,
+        Exception? exception)
+        => RunStopHooksAsync(request, isStreaming, status, duration, exception);
+
+    Task IAIGAgentChatRuntimeHost.RunSessionEndHooksAsync(
+        ChatRequest request,
+        bool isStreaming,
+        AevatarAgentHookStopStatus status,
+        TimeSpan duration,
+        Exception? exception)
+        => RunSessionEndHooksAsync(request, isStreaming, status, duration, exception);
+
+    Task IAIGAgentChatRuntimeHost.CompactChatHistoryIfNeededAsync(CancellationToken ct)
+        => CompactChatHistoryIfNeededAsync(ct);
+
+    Task IAIGAgentChatRuntimeHost.InitializeToolsAsync(CancellationToken ct) => InitializeToolsAsync(ct);
+    Task IAIGAgentChatRuntimeHost.TryReconnectMcpOnChatAsync(CancellationToken ct) => TryReconnectMcpOnChatAsync(ct);
+
+    AevatarLLMRequest IAIGAgentChatRuntimeHost.BuildLLMRequest(ChatRequest request) => BuildLLMRequest(request);
+
+    Task<AevatarLLMResponse> IAIGAgentChatRuntimeHost.GenerateLLMWithHooksAsync(
+        ChatRequest request,
+        AevatarLLMRequest llmRequest,
+        CancellationToken ct)
+        => GenerateLLMWithHooksAsync(request, llmRequest, ct);
+
+    IAsyncEnumerable<AevatarLLMToken> IAIGAgentChatRuntimeHost.GenerateLLMStreamWithHooksAsync(
+        string requestId,
+        AevatarLLMRequest llmRequest,
+        CancellationToken ct)
+        => GenerateLLMStreamWithHooksAsync(requestId, llmRequest, ct);
+
+    Task<(AevatarLLMResponse FinalResponse, ToolCallInfo? ToolCall)> IAIGAgentChatRuntimeHost.ExecuteToolCallLoopAsync(
+        ChatRequest request,
+        AevatarLLMRequest llmRequest,
+        AevatarLLMResponse initialResponse,
+        CancellationToken ct)
+        => ExecuteToolCallLoopAsync(request, llmRequest, initialResponse, ct);
+
+    void IAIGAgentChatRuntimeHost.AddMessageToHistory(string content, AevatarChatRole role)
+        => AddMessageToHistory(content, role);
+
+    void IAIGAgentChatRuntimeHost.AddMessageToHistory(AevatarChatMessage message) => AddMessageToHistory(message);
+
+    Task IAIGAgentChatRuntimeHost.AppendChatMemoryAsync(AevatarChatRole role, string content, ChatRequest request, CancellationToken ct)
+        => AppendChatMemoryAsync(role, content, request, ct);
+
+    Task IAIGAgentChatRuntimeHost.PublishAsync(IMessage message, EventDirection direction, CancellationToken ct)
+        => PublishAsync((dynamic)message, direction, ct);
+
+    (string Provider, string Model) IAIGAgentChatRuntimeHost.GetProviderAndModelForTelemetry()
+        => GetProviderAndModelForTelemetry();
+
+    void IAIGAgentChatRuntimeHost.RaiseAIDecision(string prompt, string response, int tokensUsed, Dictionary<string, string>? metadata)
+        => RaiseAIDecision(prompt, response, tokensUsed, metadata);
+
+    Task IAIGAgentChatRuntimeHost.ConfirmEventsAsync(CancellationToken ct) => ConfirmEventsAsync(ct);
+    StreamingToolCallMode IAIGAgentChatRuntimeHost.GetStreamingToolCallMode() => StreamingToolCalls;
+    void IAIGAgentChatRuntimeHost.LogChatStreamTokenReadException(Exception exception, ChatRequest request)
+        => LogChatStreamTokenReadException(exception, request);
 }

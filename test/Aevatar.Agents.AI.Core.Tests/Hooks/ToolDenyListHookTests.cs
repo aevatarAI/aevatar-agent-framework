@@ -6,7 +6,7 @@ namespace Aevatar.Agents.AI.Core.Tests.Hooks;
 
 public class ToolDenyListHookTests
 {
-    [Fact]
+    [Fact(DisplayName = "ToolDenyListHook denies tool when tool name is in deny list")]
     public async Task BeforeToolExecuteAsync_ShouldDeny_WhenToolInList()
     {
         var hook = new ToolDenyListHook(new ToolDenyListHookOptions
@@ -35,7 +35,7 @@ public class ToolDenyListHookTests
         reason.Should().Be("blocked");
     }
 
-    [Fact]
+    [Fact(DisplayName = "ToolDenyListHook does not deny tool when tool name is not in deny list")]
     public async Task BeforeToolExecuteAsync_ShouldNotDeny_WhenToolNotInList()
     {
         var hook = new ToolDenyListHook(new ToolDenyListHookOptions

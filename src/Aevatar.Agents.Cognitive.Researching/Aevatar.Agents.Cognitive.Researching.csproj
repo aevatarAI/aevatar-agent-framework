@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <Description>Vibe Researching domain (extracted from Cognitive.Core)</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.AGUI\Aevatar.Agents.AGUI.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.AI.Abstractions\Aevatar.Agents.AI.Abstractions.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.Cognitive\Aevatar.Agents.Cognitive.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.Cognitive.Streaming\Aevatar.Agents.Cognitive.Streaming.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.CreativeReasoning\Aevatar.Agents.CreativeReasoning.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.Cognitive.Strategies\Aevatar.Agents.Cognitive.Strategies.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.Knowledge.Graph\Aevatar.Agents.Knowledge.Graph.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.Maker\Aevatar.Agents.Maker.csproj" />
+    <ProjectReference Include="..\Aevatar.CognitiveMesh.Dsl\Aevatar.CognitiveMesh.Dsl.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.Cognitive.Researching.Pivot\Aevatar.Agents.Cognitive.Researching.Pivot.csproj" />
+    <ProjectReference Include="..\..\apps\Aevatar.VibeResearching\src\Aevatar.VibeResearching.Contracts\Aevatar.VibeResearching.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" />
+    <PackageReference Include="YamlDotNet" />
+    <PackageReference Include="Scriban" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Aevatar.Agents.Cognitive\Researching\**\*.cs"
+             Link="Researching\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+</Project>
+

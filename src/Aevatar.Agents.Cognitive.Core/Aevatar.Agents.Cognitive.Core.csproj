@@ -9,11 +9,30 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.AGUI\Aevatar.Agents.AGUI.csproj" />
     <ProjectReference Include="..\Aevatar.Agents.AI.Abstractions\Aevatar.Agents.AI.Abstractions.csproj" />
     <ProjectReference Include="..\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
     <ProjectReference Include="..\Aevatar.Agents.Cognitive\Aevatar.Agents.Cognitive.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.Cognitive.Streaming\Aevatar.Agents.Cognitive.Streaming.csproj" />
     <ProjectReference Include="..\Aevatar.Agents.CreativeReasoning\Aevatar.Agents.CreativeReasoning.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.Knowledge.Graph\Aevatar.Agents.Knowledge.Graph.csproj" />
     <ProjectReference Include="..\Aevatar.Agents.Maker\Aevatar.Agents.Maker.csproj" />
+    <ProjectReference Include="..\Aevatar.CognitiveMesh.Dsl\Aevatar.CognitiveMesh.Dsl.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.Cognitive.Strategies\Aevatar.Agents.Cognitive.Strategies.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.Cognitive.Researching\Aevatar.Agents.Cognitive.Researching.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="YamlDotNet" />
+    <PackageReference Include="Scriban" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="Models\*.cs" />
+    <Compile Remove="Strategies\**\*.cs" />
   </ItemGroup>
 
 </Project>

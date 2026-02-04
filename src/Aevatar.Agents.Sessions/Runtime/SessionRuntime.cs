@@ -4,6 +4,7 @@ using Aevatar.Agents.Abstractions.Helpers;
 using Aevatar.Agents.Abstractions.Memory;
 using Aevatar.Agents.AGUI;
 using Aevatar.Agents.AI;
+using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.Core.Configuration;
 using Aevatar.Agents.AI.Core.Messages;
@@ -47,6 +48,7 @@ public sealed class SessionRuntime
     private readonly IOptionsMonitor<SessionRuntimeOptions> _options;
     private readonly IWorkflowCatalog _workflowCatalog;
     private readonly AgentBootstrapper _bootstrapper;
+    private readonly IStreamChunkSinkRegistry _sinkRegistry;
     private readonly IMemoryStore? _memoryStore;
     private readonly ILogger<SessionRuntime> _logger;
 
@@ -61,6 +63,7 @@ public sealed class SessionRuntime
         IOptionsMonitor<SessionRuntimeOptions> options,
         IWorkflowCatalog workflowCatalog,
         AgentBootstrapper bootstrapper,
+        IStreamChunkSinkRegistry sinkRegistry,
         IEnumerable<IMemoryStore> memoryStores,
         ILogger<SessionRuntime> logger)
     {
@@ -70,6 +73,7 @@ public sealed class SessionRuntime
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _workflowCatalog = workflowCatalog ?? throw new ArgumentNullException(nameof(workflowCatalog));
         _bootstrapper = bootstrapper ?? throw new ArgumentNullException(nameof(bootstrapper));
+        _sinkRegistry = sinkRegistry ?? throw new ArgumentNullException(nameof(sinkRegistry));
         _memoryStore = memoryStores?.FirstOrDefault();
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -180,7 +184,7 @@ public sealed class SessionRuntime
             NodeId: role.NodeId ?? string.Empty);
     }
 
-    public async Task<AIGAgentBase?> GetPrimaryAgentAsync(string sessionId, CancellationToken ct)
+    public async Task<IAIGAgent?> GetPrimaryAgentAsync(string sessionId, CancellationToken ct)
     {
         var info = await ResolvePrimaryAgentAsync(sessionId, ct);
         if (info == null || string.IsNullOrWhiteSpace(info.AgentId))
@@ -192,7 +196,7 @@ public sealed class SessionRuntime
 
         try
         {
-            var agent = actor.GetAgent() as AIGAgentBase;
+            var agent = actor.GetAgent() as IAIGAgent;
             if (agent == null)
                 return null;
             _bootstrapper.ConfigureAgentDefaults(info.AgentId, agent, _memoryStore != null);
@@ -286,7 +290,7 @@ public sealed class SessionRuntime
                 // 注册 StreamingContext，让 RoleAIGAgent 直接发布到 UI
                 // 注意：使用 requestId 作为 key，因为 AsyncLocal 跨不了 stream 回调边界
                 var sink = new SessionStreamChunkSink(ctx.Stream, messageId);
-                StreamingContext.Register(requestId, sink);
+                _sinkRegistry.Register(requestId, sink);
                 try
                 {
                     await actor.PublishEventAsync(request, EventDirection.Down, CancellationToken.None);
@@ -296,7 +300,7 @@ public sealed class SessionRuntime
                 }
                 finally
                 {
-                    StreamingContext.Unregister(requestId);
+                    _sinkRegistry.Unregister(requestId);
                 }
             }
             catch (Exception ex)
@@ -327,7 +331,7 @@ public sealed class SessionRuntime
     //  内部方法
     // ============================================================
 
-    private async Task<(SessionState State, SessionRole Role, IGAgentActor Actor, AIGAgentBase Agent)>
+    private async Task<(SessionState State, SessionRole Role, IGAgentActor Actor, IAIGAgent Agent)>
         EnsurePrimaryActorAsync(string sessionId, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(sessionId))
@@ -343,7 +347,7 @@ public sealed class SessionRuntime
 
         var role = await _sessions.EnsureRoleAgentLoadedAsync(state.SessionId, primary.NodeId, ct) ?? primary;
         var actor = await GetOrCreateRoleActorAsync(state.SessionId, role, ct);
-        var agent = actor.GetAgent() as AIGAgentBase
+        var agent = actor.GetAgent() as IAIGAgent
             ?? throw new InvalidOperationException("agent not found.");
 
         _bootstrapper.ConfigureAgentDefaults(actor.Id, agent, _memoryStore != null);
@@ -528,9 +532,7 @@ internal sealed class SessionStreamChunkSink : IStreamChunkSink
         
         // 标记完成
         _completionSource.TrySetResult();
-    }
-
-    public async Task WaitForCompletionAsync(TimeSpan timeout)
+    }    public async Task WaitForCompletionAsync(TimeSpan timeout)
     {
         using var cts = new CancellationTokenSource(timeout);
         try

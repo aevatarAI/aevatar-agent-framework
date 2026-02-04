@@ -1050,7 +1050,7 @@ const InteractionStream: React.FC<InteractionStreamProps> = ({ sessionId }) => {
   const hasRaContent = Boolean(raStreamData?.content || raStreamData?.isStreaming);
 
   // Auto-switch to cards view when vibe run starts
-  const isVibeMode = inputMode === 'vibe' || inputMode === 'vibe_loop';
+  const isVibeMode = inputMode === 'vibe';
   const hasActiveRun = Boolean(currentRunId);
 
   // Ref for auto-scroll container

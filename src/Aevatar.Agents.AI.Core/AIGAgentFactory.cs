@@ -76,6 +76,7 @@ public class AIGAgentFactory : IGAgentFactory
         AIAgentHttpClientFactoryInjector.InjectHttpClientFactory(agent, _serviceProvider);
         AIAgentHostConfigurationInjector.InjectHostConfiguration(agent, _serviceProvider);
         AIAgentWebSearchProviderInjector.InjectWebSearchProvider(agent, _serviceProvider);
+        AIAgentStreamChunkSinkRegistryInjector.InjectRegistry(agent, _serviceProvider);
 
         // ============================================================
         //  Hook/Harness injection (explicit, type-safe, best-effort)

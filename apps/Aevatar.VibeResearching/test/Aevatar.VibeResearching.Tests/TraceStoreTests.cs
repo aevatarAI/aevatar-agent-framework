@@ -1,7 +1,7 @@
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
-using VibeResearching.Api.Vibe.Trace;
+using Aevatar.Agents.Cognitive.Researching.Trace;
 using VibeResearching.Api.Workspace;
 using VibeResearching.Contracts.Collab;
 using Shouldly;

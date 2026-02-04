@@ -17,16 +17,20 @@ using Microsoft.Extensions.Logging;
 // ReSharper disable InconsistentNaming
 namespace Aevatar.Agents.AI.Core;
 
-/// <summary>
-/// Layer 0: Core AI Agent Base
-/// - Manages LLM interactions
-/// - Manages Standard State (History, Token Usage, etc)
-/// - Manages Standard Config
-/// </summary>
-public abstract partial class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAgentConfig>
+/// <summary>Core AI agent base (LLM + state/config bootstrap).</summary>
+public abstract partial class AIGAgentBase :
+    GAgentBase<AevatarAIAgentState, AevatarAIAgentConfig>,
+    IAIGAgent,
+    // Internal host interfaces (explicit implementations live in partials).
+    IToolingInitHost,
+    IToolingLoopHost,
+    IAIGAgentToolsRuntimeHost,
+    IToolPolicyHost,
+    IMcpRuntimeHost,
+    ILlmRequestHost,
+    IAIGAgentChatRuntimeHost,
+    IAIGAgentHookRuntimeHost
 {
-    #region Fields
-
     private const string NotInitializedExceptionMessage =
         "AI Agent must be initialized before use. Call InitializeAsync() first.";
 
@@ -39,8 +43,6 @@ public abstract partial class AIGAgentBase : GAgentBase<AevatarAIAgentState, Aev
 
     private readonly SemaphoreSlim _initializationSemaphore = new(1, 1);
 
-    #endregion
-
     public AIGAgentBase()
     {
     }
@@ -49,16 +51,8 @@ public abstract partial class AIGAgentBase : GAgentBase<AevatarAIAgentState, Aev
     {
     }
 
-    #region Properties
-
-    /// <summary>
-    /// System prompt for the AI agent.
-    /// </summary>
     public virtual string SystemPrompt { get; set; } = "You are a helpful AI assistant.";
 
-    /// <summary>
-    /// Gets the LLM provider.
-    /// </summary>
     public IAevatarLLMProvider LLMProvider
     {
         get
@@ -75,15 +69,8 @@ public abstract partial class AIGAgentBase : GAgentBase<AevatarAIAgentState, Aev
         _embeddingGenerator ?? throw new InvalidOperationException(
             "Embedding generator is not configured. Ensure LLM provider Embeddings settings are provided and IAIAgentEmbeddingFactory is registered.");
 
-    /// <summary>
-    /// Internal logger access for extracted runtime components (e.g. AgentSkillsRuntime).
-    /// Keep it internal to avoid widening the public surface area.
-    /// </summary>
+    // Internal access for in-assembly runtimes/helpers.
     internal ILogger InternalLogger => Logger;
-
-    // ------------------------------------------------------------
-    // Internal wrappers for extracted runtime components
-    // ------------------------------------------------------------
 
     internal LLMProviderConfig? InternalActiveProviderConfig => ActiveProviderConfig;
 
@@ -105,14 +92,7 @@ public abstract partial class AIGAgentBase : GAgentBase<AevatarAIAgentState, Aev
 
     internal Task InternalRefreshToolCachesAsync(CancellationToken ct) => RefreshToolCachesAsync(ct);
 
-    // ------------------------------------------------------------
-    // Internal config access for in-assembly helpers (e.g. YAML appliers)
-    // ------------------------------------------------------------
     internal AevatarAIAgentConfig InternalConfig => Config;
-
-    #endregion
-
-    #region Initialization
 
     protected void EnsureInitialized()
     {
@@ -258,29 +238,18 @@ public abstract partial class AIGAgentBase : GAgentBase<AevatarAIAgentState, Aev
         }
     }
 
-    #endregion
-
-    #region LLM Provider Creation
-
-    /// <summary>
-    /// Creates LLM Provider from factory using provider name.
-    /// </summary>
+    // LLM provider creation
     protected virtual async Task<IAevatarLLMProvider> CreateLLMProviderFromFactoryAsync(
         string providerName,
         CancellationToken cancellationToken)
     {
-        // Get provider from factory
         return await RequireLLMProviderFactory().GetProviderAsync(providerName, cancellationToken);
     }
 
-    /// <summary>
-    /// Creates LLM Provider from custom configuration.
-    /// </summary>
     protected virtual async Task<IAevatarLLMProvider> CreateLLMProviderFromConfigAsync(
         LLMProviderConfig providerConfig,
         CancellationToken cancellationToken)
     {
-        // Create provider from config using factory
         return RequireLLMProviderFactory().CreateProvider(providerConfig, cancellationToken);
     }
 
@@ -292,10 +261,7 @@ public abstract partial class AIGAgentBase : GAgentBase<AevatarAIAgentState, Aev
             "or override provider creation in a derived agent.");
     }
 
-    #endregion
-
-    #region Embeddings
-
+    // Embeddings
     protected bool TryGetEmbeddingGenerator(
         [NotNullWhen(true)] out IEmbeddingGenerator<string, Embedding<float>>? generator)
     {
@@ -416,13 +382,7 @@ public abstract partial class AIGAgentBase : GAgentBase<AevatarAIAgentState, Aev
         return dot / (Math.Sqrt(magLeft) * Math.Sqrt(magRight));
     }
 
-    #endregion
-
-    #region Configuration Methods
-
-    /// <summary>
-    /// Configure AI settings. Override in derived classes.
-    /// </summary>
+    // Configure AI settings. Override in derived classes.
     protected virtual void ConfigAI(AevatarAIAgentConfig config)
     {
         // Set defaults from centralized constants
@@ -430,22 +390,11 @@ public abstract partial class AIGAgentBase : GAgentBase<AevatarAIAgentState, Aev
         config.Temperature = AevatarAIDefaults.DefaultTemperature;
         config.MaxOutputTokens = AevatarAIDefaults.DefaultMaxOutputTokens;
 
-        // Override in derived classes
     }
 
-    #endregion
-
-    #region AI Event Sourcing Support
-
-    /// <summary>
-    /// Auto-confirm events after AI operations.
-    /// Defaults to false. Override to enable.
-    /// </summary>
+    // Event sourcing hooks (optional)
     protected virtual bool AutoConfirmEvents => false;
 
-    /// <summary>
-    /// Record an AI decision as an event.
-    /// </summary>
     protected void RaiseAIDecision(
         string prompt,
         string response,
@@ -490,6 +439,4 @@ public abstract partial class AIGAgentBase : GAgentBase<AevatarAIAgentState, Aev
                 break;
         }
     }
-
-    #endregion
 }

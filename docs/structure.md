@@ -31,6 +31,17 @@
 └── docs/                 # 文档入口
 ```
 
+## `src/` 分层视图（Layered View）
+
+为便于“像搭积木一样组合”，`src/` 在解决方案视图中按层分组（物理路径暂未强制迁移）：
+
+- **foundation**：`Aevatar.Agents.Abstractions` / `Aevatar.Agents.Core` / `Aevatar.Agents.Runtime.*` / secrets & config
+- **ai**：`Aevatar.Agents.AI.*` + `Aevatar.Agents.Tooling`
+- **orchestration**：`Aevatar.Agents.Sessions*` / `Aevatar.Agents.Workspaces`
+- **cognitive**：`Aevatar.Agents.Cognitive*` / `Aevatar.CognitiveMesh.Dsl`
+- **persistence**：`Aevatar.Agents.Persistence.*`
+- **plugins**：`plugins/Aevatar.Agents.Plugins.*`
+
 ## 边界规则（必须遵守）
 
 1. `src/` 只放框架核心；app 不得反向依赖 `examples/`

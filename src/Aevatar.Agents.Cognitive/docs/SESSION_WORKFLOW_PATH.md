@@ -44,7 +44,7 @@
 `CognitiveSessionService.StartSessionAsync(...)` 的核心步骤：
 
 1. 从 `IWorkflowRegistry.Get(workflowName)` 取出 workflow
-2. `CreateAndRegisterAsync<CognitiveCoordinatorGAgent>(...)` 创建 Coordinator
+2. `CreateAndRegisterAsync<CoordinatorAgent>(...)` 创建 Coordinator（legacy 路径说明；Sessions 当前默认不走该路径）
 3. `coordinator.InitializeAsync(provider)` + `ConfigureSessionContext(...)`
 4. `RegisterWorkflows(...)` 把 registry 中的 workflow 注册进 Coordinator 内部 registry
 5. `CreateWorkerPoolAsync(...)` + `ConfigureWorkersAsync(...)`
@@ -58,7 +58,7 @@
 
 入口事件：
 
-`StartWorkflowRequestEvent` → `CognitiveCoordinatorGAgent.HandleStartWorkflowRequest(...)`
+`StartWorkflowRequestEvent` → `CoordinatorAgent.HandleStartWorkflowRequest(...)`
 
 执行主链：
 
@@ -102,24 +102,24 @@ Workflow 的 step 参数里包含 `agent: <role>`，且该 step 在 **Coordinato
 
 1. `SessionApiEndpoints.cs` → `MapAevatarSessionApi` → `POST /api/sessions`
 2. `CognitiveSessionService.cs` → `StartSessionAsync`
-3. `CognitiveCoordinatorGAgent.Workflow.cs` → `HandleStartWorkflowRequest`
+3. `CognitiveCoordinatorGAgent.Workflow.cs`（class=`CoordinatorAgent`）→ `HandleStartWorkflowRequest`
 4. `Execution/WorkflowOrchestrator.cs` → `ExecuteAsync`
-5. `CognitiveCoordinatorGAgent.cs` → `ExecuteStepAsync`
+5. `CognitiveCoordinatorGAgent.cs`（class=`CoordinatorAgent`）→ `ExecuteStepAsync`
 6. `Execution/CognitiveStepExecutor.cs` → `ExecuteAsync`
-6. `CognitiveCoordinatorGAgent.Llm.cs` → `ExecuteLlmCallDirectAsync`
-7. `CognitiveCoordinatorGAgent.Llm.cs` → `ResolveAgentOverride`
+6. `CognitiveCoordinatorGAgent.Llm.cs`（class=`CoordinatorAgent`）→ `ExecuteLlmCallDirectAsync`
+7. `CognitiveCoordinatorGAgent.Llm.cs`（class=`CoordinatorAgent`）→ `ResolveAgentOverride`
 8. `Utilities/AgentYamlResolver.cs` → `TryLoad`
 
 ### 5.2 Session → Workflow（fan_out 并行）
 
 1. `SessionApiEndpoints.cs` → `MapAevatarSessionApi` → `POST /api/sessions`
 2. `CognitiveSessionService.cs` → `StartSessionAsync`
-3. `CognitiveCoordinatorGAgent.Workflow.cs` → `HandleStartWorkflowRequest`
-4. `CognitiveCoordinatorGAgent.cs` → `ExecuteStepAsync`
-5. `CognitiveCoordinatorGAgent.Parallel.cs` → `ExecuteFanOutAsync`
+3. `CognitiveCoordinatorGAgent.Workflow.cs`（class=`CoordinatorAgent`）→ `HandleStartWorkflowRequest`
+4. `CognitiveCoordinatorGAgent.cs`（class=`CoordinatorAgent`）→ `ExecuteStepAsync`
+5. `CognitiveCoordinatorGAgent.Parallel.cs`（class=`CoordinatorAgent`）→ `ExecuteFanOutAsync`
 6. `RoleAIGAgent` → `HandleEventEnvelope`（委托 `CognitiveStepExecutionHandler`）
 7. `Execution/CognitiveStepExecutionHandler.cs` → `ExecuteLlmCallAsync`
-8. `CognitiveCoordinatorGAgent.Parallel.cs` → `HandleStepCompletedEvent`
+8. `CognitiveCoordinatorGAgent.Parallel.cs`（class=`CoordinatorAgent`）→ `HandleStepCompletedEvent`
 
 ---
 
@@ -133,7 +133,7 @@ flowchart TD
   C --> E[Create Coordinator + Initialize + RegisterWorkflows]
   C --> F[CreateWorkerPool + ConfigureWorkers]
   C --> G["Publish StartWorkflowRequestEvent (Down)"]
-  G --> H[CognitiveCoordinatorGAgent.HandleStartWorkflowRequest]
+  G --> H[CoordinatorAgent.HandleStartWorkflowRequest]
   H --> I[ExecuteWorkflowAsync]
   I --> J[ExecuteStepAsync]
 

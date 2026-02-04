@@ -1,0 +1,53 @@
+# ============================================================
+#  Vibe Round Workflow (framework-driven)
+#
+#  Flow:
+#   materials → pivot → brief → plan → mesh → dag_consensus → delivery → trace
+# ============================================================
+
+name: vibe_round
+description: "Single round orchestration for Vibe (framework step modules)"
+
+inputs:
+  - name: question
+    type: string
+    required: true
+    description: "User question / research task"
+  - name: attachments
+    type: object
+    required: false
+    description: "Attachment path list (optional)"
+    default: []
+  - name: request_id
+    type: string
+    required: false
+    default: ""
+  - name: provider_override
+    type: string
+    required: false
+    default: ""
+
+steps:
+  - id: vibe.materials
+    type: vibe_materials
+
+  - id: vibe.pivot
+    type: vibe_pivot
+
+  - id: vibe.brief
+    type: vibe_brief
+
+  - id: vibe.plan
+    type: vibe_plan
+
+  - id: vibe.mesh
+    type: mesh_execute
+
+  - id: vibe.dag_consensus
+    type: vibe_dag_consensus
+
+  - id: vibe.delivery
+    type: vibe_delivery
+
+  - id: vibe.trace
+    type: vibe_trace

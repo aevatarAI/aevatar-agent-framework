@@ -23,7 +23,7 @@ public abstract class CognitiveStepModuleBase : IEventModule, ICognitiveStepModu
         => string.Equals(stepType, StepType, StringComparison.OrdinalIgnoreCase);
 
     public abstract Task<PrimitiveResult> ExecuteAsync(
-        CognitiveCoordinatorGAgent agent,
+        CoordinatorAgent agent,
         StepDefinition step,
         string? preRenderedPrompt,
         string? preRenderedSystem,
@@ -39,12 +39,12 @@ public sealed class CoordinatorStepModule : CognitiveStepModuleBase
 {
     private readonly string _name;
     private readonly string _stepType;
-    private readonly Func<CognitiveCoordinatorGAgent, StepDefinition, string?, string?, CancellationToken, Task<PrimitiveResult>> _execute;
+    private readonly Func<CoordinatorAgent, StepDefinition, string?, string?, CancellationToken, Task<PrimitiveResult>> _execute;
 
     public CoordinatorStepModule(
         string name,
         string stepType,
-        Func<CognitiveCoordinatorGAgent, StepDefinition, string?, string?, CancellationToken, Task<PrimitiveResult>> execute)
+        Func<CoordinatorAgent, StepDefinition, string?, string?, CancellationToken, Task<PrimitiveResult>> execute)
     {
         _name = name;
         _stepType = stepType;
@@ -55,7 +55,7 @@ public sealed class CoordinatorStepModule : CognitiveStepModuleBase
     public override string StepType => _stepType;
 
     public override Task<PrimitiveResult> ExecuteAsync(
-        CognitiveCoordinatorGAgent agent,
+        CoordinatorAgent agent,
         StepDefinition step,
         string? preRenderedPrompt,
         string? preRenderedSystem,
@@ -77,9 +77,9 @@ public sealed class CoordinatorWorkflowEventModule : IEventModule
         if (envelope.Payload == null)
             return;
 
-        if (host.Agent is not CognitiveCoordinatorGAgent coordinator)
+        if (host.Agent is not CoordinatorAgent coordinator)
         {
-            host.Logger.LogWarning("[{Module}] Agent {AgentId} is not CognitiveCoordinatorGAgent",
+            host.Logger.LogWarning("[{Module}] Agent {AgentId} is not CoordinatorAgent",
                 Name, host.AgentId);
             return;
         }
@@ -103,9 +103,9 @@ public sealed class CoordinatorParallelEventModule : IEventModule
         if (envelope.Payload == null)
             return Task.CompletedTask;
 
-        if (host.Agent is not CognitiveCoordinatorGAgent coordinator)
+        if (host.Agent is not CoordinatorAgent coordinator)
         {
-            host.Logger.LogWarning("[{Module}] Agent {AgentId} is not CognitiveCoordinatorGAgent",
+            host.Logger.LogWarning("[{Module}] Agent {AgentId} is not CoordinatorAgent",
                 Name, host.AgentId);
             return Task.CompletedTask;
         }

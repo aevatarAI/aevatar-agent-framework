@@ -3,8 +3,8 @@ using System.Text.RegularExpressions;
 using Google.Protobuf;
 using Google.Protobuf.Reflection;
 using Google.Protobuf.WellKnownTypes;
-using VibeResearching.Api.Vibe.Dag;
-using VibeResearching.Api.Workspace;
+using Aevatar.Agents.Cognitive.Researching.Dag;
+using Aevatar.Agents.Cognitive.Researching.Workspace;
 using VibeResearching.Contracts.Collab;
 
 namespace VibeResearching.Api.Facts;

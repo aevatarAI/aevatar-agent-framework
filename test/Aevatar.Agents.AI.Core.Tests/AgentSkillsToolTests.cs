@@ -72,7 +72,7 @@ public class AgentSkillsToolTests(AgentSkillsToolFixture fixture) : IClassFixtur
         }
     }
 
-    [Fact]
+    [Fact(DisplayName = "skills_list returns skills inventory and reports dotnet tool presence")]
     public async Task SkillsList_ShouldListSkills_AndReportDotNetToolsPresence()
     {
         var (root, _) = CreateSkillRoot(
@@ -117,7 +117,7 @@ public class AgentSkillsToolTests(AgentSkillsToolFixture fixture) : IClassFixtur
         }
     }
 
-    [Fact]
+    [Fact(DisplayName = "skills_load returns markdown body and can register dotnet-file tools")]
     public async Task SkillsLoad_ShouldReturnMarkdownBody_AndRegisterDotNetTools_WhenEnabled()
     {
         var (root, _) = CreateSkillRoot(
@@ -166,7 +166,7 @@ public class AgentSkillsToolTests(AgentSkillsToolFixture fixture) : IClassFixtur
         }
     }
 
-    [Fact]
+    [Fact(DisplayName = "skills_load returns error when name is missing or skill is not found")]
     public async Task SkillsLoad_ShouldReturnError_WhenNameMissing_OrSkillNotFound()
     {
         var (root, _) = CreateSkillRoot(
@@ -216,7 +216,7 @@ public class AgentSkillsToolTests(AgentSkillsToolFixture fixture) : IClassFixtur
         }
     }
 
-    [Fact]
+    [Fact(DisplayName = "skills_load applies tool allowlist and denies disallowed tool execution in chat loop")]
     public async Task ChatAsync_WithSkillsLoad_ShouldApplyToolAllowlist_AndDenyDisallowedToolExecution()
     {
         // Arrange: skill restricts tools to search_memory only.

@@ -19,7 +19,7 @@
 
 ### 2.1 Agents（执行层）
 
-- `CognitiveCoordinatorGAgent`  
+- `CoordinatorAgent`（原 `CognitiveCoordinatorGAgent`）  
   负责工作流生命周期、步骤调度、变量表、失败处理、递归控制、步骤事件。
 
 - `RoleAIGAgent` + `CognitiveStepExecutionHandler`  
@@ -32,13 +32,13 @@
 
 #### 2.1.1 Coordinator 拆分文件与职责
 
-- `CognitiveCoordinatorGAgent.Workflow.cs`：启动/失败/输出构建/主循环
-- `CognitiveCoordinatorGAgent.Llm.cs`：单步 LLM 调用（含 streaming 与 guardrails）
-- `CognitiveCoordinatorGAgent.Vote.cs`：投票共识（并行提案、语义聚类、red-flag）
-- `CognitiveCoordinatorGAgent.Parallel.cs`：`fan_out` / `parallel` 子任务调度与回收
-- `CognitiveCoordinatorGAgent.StepEvents.cs`：步骤事件与统计（UI/trace）
-- `CognitiveCoordinatorGAgent.Parameters.cs`：参数解析、red-flag 配置与输出解析
-- `CognitiveCoordinatorGAgent.Workspace.cs`：workspace_* / sandbox_command 原语执行
+- `CognitiveCoordinatorGAgent.Workflow.cs`（class=`CoordinatorAgent`）：启动/失败/输出构建/主循环
+- `CognitiveCoordinatorGAgent.Llm.cs`（class=`CoordinatorAgent`）：单步 LLM 调用（含 streaming 与 guardrails）
+- `CognitiveCoordinatorGAgent.Vote.cs`（class=`CoordinatorAgent`）：投票共识（并行提案、语义聚类、red-flag）
+- `CognitiveCoordinatorGAgent.Parallel.cs`（class=`CoordinatorAgent`）：`fan_out` / `parallel` 子任务调度与回收
+- `CognitiveCoordinatorGAgent.StepEvents.cs`（class=`CoordinatorAgent`）：步骤事件与统计（UI/trace）
+- `CognitiveCoordinatorGAgent.Parameters.cs`（class=`CoordinatorAgent`）：参数解析、red-flag 配置与输出解析
+- `CognitiveCoordinatorGAgent.Workspace.cs`（class=`CoordinatorAgent`）：workspace_* / sandbox_command 原语执行
 
 #### 2.1.2 运行时状态（Protobuf）
 
@@ -176,7 +176,7 @@ output:
 
 ### 4.3 参数解析与模板计算
 
-解析路径由 `CognitiveCoordinatorGAgent.Parameters` 提供：
+解析路径由 `CoordinatorAgent`（Parameters partial）提供：
 
 - `ResolveIntParameter/ResolveFloatParameter/ResolveBoolParameter`
   - 若值是字符串，会先走 `TemplateEngine.Evaluate(...)`
@@ -539,7 +539,7 @@ Coordinator 会为每个步骤发送 `WorkflowStepEvent`，包含：
 
 ### 9.5 ExecutionTraceStore（可选）
 
-`CognitiveCoordinatorGAgent` 支持注入 `IExecutionTraceStore`，用于落盘 trace：
+`CoordinatorAgent` 支持注入 `IExecutionTraceStore`，用于落盘 trace：
 
 - 若没有 step events，会生成最小化 trace
 - 会写入 `cognitive.*` labels 便于索引
@@ -570,7 +570,7 @@ Coordinator 会为每个步骤发送 `WorkflowStepEvent`，包含：
 
 ## 11. 扩展点
 
-1. **新增 step 类型**：在 `CognitiveCoordinatorGAgent.ExecuteStepAsync` 中添加 case
+1. **新增 step 类型**：在 `CoordinatorAgent.ExecuteStepAsync` 中添加 case
 2. **新增输出解析器**：实现 `IOutputParser` 并注册到 `OutputParserFactory`
 3. **自定义 Red-Flag 策略**：实现 `IRedFlagStrategy`
 4. **自定义聚合器**：扩展 `ApplyReducer` / `TransformExecutor` op

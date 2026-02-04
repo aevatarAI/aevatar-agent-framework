@@ -9,7 +9,7 @@ public interface ICognitiveStepModule
     bool CanHandle(StepDefinition step);
     bool CanHandleType(string stepType);
     Task<PrimitiveResult> ExecuteAsync(
-        CognitiveCoordinatorGAgent agent,
+        CoordinatorAgent agent,
         StepDefinition step,
         string? preRenderedPrompt,
         string? preRenderedSystem,

@@ -3,7 +3,6 @@ using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Context;
 using Aevatar.Agents.Abstractions.CQRS;
 using Aevatar.Agents.Abstractions.Helpers;
-using Aevatar.Agents.AI.Core.Helpers;
 using Aevatar.Agents.Core;
 using Aevatar.Agents.Core.Helpers;
 using Aevatar.Agents.Core.Rpc;
@@ -551,26 +550,59 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
         {
             AgentContextAccessorInjector.InjectContextAccessor(agent, contextAccessor);
         }
-        // Inject AI-related dependencies (LLMProviderFactory, EmbeddingFactory)
-        // Only inject if agent is an AI Agent (inherits from AIGAgentBase)
-        if (AIAgentLLMProviderFactoryInjector.HasLLMProviderFactory(agent))
-        {
-            AIAgentLLMProviderFactoryInjector.InjectLLMProviderFactory(agent, ServiceProvider);
-            _logger.LogDebug("✅ Injected LLMProviderFactory into AI Agent {AgentType}", agent.GetType().Name);
-        }
-
-        if (AIAgentEmbeddingFactoryInjector.HasEmbeddingFactory(agent))
-        {
-            AIAgentEmbeddingFactoryInjector.InjectEmbeddingFactory(agent, ServiceProvider);
-            _logger.LogDebug("✅ Injected EmbeddingFactory into AI Agent {AgentType}", agent.GetType().Name);
-        }
-
-        // Inject ToolManager for AI Agents with Tool support
-        AIAgentToolManagerInjector.InjectToolManager(agent, ServiceProvider);
+        // Optional injections (AI/tooling) without taking a dependency on AI.* packages.
+        // If the agent has these properties (typically provided by AIGAgentBase), we inject from DI by reflection.
+        TryInjectByProperty(agent, "LLMProviderFactory");
+        TryInjectByProperty(agent, "EmbeddingFactory");
+        TryInjectByProperty(agent, "ToolManager", propertyTypeName: "IAevatarToolManager");
         
         // Inject ServiceProvider for agents that need direct service resolution (e.g., for IStreamProviderManager)
         // This is specifically for agents like GodChatGAgent that need to publish to Orleans Streams directly
         InjectServiceProviderProperty(agent);
+    }
+
+    private void TryInjectByProperty(IGAgent agent, string propertyName, string? propertyTypeName = null)
+    {
+        if (agent == null) return;
+
+        var currentType = agent.GetType();
+        while (currentType != null && currentType != typeof(object))
+        {
+            var prop = currentType.GetProperty(
+                propertyName,
+                System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.Public |
+                System.Reflection.BindingFlags.NonPublic);
+
+            if (prop == null || !prop.CanWrite)
+            {
+                currentType = currentType.BaseType;
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(propertyTypeName) &&
+                !string.Equals(prop.PropertyType.Name, propertyTypeName, StringComparison.Ordinal))
+            {
+                currentType = currentType.BaseType;
+                continue;
+            }
+
+            var service = ServiceProvider.GetService(prop.PropertyType);
+            if (service == null)
+                return;
+
+            try
+            {
+                prop.SetValue(agent, service);
+                _logger.LogDebug("✅ Injected {Property} into Agent {AgentType}", propertyName, agent.GetType().Name);
+            }
+            catch
+            {
+                // Best-effort injection: never fail agent activation due to optional deps.
+            }
+
+            return;
+        }
     }
     
     /// <summary>

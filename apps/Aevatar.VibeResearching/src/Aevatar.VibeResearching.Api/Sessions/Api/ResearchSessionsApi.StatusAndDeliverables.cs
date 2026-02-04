@@ -1,8 +1,10 @@
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.AspNetCore.Builder;
-using VibeResearching.Api.Vibe.Brief;
-using VibeResearching.Api.Vibe.Delivery;
+using Aevatar.Agents.Cognitive.Researching.Brief;
+using Aevatar.Agents.Cognitive.Researching.Delivery;
+using Aevatar.Agents.Cognitive.Researching.Sessions;
+using Aevatar.Agents.Cognitive.Researching.Workspace;
 
 namespace VibeResearching.Api.Sessions;
 

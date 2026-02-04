@@ -10,7 +10,7 @@ namespace Aevatar.Agents.AI.Core.Tests;
 
 public class WebSearchToolTests
 {
-    [Fact]
+    [Fact(DisplayName = "WebSearchTool returns provider results")]
     public async Task WebSearchTool_ShouldReturnProviderResults()
     {
         var provider = new FakeProvider();
@@ -41,7 +41,7 @@ public class WebSearchToolTests
         results[0].GetProperty("url").GetString().ShouldBe("https://example.com/1");
     }
 
-    [Fact]
+    [Fact(DisplayName = "WebSearchTool clamps maxResults and truncates long query")]
     public async Task WebSearchTool_ShouldClampMaxResults_AndTruncateQuery()
     {
         var provider = new CapturingProvider();
@@ -63,7 +63,7 @@ public class WebSearchToolTests
         provider.Captured!.Query.Length.ShouldBe(512);
     }
 
-    [Fact]
+    [Fact(DisplayName = "WebSearchTool returns error when query is missing or empty")]
     public async Task WebSearchTool_ShouldReturnError_WhenQueryMissingOrEmpty()
     {
         var provider = new FakeProvider();

@@ -1,5 +1,8 @@
+using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.Core.Configuration;
+using Aevatar.Agents.Sessions.Abstractions.Workflows;
 using Aevatar.Agents.Sessions.Runtime;
 using Aevatar.Agents.Tooling;
 using Aevatar.Agents.Tooling.Options;
@@ -27,6 +30,8 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton<GlobalAgentYamlRegistry>();
         services.TryAddSingleton<RoleAgentFactory>();
+        // Sessions/Workflows require AI-capable agent factory (to inject tool manager, MCP runtime, sink registry, etc.)
+        services.Replace(ServiceDescriptor.Singleton<IGAgentFactory, AIGAgentFactory>());
         services.TryAddSingleton<ISessionStore, SessionStore>();
         services.TryAddSingleton<CognitiveSessionService>();
         return services;
@@ -51,6 +56,8 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IAgentMessageStreamResolver, AgentMessageStreamResolver>();
         services.TryAddSingleton<AgentBootstrapper>();
         services.TryAddSingleton<IWorkflowCatalog, SessionWorkflowCatalog>();
+        services.TryAddSingleton<IStreamChunkSinkRegistry, InMemoryStreamChunkSinkRegistry>();
+        services.TryAddSingleton<IWorkflowCompiler, MissingWorkflowCompiler>();
         services.TryAddSingleton<WorkflowMeshCompiler>();
         services.TryAddSingleton<WorkflowMeshService>();
         services.TryAddSingleton<SessionRuntime>();

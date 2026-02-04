@@ -10,7 +10,11 @@
   <ItemGroup>
     <ProjectReference Include="..\Aevatar.Agents.AGUI\Aevatar.Agents.AGUI.csproj" />
     <ProjectReference Include="..\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.Cognitive.Streaming\Aevatar.Agents.Cognitive.Streaming.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.Knowledge.Graph\Aevatar.Agents.Knowledge.Graph.csproj" />
     <ProjectReference Include="..\Aevatar.Agents.Maker\Aevatar.Agents.Maker.csproj" />
+    <ProjectReference Include="..\Aevatar.CognitiveMesh.Dsl\Aevatar.CognitiveMesh.Dsl.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -18,6 +22,8 @@
     <PackageReference Include="Grpc.Tools" PrivateAssets="All" />
     <PackageReference Include="YamlDotNet" />
     <PackageReference Include="Scriban" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
 
   <ItemGroup>
@@ -28,6 +34,11 @@
     <None Update="workflows\*.yaml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+  </ItemGroup>
+
+  <!-- Researching domain is compiled in Aevatar.Agents.Cognitive.Core (higher-level) to avoid project reference cycles. -->
+  <ItemGroup>
+    <Compile Remove="Researching\**\*.cs" />
   </ItemGroup>
     
     <ItemGroup>

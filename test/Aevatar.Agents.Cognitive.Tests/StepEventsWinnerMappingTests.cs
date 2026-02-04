@@ -32,7 +32,7 @@ public sealed class StepEventsWinnerMappingTests
             WinnerIsConsensus = true
         };
 
-        var method = typeof(CognitiveCoordinatorGAgent).GetMethod(
+        var method = typeof(CoordinatorAgent).GetMethod(
             "BuildExecutionTraceEvent",
             BindingFlags.NonPublic | BindingFlags.Static);
 

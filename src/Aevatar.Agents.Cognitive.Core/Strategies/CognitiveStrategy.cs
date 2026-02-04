@@ -24,7 +24,7 @@ namespace Aevatar.Agents.Cognitive.Core.Strategies;
 
 /// <summary>
 /// Cognitive DSL strategy adapter.
-/// Uses YAML-defined workflows, executed via CognitiveCoordinatorGAgent.
+/// Uses YAML-defined workflows, executed via CoordinatorAgent.
 /// 
 /// Features:
 /// - DSL-defined workflows (YAML)
@@ -174,9 +174,9 @@ public sealed class CognitiveStrategy : IReasoningStrategy
                 ? DeterministicGuid.FromString($"cognitive:{stableSessionKey}:coordinator").ToString("D")
                 : Guid.NewGuid().ToString("D");
 
-            // NOTE: Returned actor.Id is normalized full ActorId: "CognitiveCoordinatorGAgent:RawId"
-            var coordinatorActor = await _actorManager.CreateAndRegisterAsync<CognitiveCoordinatorGAgent>(rawCoordinatorId, ct);
-            var coordinator = coordinatorActor.GetAgent() as CognitiveCoordinatorGAgent;
+            // NOTE: Returned actor.Id is normalized full ActorId: "CoordinatorAgent:RawId"
+            var coordinatorActor = await _actorManager.CreateAndRegisterAsync<CoordinatorAgent>(rawCoordinatorId, ct);
+            var coordinator = coordinatorActor.GetAgent() as CoordinatorAgent;
             
             if (coordinator == null)
             {
@@ -685,7 +685,7 @@ public sealed class CognitiveStrategy : IReasoningStrategy
     }
     
     private async Task<WorkflowResult> WaitForCompletionAsync(
-        CognitiveCoordinatorGAgent coordinator,
+        CoordinatorAgent coordinator,
         IProgress<ReasoningProgress>? progress,
         TimeSpan timeout,
         CancellationToken ct)

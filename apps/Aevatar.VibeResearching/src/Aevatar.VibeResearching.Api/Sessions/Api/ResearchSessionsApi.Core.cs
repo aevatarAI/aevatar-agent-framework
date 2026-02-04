@@ -2,9 +2,10 @@ using Aevatar.Agents.AGUI;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Options;
+using Aevatar.Agents.Cognitive.Researching.Paper;
+using Aevatar.Agents.Cognitive.Researching.Sessions;
+using Aevatar.Agents.Cognitive.Researching.Workspace;
 using VibeResearching.Api;
-using VibeResearching.Api.Paper;
-using VibeResearching.Api.Workspace;
 
 namespace VibeResearching.Api.Sessions;
 

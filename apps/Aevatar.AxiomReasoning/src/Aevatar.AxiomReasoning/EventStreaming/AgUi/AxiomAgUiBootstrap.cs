@@ -210,10 +210,10 @@ public static class AxiomAgUiBootstrap
             new()
             {
                 ActorId = coordinatorRawId,
-                ActorTypeName = typeof(CognitiveCoordinatorGAgent).Name,
+                ActorTypeName = typeof(CoordinatorAgent).Name,
                 LaneId = "coordinator",
                 CreateAsync = async (mgr, ct) =>
-                    await mgr.CreateAndRegisterAsync<CognitiveCoordinatorGAgent>(coordinatorRawId, ct)
+                    await mgr.CreateAndRegisterAsync<CoordinatorAgent>(coordinatorRawId, ct)
             }
         };
 

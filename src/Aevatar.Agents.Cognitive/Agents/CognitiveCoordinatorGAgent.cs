@@ -25,12 +25,12 @@ using VoteResult = Aevatar.Agents.Maker.VoteResult;
 namespace Aevatar.Agents.Cognitive.Agents;
 
 // ============================================================
-//  Cognitive Coordinator Agent
+//  Coordinator Agent (YAML + EventModule)
 //  DSL Workflow Coordinator - True Distributed Parallelism
 // ============================================================
 
 /// <summary>
-/// Cognitive Coordinator Agent - Workflow Coordinator
+/// Coordinator Agent - Workflow Coordinator
 /// 
 /// Parallelism model:
 /// - Simple steps (single LLM call): Coordinator executes directly
@@ -40,7 +40,7 @@ namespace Aevatar.Agents.Cognitive.Agents;
 /// - MakerCoordinatorGAgent → CognitiveCoordinatorGAgent
 /// - MakerWorkerGAgent → RoleAIGAgent (Cognitive Step Handler)
 /// </summary>
-public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<CognitiveCoordinatorState>
+public partial class CoordinatorAgent : CognitiveAIGAgentBase<CognitiveCoordinatorState>
 {
     // ============================================================
     //  Components
@@ -97,11 +97,27 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
     //  Constructor
     // ============================================================
 
-    public CognitiveCoordinatorGAgent()
+    public CoordinatorAgent()
     {
     }
 
     protected override string AgentKind => "cognitive_coordinator";
+
+    protected override void AppendAgentHistoryMetadata(Dictionary<string, string> metadata)
+    {
+        // Best-effort: include stable identifiers for UI hydration/debugging.
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(SessionId))
+                metadata["session_id"] = SessionId;
+            if (!string.IsNullOrWhiteSpace(CustomState.ExecutionId))
+                metadata["execution_id"] = CustomState.ExecutionId;
+        }
+        catch
+        {
+            // best-effort only
+        }
+    }
 
     // ============================================================
     //  Tool policy (skills only)
@@ -125,11 +141,6 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
             return;
 
         await RegisterAgentSkillsToolsAsync(cancellationToken);
-    }
-
-    protected override void AppendAgentHistoryMetadata(Dictionary<string, string> metadata)
-    {
-        metadata["execution_id"] = CustomState.ExecutionId ?? string.Empty;
     }
 
     // ============================================================
@@ -161,13 +172,13 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
 
         EnsureCoordinatorEventModules();
         
-        Logger.LogDebug("CognitiveCoordinatorGAgent activated. Id={Id}", Id);
+        Logger.LogDebug("CoordinatorAgent activated. Id={Id}", Id);
     }
 
     public override Task<string> GetDescriptionAsync()
     {
         return Task.FromResult(
-            $"CognitiveCoordinator [{CustomState.ExecutionId}] - " +
+            $"Coordinator [{CustomState.ExecutionId}] - " +
             $"Phase: {CustomState.CurrentPhase}, Workers: {_workerIds.Count}");
     }
 
@@ -421,6 +432,27 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
     {
         CustomState.TotalTokensUsed = Volatile.Read(ref _totalTokensUsed);
         CustomState.TotalLlmCalls = Volatile.Read(ref _totalLlmCalls);
+        TryPersistCustomStateSnapshot();
+    }
+
+    private void TryPersistCustomStateSnapshot()
+    {
+        // ============================================================
+        //  Persist CustomState Any payload (best-effort)
+        //
+        //  WHY:
+        //  - AIGAgentBase<TCustomState> caches the unpacked CustomState instance.
+        //  - Mutating CustomState in-place won't automatically repack Any into State.CustomState.
+        //  - Re-assigning forces a repack so snapshots/state stores observe updates.
+        // ============================================================
+        try
+        {
+            CustomState = CustomState;
+        }
+        catch
+        {
+            // best-effort only
+        }
     }
 
     

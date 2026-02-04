@@ -68,7 +68,7 @@ public class YamlLoadTests
         output["result"]?.ToString().ShouldBe("ok");
     }
 
-    private sealed class TestCoordinator : CognitiveCoordinatorGAgent
+    private sealed class TestCoordinator : CoordinatorAgent
     {
         public ChatRequest? LastRequest { get; private set; }
 

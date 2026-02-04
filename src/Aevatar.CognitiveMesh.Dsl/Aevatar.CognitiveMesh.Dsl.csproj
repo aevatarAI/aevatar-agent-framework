@@ -7,6 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Aevatar.Agents.Sessions.Abstractions\Aevatar.Agents.Sessions.Abstractions.csproj" />
     <PackageReference Include="YamlDotNet" />
   </ItemGroup>
 

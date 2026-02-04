@@ -2,8 +2,10 @@ using System.IO;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Cognitive.Engine;
 using Aevatar.Agents.Cognitive.Execution;
+using Aevatar.Agents.Cognitive.Execution.Run;
 using Aevatar.Agents.Cognitive.Primitives;
 using Aevatar.Agents.Cognitive.Template;
+using Aevatar.CognitiveMesh.Dsl.WorkflowCompiler;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -61,6 +63,14 @@ public static class ServiceCollectionExtensions
 
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IEventModuleFactory, CognitiveEventModuleFactory>());
         services.TryAddSingleton<IEventRouteEvaluator, CognitiveEventRouteEvaluator>();
+
+        // Workflow run executor (framework-level orchestration)
+        services.AddSingleton<WorkflowRunExecutor>();
+        services.AddOptions<LlmProviderGateOptions>();
+        services.AddSingleton<LlmProviderGate>();
+
+        // Workflow compiler (CognitiveMesh DSL) for Sessions/Cognitive orchestration.
+        services.AddCognitiveMeshWorkflowCompiler();
         
         return services;
     }

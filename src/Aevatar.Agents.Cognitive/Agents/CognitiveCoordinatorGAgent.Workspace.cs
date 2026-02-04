@@ -14,7 +14,7 @@ namespace Aevatar.Agents.Cognitive.Agents;
 //  - All filesystem/command side effects must be constrained by WorkspacePathGuard.
 // ============================================================
 
-public partial class CognitiveCoordinatorGAgent
+public partial class CoordinatorAgent
 {
     private WorkspaceReadFileExecutor? _workspaceReadFileExecutor;
     private WorkspaceCodeSearchExecutor? _workspaceCodeSearchExecutor;

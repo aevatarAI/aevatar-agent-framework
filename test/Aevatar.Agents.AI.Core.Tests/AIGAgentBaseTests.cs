@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
@@ -30,8 +29,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
 
     #region Initialization Tests
 
-    [Fact]
-    [DisplayName("Initialize with provider name should configure agent correctly")]
+    [Fact(DisplayName = "Initialize with provider name should configure agent correctly")]
     public async Task Initialize_WithProviderName_ShouldWork()
     {
         // Arrange
@@ -53,8 +51,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
         aiConfig.Temperature.Should().Be(0.5f);
     }
 
-    [Fact]
-    [DisplayName("Initialize should configure embedding generator when available")]
+    [Fact(DisplayName = "Initialize should configure embedding generator when available")]
     public async Task Initialize_ShouldConfigureEmbeddingGenerator()
     {
         var agent = _agentFactory.CreateGAgent<TestAIGAgent>();
@@ -67,8 +64,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
         embedding!.Vector.Length.Should().BeGreaterThan(0);
     }
 
-    [Fact]
-    [DisplayName("Initialize with custom config should override defaults")]
+    [Fact(DisplayName = "Initialize with custom config should override defaults")]
     public async Task Initialize_WithCustomConfig_ShouldOverride()
     {
         // Arrange
@@ -98,8 +94,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
         aiConfig.Temperature.Should().Be(0.9f);
     }
 
-    [Fact]
-    [DisplayName("Initialize called twice should be idempotent")]
+    [Fact(DisplayName = "Initialize called twice should be idempotent")]
     public async Task Initialize_CalledTwice_ShouldBeIdempotent()
     {
         // Arrange
@@ -114,8 +109,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
         agent.ConfigureAICallCount.Should().Be(1); // But config only once
     }
 
-    [Fact]
-    [DisplayName("Uninitialized agent accessing LLMProvider should throw")]
+    [Fact(DisplayName = "Uninitialized agent accessing LLMProvider should throw")]
     public void UninitializedAgent_AccessingProvider_ShouldThrow()
     {
         // Arrange
@@ -131,8 +125,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
 
     #region Chat Functionality Tests
 
-    [Fact]
-    [DisplayName("ChatAsync should return valid response")]
+    [Fact(DisplayName = "ChatAsync should return valid response")]
     public async Task ChatAsync_ShouldReturnResponse()
     {
         // Arrange
@@ -150,8 +143,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
         response.RequestId.ShouldBe(request.RequestId);
     }
 
-    [Fact]
-    [DisplayName("ChatAsync should append messages to State.History when switch enabled")]
+    [Fact(DisplayName = "ChatAsync should append messages to State.History when switch enabled")]
     public async Task ChatAsync_WithHistoryEnabled_ShouldAppendToStateHistory()
     {
         // Arrange
@@ -174,8 +166,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
         state.History[1].Content.ShouldBe("Hello from assistant");
     }
 
-    [Fact]
-    [DisplayName("ChatAsync should replay State.History into LLM request when switch enabled")]
+    [Fact(DisplayName = "ChatAsync should replay State.History into LLM request when switch enabled")]
     public async Task ChatAsync_WithHistoryEnabled_ShouldReplayHistoryInRequest()
     {
         // Arrange
@@ -203,8 +194,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
         _mockProvider.CapturedRequests[1].Messages[2].Content.ShouldBe("U2");
     }
 
-    [Fact]
-    [DisplayName("ChatAsync should compact history and inject summary when compaction enabled")]
+    [Fact(DisplayName = "ChatAsync should compact history and inject summary when compaction enabled")]
     public async Task ChatAsync_WithHistoryCompactionEnabled_ShouldCompactAndInjectSummary()
     {
         // Arrange
@@ -246,8 +236,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
         requestForU4.Messages.Count.ShouldBe(5); // 4 history + current user message
     }
 
-    [Fact]
-    [DisplayName("ChatStreamAsync should stream tokens")]
+    [Fact(DisplayName = "ChatStreamAsync should stream tokens")]
     public async Task ChatStreamAsync_ShouldStream()
     {
         // Arrange
@@ -272,8 +261,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
         string.Join("", receivedTokens).Should().Be("Test response from test-provider");
     }
 
-    [Fact]
-    [DisplayName("ChatStreamAsync should append messages to State.History when switch enabled")]
+    [Fact(DisplayName = "ChatStreamAsync should append messages to State.History when switch enabled")]
     public async Task ChatStreamAsync_WithHistoryEnabled_ShouldAppendToStateHistory()
     {
         // Arrange
@@ -303,8 +291,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
         state.History[1].Content.ShouldBe("Streamed response");
     }
 
-    [Fact]
-    [DisplayName("GenerateResponseAsync should be convenience method")]
+    [Fact(DisplayName = "GenerateResponseAsync should be convenience method")]
     public async Task GenerateResponseAsync_ShouldWork()
     {
         // Arrange
@@ -320,8 +307,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
         response.Content.ShouldNotBeEmpty();
     }
 
-    [Fact]
-    [DisplayName("ChatAsync without initialization should throw")]
+    [Fact(DisplayName = "ChatAsync without initialization should throw")]
     public async Task ChatAsync_WithoutInit_ShouldThrow()
     {
         // Arrange
@@ -338,8 +324,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
 
     #region Configuration Tests
 
-    [Fact]
-    [DisplayName("Custom configuration should be set correctly")]
+    [Fact(DisplayName = "Custom configuration should be set correctly")]
     public async Task CustomConfig_ShouldBeSet()
     {
         // Arrange
@@ -361,8 +346,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
         config.CustomSettings["test-key"].ShouldBe("test-value");
     }
 
-    [Fact]
-    [DisplayName("System prompt should be customizable")]
+    [Fact(DisplayName = "System prompt should be customizable")]
     public async Task SystemPrompt_ShouldBeCustomizable()
     {
         // Arrange
@@ -383,8 +367,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
         _mockProvider.CapturedRequests[0].SystemPrompt!.ShouldStartWith("Custom system prompt");
     }
 
-    [Fact]
-    [DisplayName("LLM settings with request overrides should use request values")]
+    [Fact(DisplayName = "LLM settings with request overrides should use request values")]
     public async Task LLMSettings_WithOverrides_ShouldUseRequestValues()
     {
         // Arrange
@@ -416,8 +399,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
 
     #region Stream Support Tests
 
-    [Fact]
-    [DisplayName("SupportsStreamingAsync should reflect provider capability")]
+    [Fact(DisplayName = "SupportsStreamingAsync should reflect provider capability")]
     public async Task SupportsStreamingAsync_ShouldReflect()
     {
         // Arrange

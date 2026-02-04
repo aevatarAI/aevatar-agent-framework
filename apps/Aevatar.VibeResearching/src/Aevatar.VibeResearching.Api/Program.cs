@@ -7,6 +7,7 @@ using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Runtime.Local;
 using Aevatar.Agents.AI.Tool.MCP.Configuration;
 using Aevatar.Agents.Cognitive.DependencyInjection;
+using Aevatar.Agents.Cognitive.Execution.Run;
 using Aevatar.Agents.Cognitive.Primitives;
 using Aevatar.Agents.Core.Secrets;
 using Aevatar.Agents.Knowledge.Graph;
@@ -23,14 +24,22 @@ using Microsoft.Extensions.Options;
 using VibeResearching.Api.Infrastructure;
 using VibeResearching.Api;
 using VibeResearching.Api.Facts;
-using VibeResearching.Api.Materials;
-using VibeResearching.Api.Paper;
+using Aevatar.Agents.Cognitive.Researching.Materials;
+using Aevatar.Agents.Cognitive.Researching.Mesh;
+using Aevatar.Agents.Cognitive.Researching.Paper;
 using VibeResearching.Api.Sessions;
-using VibeResearching.Api.Workspace;
-using VibeResearching.Api.Vibe.Brief;
-using VibeResearching.Api.Vibe.Compute;
-using VibeResearching.Api.Vibe.Delivery;
-using VibeResearching.Api.Vibe.Dag;
+using Aevatar.Agents.Cognitive.Researching.Brief;
+using Aevatar.Agents.Cognitive.Researching.Compute;
+using Aevatar.Agents.Cognitive.Researching.Dag;
+using Aevatar.Agents.Cognitive.Researching.Delivery;
+using Aevatar.Agents.Cognitive.Researching.Modules;
+using Aevatar.Agents.Cognitive.Researching.Runtime;
+using Aevatar.Agents.Cognitive.Researching.Round;
+using Aevatar.Agents.Cognitive.Researching.Sessions;
+using Aevatar.Agents.Cognitive.Researching.Trace;
+using Aevatar.Agents.Cognitive.Researching.Uploads;
+using Aevatar.Agents.Cognitive.Researching.Workflow;
+using Aevatar.Agents.Cognitive.Researching.Workspace;
 using VibeResearching.Vibe.Pivot;
 using VibeResearching.Api.Vibe.Pivot;
 using VibeResearching.Vibe.ReviewAgent;
@@ -38,6 +47,7 @@ using Aevatar.VibeResearching.Api.ReviewAgent.Api;
 using Aevatar.VibeResearching.Api.ReviewAgent.Events;
 using Aevatar.VibeResearching.Api.ReviewAgent.Storage;
 using VibeResearching.Api.ReviewAgent.Verification;
+using IVibeSessionStore = VibeResearching.Api.Sessions.IVibeSessionStore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -202,6 +212,7 @@ builder.Services.AddCognitiveAgents(options =>
 builder.Services.AddAevatarLLMProviders();
 
 builder.Services.AddSingleton<ResearchRuntime>();
+builder.Services.AddSingleton<IResearchingRuntime>(sp => sp.GetRequiredService<ResearchRuntime>());
 builder.Services.AddSingleton<MaterialsService>();
 if (useMongo || useSqlite)
 {
@@ -227,12 +238,12 @@ builder.Services.AddSingleton<FactLifecycleService>();
 // Vibe: file-backed goals (single source of truth)
 
 // Vibe: safe uploads for attachment references
-builder.Services.AddSingleton<VibeResearching.Api.Vibe.Uploads.UploadsStore>();
-builder.Services.AddSingleton<VibeResearching.Api.Vibe.Uploads.FileTextParser>();
-builder.Services.AddSingleton<VibeResearching.Api.Vibe.Uploads.UploadExtractionService>();
+builder.Services.AddSingleton<UploadsStore>();
+builder.Services.AddSingleton<FileTextParser>();
+builder.Services.AddSingleton<UploadExtractionService>();
 
 // Vibe: per-round derivation trace (file-backed)
-builder.Services.AddSingleton<VibeResearching.Api.Vibe.Trace.TraceStore>();
+builder.Services.AddSingleton<TraceStore>();
 
 // Vibe: research brief (1-page) snapshot (file-backed)
 builder.Services.AddSingleton<BriefStore>();
@@ -249,8 +260,8 @@ builder.Services.AddAevatarGraphNeo4j();
 builder.Services.AddKnowledgeGraph();
 
 // Vibe: DAG/Graph store (SSoT: KnowledgeGraph + file snapshot mirror)
-// DagStore is used by VibeOrchestrator for loading snapshots and applying mutations
-builder.Services.AddSingleton<VibeResearching.Api.Vibe.Dag.DagStore>();
+// DagStore is used by workflow step modules for snapshots/mutations
+builder.Services.AddSingleton<DagStore>();
 builder.Services.AddSingleton<IDagGroundingPolicy, DefaultDagGroundingPolicy>();
 
 // Vibe: Unified graph access (FR-007/FR-008 tools)
@@ -258,17 +269,17 @@ builder.Services.AddSingleton<IDagGroundingPolicy, DefaultDagGroundingPolicy>();
 builder.Services.AddSingleton<VibeResearching.Vibe.Tools.IVibeGraphAccess, VibeResearching.Vibe.Tools.VibeGraphAccess>();
 
 // Vibe: Mesh-driven orchestration (Option B; feature-flagged)
-builder.Services.Configure<VibeResearching.Api.Vibe.Mesh.MeshOrchestrationOptions>(
-    builder.Configuration.GetSection(VibeResearching.Api.Vibe.Mesh.MeshOrchestrationOptions.SectionName));
-builder.Services.AddSingleton<VibeResearching.Api.Vibe.Mesh.MeshDefinitionStore>();
+builder.Services.Configure<MeshOrchestrationOptions>(
+    builder.Configuration.GetSection(MeshOrchestrationOptions.SectionName));
+builder.Services.AddSingleton<MeshDefinitionStore>();
 builder.Services.AddSingleton<Aevatar.Agents.AI.Core.Configuration.GlobalAgentYamlRegistry>();
-builder.Services.AddSingleton<VibeResearching.Api.Vibe.Mesh.MeshCompilerService>();
-builder.Services.AddSingleton<VibeResearching.Api.Vibe.Mesh.MeshExecutionPlanner>();
-builder.Services.AddSingleton<VibeResearching.Api.Vibe.Mesh.MeshExecutionRunner>();
+builder.Services.AddSingleton<MeshCompilerService>();
+builder.Services.AddSingleton<MeshExecutionPlanner>();
+builder.Services.AddSingleton<MeshExecutionRunner>();
 
 // Vibe: DAG consensus gate (default: verifier-quorum; optional: maker via CognitiveStrategy)
 builder.Services.AddSingleton<Aevatar.Agents.Cognitive.Core.Strategies.CognitiveStrategy>();
-builder.Services.AddSingleton<VibeResearching.Api.Vibe.Dag.DagConsensusRunner>();
+builder.Services.AddSingleton<DagConsensusRunner>();
 
 // Vibe: delivery center snapshots (paper + lists) (file-backed)
 builder.Services.AddSingleton<DeliveryCenterStore>();
@@ -276,18 +287,28 @@ builder.Services.AddSingleton<DeliveryCenterStore>();
 // Vibe: compute decisions (execute/degrade/skip) (file-backed, MVP)
 builder.Services.AddSingleton<ComputeDecisionStore>();
 
-// Vibe: single-round orchestrator (multi-agent + DAG + trace)
-builder.Services.AddSingleton(VibeResearching.Api.Vibe.VibeCore.Create);
-builder.Services.AddSingleton(VibeResearching.Api.Vibe.VibePivot.Create);
-builder.Services.AddSingleton(VibeResearching.Api.Vibe.VibeMesh.Create);
-builder.Services.AddSingleton(VibeResearching.Api.Vibe.VibeHost.Create);
-builder.Services.AddSingleton<VibeResearching.Api.Vibe.VibeOrchestrator>();
+// Vibe: workflow services (multi-agent + DAG + trace)
+builder.Services.AddSingleton(ResearchingCore.Create);
+builder.Services.AddSingleton(ResearchingPivot.Create);
+builder.Services.AddSingleton(ResearchingMesh.Create);
+builder.Services.AddSingleton(ResearchingHost.Create);
+builder.Services.AddSingleton<ResearchingRoundServices>();
+builder.Services.AddSingleton<ResearchingWorkflowRunner>();
+builder.Services.AddSingleton<IResearchingStreamEventSinkFactory, VibeResearching.Api.Vibe.Workflow.AgUiResearchStreamEventSinkFactory>();
 
-// Vibe: outer loop runner (repeat rounds until goal verifier passes / budgets exhausted)
-builder.Services.AddSingleton<VibeResearching.Api.Vibe.VibeGoalLoopRunner>();
+// Vibe: workflow step modules (vibe_round)
+builder.Services.AddSingleton<IWorkflowRunStepModule, ResearchingRoundServices.ResearchingMaterialsStepModule>();
+builder.Services.AddSingleton<IWorkflowRunStepModule, ResearchingRoundServices.ResearchingPivotStepModule>();
+builder.Services.AddSingleton<IWorkflowRunStepModule, ResearchingRoundServices.ResearchingBriefStepModule>();
+builder.Services.AddSingleton<IWorkflowRunStepModule, ResearchingRoundServices.ResearchingPlanStepModule>();
+builder.Services.AddSingleton<IWorkflowRunStepModule, MeshExecutionStepModule>();
+builder.Services.AddSingleton<IMeshExecutionRunner, ResearchingMeshExecutionRunnerAdapter>();
+builder.Services.AddSingleton<IWorkflowRunStepModule, ResearchingRoundServices.ResearchingDagConsensusStepModule>();
+builder.Services.AddSingleton<IWorkflowRunStepModule, ResearchingRoundServices.ResearchingDeliveryStepModule>();
+builder.Services.AddSingleton<IWorkflowRunStepModule, ResearchingRoundServices.ResearchingTraceStepModule>();
 
 // Vibe: milestone-driven loop runner (execute research by iterating through milestones)
-builder.Services.AddSingleton<VibeResearching.Api.Vibe.VibeMilestoneLoopRunner>();
+builder.Services.AddSingleton<ResearchingMilestoneLoopRunner>();
 
 // Review Agent: background knowledge node verification
 builder.Services.Configure<ReviewAgentOptions>(builder.Configuration.GetSection(ReviewAgentOptions.SectionName));

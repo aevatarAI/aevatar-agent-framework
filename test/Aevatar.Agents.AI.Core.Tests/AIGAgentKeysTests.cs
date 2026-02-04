@@ -6,7 +6,7 @@ namespace Aevatar.Agents.AI.Core.Tests;
 
 public class AIGAgentKeysTests
 {
-    [Fact]
+    [Fact(DisplayName = "TryGetToolAllowlist returns false when context or key is missing")]
     public void TryGetToolAllowlist_ShouldReturnFalse_WhenContextMissingOrKeyMissing()
     {
         var req1 = new AevatarLLMRequest { Context = null };
@@ -16,7 +16,7 @@ public class AIGAgentKeysTests
         AIGAgentKeys.TryGetToolAllowlist(req2, out _).ShouldBeFalse();
     }
 
-    [Fact]
+    [Fact(DisplayName = "TryGetToolAllowlist supports multiple allowlist value types")]
     public void TryGetToolAllowlist_ShouldSupport_MultipleValueTypes()
     {
         var fromSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "a", "b" };
@@ -50,7 +50,7 @@ public class AIGAgentKeysTests
         singleResult.SetEquals(new[] { "only_one" }).ShouldBeTrue();
     }
 
-    [Fact]
+    [Fact(DisplayName = "TryGetToolAllowlist returns false for unsupported allowlist value types")]
     public void TryGetToolAllowlist_ShouldReturnFalse_ForUnsupportedTypes()
     {
         var req = new AevatarLLMRequest
@@ -60,7 +60,7 @@ public class AIGAgentKeysTests
         AIGAgentKeys.TryGetToolAllowlist(req, out _).ShouldBeFalse();
     }
 
-    [Fact]
+    [Fact(DisplayName = "ClearToolAllowlist removes allowlist and source-skill keys")]
     public void ClearToolAllowlist_ShouldRemoveBothKeys()
     {
         var req = new AevatarLLMRequest

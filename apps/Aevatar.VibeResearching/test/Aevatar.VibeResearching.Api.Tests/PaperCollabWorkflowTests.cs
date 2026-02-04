@@ -9,7 +9,7 @@ using VibeResearching.Api.Facts;
 using VibeResearching.Api.Paper;
 using VibeResearching.Api.Sessions;
 using VibeResearching.Api.Workspace;
-using VibeResearching.Api.Vibe.Dag;
+using Aevatar.Agents.Cognitive.Researching.Dag;
 using VibeResearching.Contracts.Collab;
 
 namespace VibeResearching.Api.Tests;

@@ -25,7 +25,7 @@ interface ApiInfo {
 }
 
 // Input mode for Composer
-export type InputMode = "chat" | "vibe" | "vibe_loop"
+export type InputMode = "chat" | "vibe"
 
 // Agent roster item
 export interface AgentRosterItem {

@@ -1,6 +1,6 @@
 # Vibe Graph Module（后端：KnowledgeGraph + DAG 兼容 API + explain）
 
-本目录实现 vibe researching 的 **知识图谱（KnowledgeGraph, Session-scoped）** 与 **DAG 快照/解释能力**。
+**提示**：DAG/Graph 核心实现已迁移到框架层 `src/Aevatar.Agents.Cognitive/Researching/Dag/`；本文档保留用于 Vibe API 视角与路径说明。
 
 中文说明（关键点）：
 - **SSoT**：`Aevatar.Agents.Knowledge.Graph`（图后端可 InMemory/Neo4j）

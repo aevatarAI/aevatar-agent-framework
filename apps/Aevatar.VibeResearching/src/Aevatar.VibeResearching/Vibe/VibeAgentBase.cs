@@ -3,7 +3,7 @@ using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.Core.Utils;
 using Aevatar.Agents.AI.Tool.Abstractions;
-using VibeResearching.Streaming;
+using Aevatar.Agents.Cognitive.Streaming;
 
 namespace VibeResearching.Vibe;
 

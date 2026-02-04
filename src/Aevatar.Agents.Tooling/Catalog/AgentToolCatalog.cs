@@ -47,6 +47,15 @@ public sealed class AgentToolCatalog
             .ToList();
     }
 
+    public async Task<IReadOnlyList<AgentToolItem>> GetToolsAsync(
+        IAIGAgent agent,
+        CancellationToken ct)
+    {
+        if (agent is not AIGAgentBase baseAgent)
+            return Array.Empty<AgentToolItem>();
+        return await GetToolsAsync(baseAgent, ct);
+    }
+
     public async Task<IReadOnlyList<DotNetToolFileItem>> ListDotNetFilesAsync(CancellationToken ct)
     {
         var result = new List<DotNetToolFileItem>();
@@ -119,6 +128,16 @@ public sealed class AgentToolCatalog
             FilePath: resolved,
             Tags: tool.Tags.ToList(),
             IsDangerous: tool.CreateToolDefinition(new ToolContext()).IsDangerous);
+    }
+
+    public async Task<DotNetToolFileItem?> RegisterDotNetFileAsync(
+        IAIGAgent agent,
+        string filePath,
+        CancellationToken ct)
+    {
+        if (agent is not AIGAgentBase baseAgent)
+            return null;
+        return await RegisterDotNetFileAsync(baseAgent, filePath, ct);
     }
 
     private async Task EnsureToolsPreparedAsync(AIGAgentBase agent, CancellationToken ct)

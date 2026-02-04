@@ -9,7 +9,7 @@ namespace Aevatar.Agents.AI.Core.Tests;
 
 public class MemoryStoreAgenticRagRetrieverTests
 {
-    [Fact]
+    [Fact(DisplayName = "AgenticRag retriever uses vector index when query embedding is provided")]
     public async Task RetrieveAsync_ShouldUseVectorIndex_WhenQueryEmbeddingProvided()
     {
         var vectorIndex = new FakeMemoryVectorIndex();
@@ -42,7 +42,7 @@ public class MemoryStoreAgenticRagRetrieverTests
         first.Citation.MemoryEntry.Scope.Type.ShouldBe(MemoryScopeType.PrivateAgent);
     }
 
-    [Fact]
+    [Fact(DisplayName = "AgenticRag retriever falls back to memory store when vector index returns empty")]
     public async Task RetrieveAsync_ShouldFallbackToMemoryStore_WhenVectorIndexReturnsEmpty()
     {
         var store = new InMemoryMemoryStore();
@@ -79,7 +79,7 @@ public class MemoryStoreAgenticRagRetrieverTests
         first.Citation.MemoryEntry.EntryId.ShouldBe("e1");
     }
 
-    [Fact]
+    [Fact(DisplayName = "AgenticRag retriever bounds evidence snippets to configured limits")]
     public async Task RetrieveAsync_ShouldBoundSnippets()
     {
         var store = new InMemoryMemoryStore();

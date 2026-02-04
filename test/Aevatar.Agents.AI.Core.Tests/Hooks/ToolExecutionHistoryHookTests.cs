@@ -10,7 +10,7 @@ namespace Aevatar.Agents.AI.Core.Tests.Hooks;
 
 public class ToolExecutionHistoryHookTests
 {
-    [Fact]
+    [Fact(DisplayName = "ToolExecutionHistoryHook emits ToolExecutionFeedback after tool execution")]
     public async Task AfterToolExecuteAsync_ShouldEmitFeedback()
     {
         ToolExecutionFeedback? captured = null;

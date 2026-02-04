@@ -5,11 +5,12 @@ using Aevatar.Agents.Knowledge.Graph.Exceptions;
 using Aevatar.Agents.Knowledge.Graph.Models;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
-using VibeResearching.Api.Vibe;
-using VibeResearching.Api.Vibe.Compute;
-using VibeResearching.Api.Vibe.Dag;
-using VibeResearching.Api.Vibe.Uploads;
-using VibeResearching.Api.Workspace;
+using Aevatar.Agents.Cognitive.Researching.Compute;
+using Aevatar.Agents.Cognitive.Researching.Dag;
+using Aevatar.Agents.Cognitive.Researching.Round;
+using Aevatar.Agents.Cognitive.Researching.Sessions;
+using Aevatar.Agents.Cognitive.Researching.Uploads;
+using Aevatar.Agents.Cognitive.Researching.Workspace;
 
 namespace VibeResearching.Api.Sessions;
 
@@ -86,7 +87,8 @@ internal static partial class ResearchSessionsApi
             foreach (var f in files)
             {
                 ct.ThrowIfCancellationRequested();
-                var rel = await uploads.SaveAsync(session.Id, f, ct);
+                await using var stream = f.OpenReadStream();
+                var rel = await uploads.SaveAsync(session.Id, stream, f.FileName, f.Length, ct);
                 paths.Add(rel);
             }
 
@@ -126,7 +128,9 @@ internal static partial class ResearchSessionsApi
 
             var result = await extraction.ExtractAndCreateNodesAsync(
                 session.Id,
-                file,
+                () => file.OpenReadStream(),
+                file.FileName,
+                file.Length,
                 providerName,
                 maxPoints,
                 ct);
@@ -192,7 +196,7 @@ internal static partial class ResearchSessionsApi
             string sessionId,
             PlanEditInDto input,
             ResearchSessionManager sessions,
-            VibeOrchestrator vibe,
+            ResearchingRoundServices vibe,
             DagStore dag,
             CancellationToken ct) =>
         {

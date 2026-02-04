@@ -54,7 +54,7 @@ src/
 - Panels are resizable via drag handle
 
 ### Composer (Enhanced Input)
-- **Mode switch**: `chat` / `vibe` / `vibe_loop` (multi-agent research modes)
+- **Mode switch**: `chat` / `vibe` (multi-agent research modes)
 - **Agent selector**: Send to specific agent(s) or broadcast to all
 - **File upload**: Attach files to messages (UI ready, API pending)
 - Keyboard submit (Enter)

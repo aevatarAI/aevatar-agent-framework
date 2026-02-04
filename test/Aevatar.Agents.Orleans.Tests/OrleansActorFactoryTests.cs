@@ -2,8 +2,8 @@ using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.Abstractions.Extensions;
 using Aevatar.Agents.Abstractions.Helpers;
-using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Core;
+using Aevatar.Agents.Core.Factory;
 using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Core.Hierarchy;
 using Aevatar.Agents.Runtime.Orleans;
@@ -38,7 +38,7 @@ public class OrleansActorFactoryTests : AevatarAgentsTestBase
     {
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddSingleton<IGAgentFactory, AIGAgentFactory>();
+        services.AddSingleton<IGAgentFactory, DefaultGAgentFactory>();
         services.AddGAgentActorFactoryProvider(); // Use auto-discovery
 
         serviceProvider = services.BuildServiceProvider();

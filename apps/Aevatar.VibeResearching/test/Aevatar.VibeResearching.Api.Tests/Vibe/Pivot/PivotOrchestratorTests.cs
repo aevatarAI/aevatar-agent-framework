@@ -3,9 +3,10 @@ using Aevatar.Agents.Knowledge.Graph.Models;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using NSubstitute;
-using VibeResearching.Api.Materials;
+using Aevatar.Agents.Cognitive.Researching.Materials;
+using Aevatar.Agents.Cognitive.Researching.Round;
+using Aevatar.Agents.Cognitive.Researching.Sessions;
 using VibeResearching.Api.Sessions;
-using VibeResearching.Api.Vibe;
 using VibeResearching.Vibe.Pivot;
 using VibeResearching.Vibe.Pivot.Models;
 using Shouldly;
@@ -429,11 +430,11 @@ public sealed class VibeRoundContextTests
     [Fact]
     public void Constructor_WithNullSession_Throws()
     {
-        var input = new SessionInputInDto();
+        var input = new ResearchingInput();
         var materials = CreateMaterialsSnapshot(DefaultSessionId);
 
         var ex = Should.Throw<ArgumentNullException>(() =>
-            new VibeOrchestrator.VibeRoundContext(null!, DefaultRunId, input, "q", materials, _ => { }));
+            new ResearchingRoundServices.ResearchingRoundContext(null!, DefaultRunId, input, "q", materials, _ => { }));
 
         ex.ParamName.ShouldBe("session");
     }
@@ -442,11 +443,11 @@ public sealed class VibeRoundContextTests
     public void Constructor_StoresInputs()
     {
         var session = new ResearchSession(DefaultSessionId);
-        var input = new SessionInputInDto { RequestId = "req1" };
+        var input = new ResearchingInput { RequestId = "req1" };
         var materials = CreateMaterialsSnapshot(DefaultSessionId);
         var captured = new List<string>();
 
-        var ctx = new VibeOrchestrator.VibeRoundContext(
+        var ctx = new ResearchingRoundServices.ResearchingRoundContext(
             session,
             DefaultRunId,
             input,

@@ -2,11 +2,12 @@ using Aevatar.Agents.AGUI;
 using Aevatar.Agents.Core.Runtime;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Options;
+using Aevatar.Agents.Cognitive.Researching.Materials;
+using Aevatar.Agents.Cognitive.Researching.Sessions;
+using Aevatar.Agents.Cognitive.Researching.Workspace;
 using VibeResearching.Api;
 using VibeResearching.Api.Facts;
-using VibeResearching.Api.Materials;
-using VibeResearching.Api.Vibe;
-using VibeResearching.Api.Workspace;
+using Aevatar.Agents.Cognitive.Researching.Round;
 using VibeResearching.Contracts.Collab;
 
 namespace VibeResearching.Api.Sessions;

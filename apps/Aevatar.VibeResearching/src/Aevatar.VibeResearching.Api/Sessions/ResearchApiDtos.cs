@@ -24,14 +24,8 @@ internal sealed class SessionInputInDto
     /// Run mode:
     /// - "chat" (default): MCP/tools powered chat
     /// - "vibe": multi-agent axioms+references reasoning
-    /// - "vibe_loop": repeat vibe rounds until goal verifier passes (bounded by loop budgets)
     /// </summary>
     public string? Mode { get; init; }
-
-    /// <summary>
-    /// Optional loop configuration for mode=vibe_loop.
-    /// </summary>
-    public VibeLoopInDto? Loop { get; init; }
 
     /// <summary>
     /// Optional routing hint for vibe researching:
@@ -46,19 +40,6 @@ internal sealed class SessionInputInDto
     /// typically returned by POST /api/sessions/{id}/uploads.
     /// </summary>
     public List<string>? AttachmentPaths { get; init; }
-}
-
-internal sealed class VibeLoopInDto
-{
-    /// <summary>
-    /// Hard cap for loop rounds (safety valve).
-    /// </summary>
-    public int? MaxIterations { get; init; }
-
-    /// <summary>
-    /// Total wall-clock budget for the whole loop (ms).
-    /// </summary>
-    public int? MaxTotalDurationMs { get; init; }
 }
 
 internal sealed class ComputeDecisionInDto

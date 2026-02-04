@@ -37,41 +37,53 @@ public interface IStreamChunkSink
 }
 
 /// <summary>
-/// RequestId-based streaming sink registry
+/// RequestId-based streaming sink registry (DI-friendly).
 /// </summary>
-public static class StreamingContext
+public interface IStreamChunkSinkRegistry
 {
-    private static readonly ConcurrentDictionary<string, IStreamChunkSink> Sinks = new();
-
     /// <summary>
     /// 注册 sink（在发送 ChatRequestEvent 之前调用）
     /// </summary>
-    public static void Register(string requestId, IStreamChunkSink sink)
-    {
-        if (string.IsNullOrEmpty(requestId))
-            throw new ArgumentNullException(nameof(requestId));
-        Sinks[requestId] = sink ?? throw new ArgumentNullException(nameof(sink));
-    }
+    void Register(string requestId, IStreamChunkSink sink);
 
     /// <summary>
     /// 获取 sink（在 HandleChatRequestEvent 中调用）
     /// </summary>
-    public static bool TryGet(string requestId, out IStreamChunkSink? sink)
+    bool TryGet(string requestId, out IStreamChunkSink? sink);
+
+    /// <summary>
+    /// 注销 sink（在请求完成后调用）
+    /// </summary>
+    void Unregister(string requestId);
+}
+
+/// <summary>
+/// Default in-memory registry (thread-safe).
+/// </summary>
+public sealed class InMemoryStreamChunkSinkRegistry : IStreamChunkSinkRegistry
+{
+    private readonly ConcurrentDictionary<string, IStreamChunkSink> _sinks = new(StringComparer.Ordinal);
+
+    public void Register(string requestId, IStreamChunkSink sink)
+    {
+        if (string.IsNullOrEmpty(requestId))
+            throw new ArgumentNullException(nameof(requestId));
+        _sinks[requestId] = sink ?? throw new ArgumentNullException(nameof(sink));
+    }
+
+    public bool TryGet(string requestId, out IStreamChunkSink? sink)
     {
         if (string.IsNullOrEmpty(requestId))
         {
             sink = null;
             return false;
         }
-        return Sinks.TryGetValue(requestId, out sink);
+        return _sinks.TryGetValue(requestId, out sink);
     }
 
-    /// <summary>
-    /// 注销 sink（在请求完成后调用）
-    /// </summary>
-    public static void Unregister(string requestId)
+    public void Unregister(string requestId)
     {
         if (!string.IsNullOrEmpty(requestId))
-            Sinks.TryRemove(requestId, out _);
+            _sinks.TryRemove(requestId, out _);
     }
 }

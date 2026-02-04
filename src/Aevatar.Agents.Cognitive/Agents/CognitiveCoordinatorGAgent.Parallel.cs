@@ -9,10 +9,10 @@ using StepDefinition = Aevatar.Agents.Cognitive.Primitives.StepDefinition;
 namespace Aevatar.Agents.Cognitive.Agents;
 
 // ============================================================
-//  CognitiveCoordinatorGAgent - Parallel execution (fan_out / parallel)
+//  CoordinatorAgent - Parallel execution (fan_out / parallel)
 // ============================================================
 
-public partial class CognitiveCoordinatorGAgent
+public partial class CoordinatorAgent
 {
     /// <summary>
     /// Handle Worker completion event (Protobuf event)

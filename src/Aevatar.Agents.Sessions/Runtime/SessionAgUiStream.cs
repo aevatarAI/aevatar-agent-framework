@@ -23,7 +23,7 @@ namespace Aevatar.Agents.Sessions.Runtime;
 //  - 通过 Channel 推送给 SSE
 // ============================================================
 
-public sealed class SessionAgUiStream : IAsyncDisposable
+public sealed class SessionAgUiStream : IAgUiEventStream, IAsyncDisposable
 {
     private readonly string _sessionId;
     private readonly ILogger _logger;

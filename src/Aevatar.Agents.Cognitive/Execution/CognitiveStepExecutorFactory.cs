@@ -6,7 +6,7 @@ namespace Aevatar.Agents.Cognitive.Execution;
 public static class CognitiveStepExecutorFactory
 {
     public static CognitiveStepExecutor CreateForCoordinator(
-        CognitiveCoordinatorGAgent coordinator,
+        CoordinatorAgent coordinator,
         ICognitiveStepModule[] stepModules)
     {
         ArgumentNullException.ThrowIfNull(coordinator);
@@ -27,7 +27,7 @@ public static class CognitiveStepExecutorFactory
     }
 
     private static Dictionary<string, Func<StepDefinition, string?, string?, Task<PrimitiveResult>>> BuildHandlers(
-        CognitiveCoordinatorGAgent coordinator,
+        CoordinatorAgent coordinator,
         ICognitiveStepModule[] modules)
     {
         Func<StepDefinition, string?, string?, Task<PrimitiveResult>> WrapNoPrompt(
@@ -63,7 +63,7 @@ public static class CognitiveStepExecutorFactory
 
     private static Task<PrimitiveResult> Dispatch(
         ICognitiveStepModule[] modules,
-        CognitiveCoordinatorGAgent coordinator,
+        CoordinatorAgent coordinator,
         StepDefinition step,
         Func<StepDefinition, Task<PrimitiveResult>> fallback)
     {
@@ -80,7 +80,7 @@ public static class CognitiveStepExecutorFactory
 
     private static Task<PrimitiveResult> Dispatch(
         ICognitiveStepModule[] modules,
-        CognitiveCoordinatorGAgent coordinator,
+        CoordinatorAgent coordinator,
         StepDefinition step,
         string? preRenderedPrompt,
         string? preRenderedSystem,

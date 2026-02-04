@@ -11,7 +11,7 @@ namespace Aevatar.Agents.AI.Core.Tests.ToolEvolution;
 
 public class ToolEvolutionRegistryTests
 {
-    [Fact]
+    [Fact(DisplayName = "RegisterEvolvedToolAsync replaces active tool when strategy is Replace")]
     public async Task RegisterEvolvedToolAsync_ShouldReplaceActive_WhenPolicyReplace()
     {
         var manager = new AevatarToolManager(NullLogger<AevatarToolManager>.Instance);
@@ -33,7 +33,7 @@ public class ToolEvolutionRegistryTests
         tools.Should().ContainSingle(t => t.Name == "calc" && t.Version == "2.0.0");
     }
 
-    [Fact]
+    [Fact(DisplayName = "ResolveToolForExecution returns canary when canary percentage is 100%")]
     public async Task ResolveToolForExecution_ShouldReturnCanary_WhenPercentageFull()
     {
         var manager = new AevatarToolManager(NullLogger<AevatarToolManager>.Instance);

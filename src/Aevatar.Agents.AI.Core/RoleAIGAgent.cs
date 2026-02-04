@@ -192,8 +192,9 @@ public abstract class RoleAIGAgent<TCustomState> : AIGAgentBase<TCustomState>
             return;
         }
 
-        // 检测 StreamingContext - 如果有外部 sink，直接发送到那里（绕过 LocalMessageStream）
-        StreamingContext.TryGet(requestId, out var sink);
+        // 检测 StreamChunkSinkRegistry - 如果有外部 sink，直接发送到那里（绕过 LocalMessageStream）
+        IStreamChunkSink? sink = null;
+        StreamChunkSinkRegistry?.TryGet(requestId, out sink);
         var useSink = sink != null;
 
         var chunkEvery = evt.StreamChunkEveryN > 0 ? evt.StreamChunkEveryN : 1;

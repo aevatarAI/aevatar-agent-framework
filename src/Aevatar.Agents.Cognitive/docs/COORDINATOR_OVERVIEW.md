@@ -1,13 +1,13 @@
-# CognitiveCoordinatorGAgent 功能整理与复杂度评估
+# CoordinatorAgent 功能整理与复杂度评估
 
-本文件聚焦 `CognitiveCoordinatorGAgent` 的职责边界、当前架构拆分进度，
+本文件聚焦 `CoordinatorAgent`（原 `CognitiveCoordinatorGAgent`）的职责边界、当前架构拆分进度，
 并从 Cognitive Mesh 视角重新评估该 Agent 的定位与复杂度。
 
 ---
 
 ## 1) 定位与目标
 
-`CognitiveCoordinatorGAgent` 是 **Workflow Orchestrator**：
+`CoordinatorAgent` 是 **Workflow Orchestrator**：
 - 解释并执行 Cognitive DSL 的 workflow
 - 管理执行上下文与变量表
 - 调度并行执行（fan_out / parallel）

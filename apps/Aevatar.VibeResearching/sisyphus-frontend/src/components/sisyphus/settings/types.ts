@@ -2,7 +2,7 @@
 //  Settings Panel - Shared Types
 // ============================================================================
 
-export type TabKey = 'tools' | 'providers' | 'agents' | 'advanced'
+export type TabKey = 'tools' | 'providers' | 'my-providers' | 'agents' | 'advanced'
 
 export interface SettingsPanelProps {
   sessionId: string | null

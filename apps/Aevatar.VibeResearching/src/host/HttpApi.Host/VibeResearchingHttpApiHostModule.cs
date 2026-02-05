@@ -63,6 +63,10 @@ using Volo.Abp.Threading;
 using MongoDB.Driver;
 using Volo.Abp.Data;
 using Aevatar.VibeResearching.HttpApi.Host.Blobs;
+using Aevatar.VibeResearching.UserProviders.Application;
+using Aevatar.VibeResearching.UserProviders.HttpApi;
+using Aevatar.VibeResearching.UserProviders.Infrastructure;
+using Aevatar.VibeResearching.UserProviders.MongoDB;
 
 namespace Aevatar.VibeResearching.HttpApi.Host;
 
@@ -130,7 +134,13 @@ namespace Aevatar.VibeResearching.HttpApi.Host;
     // Infrastructure Module
     typeof(VibeInfrastructureHttpApiModule),
     typeof(VibeInfrastructureApplicationModule),
-    typeof(VibeInfrastructureMongoDbModule)
+    typeof(VibeInfrastructureMongoDbModule),
+
+    // UserProviders Module
+    typeof(UserProvidersHttpApiModule),
+    typeof(UserProvidersApplicationModule),
+    typeof(UserProvidersMongoDbModule),
+    typeof(UserProvidersInfrastructureModule)
 )]
 public class VibeResearchingHttpApiHostModule : AbpModule
 {
@@ -380,6 +390,11 @@ public class VibeResearchingHttpApiHostModule : AbpModule
         services.AddSingleton<ReviewAgentHostedService>();
         services.AddSingleton<IReviewAgentTrigger>(sp => sp.GetRequiredService<ReviewAgentHostedService>());
         services.AddHostedService(sp => sp.GetRequiredService<ReviewAgentHostedService>());
+
+        // ==========================================
+        // Codex OAuth Callback Listener (port 1455)
+        // ==========================================
+        services.AddHostedService<CodexCallbackListenerService>();
     }
 
     public override void OnApplicationInitialization(ApplicationInitializationContext context)
@@ -397,6 +412,11 @@ public class VibeResearchingHttpApiHostModule : AbpModule
         {
             endpoints.MapControllers();
             endpoints.MapGet("/health", () => Results.Text("ok")).AllowAnonymous();
+
+            // UserProviders module endpoints
+            endpoints.MapUserProviderEndpoints();
+            endpoints.MapCodexOAuthEndpoints();
+            endpoints.MapSessionProviderEndpoints();
         });
     }
 

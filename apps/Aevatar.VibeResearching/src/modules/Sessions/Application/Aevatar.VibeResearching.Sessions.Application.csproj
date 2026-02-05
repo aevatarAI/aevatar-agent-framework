@@ -21,5 +21,6 @@
     <ProjectReference Include="../../../../../../src/Aevatar.Agents.Cognitive.Streaming/Aevatar.Agents.Cognitive.Streaming.csproj" />
     <ProjectReference Include="../../../../../../src/Aevatar.Agents.Abstractions/Aevatar.Agents.Abstractions.csproj" />
     <ProjectReference Include="../../../../../../src/Aevatar.Agents.Core/Aevatar.Agents.Core.csproj" />
+    <ProjectReference Include="../../UserProviders/Application.Contracts/Aevatar.VibeResearching.UserProviders.Application.Contracts.csproj" />
   </ItemGroup>
 </Project>

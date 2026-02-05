@@ -11,6 +11,8 @@ import { ToolsMcpTab } from './tools-mcp-tab'
 import { ProvidersTab } from './providers-tab'
 import { AgentsTab } from './agents-tab'
 import { AdvancedTab } from './advanced-tab'
+import { UserProvidersTab } from '@/components/user-providers'
+import { AgentProviderPanel } from '@/components/user-providers'
 import type { SettingsPanelProps, TabKey } from './types'
 
 const SettingsPanel: React.FC<SettingsPanelProps> = ({ sessionId, connected }) => {
@@ -34,7 +36,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ sessionId, connected }) =
       <nav className="flex-shrink-0 px-6 pt-4 flex gap-1 border-b border-border-subtle">
         {[
           { key: 'tools' as TabKey, label: 'Tools & MCP', icon: '⚙️' },
-          { key: 'providers' as TabKey, label: 'LLM Providers', icon: '🔑' },
+          { key: 'providers' as TabKey, label: 'Platform Providers', icon: '🔑' },
+          { key: 'my-providers' as TabKey, label: 'My Providers', icon: '🔐' },
           { key: 'agents' as TabKey, label: 'Agents', icon: '🤖' },
           { key: 'advanced' as TabKey, label: 'Advanced', icon: '🛠️' },
         ].map((tab) => (
@@ -65,13 +68,26 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ sessionId, connected }) =
           />
         )}
         {activeTab === 'providers' && <ProvidersTab defaultProvider={apiInfo?.llm?.default} />}
+        {activeTab === 'my-providers' && <UserProvidersTab />}
         {activeTab === 'agents' && (
-          <AgentsTab
-            sessionId={sessionId}
-            connected={connected}
-            agentRoster={agentRoster}
-            availableProviders={apiInfo?.llm?.providers || []}
-          />
+          <>
+            <AgentProviderPanel
+              sessionId={sessionId}
+              connected={connected}
+              agentRoster={agentRoster}
+            />
+            <div className="mt-6 pt-6 border-t border-border-subtle">
+              <h4 className="text-xs font-mono text-text-dimmed uppercase tracking-wider mb-4">
+                Legacy Agent Provider Config
+              </h4>
+              <AgentsTab
+                sessionId={sessionId}
+                connected={connected}
+                agentRoster={agentRoster}
+                availableProviders={apiInfo?.llm?.providers || []}
+              />
+            </div>
+          </>
         )}
         {activeTab === 'advanced' && <AdvancedTab />}
       </div>

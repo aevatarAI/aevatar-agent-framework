@@ -28,11 +28,17 @@ export async function listWorkflows(): Promise<string[]> {
 }
 
 export async function createSession(
-  providerName?: string
+  providerName?: string,
+  initialAgentProviders?: Record<string, string>
 ): Promise<{ ok: boolean; sessionId?: string; error?: string }> {
+  const payload: Record<string, unknown> = {}
+  if (providerName) payload.providerName = providerName
+  if (initialAgentProviders && Object.keys(initialAgentProviders).length > 0) {
+    payload.initialAgentProviders = initialAgentProviders
+  }
   return fetchJson<{ ok: boolean; sessionId?: string; error?: string }>('/api/sessions', {
     method: 'POST',
-    body: JSON.stringify(providerName ? { providerName } : {}),
+    body: JSON.stringify(payload),
   })
 }
 

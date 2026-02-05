@@ -36,6 +36,9 @@ import { UsersPage, RolesPage, PermissionsPage, SettingsPage } from './pages/adm
 // Account Page
 import AccountPage from './pages/account'
 
+// Codex OAuth Callback
+import CodexCallbackPage from './pages/codex-callback'
+
 // Error Pages
 import AccessDeniedPage from './pages/errors/access-denied'
 
@@ -60,6 +63,10 @@ createRoot(document.getElementById('root')!).render(
         {/* OAuth Callback Routes */}
         <Route path="/auth/callback/github" element={<OAuthCallbackPage />} />
         <Route path="/auth/callback/google" element={<OAuthCallbackPage />} />
+
+        {/* Codex OAuth Callback (path matches official Codex CLI format) */}
+        <Route path="/codex/callback" element={<CodexCallbackPage />} />
+        <Route path="/auth/callback" element={<CodexCallbackPage />} />
         
         {/* App Route - Public for anonymous browsing */}
         <Route path="/app" element={<App />} />

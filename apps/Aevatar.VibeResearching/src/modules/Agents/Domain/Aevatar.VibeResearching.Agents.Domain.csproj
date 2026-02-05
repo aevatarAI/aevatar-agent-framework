@@ -19,6 +19,7 @@
     <ProjectReference Include="../../Knowledge/Domain.Shared/Aevatar.VibeResearching.Knowledge.Domain.Shared.csproj" />
     <ProjectReference Include="../../Infrastructure/Domain/Aevatar.VibeResearching.Infrastructure.Domain.csproj" />
     <ProjectReference Include="../../Infrastructure/Domain.Shared/Aevatar.VibeResearching.Infrastructure.Domain.Shared.csproj" />
+    <ProjectReference Include="../../UserProviders/Domain/Aevatar.VibeResearching.UserProviders.Domain.csproj" />
 
     <!-- Framework project references -->
     <ProjectReference Include="../../../../../../src/Aevatar.Agents.Abstractions/Aevatar.Agents.Abstractions.csproj" />

@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Aevatar.VibeResearching.UserProviders.MongoDB</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Volo.Abp.MongoDB" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Domain/Aevatar.VibeResearching.UserProviders.Domain.csproj" />
+  </ItemGroup>
+</Project>

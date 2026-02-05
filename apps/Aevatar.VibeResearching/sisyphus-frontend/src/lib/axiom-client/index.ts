@@ -101,3 +101,22 @@ export {
   getReviewAgentCurrentEntries,
   triggerReviewAgent,
 } from './review'
+
+// === User-Level LLM Provider APIs ===
+export {
+  listUserProviders,
+  createUserProvider,
+  updateUserProvider,
+  deleteUserProvider,
+  testUserProvider,
+  listUserProviderModels,
+  setUserDefaultProvider,
+  initiateCodexOAuth,
+  completeCodexOAuth,
+  getCodexStatus,
+  disconnectCodex,
+  getSessionAgentProviders,
+  updateSessionAgentProviders,
+  getAvailableProviders,
+  getAvailableProvidersForUser,
+} from './user-provider'

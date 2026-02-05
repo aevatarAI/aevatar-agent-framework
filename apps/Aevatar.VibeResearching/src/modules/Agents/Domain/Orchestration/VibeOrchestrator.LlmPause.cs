@@ -46,6 +46,12 @@ public sealed partial class VibeOrchestrator
     {
         var name = (providerName ?? string.Empty).Trim();
         if (name.Length == 0) return false;
+
+        // User/codex providers resolved via IProviderResolutionService are pre-registered
+        // in ResearchRuntime._resolvedConfigs — check there first.
+        if (name.Contains(':') && _core.Runtime.HasResolvedProviderConfig(name))
+            return true;
+
         var keyPath = $"LLMProviders:Providers:{name}:ApiKey";
         return _core.UserSecrets.TryGet(keyPath, out var v) && !string.IsNullOrWhiteSpace(v);
     }

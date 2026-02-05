@@ -13,6 +13,7 @@ using Aevatar.VibeResearching.Sessions;
 using Aevatar.VibeResearching.Sessions.Repositories;
 using Aevatar.VibeResearching.Agents.Mesh;
 using Aevatar.VibeResearching.Agents.Contracts.Sessions;
+using System.Collections.Concurrent;
 
 namespace Aevatar.VibeResearching.Agents;
 
@@ -40,6 +41,13 @@ public sealed class ResearchRuntime
     private readonly Dictionary<string, SessionEntry> _sessions = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _sessionsLock = new(1, 1);
 
+    /// <summary>
+    /// Pre-resolved provider configs keyed by provider name/namespace (e.g., "user:abc123").
+    /// Populated by ResearchRunExecutor after resolving user/codex providers via IProviderResolutionService.
+    /// Checked by IsProviderConfigured/BuildProviderConfigOrThrow before LLMProvidersConfig.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, LLMProviderConfig> _resolvedConfigs = new(StringComparer.OrdinalIgnoreCase);
+
     public ResearchRuntime(
         IGAgentActorFactory actorFactory,
         ILogger<ResearchRuntime> logger,
@@ -60,6 +68,29 @@ public sealed class ResearchRuntime
         // Keep it sane: prevent accidental zero/negative or extremely spammy values.
         seconds = Math.Clamp(seconds, 5, 3600);
         _skillPacksRetryMinInterval = TimeSpan.FromSeconds(seconds);
+    }
+
+    /// <summary>
+    /// Registers a pre-resolved LLMProviderConfig so that user/codex providers
+    /// (identified by namespace like "user:abc123") can be found by
+    /// IsProviderConfigured and BuildProviderConfigOrThrow.
+    /// </summary>
+    public void RegisterProviderConfig(string providerName, LLMProviderConfig config)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(providerName);
+        ArgumentNullException.ThrowIfNull(config);
+        _resolvedConfigs[providerName.Trim()] = config;
+    }
+
+    /// <summary>
+    /// Checks whether a provider config has been pre-resolved and registered.
+    /// Used by VibeOrchestrator.LlmPause to skip the UserSecrets API-key check
+    /// for user/codex providers that are resolved via IProviderResolutionService.
+    /// </summary>
+    public bool HasResolvedProviderConfig(string providerName)
+    {
+        var name = (providerName ?? string.Empty).Trim();
+        return name.Length > 0 && _resolvedConfigs.ContainsKey(name);
     }
 
     // ============================================================
@@ -1292,6 +1323,10 @@ public sealed class ResearchRuntime
         if (name.Length == 0 || string.Equals(name, "default", StringComparison.OrdinalIgnoreCase))
             return false;
 
+        // Check pre-resolved user/codex provider configs first
+        if (_resolvedConfigs.ContainsKey(name))
+            return true;
+
         var root = _llm.CurrentValue;
         return root.Providers.TryGetValue(name, out var p) && p != null && !string.IsNullOrWhiteSpace(p.ApiKey);
     }
@@ -1332,6 +1367,15 @@ public sealed class ResearchRuntime
         var name = (providerName ?? string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(name))
             throw new InvalidOperationException("ProviderName is empty.");
+
+        // Check pre-resolved user/codex provider configs first
+        if (_resolvedConfigs.TryGetValue(name, out var resolved))
+        {
+            var resolvedCopy = CloneProviderConfig(resolved);
+            if (string.IsNullOrWhiteSpace(resolvedCopy.Name))
+                resolvedCopy.Name = name;
+            return resolvedCopy;
+        }
 
         var root = _llm.CurrentValue;
         if (!root.Providers.TryGetValue(name, out var src) || src == null)

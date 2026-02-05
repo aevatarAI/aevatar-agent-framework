@@ -12,6 +12,8 @@ using Aevatar.VibeResearching.Sessions.Repositories;
 using Aevatar.VibeResearching.Sessions.Services;
 using Aevatar.VibeResearching.Sessions.DTOs;
 using Aevatar.VibeResearching.Sessions.MongoDB.Services;
+using Aevatar.VibeResearching.UserProviders.DTOs;
+using Aevatar.VibeResearching.UserProviders.Services;
 
 namespace Aevatar.VibeResearching.Sessions.Application;
 
@@ -26,17 +28,20 @@ public class SessionAppService : ApplicationService, ISessionAppService
     private readonly ResearchSessionManager _sessionManager;
     private readonly ResearchRunExecutor _runExecutor;
     private readonly SessionUiSnapshotStore _uiSnapshotStore;
+    private readonly ISessionProviderAppService _sessionProviderService;
 
     public SessionAppService(
         IVibeSessionRepository sessionRepository,
         ResearchSessionManager sessionManager,
         ResearchRunExecutor runExecutor,
-        SessionUiSnapshotStore uiSnapshotStore)
+        SessionUiSnapshotStore uiSnapshotStore,
+        ISessionProviderAppService sessionProviderService)
     {
         _sessionRepository = sessionRepository;
         _sessionManager = sessionManager;
         _runExecutor = runExecutor;
         _uiSnapshotStore = uiSnapshotStore;
+        _sessionProviderService = sessionProviderService;
     }
 
     /// <inheritdoc/>
@@ -46,6 +51,24 @@ public class SessionAppService : ApplicationService, ISessionAppService
         var ownerId = CurrentUser.Id?.ToString();
         var ownerName = CurrentUser.Name ?? CurrentUser.UserName;
         var session = await _sessionManager.CreateSessionAsync(input.ProviderName, ownerId, ownerName, ct);
+
+        // Apply initial agent-provider mappings (best-effort)
+        if (input.InitialAgentProviders is { Count: > 0 })
+        {
+            try
+            {
+                var dto = new UpdateAgentProvidersDto
+                {
+                    Map = input.InitialAgentProviders.ToDictionary(kv => kv.Key, kv => (string?)kv.Value)
+                };
+                await _sessionProviderService.UpdateAgentProvidersAsync(session.SessionId, dto, ct);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to apply initial agent-provider mappings for session {SessionId}", session.SessionId);
+            }
+        }
+
         return session;
     }
 

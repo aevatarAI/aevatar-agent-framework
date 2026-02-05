@@ -1,10 +1,11 @@
 import React, { useEffect, useCallback, useState, useRef } from 'react';
 import { Header, Sidebar, InteractionStream, WorkflowTopology, StatusBar } from '@/components/sisyphus';
+import NewSessionDialog from '@/components/sisyphus/NewSessionDialog';
 import { useSisyphusStore } from '@/store/sisyphus-store';
 import { useAxiomStream } from '@/hooks/use-axiom-stream';
 import { useAgentStates } from '@/hooks/use-agent-states';
 import { useSessionStatus } from '@/hooks/use-session-status';
-import { listSessions, createSession, getDagSnapshot, getSessionEvents, parseWorkersFromEvents, abortCurrentSessionRequests, getSessionStatus, type AxiomSession } from '@/lib/axiom-client';
+import { listSessions, getDagSnapshot, getSessionEvents, parseWorkersFromEvents, abortCurrentSessionRequests, getSessionStatus, type AxiomSession } from '@/lib/axiom-client';
 import type { DAGGraph } from '@/types';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth-store';
@@ -80,6 +81,9 @@ const transformDagData = (rawData: unknown): DAGGraph | null => {
 const App: React.FC = () => {
   const { currentSessionId, isConnected, setSessions, setCurrentSession, resetForNewSession, setDag, updateWorker, restoreMilestoneForSession, setActiveMilestoneNodeId, restoreRunningSession } = useSisyphusStore();
   
+  // New session dialog state
+  const [showNewSessionDialog, setShowNewSessionDialog] = useState(false);
+
   // Resizable panel state
   const [leftPanelWidth, setLeftPanelWidth] = useState(DEFAULT_LEFT_WIDTH);
   const [rightCollapsed, setRightCollapsed] = useState(false);
@@ -303,51 +307,45 @@ const App: React.FC = () => {
     }
   }, [currentSessionId, resetForNewSession, setCurrentSession, setDag, updateWorker, restoreMilestoneForSession, setActiveMilestoneNodeId, restoreRunningSession]);
 
-  // Create session handler - creates new session and switches to it
-  const handleCreateSession = useCallback(async () => {
+  // Open new session dialog instead of creating directly
+  const handleCreateSession = useCallback(() => {
+    setShowNewSessionDialog(true);
+  }, []);
+
+  // Called after NewSessionDialog successfully creates a session
+  const handleSessionCreated = useCallback(async (sessionId: string) => {
+    // Optimistic update: prepend new session to list immediately
+    const currentUser = useAuthStore.getState().user;
+    const newSession = {
+      id: sessionId,
+      status: "pending" as const,
+      phase: "",
+      progressPercent: 0,
+      totalTokens: 0,
+      totalLlmCalls: 0,
+      createdAt: new Date().toISOString(),
+      ownerId: currentUser?.id,
+      ownerName: currentUser?.name || currentUser?.userName,
+      lifecycleStatus: 'active' as const,
+    };
+
+    // Get current sessions and prepend the new one
+    const currentSessions = useSisyphusStore.getState().sessions;
+    setSessions([newSession, ...currentSessions]);
+
+    // Reset state and connect to new session
+    resetForNewSession();
+    setCurrentSession(sessionId);
+
+    // Fetch DAG data for the new session
     try {
-      const result = await createSession();
-      if (result.ok && result.sessionId) {
-        // Optimistic update: prepend new session to list immediately
-        // This avoids cache hit issues from listSessions() returning stale data
-        const currentUser = useAuthStore.getState().user;
-        const newSession = {
-          id: result.sessionId,
-          status: "pending" as const,
-          phase: "",
-          progressPercent: 0,
-          totalTokens: 0,
-          totalLlmCalls: 0,
-          createdAt: new Date().toISOString(),
-          ownerId: currentUser?.id,
-          ownerName: currentUser?.name || currentUser?.userName,
-          lifecycleStatus: 'active' as const,
-        };
-        
-        // Get current sessions and prepend the new one
-        const currentSessions = useSisyphusStore.getState().sessions;
-        setSessions([newSession, ...currentSessions]);
-
-        // Reset state and connect to new session
-        resetForNewSession();
-        setCurrentSession(result.sessionId);
-
-        // Fetch global DAG data (shared across all sessions)
-        try {
-          const rawDag = await getDagSnapshot(result.sessionId);
-          const dagData = transformDagData(rawDag);
-          if (dagData) {
-            setDag(dagData);
-          }
-        } catch (err) {
-          console.warn('[App] Failed to fetch DAG for new session:', result.sessionId, err);
-        }
-
-      } else {
-        console.error("Failed to create session:", result.error);
+      const rawDag = await getDagSnapshot(sessionId);
+      const dagData = transformDagData(rawDag);
+      if (dagData) {
+        setDag(dagData);
       }
-    } catch (error) {
-      console.error("Error creating session:", error);
+    } catch (err) {
+      console.warn('[App] Failed to fetch DAG for new session:', sessionId, err);
     }
   }, [setSessions, setCurrentSession, resetForNewSession, setDag]);
 
@@ -488,6 +486,12 @@ const App: React.FC = () => {
       </div>
       
       {currentSessionId && <StatusBar sessionId={currentSessionId} />}
+
+      <NewSessionDialog
+        open={showNewSessionDialog}
+        onOpenChange={setShowNewSessionDialog}
+        onCreated={handleSessionCreated}
+      />
     </div>
   );
 };

@@ -76,11 +76,31 @@ public sealed class MEAILLMProviderFactory : LLMProviderFactoryBase
 
     private IChatClient CreateChatClient(LLMProviderConfig config)
     {
+        // Codex OAuth: use dedicated Responses API client
+        if (IsCodexOAuthProvider(config))
+            return CreateCodexChatClient(config);
+
         return config.ProviderType.ToLowerInvariant() switch
         {
             "azureopenai" or "azure_openai" => CreateAzureOpenAIChatClient(config),
             _ => CreateOpenAIChatClient(config)
         };
+    }
+
+    private static bool IsCodexOAuthProvider(LLMProviderConfig config)
+    {
+        return config.ProviderSpecificSettings.TryGetValue("openai-beta", out var beta)
+               && string.Equals(beta?.ToString(), "codex-v1", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private IChatClient CreateCodexChatClient(LLMProviderConfig config)
+    {
+        Logger.LogInformation(
+            "[MEAIFactory] Creating Codex Responses API client: Model={Model}, Endpoint={Endpoint}",
+            config.Model, config.Endpoint ?? "(default)");
+
+        var logger = _serviceProvider.GetRequiredService<ILogger<Internal.CodexResponsesChatClient>>();
+        return new Internal.CodexResponsesChatClient(config, logger);
     }
 
     private IChatClient CreateOpenAIChatClient(LLMProviderConfig config)

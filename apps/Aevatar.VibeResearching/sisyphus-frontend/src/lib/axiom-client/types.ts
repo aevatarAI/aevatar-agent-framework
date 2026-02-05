@@ -341,3 +341,29 @@ export interface UploadExtractionResponse {
   error?: string
   extractedNodes?: ExtractedKnowledgeNode[]
 }
+
+// === User-Level LLM Provider Types (re-export from dedicated module) ===
+export type {
+  UserLlmProviderDto,
+  UserLlmProviderListResponse,
+  CreateUserProviderRequest,
+  UpdateUserProviderRequest,
+  SetDefaultProviderRequest,
+  ProviderTestResult,
+  ProviderModelItem,
+  ProviderModelsResponse,
+  CodexInitiateRequest,
+  CodexInitiateResponse,
+  CodexCallbackRequest,
+  CodexCallbackResponse,
+  CodexStatusResponse,
+  AgentProviderDetail,
+  AgentProvidersSnapshotResponse,
+  UpdateAgentProvidersRequest,
+  AvailableProviderDto,
+  AvailableProvidersResponse,
+  OkResponse,
+  ApiErrorResponse,
+  ProviderSource,
+  SupportedProviderType,
+} from '@/types/user-provider'

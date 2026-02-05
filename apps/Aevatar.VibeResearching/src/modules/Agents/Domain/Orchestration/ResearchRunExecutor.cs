@@ -15,6 +15,7 @@ using Aevatar.VibeResearching.Sessions.Repositories;
 using Aevatar.VibeResearching.Sessions.ValueObjects;
 using Aevatar.VibeResearching.Sessions.Services;
 using Aevatar.Agents.Core.Runtime;
+using Aevatar.VibeResearching.UserProviders.Services;
 
 namespace Aevatar.VibeResearching.Agents.Orchestration;
 
@@ -40,6 +41,7 @@ public sealed class ResearchRunExecutor
     private readonly VibeGoalLoopRunner _vibeLoop;
     private readonly VibeMilestoneLoopRunner _milestoneLoop;
     private readonly IAgentProvidersRepository _agentProviders;
+    private readonly IProviderResolutionService _providerResolution;
     private readonly IOptions<LLMProvidersConfig> _llm;
     private readonly ILogger<ResearchRunExecutor> _logger;
 
@@ -51,6 +53,7 @@ public sealed class ResearchRunExecutor
         VibeGoalLoopRunner vibeLoop,
         VibeMilestoneLoopRunner milestoneLoop,
         IAgentProvidersRepository agentProviders,
+        IProviderResolutionService providerResolution,
         IOptions<LLMProvidersConfig> llm,
         ILogger<ResearchRunExecutor> logger)
     {
@@ -61,6 +64,7 @@ public sealed class ResearchRunExecutor
         _vibeLoop = vibeLoop ?? throw new ArgumentNullException(nameof(vibeLoop));
         _milestoneLoop = milestoneLoop ?? throw new ArgumentNullException(nameof(milestoneLoop));
         _agentProviders = agentProviders ?? throw new ArgumentNullException(nameof(agentProviders));
+        _providerResolution = providerResolution ?? throw new ArgumentNullException(nameof(providerResolution));
         _llm = llm ?? throw new ArgumentNullException(nameof(llm));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -73,6 +77,10 @@ public sealed class ResearchRunExecutor
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(input);
+
+        // Pre-resolve session agent-provider mappings so user/codex providers
+        // are registered with the runtime before any agent initialization.
+        await ResolveSessionProvidersAsync(session, ct);
 
         // Default mode changed from "chat" to "milestone" for research-driven workflow.
         // Milestone mode executes research by iterating through plan milestones.
@@ -131,7 +139,7 @@ public sealed class ResearchRunExecutor
             // - Default is per-agent providers (Agents panel config).
             // - Only use ProviderName when the caller explicitly overrides it.
             var providerOverride = string.IsNullOrWhiteSpace(input.ProviderName)
-                ? null
+                ? await ResolveMainAgentProviderAsync(session.Id, ct)
                 : input.ProviderName.Trim();
             var question = (input.Message ?? string.Empty).Trim();
 
@@ -319,7 +327,7 @@ public sealed class ResearchRunExecutor
             lockHeld = true;
 
             var providerOverride = string.IsNullOrWhiteSpace(input.ProviderName)
-                ? null
+                ? await ResolveMainAgentProviderAsync(session.Id, ct)
                 : input.ProviderName.Trim();
             var question = (input.Message ?? string.Empty).Trim();
 
@@ -724,7 +732,7 @@ public sealed class ResearchRunExecutor
             lockHeld = true;
 
             var providerOverride = string.IsNullOrWhiteSpace(input.ProviderName)
-                ? session.ProviderName
+                ? (await ResolveMainAgentProviderAsync(session.Id, ct) ?? session.ProviderName)
                 : input.ProviderName.Trim();
             var question = (input.Message ?? string.Empty).Trim();
 
@@ -889,6 +897,87 @@ public sealed class ResearchRunExecutor
         {
             session.RunLock.Release();
             }
+        }
+    }
+
+    /// <summary>
+    /// Loads the "research_assistant" agent-provider mapping from the repository.
+    /// Returns the provider namespace or null if not set.
+    /// </summary>
+    private async Task<string?> ResolveMainAgentProviderAsync(string sessionId, CancellationToken ct)
+    {
+        try
+        {
+            var snap = await _agentProviders.LoadAsync(sessionId, ct);
+            if (snap?.Map != null && snap.Map.TryGetValue("research_assistant", out var p) && !string.IsNullOrWhiteSpace(p))
+                return p.Trim();
+        }
+        catch
+        {
+            // best-effort only
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Loads agent-provider mappings from the repository and resolves each
+    /// namespace (user/codex) via IProviderResolutionService, registering
+    /// the resulting LLMProviderConfig with the runtime so that
+    /// IsProviderConfigured/BuildProviderConfigOrThrow can find them.
+    /// </summary>
+    private async Task ResolveSessionProvidersAsync(ResearchSession session, CancellationToken ct)
+    {
+        try
+        {
+            var snapshot = await _agentProviders.LoadAsync(session.Id, ct);
+            if (snapshot?.Map == null || snapshot.Map.Count == 0)
+                return;
+
+            // Parse the session owner ID to a Guid for IProviderResolutionService
+            if (string.IsNullOrWhiteSpace(session.OwnerId) || !Guid.TryParse(session.OwnerId, out var userId))
+                return;
+
+            // Collect unique namespaces to resolve (avoid duplicate calls)
+            var uniqueNamespaces = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var ns in snapshot.Map.Values)
+            {
+                if (!string.IsNullOrWhiteSpace(ns))
+                    uniqueNamespaces.Add(ns.Trim());
+            }
+
+            foreach (var ns in uniqueNamespaces)
+            {
+                // Only resolve namespace-style providers (e.g., "user:abc123", "platform:deepseek")
+                // that are not already known to the runtime's LLMProvidersConfig
+                if (!ns.Contains(':'))
+                    continue;
+
+                try
+                {
+                    // Use the first agent name that maps to this namespace for resolution
+                    var agentName = snapshot.Map.FirstOrDefault(kv =>
+                        string.Equals(kv.Value?.Trim(), ns, StringComparison.OrdinalIgnoreCase)).Key
+                        ?? "research_assistant";
+
+                    var resolved = await _providerResolution.ResolveAsync(session.Id, agentName, userId, ct);
+                    _runtime.RegisterProviderConfig(ns, resolved.ProviderConfig);
+
+                    _logger.LogInformation(
+                        "[ResearchRunExecutor] Registered resolved provider '{Namespace}' (type={Type}, model={Model}) for session {SessionId}",
+                        ns, resolved.ProviderType, resolved.Model, session.Id);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "[ResearchRunExecutor] Failed to resolve provider '{Namespace}' for session {SessionId}",
+                        ns, session.Id);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "[ResearchRunExecutor] Failed to load agent-provider mappings for session {SessionId}", session.Id);
         }
     }
 

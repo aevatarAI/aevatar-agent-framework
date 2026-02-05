@@ -16,8 +16,8 @@ export interface AvatarProps {
 const sizeClasses = {
   sm: "h-8 w-8 text-xs",
   md: "h-10 w-10 text-sm",
-  lg: "h-12 w-12 text-base",
-  xl: "h-16 w-16 text-lg",
+  lg: "h-12 w-12 text-lg",
+  xl: "h-16 w-16 text-xl",
 }
 
 // Color palette for avatar backgrounds (cyberpunk theme)

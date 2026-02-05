@@ -27,6 +27,7 @@ export const CreateUserModal: React.FC<CreateUserModalProps> = ({
   roles,
 }) => {
   const [isLoading, setIsLoading] = useState(false)
+  const { error: showError } = useToast()
   const [formData, setFormData] = useState<CreateUserInput>({
     userName: "",
     email: "",
@@ -36,11 +37,21 @@ export const CreateUserModal: React.FC<CreateUserModalProps> = ({
     password: "",
     isActive: true,
     lockoutEnabled: false,
-    roleNames: [],
+    roleNames: ["member"],  // Default role for new users
   })
+
+  // ABP Password Policy: min 6 chars + uppercase + lowercase + digit + special char
+  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]).{6,}$/
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    // ABP Password Policy Validation (same as register page)
+    if (!passwordRegex.test(formData.password)) {
+      showError("Password must be at least 6 characters with uppercase, lowercase, number & special character")
+      return
+    }
+
     setIsLoading(true)
     try {
       await onSubmit(formData)
@@ -121,6 +132,9 @@ export const CreateUserModal: React.FC<CreateUserModalProps> = ({
                 placeholder="Enter password"
                 required
               />
+              <p className="text-xs text-text-dimmed">
+                Min 6 characters with uppercase, lowercase, number & special character
+              </p>
             </div>
 
             <div className="space-y-1.5">
@@ -255,20 +269,43 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
         <form onSubmit={handleSubmit}>
           {/* Header */}
           <div className="flex items-center justify-between p-5 border-b border-border-subtle">
-            <div className="flex items-center gap-3">
-              <Avatar name={`${user.name} ${user.surname}`} size="md" />
-              <div>
+            <div className="flex items-center gap-3 w-0 flex-1 mr-3">
+              <Avatar name={[user.name, user.surname].filter(Boolean).join(' ') || user.userName || user.email.split('@')[0]} src={user.avatarUrl} size="md" className="flex-shrink-0" />
+              <div className="w-0 flex-1">
                 <h2 className="text-lg font-semibold text-text-primary">Edit User</h2>
-                <p className="text-xs text-text-muted">{user.email}</p>
+                <p className="text-xs text-text-muted truncate" title={user.email}>{user.email}</p>
               </div>
             </div>
-            <button type="button" onClick={onClose} className="text-text-muted hover:text-text-primary">
+            <button type="button" onClick={onClose} className="text-text-muted hover:text-text-primary flex-shrink-0">
               <X className="w-5 h-5" />
             </button>
           </div>
 
           {/* Body */}
           <div className="p-5 space-y-4 max-h-[60vh] overflow-y-auto">
+            {/* Read-only fields */}
+            <div className="space-y-1">
+              <label className="text-sm text-text-secondary">User Name</label>
+              <Input
+                value={user.userName}
+                disabled
+                className="bg-surface-elevated text-text-muted cursor-not-allowed"
+              />
+              <p className="text-xs text-text-dimmed">User name cannot be changed</p>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-sm text-text-secondary">Email</label>
+              <Input
+                type="email"
+                value={user.email}
+                disabled
+                className="bg-surface-elevated text-text-muted cursor-not-allowed"
+              />
+              <p className="text-xs text-text-dimmed">Email cannot be changed</p>
+            </div>
+
+            {/* Editable fields */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <label className="text-sm text-text-secondary">First Name</label>
@@ -284,15 +321,6 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                   onChange={(e) => setFormData(prev => ({ ...prev, surname: e.target.value }))}
                 />
               </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-sm text-text-secondary">Email</label>
-              <Input
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
-              />
             </div>
 
             <div className="space-y-1.5">
@@ -384,8 +412,8 @@ export const DeleteUserModal: React.FC<DeleteUserModalProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="w-[420px]">
-        <div className="p-6 text-center">
+      <DialogContent className="w-[420px] max-w-[90vw]">
+        <div className="p-6 text-center overflow-hidden">
           <div className="mx-auto w-14 h-14 rounded-full bg-neon-red/10 border border-neon-red/30 flex items-center justify-center mb-4">
             <Trash2 className="w-7 h-7 text-neon-red" />
           </div>
@@ -394,7 +422,7 @@ export const DeleteUserModal: React.FC<DeleteUserModalProps> = ({
           <p className="text-sm text-text-muted mb-1">
             Are you sure you want to delete this user?
           </p>
-          <p className="text-sm font-mono text-neon-cyan mb-4">{user.email}</p>
+          <p className="text-sm font-mono text-neon-cyan mb-4 truncate max-w-full" title={user.email}>{user.email}</p>
           <p className="text-xs text-text-dimmed">
             This action cannot be undone. All user data will be permanently removed.
           </p>
@@ -440,16 +468,20 @@ export const SetPasswordModal: React.FC<SetPasswordModalProps> = ({
   const [confirmPassword, setConfirmPassword] = useState("")
   const { error: showError } = useToast()
 
+  // ABP Password Policy: min 6 chars + uppercase + lowercase + digit + special char
+  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]).{6,}$/
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (password !== confirmPassword) {
-      showError("Passwords do not match")
+    // ABP Password Policy Validation (same as register page)
+    if (!passwordRegex.test(password)) {
+      showError("Password must be at least 6 characters with uppercase, lowercase, number & special character")
       return
     }
 
-    if (password.length < 6) {
-      showError("Password must be at least 6 characters")
+    if (password !== confirmPassword) {
+      showError("Passwords do not match")
       return
     }
 
@@ -479,10 +511,10 @@ export const SetPasswordModal: React.FC<SetPasswordModalProps> = ({
           {/* User Info */}
           <div className="p-4 mx-5 mt-5 rounded-lg bg-surface-elevated border border-border-subtle">
             <div className="flex items-center gap-3">
-              <Avatar name={`${user.name} ${user.surname}`} size="md" />
-              <div>
-                <p className="text-sm font-medium text-text-primary">{user.name} {user.surname}</p>
-                <p className="text-xs text-text-muted">{user.email}</p>
+              <Avatar name={[user.name, user.surname].filter(Boolean).join(' ') || user.userName || user.email.split('@')[0]} src={user.avatarUrl} size="md" className="flex-shrink-0" />
+              <div className="w-0 flex-1">
+                <p className="text-sm font-medium text-text-primary truncate" title={[user.name, user.surname].filter(Boolean).join(' ') || user.userName || user.email.split('@')[0]}>{[user.name, user.surname].filter(Boolean).join(' ') || user.userName || user.email.split('@')[0]}</p>
+                <p className="text-xs text-text-muted truncate" title={user.email}>{user.email}</p>
               </div>
             </div>
           </div>
@@ -497,6 +529,9 @@ export const SetPasswordModal: React.FC<SetPasswordModalProps> = ({
                 placeholder="Enter new password"
                 required
               />
+              <p className="text-xs text-text-dimmed">
+                Min 6 characters with uppercase, lowercase, number & special character
+              </p>
             </div>
 
             <div className="space-y-1.5">
@@ -544,8 +579,12 @@ export const UserDetailModal: React.FC<UserDetailModalProps> = ({
 }) => {
   if (!user) return null
 
+  // Build display name with fallbacks
+  const fullName = [user.name, user.surname].filter(Boolean).join(' ').trim()
+  const displayName = fullName || user.userName || user.email.split('@')[0]
+
   const formatDate = (dateString: string | undefined) => {
-    if (!dateString) return "Never"
+    if (!dateString) return "—"
     const date = new Date(dateString)
     return date.toLocaleDateString("en-US", {
       month: "short",
@@ -555,7 +594,7 @@ export const UserDetailModal: React.FC<UserDetailModalProps> = ({
   }
 
   const formatRelativeTime = (dateString: string | undefined) => {
-    if (!dateString) return "Never"
+    if (!dateString) return "—"
     const date = new Date(dateString)
     const now = new Date()
     const diffMs = now.getTime() - date.getTime()
@@ -590,12 +629,12 @@ export const UserDetailModal: React.FC<UserDetailModalProps> = ({
         <div className="p-6 space-y-5">
           {/* User Card */}
           <div className="p-4 rounded-xl bg-surface-elevated flex items-center gap-4">
-            <Avatar name={`${user.name || ""} ${user.surname || ""}`} size="lg" />
-            <div className="space-y-1">
-              <h3 className="text-lg font-semibold text-text-primary">
-                {user.name} {user.surname}
+            <Avatar name={displayName} src={user.avatarUrl} size="lg" className="flex-shrink-0" />
+            <div className="space-y-1 w-0 flex-1">
+              <h3 className="text-lg font-semibold text-text-primary truncate" title={displayName}>
+                {displayName}
               </h3>
-              <p className="text-sm font-mono text-text-muted">{user.email}</p>
+              <p className="text-sm font-mono text-text-muted truncate" title={user.email}>{user.email}</p>
               <div className="flex items-center gap-2 pt-1">
                 <span className={cn(
                   "px-2 py-1 rounded text-[10px] font-mono font-medium",
@@ -618,10 +657,34 @@ export const UserDetailModal: React.FC<UserDetailModalProps> = ({
           <div className="space-y-3">
             <h4 className="text-sm font-semibold text-text-secondary">Account Information</h4>
             <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1 min-w-0">
+                <p className="text-[11px] text-text-dimmed">Username</p>
+                <p className="text-sm font-mono text-text-primary truncate" title={user.userName || "—"}>
+                  {user.userName || "—"}
+                </p>
+              </div>
+              <div className="space-y-1 min-w-0">
+                <p className="text-[11px] text-text-dimmed">Email</p>
+                <p className="text-sm font-mono text-text-primary truncate" title={user.email}>
+                  {user.email}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-[11px] text-text-dimmed">First Name</p>
+                <p className="text-sm font-mono text-text-primary">
+                  {user.name || "—"}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-[11px] text-text-dimmed">Last Name</p>
+                <p className="text-sm font-mono text-text-primary">
+                  {user.surname || "—"}
+                </p>
+              </div>
               <div className="space-y-1">
                 <p className="text-[11px] text-text-dimmed">Phone Number</p>
                 <p className="text-sm font-mono text-text-primary">
-                  {user.phoneNumber || "Not set"}
+                  {user.phoneNumber || "—"}
                 </p>
               </div>
               <div className="space-y-1">
@@ -630,25 +693,6 @@ export const UserDetailModal: React.FC<UserDetailModalProps> = ({
                   {formatDate(user.createdAt)}
                 </p>
               </div>
-              <div className="space-y-1">
-                <p className="text-[11px] text-text-dimmed">Last Login</p>
-                <p className="text-sm font-mono text-text-primary">
-                  {formatRelativeTime(user.lastLoginTime)}
-                </p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-[11px] text-text-dimmed">Two-Factor Auth</p>
-                <div className="flex items-center gap-1.5">
-                  {user.twoFactorEnabled ? (
-                    <>
-                      <ShieldCheck className="w-3.5 h-3.5 text-neon-green" />
-                      <span className="text-sm font-mono text-neon-green">Enabled</span>
-                    </>
-                  ) : (
-                    <span className="text-sm font-mono text-text-muted">Disabled</span>
-                  )}
-                </div>
-              </div>
             </div>
           </div>
 
@@ -656,27 +700,31 @@ export const UserDetailModal: React.FC<UserDetailModalProps> = ({
           <div className="space-y-2.5">
             <h4 className="text-sm font-semibold text-text-secondary">Assigned Roles</h4>
             <div className="flex flex-wrap gap-2">
-              {user.roles.map(role => {
-                const isAdminRole = role.toLowerCase() === "admin"
-                return (
-                  <span
-                    key={role}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium",
-                      isAdminRole
-                        ? "bg-neon-purple/10 text-neon-purple"
-                        : "bg-neon-cyan/10 text-neon-cyan"
-                    )}
-                  >
-                    {isAdminRole ? (
-                      <Shield className="w-3 h-3" />
-                    ) : (
-                      <Users className="w-3 h-3" />
-                    )}
-                    {role}
-                  </span>
-                )
-              })}
+              {user.roles.length === 0 ? (
+                <span className="text-sm text-text-muted">-</span>
+              ) : (
+                user.roles.map(role => {
+                  const isAdminRole = role.toLowerCase() === "admin"
+                  return (
+                    <span
+                      key={role}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium",
+                        isAdminRole
+                          ? "bg-neon-purple/10 text-neon-purple"
+                          : "bg-neon-cyan/10 text-neon-cyan"
+                      )}
+                    >
+                      {isAdminRole ? (
+                        <Shield className="w-3 h-3" />
+                      ) : (
+                        <Users className="w-3 h-3" />
+                      )}
+                      {role}
+                    </span>
+                  )
+                })
+              )}
             </div>
           </div>
         </div>
@@ -752,7 +800,7 @@ export const InviteUserModal: React.FC<InviteUserModalProps> = ({
             <div className="space-y-2">
               <h2 className="text-lg font-semibold text-text-primary">Invitation Sent!</h2>
               <p className="text-sm text-text-muted">
-                An invitation email has been sent to <span className="text-neon-cyan font-mono">{formData.email}</span>
+                An invitation email has been sent to <span className="text-neon-cyan font-mono break-all">{formData.email}</span>
               </p>
             </div>
             <Button onClick={handleClose} className="w-full">

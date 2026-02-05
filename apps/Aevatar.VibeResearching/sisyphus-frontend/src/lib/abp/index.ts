@@ -63,6 +63,7 @@ export {
   setUserPassword,
   toggleUserLock,
   getUserStats,
+  invalidateStatsCache,
   getAssignableRoles,
 } from './users'
 

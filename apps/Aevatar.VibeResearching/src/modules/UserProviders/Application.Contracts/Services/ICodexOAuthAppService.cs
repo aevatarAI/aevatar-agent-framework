@@ -11,4 +11,11 @@ public interface ICodexOAuthAppService
     Task<CodexCallbackResultDto> HandleCallbackAsync(CodexCallbackDto input, CancellationToken ct = default);
     Task<CodexStatusDto> GetStatusAsync(CancellationToken ct = default);
     Task DisconnectAsync(CancellationToken ct = default);
+
+    /// <summary>Returns the configured auth mode ("localhost" or "devicecode").</summary>
+    string GetAuthMode();
+
+    // --- Device Code Flow ---
+    Task<DeviceCodeInitiateResultDto> InitiateDeviceCodeAsync(CancellationToken ct = default);
+    Task<DeviceCodePollResultDto> PollDeviceCodeAsync(DeviceCodePollRequestDto input, CancellationToken ct = default);
 }

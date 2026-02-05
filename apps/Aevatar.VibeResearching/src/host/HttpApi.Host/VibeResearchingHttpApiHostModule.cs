@@ -393,8 +393,15 @@ public class VibeResearchingHttpApiHostModule : AbpModule
 
         // ==========================================
         // Codex OAuth Callback Listener (port 1455)
+        // Only active in Localhost auth mode (dev / local tools).
+        // In DeviceCode mode the listener is unnecessary.
         // ==========================================
-        services.AddHostedService<CodexCallbackListenerService>();
+        var codexAuthMode = configuration.GetValue<string>("CodexOAuth:AuthMode");
+        var isDeviceCodeMode = string.Equals(codexAuthMode, "DeviceCode", StringComparison.OrdinalIgnoreCase);
+        if (!isDeviceCodeMode)
+        {
+            services.AddHostedService<CodexCallbackListenerService>();
+        }
     }
 
     public override void OnApplicationInitialization(ApplicationInitializationContext context)

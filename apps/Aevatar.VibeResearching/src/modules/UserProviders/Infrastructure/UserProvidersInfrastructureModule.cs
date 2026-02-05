@@ -42,10 +42,14 @@ public class UserProvidersInfrastructureModule : AbpModule
         services.AddTransient<ICodexOAuthService, CodexOAuthService>();
         services.AddTransient<PkceStateStore>();
 
-        // Register HttpClient for Codex OAuth token exchange
+        // Register HttpClient for Codex OAuth token exchange.
+        // User-Agent + Accept headers are required to pass Cloudflare bot protection
+        // on auth.openai.com. Using a standard format that matches Codex CLI behavior.
         services.AddHttpClient("CodexOAuth", client =>
         {
             client.Timeout = TimeSpan.FromSeconds(30);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("codex/1.0");
+            client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         });
     }
 }

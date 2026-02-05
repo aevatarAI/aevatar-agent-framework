@@ -17,6 +17,10 @@ import type {
   CodexCallbackRequest,
   CodexCallbackResponse,
   CodexStatusResponse,
+  CodexAuthModeResponse,
+  DeviceCodeInitiateResponse,
+  DeviceCodePollRequest,
+  DeviceCodePollResponse,
   AgentProvidersSnapshotResponse,
   UpdateAgentProvidersRequest,
   AvailableProvidersResponse,
@@ -120,6 +124,30 @@ export async function getCodexStatus(): Promise<CodexStatusResponse> {
 /** Disconnect the Codex OAuth connection. */
 export async function disconnectCodex(): Promise<OkResponse> {
   return fetchJson<OkResponse>('/api/user/llm/codex', { method: 'DELETE' })
+}
+
+/** Get the server's configured Codex auth mode (localhost or devicecode). */
+export async function getCodexAuthMode(): Promise<CodexAuthModeResponse> {
+  return fetchJson<CodexAuthModeResponse>('/api/user/llm/codex/auth-mode')
+}
+
+// === Codex Device Code Flow ===
+
+/** Request a device code for the Device Code authorization grant. */
+export async function initiateDeviceCode(): Promise<DeviceCodeInitiateResponse> {
+  return fetchJson<DeviceCodeInitiateResponse>('/api/user/llm/codex/device/initiate', {
+    method: 'POST',
+  })
+}
+
+/** Poll for device code authorization completion. */
+export async function pollDeviceCode(
+  input: DeviceCodePollRequest
+): Promise<DeviceCodePollResponse> {
+  return fetchJson<DeviceCodePollResponse>('/api/user/llm/codex/device/poll', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
 }
 
 // === Session Agent Provider Mapping ===

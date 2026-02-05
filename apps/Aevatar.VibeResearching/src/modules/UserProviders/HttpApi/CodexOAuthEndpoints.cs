@@ -80,5 +80,54 @@ public static class CodexOAuthEndpoints
             await service.DisconnectAsync(ct);
             return Results.Ok(new { ok = true });
         });
+
+        // GET /api/user/llm/codex/auth-mode - Return configured auth mode
+        group.MapGet("/auth-mode", (ICodexOAuthAppService service) =>
+        {
+            return Results.Ok(new { authMode = service.GetAuthMode() });
+        });
+
+        // --- Device Code Flow ---
+
+        // POST /api/user/llm/codex/device/initiate - Request a device code
+        group.MapPost("/device/initiate", async (
+            ICodexOAuthAppService service,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                var result = await service.InitiateDeviceCodeAsync(ct);
+                return Results.Ok(result);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Json(
+                    new { error = ex.Message, code = "DEVICE_CODE_FAILED" },
+                    statusCode: 502);
+            }
+        });
+
+        // POST /api/user/llm/codex/device/poll - Poll for device authorization
+        group.MapPost("/device/poll", async (
+            DeviceCodePollRequestDto input,
+            ICodexOAuthAppService service,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                var result = await service.PollDeviceCodeAsync(input, ct);
+                return Results.Ok(result);
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message, code = "VALIDATION_FAILED" });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Json(
+                    new { error = ex.Message, code = "DEVICE_CODE_POLL_FAILED" },
+                    statusCode: 502);
+            }
+        });
     }
 }

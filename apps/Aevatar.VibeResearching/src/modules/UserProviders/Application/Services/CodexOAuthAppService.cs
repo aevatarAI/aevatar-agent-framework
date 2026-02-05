@@ -84,6 +84,47 @@ public sealed class CodexOAuthAppService : ICodexOAuthAppService
         await _codexService.DisconnectAsync(userId, ct);
     }
 
+    /// <inheritdoc />
+    public string GetAuthMode() => _codexService.GetAuthMode();
+
+    /// <inheritdoc />
+    public async Task<DeviceCodeInitiateResultDto> InitiateDeviceCodeAsync(CancellationToken ct = default)
+    {
+        var userId = GetCurrentUserId();
+        var result = await _codexService.InitiateDeviceCodeAsync(userId, ct);
+
+        return new DeviceCodeInitiateResultDto
+        {
+            DeviceAuthId = result.DeviceAuthId,
+            UserCode = result.UserCode,
+            VerificationUri = result.VerificationUri,
+            Interval = result.Interval
+        };
+    }
+
+    /// <inheritdoc />
+    public async Task<DeviceCodePollResultDto> PollDeviceCodeAsync(
+        DeviceCodePollRequestDto input, CancellationToken ct = default)
+    {
+        var userId = GetCurrentUserId();
+
+        if (string.IsNullOrWhiteSpace(input.DeviceAuthId))
+            throw new ArgumentException("Device auth ID is required.");
+
+        if (string.IsNullOrWhiteSpace(input.UserCode))
+            throw new ArgumentException("User code is required.");
+
+        var result = await _codexService.PollDeviceCodeAsync(
+            userId, input.DeviceAuthId, input.UserCode, ct);
+
+        return new DeviceCodePollResultDto
+        {
+            Status = result.Status,
+            Email = result.Email,
+            ProviderId = result.ProviderId
+        };
+    }
+
     private Guid GetCurrentUserId()
     {
         return _currentUser.Id

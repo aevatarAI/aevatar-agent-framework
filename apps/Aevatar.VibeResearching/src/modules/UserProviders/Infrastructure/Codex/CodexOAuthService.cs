@@ -45,6 +45,9 @@ public sealed class CodexOAuthService : ICodexOAuthService
     }
 
     /// <inheritdoc />
+    public string GetAuthMode() => _options.AuthMode.ToString().ToLowerInvariant();
+
+    /// <inheritdoc />
     public async Task<CodexInitiateResult> InitiateAsync(
         Guid userId, string redirectUri, CancellationToken ct = default)
     {
@@ -241,6 +244,201 @@ public sealed class CodexOAuthService : ICodexOAuthService
             semaphore.Release();
         }
     }
+
+    // ================================================================
+    //  Device Code Flow (OpenAI custom — NOT standard RFC 8628)
+    //
+    //  1. POST /api/accounts/deviceauth/usercode  → device_auth_id, user_code
+    //  2. User visits /codex/device and enters user_code
+    //  3. POST /api/accounts/deviceauth/token      → authorization_code, code_verifier
+    //  4. POST /oauth/token (standard PKCE exchange) → access/refresh/id tokens
+    // ================================================================
+
+    /// <inheritdoc />
+    public async Task<DeviceCodeInitiateResult> InitiateDeviceCodeAsync(
+        Guid userId, CancellationToken ct = default)
+    {
+        var client = _httpClientFactory.CreateClient("CodexOAuth");
+        var jsonBody = JsonSerializer.Serialize(new { client_id = _options.ClientId });
+        var content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+
+        var response = await client.PostAsync(_options.DeviceUserCodeEndpoint, content, ct);
+        var responseJson = await response.Content.ReadAsStringAsync(ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("Device code request failed: {Status} {Body}",
+                response.StatusCode, TruncateForLog(responseJson));
+            throw new InvalidOperationException("Failed to request device code from OpenAI.");
+        }
+
+        using var doc = JsonDocument.Parse(responseJson);
+        var root = doc.RootElement;
+
+        var deviceAuthId = root.GetProperty("device_auth_id").GetString()!;
+        var userCode = root.GetProperty("user_code").GetString()!;
+        var interval = root.TryGetProperty("interval", out var ivProp)
+            ? ParseIntOrString(ivProp)
+            : 5;
+
+        _logger.LogInformation(
+            "Device code flow initiated for user {UserId}, poll interval={Interval}s.",
+            userId, interval);
+
+        return new DeviceCodeInitiateResult(
+            deviceAuthId, userCode, _options.DeviceVerificationUri, interval);
+    }
+
+    /// <inheritdoc />
+    public async Task<DeviceCodePollResult> PollDeviceCodeAsync(
+        Guid userId, string deviceAuthId, string userCode, CancellationToken ct = default)
+    {
+        // Step 3: Poll for authorization code
+        HttpResponseMessage response;
+        string responseJson;
+
+        try
+        {
+            var client = _httpClientFactory.CreateClient("CodexOAuth");
+            var pollBody = JsonSerializer.Serialize(new
+            {
+                device_auth_id = deviceAuthId,
+                user_code = userCode
+            });
+            var pollContent = new StringContent(pollBody, Encoding.UTF8, "application/json");
+
+            response = await client.PostAsync(_options.DevicePollEndpoint, pollContent, ct);
+            responseJson = await response.Content.ReadAsStringAsync(ct);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex, "Device poll HTTP request failed.");
+            return new DeviceCodePollResult("pending"); // Transient — keep polling
+        }
+
+        _logger.LogDebug("Device poll response: {Status} {Body}",
+            response.StatusCode, TruncateForLog(responseJson));
+
+        if (!response.IsSuccessStatusCode)
+        {
+            if (IsDeviceExpired(responseJson))
+                return new DeviceCodePollResult("expired");
+
+            // Any non-success = pending (user hasn't approved yet)
+            return new DeviceCodePollResult("pending");
+        }
+
+        // Success — extract authorization_code + code_verifier from response
+        _logger.LogInformation("Device poll returned success. Body: {Body}",
+            TruncateForLog(responseJson, 800));
+
+        using var doc = JsonDocument.Parse(responseJson);
+        var root = doc.RootElement;
+
+        if (!root.TryGetProperty("authorization_code", out var codeProp) ||
+            string.IsNullOrEmpty(codeProp.GetString()))
+        {
+            _logger.LogWarning("Device poll success but no authorization_code. Body: {Body}",
+                TruncateForLog(responseJson, 500));
+            return new DeviceCodePollResult("error");
+        }
+
+        var authorizationCode = codeProp.GetString()!;
+        var codeVerifier = root.TryGetProperty("code_verifier", out var cvProp)
+            ? cvProp.GetString() ?? ""
+            : "";
+        var codeChallenge = root.TryGetProperty("code_challenge", out var ccProp)
+            ? ccProp.GetString() ?? ""
+            : "";
+
+        _logger.LogInformation(
+            "Got authorization_code (len={CodeLen}), code_verifier (len={VerifierLen}), code_challenge (len={ChallengeLen}). " +
+            "redirect_uri={RedirectUri}. Exchanging for tokens...",
+            authorizationCode.Length, codeVerifier.Length, codeChallenge.Length,
+            $"{_options.Issuer}/deviceauth/callback");
+
+        // Step 4: Exchange the authorization code for tokens (standard PKCE)
+        // Device code flow uses the issuer's own callback, NOT the local server.
+        // This matches the Codex CLI: redirect_uri = "{issuer}/deviceauth/callback"
+        try
+        {
+            var redirectUri = $"{_options.Issuer}/deviceauth/callback";
+            var tokenResponse = await ExchangeCodeForTokensAsync(
+                authorizationCode, codeVerifier, redirectUri, ct);
+
+            if (string.IsNullOrEmpty(tokenResponse.AccessToken))
+            {
+                _logger.LogWarning("Device code token exchange returned no access token.");
+                return new DeviceCodePollResult("error");
+            }
+
+            var (email, accountId) = ExtractIdTokenClaims(tokenResponse.IdToken);
+            await StoreEncryptedTokensAsync(userId, tokenResponse, accountId, email, ct);
+            var result = await UpsertCodexProviderAsync(userId, email, ct);
+
+            _logger.LogInformation(
+                "Device code flow completed for user {UserId}, email={Email}.",
+                userId, email);
+
+            return new DeviceCodePollResult("connected", result.Email, result.ProviderId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Device code token exchange failed.");
+            return new DeviceCodePollResult("error");
+        }
+    }
+
+    private static bool IsDevicePending(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            // OpenAI may return various pending indicators
+            return true; // Non-success is pending until proven otherwise
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
+    private static bool IsDeviceExpired(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("error", out var errProp))
+            {
+                var err = errProp.GetString() ?? "";
+                return err.Contains("expired", StringComparison.OrdinalIgnoreCase);
+            }
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Parse a JSON value that may be either a number or a string-encoded number.</summary>
+    private static int ParseIntOrString(JsonElement elem)
+    {
+        if (elem.ValueKind == JsonValueKind.Number)
+            return elem.GetInt32();
+        if (elem.ValueKind == JsonValueKind.String &&
+            int.TryParse(elem.GetString(), out var val))
+            return val;
+        return 5;
+    }
+
+    private static string TruncateForLog(string s, int maxLen = 200)
+        => s.Length <= maxLen ? s : s[..maxLen] + "...";
+
+    // ================================================================
+    //  Shared helpers
+    // ================================================================
 
     private async Task<TokenResponse> ExchangeCodeForTokensAsync(
         string code, string codeVerifier, string redirectUri, CancellationToken ct)

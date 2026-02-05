@@ -44,6 +44,31 @@ public interface ICodexOAuthService
     Task<string> GetValidAccessTokenAsync(
         Guid userId,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns the configured auth mode ("localhost" or "devicecode").
+    /// </summary>
+    string GetAuthMode();
+
+    // --- Device Code Flow (RFC 8628) ---
+
+    /// <summary>
+    /// Requests a device code from OpenAI for the device authorization grant.
+    /// Returns the user code and verification URI to display to the user.
+    /// </summary>
+    Task<DeviceCodeInitiateResult> InitiateDeviceCodeAsync(
+        Guid userId,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Polls OpenAI's device auth endpoint for authorization completion.
+    /// On success, exchanges the returned code for tokens and creates the provider.
+    /// </summary>
+    Task<DeviceCodePollResult> PollDeviceCodeAsync(
+        Guid userId,
+        string deviceAuthId,
+        string userCode,
+        CancellationToken ct = default);
 }
 
 /// <summary>Result of initiating the Codex OAuth flow.</summary>
@@ -54,3 +79,11 @@ public sealed record CodexCallbackResult(string Status, string? Email, string? P
 
 /// <summary>Current Codex connection info for a user.</summary>
 public sealed record CodexConnectionInfo(bool Connected, string? Email, DateTimeOffset? ConnectedAt, string? ProviderId);
+
+/// <summary>Result of initiating the device code flow (OpenAI custom flow).</summary>
+public sealed record DeviceCodeInitiateResult(
+    string DeviceAuthId, string UserCode, string VerificationUri, int Interval);
+
+/// <summary>Result of polling the device code endpoint.</summary>
+public sealed record DeviceCodePollResult(
+    string Status, string? Email = null, string? ProviderId = null);

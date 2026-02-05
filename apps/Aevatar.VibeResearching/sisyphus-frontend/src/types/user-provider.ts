@@ -141,6 +141,32 @@ export interface CodexStatusResponse {
   providerId?: string
 }
 
+// === Codex Auth Mode ===
+
+export interface CodexAuthModeResponse {
+  authMode: 'localhost' | 'devicecode'
+}
+
+// === Codex Device Code Flow ===
+
+export interface DeviceCodeInitiateResponse {
+  deviceAuthId: string
+  userCode: string
+  verificationUri: string
+  interval: number
+}
+
+export interface DeviceCodePollRequest {
+  deviceAuthId: string
+  userCode: string
+}
+
+export interface DeviceCodePollResponse {
+  status: 'pending' | 'connected' | 'expired' | 'error'
+  email?: string
+  providerId?: string
+}
+
 // === Session Agent Provider Mapping ===
 
 export interface AgentProviderDetail {

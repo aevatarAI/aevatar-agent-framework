@@ -9,7 +9,7 @@ import { Pagination } from "@/components/ui/pagination"
 import { Avatar } from "@/components/ui/avatar"
 import { Badge, StatusDot } from "@/components/ui/badge"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
-import { getUsers, getUserStats, createUser, updateUser, deleteUser, setUserPassword, getRoles } from "@/lib/abp"
+import { getUsers, getUserStats, createUser, updateUser, deleteUser, setUserPassword, getRoles, invalidateStatsCache } from "@/lib/abp"
 import { useToast } from "@/components/ui/toast"
 import type { User, CreateUserInput, UpdateUserInput } from "@/types/user-management"
 
@@ -97,6 +97,7 @@ export default function UsersPage() {
   const handleCreateUser = async (data: CreateUserInput) => {
     try {
       await createUser(data)
+      invalidateStatsCache() // Refresh stats on next load
       showSuccess("User created successfully")
       loadData()
     } catch (err) {
@@ -109,6 +110,7 @@ export default function UsersPage() {
     if (!editingUser) return
     try {
       await updateUser(editingUser.id, data)
+      invalidateStatsCache() // Refresh stats on next load (role might have changed)
       showSuccess("User updated successfully")
       loadData()
     } catch (err) {
@@ -121,6 +123,7 @@ export default function UsersPage() {
     if (!deletingUser) return
     try {
       await deleteUser(deletingUser.id)
+      invalidateStatsCache() // Refresh stats on next load
       showSuccess("User deleted successfully")
       loadData()
     } catch (err) {
@@ -157,6 +160,7 @@ export default function UsersPage() {
         showError(`Deleted ${succeeded} user(s), but ${failed} failed`)
       }
       
+      invalidateStatsCache() // Refresh stats on next load
       setSelectedUsers(new Set())
       setShowBulkDeleteModal(false)
       loadData()
@@ -323,7 +327,22 @@ export default function UsersPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {users.map((user) => (
+            {users.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} className="h-32 text-center">
+                  <div className="flex flex-col items-center justify-center gap-2 text-text-muted">
+                    <UserPlus className="w-8 h-8 text-text-dimmed" />
+                    <p className="text-sm">No users found</p>
+                    {search && (
+                      <p className="text-xs text-text-dimmed">
+                        Try adjusting your search or filters
+                      </p>
+                    )}
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : (
+              users.map((user) => (
               <TableRow key={user.id} className={selectedUsers.has(user.id) ? "bg-neon-cyan/5" : ""}>
                 {/* Checkbox */}
                 <TableCell>
@@ -351,7 +370,7 @@ export default function UsersPage() {
                     const displayName = fullName || user.userName || user.email.split('@')[0]
                     return (
                       <div className="flex items-center gap-2.5 min-w-0">
-                        <Avatar name={displayName} size="sm" className="flex-shrink-0" />
+                        <Avatar name={displayName} src={user.avatarUrl} size="sm" className="flex-shrink-0" />
                         <span className="text-sm text-text-primary truncate" title={displayName}>
                           {displayName}
                         </span>
@@ -422,7 +441,8 @@ export default function UsersPage() {
                   </DropdownMenu>
                 </TableCell>
               </TableRow>
-            ))}
+              ))
+            )}
           </TableBody>
         </Table>
 

@@ -15,7 +15,7 @@ const buttonVariants = cva(
         default:
           "bg-neon-cyan text-bg-base hover:bg-neon-sky hover:shadow-glow-cyan",
         destructive:
-          "bg-neon-red text-bg-base hover:bg-red-400 hover:shadow-[0_0_12px_rgba(248,113,113,0.5)]",
+          "bg-red-500 text-white hover:bg-red-600 hover:shadow-[0_0_12px_rgba(239,68,68,0.5)]",
         destructiveOutline:
           "bg-red-400/10 border border-red-400/30 text-red-400 hover:bg-red-400/20 hover:border-red-400/50",
         outline:

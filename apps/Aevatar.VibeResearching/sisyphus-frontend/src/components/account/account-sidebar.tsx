@@ -1,6 +1,6 @@
 import React from "react"
 import { NavLink, useLocation } from "react-router-dom"
-import { User, Lock, Users, Shield, Key } from "lucide-react"
+import { User, Lock, Users, Shield, Key, Settings } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 // ============================================================
@@ -16,6 +16,7 @@ interface NavItem {
 const settingsItems: NavItem[] = [
   { label: "Profile", href: "/account/profile", icon: <User className="w-4 h-4" /> },
   { label: "Password", href: "/account/password", icon: <Lock className="w-4 h-4" /> },
+  { label: "Platform Settings", href: "/admin/settings", icon: <Settings className="w-4 h-4" /> },
 ]
 
 const adminItems: NavItem[] = [

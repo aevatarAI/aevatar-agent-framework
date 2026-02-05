@@ -16,13 +16,13 @@ interface NavItem {
 const settingsItems: NavItem[] = [
   { label: "Profile", href: "/account/profile", icon: <User className="w-4 h-4" /> },
   { label: "Password", href: "/account/password", icon: <Lock className="w-4 h-4" /> },
+  { label: "Platform Settings", href: "/admin/settings", icon: <Settings className="w-4 h-4" /> },
 ]
 
 const managementItems: NavItem[] = [
   { label: "Users", href: "/admin/users", icon: <Users className="w-4 h-4" /> },
   { label: "Roles", href: "/admin/roles", icon: <Shield className="w-4 h-4" /> },
   { label: "Permissions", href: "/admin/permissions", icon: <Key className="w-4 h-4" /> },
-  { label: "Platform Settings", href: "/admin/settings", icon: <Settings className="w-4 h-4" /> },
 ]
 
 export const AdminSidebar: React.FC = () => {

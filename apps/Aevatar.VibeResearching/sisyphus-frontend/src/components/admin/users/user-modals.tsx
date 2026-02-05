@@ -283,6 +283,29 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
 
           {/* Body */}
           <div className="p-5 space-y-4 max-h-[60vh] overflow-y-auto">
+            {/* Read-only fields */}
+            <div className="space-y-1">
+              <label className="text-sm text-text-secondary">User Name</label>
+              <Input
+                value={user.userName}
+                disabled
+                className="bg-surface-elevated text-text-muted cursor-not-allowed"
+              />
+              <p className="text-xs text-text-dimmed">User name cannot be changed</p>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-sm text-text-secondary">Email</label>
+              <Input
+                type="email"
+                value={user.email}
+                disabled
+                className="bg-surface-elevated text-text-muted cursor-not-allowed"
+              />
+              <p className="text-xs text-text-dimmed">Email cannot be changed</p>
+            </div>
+
+            {/* Editable fields */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <label className="text-sm text-text-secondary">First Name</label>
@@ -298,15 +321,6 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                   onChange={(e) => setFormData(prev => ({ ...prev, surname: e.target.value }))}
                 />
               </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-sm text-text-secondary">Email</label>
-              <Input
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
-              />
             </div>
 
             <div className="space-y-1.5">
@@ -398,8 +412,8 @@ export const DeleteUserModal: React.FC<DeleteUserModalProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="w-[420px]">
-        <div className="p-6 text-center">
+      <DialogContent className="w-[420px] max-w-[90vw]">
+        <div className="p-6 text-center overflow-hidden">
           <div className="mx-auto w-14 h-14 rounded-full bg-neon-red/10 border border-neon-red/30 flex items-center justify-center mb-4">
             <Trash2 className="w-7 h-7 text-neon-red" />
           </div>
@@ -408,7 +422,7 @@ export const DeleteUserModal: React.FC<DeleteUserModalProps> = ({
           <p className="text-sm text-text-muted mb-1">
             Are you sure you want to delete this user?
           </p>
-          <p className="text-sm font-mono text-neon-cyan mb-4 truncate block" title={user.email}>{user.email}</p>
+          <p className="text-sm font-mono text-neon-cyan mb-4 truncate max-w-full" title={user.email}>{user.email}</p>
           <p className="text-xs text-text-dimmed">
             This action cannot be undone. All user data will be permanently removed.
           </p>
@@ -686,27 +700,31 @@ export const UserDetailModal: React.FC<UserDetailModalProps> = ({
           <div className="space-y-2.5">
             <h4 className="text-sm font-semibold text-text-secondary">Assigned Roles</h4>
             <div className="flex flex-wrap gap-2">
-              {user.roles.map(role => {
-                const isAdminRole = role.toLowerCase() === "admin"
-                return (
-                  <span
-                    key={role}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium",
-                      isAdminRole
-                        ? "bg-neon-purple/10 text-neon-purple"
-                        : "bg-neon-cyan/10 text-neon-cyan"
-                    )}
-                  >
-                    {isAdminRole ? (
-                      <Shield className="w-3 h-3" />
-                    ) : (
-                      <Users className="w-3 h-3" />
-                    )}
-                    {role}
-                  </span>
-                )
-              })}
+              {user.roles.length === 0 ? (
+                <span className="text-sm text-text-muted">-</span>
+              ) : (
+                user.roles.map(role => {
+                  const isAdminRole = role.toLowerCase() === "admin"
+                  return (
+                    <span
+                      key={role}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium",
+                        isAdminRole
+                          ? "bg-neon-purple/10 text-neon-purple"
+                          : "bg-neon-cyan/10 text-neon-cyan"
+                      )}
+                    >
+                      {isAdminRole ? (
+                        <Shield className="w-3 h-3" />
+                      ) : (
+                        <Users className="w-3 h-3" />
+                      )}
+                      {role}
+                    </span>
+                  )
+                })
+              )}
             </div>
           </div>
         </div>

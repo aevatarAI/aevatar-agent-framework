@@ -400,24 +400,20 @@ export async function getUserStats(): Promise<{
     '/api/identity/roles'
   )
 
-  // For admin count: Only check a small sample (10 users) to estimate
-  // or use cached value if available
-  let adminCount = statsCache.data?.admins || 0
+  // Calculate admin count by checking ALL users' roles
+  // Process in batches of 20 to avoid overwhelming the server
+  let adminCount = 0
+  const batchSize = 20
   
-  // Only recalculate admin count if cache is completely empty
-  if (!statsCache.data) {
-    // Check only first 10 users to get admin count quickly
-    const sampleSize = Math.min(10, users.length)
-    const samplePromises = users.slice(0, sampleSize).map(async (user) => {
-      const roles = await getUserRoles(user.id)
-      return roles.includes('admin')
-    })
-    const sampleResults = await Promise.all(samplePromises)
-    const sampleAdminCount = sampleResults.filter(Boolean).length
-    
-    // Estimate total admin count based on sample ratio
-    // Or just use the sample count as a minimum
-    adminCount = sampleAdminCount
+  for (let i = 0; i < users.length; i += batchSize) {
+    const batch = users.slice(i, i + batchSize)
+    const batchResults = await Promise.all(
+      batch.map(async (user) => {
+        const roles = await getUserRoles(user.id)
+        return roles.some(r => r.toLowerCase() === 'admin')
+      })
+    )
+    adminCount += batchResults.filter(Boolean).length
   }
 
   const stats = {
@@ -428,7 +424,7 @@ export async function getUserStats(): Promise<{
     admins: adminCount,
   }
 
-  // Update cache
+  // Update cache (longer TTL since we did full calculation)
   statsCache = { data: stats, timestamp: now }
 
   return stats

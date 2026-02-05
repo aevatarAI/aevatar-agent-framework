@@ -378,5 +378,8 @@ public sealed class UserProviderAppService : IUserProviderAppService
 
         if (!Uri.TryCreate(endpoint, UriKind.Absolute, out _))
             throw new ArgumentException("Endpoint must be a valid URL.");
+
+        // SSRF Layer 1: reject obviously internal hostnames and raw private IPs
+        EndpointSafetyGuard.RejectBlockedHostname(endpoint);
     }
 }

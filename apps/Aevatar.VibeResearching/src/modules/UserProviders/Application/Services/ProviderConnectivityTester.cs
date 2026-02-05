@@ -34,12 +34,19 @@ public sealed class ProviderConnectivityTester
 
         try
         {
+            // SSRF Layer 2: resolve DNS and reject private/internal IPs before connecting
+            await EndpointSafetyGuard.EnsureSafeAsync(baseUrl, ct);
+
             var response = await client.GetAsync($"{baseUrl}/v1/models", ct);
             sw.Stop();
 
             return response.IsSuccessStatusCode
                 ? BuildResult(true, sw.ElapsedMilliseconds, model, "Connection successful.")
                 : BuildResult(false, sw.ElapsedMilliseconds, model, $"Provider returned HTTP {(int)response.StatusCode}.");
+        }
+        catch (ArgumentException ex)
+        {
+            return BuildResult(false, sw.ElapsedMilliseconds, model, $"Blocked: {ex.Message}");
         }
         catch (TaskCanceledException)
         {
@@ -62,6 +69,9 @@ public sealed class ProviderConnectivityTester
 
         try
         {
+            // SSRF Layer 2: resolve DNS and reject private/internal IPs before connecting
+            await EndpointSafetyGuard.EnsureSafeAsync(baseUrl, ct);
+
             var response = await client.GetAsync($"{baseUrl}/v1/models", ct);
             if (!response.IsSuccessStatusCode)
             {
@@ -72,6 +82,11 @@ public sealed class ProviderConnectivityTester
 
             var json = await response.Content.ReadAsStringAsync(ct);
             return ParseModelsResponse(json, limit, providerType);
+        }
+        catch (ArgumentException ex)
+        {
+            _logger.LogWarning("SSRF blocked: {Message}", ex.Message);
+            return FallbackModelList(providerType);
         }
         catch (Exception ex)
         {

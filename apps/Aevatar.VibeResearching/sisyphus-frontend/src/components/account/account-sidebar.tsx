@@ -16,8 +16,13 @@ interface NavItem {
 const settingsItems: NavItem[] = [
   { label: "Profile", href: "/account/profile", icon: <User className="w-4 h-4" /> },
   { label: "Password", href: "/account/password", icon: <Lock className="w-4 h-4" /> },
-  { label: "Platform Settings", href: "/admin/settings", icon: <Settings className="w-4 h-4" /> },
 ]
+
+const platformItem: NavItem = { 
+  label: "Platform Settings", 
+  href: "/admin/settings", 
+  icon: <Settings className="w-4 h-4" /> 
+}
 
 const adminItems: NavItem[] = [
   { label: "Users", href: "/admin/users", icon: <Users className="w-4 h-4" /> },
@@ -85,6 +90,13 @@ export const AccountSidebar: React.FC<AccountSidebarProps> = ({ isAdmin }) => {
           </nav>
         </div>
       )}
+
+      {/* Platform Settings - Always at bottom */}
+      <div className="mt-4 pt-4 border-t border-border-subtle">
+        <nav className="space-y-1">
+          {renderNavItem(platformItem, false)}
+        </nav>
+      </div>
     </aside>
   )
 }

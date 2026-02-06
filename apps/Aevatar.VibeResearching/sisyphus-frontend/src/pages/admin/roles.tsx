@@ -122,7 +122,7 @@ export default function RolesPage() {
               </div>
 
               <DropdownMenu>
-                <DropdownMenuTrigger>
+                <DropdownMenuTrigger asChild>
                   <button className="p-1.5 rounded-md hover:bg-surface-elevated text-text-muted hover:text-text-primary">
                     <MoreHorizontal className="w-4 h-4" />
                   </button>

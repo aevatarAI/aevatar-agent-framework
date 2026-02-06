@@ -89,7 +89,31 @@ function transformAbpUserToUser(abpUser: AbpIdentityUserDto, roles: string[] = [
 }
 
 // ============================================================================
-//  Get Users (Paginated)
+//  Vibe User API Response Type
+// ============================================================================
+
+interface VibeUserDto {
+  id: string
+  userName: string
+  email: string
+  name?: string
+  surname?: string
+  phoneNumber?: string
+  isActive: boolean
+  lockoutEnabled: boolean
+  lockoutEnd?: string
+  emailConfirmed: boolean
+  creationTime: string
+  roles: string[]
+}
+
+interface VibeUsersResult {
+  items: VibeUserDto[]
+  totalCount: number
+}
+
+// ============================================================================
+//  Get Users (Paginated) - Using optimized backend API
 // ============================================================================
 
 export async function getUsers(params?: {
@@ -101,113 +125,54 @@ export async function getUsers(params?: {
 }): Promise<PagedResult<User>> {
   const skip = params?.skip || 0
   const take = params?.take || 10
-  const hasStatusFilter = !!params?.status
-  const hasRoleFilter = !!params?.role
 
-  // Build query params
+  // Build query params for the new optimized API
   const queryParams: Record<string, unknown> = {
-    Sorting: 'creationTime desc',
+    skipCount: skip,
+    maxResultCount: take,
   }
 
   if (params?.search) {
-    queryParams.Filter = params.search
+    queryParams.filter = params.search
   }
 
-  // ============================================================
-  // Strategy: Minimize API calls by filtering before fetching roles
-  // ============================================================
-
-  // Case 1: No filters - use server pagination, fetch roles only for current page
-  if (!hasStatusFilter && !hasRoleFilter) {
-    queryParams.SkipCount = skip
-    queryParams.MaxResultCount = take
-
-    const queryString = buildQueryString(queryParams)
-    const result = await abpFetch<AbpPagedResult<AbpIdentityUserDto>>(
-      `/api/identity/users${queryString}`
-    )
-
-    // Only fetch roles for the current page (10 users max)
-    const usersWithRoles = await Promise.all(
-      result.items.map(async (abpUser) => {
-        const roles = await getUserRoles(abpUser.id)
-        return transformAbpUserToUser(abpUser, roles)
-      })
-    )
-
-    return {
-      items: usersWithRoles,
-      totalCount: result.totalCount,
-    }
+  if (params?.role) {
+    queryParams.roleName = params.role
   }
 
-  // Case 2: Status filter only - filter first, then fetch roles for result page only
-  if (hasStatusFilter && !hasRoleFilter) {
-    queryParams.SkipCount = 0
-    queryParams.MaxResultCount = 1000
-
-    const queryString = buildQueryString(queryParams)
-    const result = await abpFetch<AbpPagedResult<AbpIdentityUserDto>>(
-      `/api/identity/users${queryString}`
-    )
-
-    // Filter by status BEFORE fetching roles (no role API calls yet!)
-    const statusFiltered = result.items.filter((u) =>
-      params.status === 'active' ? u.isActive : !u.isActive
-    )
-
-    // Paginate the filtered results
-    const paginatedItems = statusFiltered.slice(skip, skip + take)
-
-    // Only fetch roles for the paginated items (10 users max)
-    const usersWithRoles = await Promise.all(
-      paginatedItems.map(async (abpUser) => {
-        const roles = await getUserRoles(abpUser.id)
-        return transformAbpUserToUser(abpUser, roles)
-      })
-    )
-
-    return {
-      items: usersWithRoles,
-      totalCount: statusFiltered.length,
-    }
+  if (params?.status) {
+    queryParams.status = params.status
   }
-
-  // Case 3: Role filter (with or without status) - must fetch roles to filter
-  // Optimization: Fetch roles in batches, filter, then paginate
-  queryParams.SkipCount = 0
-  queryParams.MaxResultCount = 1000
 
   const queryString = buildQueryString(queryParams)
-  const result = await abpFetch<AbpPagedResult<AbpIdentityUserDto>>(
-    `/api/identity/users${queryString}`
+
+  // Use the new optimized backend API that handles filtering server-side
+  const result = await abpFetch<VibeUsersResult>(
+    `/api/vibe/users${queryString}`
   )
 
-  // Pre-filter by status if applicable (reduces role API calls)
-  let candidates = result.items
-  if (hasStatusFilter) {
-    candidates = candidates.filter((u) =>
-      params.status === 'active' ? u.isActive : !u.isActive
-    )
-  }
-
-  // Fetch roles for candidates and filter by role
-  const usersWithRoles = await Promise.all(
-    candidates.map(async (abpUser) => {
-      const roles = await getUserRoles(abpUser.id)
-      return transformAbpUserToUser(abpUser, roles)
-    })
-  )
-
-  // Filter by role
-  const roleFiltered = usersWithRoles.filter((u) => u.roles.includes(params.role!))
-
-  // Paginate
-  const paginatedItems = roleFiltered.slice(skip, skip + take)
+  // Transform to frontend User type
+  const users: User[] = result.items.map((user) => ({
+    id: user.id,
+    userName: user.userName,
+    email: user.email,
+    name: user.name,
+    surname: user.surname,
+    phoneNumber: user.phoneNumber,
+    isActive: user.isActive,
+    lockoutEnabled: user.lockoutEnabled,
+    lockoutEnd: user.lockoutEnd,
+    emailConfirmed: user.emailConfirmed,
+    twoFactorEnabled: false,
+    createdAt: user.creationTime,
+    lastLoginTime: undefined,
+    roles: user.roles,
+    avatarUrl: `/api/account/profile-picture/${user.id}`,
+  }))
 
   return {
-    items: paginatedItems,
-    totalCount: roleFiltered.length,
+    items: users,
+    totalCount: result.totalCount,
   }
 }
 
@@ -363,10 +328,25 @@ export async function toggleUserLock(id: string, locked: boolean): Promise<User>
 }
 
 // ============================================================================
-//  Get User Statistics (with caching)
+//  Vibe User Stats API Response Type
 // ============================================================================
 
-// Cache for user stats to avoid repeated expensive API calls
+interface VibeUserStatsResult {
+  totalUsers: number
+  activeUsers: number
+  inactiveUsers: number
+  totalRoles: number
+  roleStats: Array<{
+    roleName: string
+    userCount: number
+  }>
+}
+
+// ============================================================================
+//  Get User Statistics - Using optimized backend API
+// ============================================================================
+
+// Cache for user stats to avoid repeated API calls
 let statsCache: {
   data: { total: number; active: number; roles: number; inactive: number; admins: number } | null
   timestamp: number
@@ -387,44 +367,23 @@ export async function getUserStats(): Promise<{
     return statsCache.data
   }
 
-  // Fetch users (without roles - just for counting)
-  const result = await abpFetch<AbpPagedResult<AbpIdentityUserDto>>(
-    '/api/identity/users?MaxResultCount=1000'
+  // Use the new optimized backend API
+  const result = await abpFetch<VibeUserStatsResult>('/api/vibe/user-stats')
+
+  // Find admin count from role stats
+  const adminRoleStat = result.roleStats.find(
+    (r) => r.roleName.toLowerCase() === 'admin'
   )
-
-  const users = result.items
-  const activeCount = users.filter((u) => u.isActive).length
-
-  // Get unique roles count
-  const rolesResult = await abpFetch<AbpPagedResult<AbpIdentityRoleDto>>(
-    '/api/identity/roles'
-  )
-
-  // Calculate admin count by checking ALL users' roles
-  // Process in batches of 20 to avoid overwhelming the server
-  let adminCount = 0
-  const batchSize = 20
-  
-  for (let i = 0; i < users.length; i += batchSize) {
-    const batch = users.slice(i, i + batchSize)
-    const batchResults = await Promise.all(
-      batch.map(async (user) => {
-        const roles = await getUserRoles(user.id)
-        return roles.some(r => r.toLowerCase() === 'admin')
-      })
-    )
-    adminCount += batchResults.filter(Boolean).length
-  }
 
   const stats = {
-    total: result.totalCount,
-    active: activeCount,
-    roles: rolesResult.totalCount,
-    inactive: result.totalCount - activeCount,
-    admins: adminCount,
+    total: result.totalUsers,
+    active: result.activeUsers,
+    roles: result.totalRoles,
+    inactive: result.inactiveUsers,
+    admins: adminRoleStat?.userCount || 0,
   }
 
-  // Update cache (longer TTL since we did full calculation)
+  // Update cache
   statsCache = { data: stats, timestamp: now }
 
   return stats

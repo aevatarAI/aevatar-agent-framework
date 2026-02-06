@@ -113,6 +113,7 @@ export const UserMenu: React.FC<UserMenuProps> = ({ showName = true }) => {
         >
           Password
         </DropdownMenuItem>
+        <DropdownMenuSeparator />
         <DropdownMenuItem
           onClick={() => navigate('/admin/settings')}
           icon={<Settings className="w-4 h-4" />}

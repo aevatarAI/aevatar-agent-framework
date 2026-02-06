@@ -3,17 +3,16 @@
 // ============================================================
 
 import React from 'react'
-import { Users, Cpu, Wrench, Eye, RotateCcw } from 'lucide-react'
+import { Users, Wrench, Eye, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface ViewOptionsBarProps {
   visibleLayers: {
     maker: boolean
-    vibe: boolean
     tool: boolean
   }
   detailMode: boolean
-  onToggleLayer: (layer: 'maker' | 'vibe' | 'tool') => void
+  onToggleLayer: (layer: 'maker' | 'tool') => void
   onToggleDetail: () => void
   onReset: () => void
 }
@@ -38,13 +37,6 @@ const ViewOptionsBar: React.FC<ViewOptionsBarProps> = ({
           icon={<Users className="w-3.5 h-3.5" />}
           label="Maker"
           color="cyan"
-        />
-        <LayerToggle
-          active={visibleLayers.vibe}
-          onClick={() => onToggleLayer('vibe')}
-          icon={<Cpu className="w-3.5 h-3.5" />}
-          label="Vibe"
-          color="purple"
         />
         <LayerToggle
           active={visibleLayers.tool}
@@ -102,13 +94,12 @@ interface LayerToggleProps {
   onClick: () => void
   icon: React.ReactNode
   label: string
-  color: 'cyan' | 'purple' | 'rose'
+  color: 'cyan' | 'rose'
 }
 
 const LayerToggle: React.FC<LayerToggleProps> = ({ active, onClick, icon, label, color }) => {
   const colorClasses = {
     cyan: active ? 'bg-neon-cyan/20 text-neon-cyan border-neon-cyan/40' : 'text-text-muted border-border-subtle',
-    purple: active ? 'bg-neon-purple/20 text-neon-purple border-neon-purple/40' : 'text-text-muted border-border-subtle',
     rose: active ? 'bg-neon-rose/20 text-neon-rose border-neon-rose/40' : 'text-text-muted border-border-subtle',
   }
 

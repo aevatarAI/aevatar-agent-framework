@@ -3,14 +3,22 @@
 //  Displays Timeline View and Flow Graph View with Tab switching
 // ============================================================
 
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { X, Activity, GitBranch, ChevronLeft } from 'lucide-react'
+import { X, Activity, GitBranch, ChevronLeft, GripVertical } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
+import { useSisyphusStore } from '@/store/sisyphus-store'
 import TimelineView from './timeline-view'
 import AgentFlowGraph from './flow-graph/agent-flow-graph'
 import type { ClassifiedEvent, VotingStatus } from '@/types'
+
+// ============================================================
+//  Resize Constants
+// ============================================================
+const MIN_WIDTH = 400
+const MAX_WIDTH_RATIO = 0.9  // 90% of viewport
+const DEFAULT_WIDTH = 896   // ~max-w-4xl
 
 interface EventInspectorModalProps {
   isOpen: boolean
@@ -26,11 +34,63 @@ const EventInspectorModal: React.FC<EventInspectorModalProps> = ({
   isOpen,
   onClose,
   sessionId,
-  events = [],
-  votingStatus = null,
+  events: propEvents = [],
+  votingStatus: propVotingStatus = null,
 }) => {
   // Default to Flow Graph tab
   const [activeTab, setActiveTab] = useState<TabId>('flow-graph')
+  
+  // ============================================================
+  //  Resizable Drawer State
+  // ============================================================
+  const [drawerWidth, setDrawerWidth] = useState(DEFAULT_WIDTH)
+  const [isResizing, setIsResizing] = useState(false)
+  const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null)
+  
+  // Subscribe to store for real-time workflow event updates
+  const storeEvents = useSisyphusStore((s) => s.workflowEvents)
+  const storeVotingStatus = useSisyphusStore((s) => s.votingStatus)
+  
+  // Prefer store data (real-time updates), fallback to props
+  const events = storeEvents.length > 0 ? storeEvents : propEvents
+  const votingStatus = storeVotingStatus || propVotingStatus
+
+  // ============================================================
+  //  Resize Handlers (SES-safe implementation)
+  // ============================================================
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    resizeRef.current = { startX: e.clientX, startWidth: drawerWidth }
+    setIsResizing(true)
+  }, [drawerWidth])
+
+  const handleResizeMove = useCallback((e: MouseEvent) => {
+    if (!resizeRef.current) return
+    const maxWidth = window.innerWidth * MAX_WIDTH_RATIO
+    // Dragging left (negative delta) = increase width
+    const delta = resizeRef.current.startX - e.clientX
+    const newWidth = Math.min(maxWidth, Math.max(MIN_WIDTH, resizeRef.current.startWidth + delta))
+    setDrawerWidth(newWidth)
+  }, [])
+
+  const handleResizeEnd = useCallback(() => {
+    setIsResizing(false)
+    resizeRef.current = null
+  }, [])
+
+  useEffect(() => {
+    if (!isResizing) return
+
+    // Use passive: false to allow preventDefault if needed
+    window.addEventListener('mousemove', handleResizeMove)
+    window.addEventListener('mouseup', handleResizeEnd)
+
+    return () => {
+      window.removeEventListener('mousemove', handleResizeMove)
+      window.removeEventListener('mouseup', handleResizeEnd)
+    }
+  }, [isResizing, handleResizeMove, handleResizeEnd])
 
   // Handle escape key
   useEffect(() => {
@@ -83,8 +143,33 @@ const EventInspectorModal: React.FC<EventInspectorModalProps> = ({
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-            className="fixed right-0 top-0 bottom-0 z-[101] w-full max-w-4xl bg-[#0a0a12] border-l border-border-subtle shadow-2xl flex flex-col"
+            style={{ width: drawerWidth }}
+            className={cn(
+              "fixed right-0 top-0 bottom-0 z-[101] bg-[#0a0a12] border-l border-border-subtle shadow-2xl flex flex-col",
+              isResizing && "select-none"
+            )}
           >
+            {/* Resize Handle - Left Edge */}
+            <div
+              onMouseDown={handleResizeStart}
+              className={cn(
+                "absolute left-0 top-0 bottom-0 w-2 z-10 group",
+                "cursor-ew-resize select-none",
+                "hover:bg-neon-cyan/20 transition-colors",
+                isResizing && "bg-neon-cyan/40"
+              )}
+            >
+              {/* Visual grip indicator */}
+              <div className={cn(
+                "absolute left-0 top-1/2 -translate-y-1/2 w-4 h-10 -ml-1",
+                "flex items-center justify-center rounded",
+                "bg-bg-elevated border border-border-subtle",
+                "opacity-0 group-hover:opacity-100 transition-opacity duration-150",
+                isResizing && "opacity-100 bg-neon-cyan/20 border-neon-cyan/40"
+              )}>
+                <GripVertical className="w-3 h-3 text-text-muted" />
+              </div>
+            </div>
             {/* Header */}
             <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-border-subtle bg-gradient-to-r from-neon-cyan/5 to-transparent">
               {/* Left: Close + Title */}

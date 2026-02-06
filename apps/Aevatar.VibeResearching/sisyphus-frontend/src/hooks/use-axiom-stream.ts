@@ -8,7 +8,7 @@ import { createAxiomEventStream, getToolsSnapshot, getDagSnapshot } from "@/lib/
 import { classifyEvent, parseCustomEvent } from "@/lib/event-classifier"
 import type { EventStream } from "@aevatar/kit-protocol"
 import { parseMessageId } from "@aevatar/kit-protocol"
-import type { ToolOutput, NodeKind, PlanNodeStatus } from "@/types"
+import type { ToolOutput, PlanNodeStatus } from "@/types"
 
 // ============================================================================
 //  Vibe Protocol Types (locally defined for type safety)
@@ -38,6 +38,10 @@ interface VibeDagSnapshotValue {
   nodes?: VibeDagNode[]
   edges?: VibeDagEdge[]
 }
+
+// Import shared utility for normalizing node kind
+import { normalizeNodeKind } from '@/lib/dag-utils'
+
 
 interface VibeAgentsSnapshotValue {
   agents?: Array<{
@@ -970,7 +974,7 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
         label: node.label || node.id || '',
         status: node.status || 'pending',
         type: node.type || '',
-        kind: node.kind as NodeKind | undefined,
+        kind: normalizeNodeKind(node.kind),
         owner: node.owner,
         proof: node.proof,
         attestations: node.attestations,
@@ -1004,11 +1008,13 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
               label: n.label || n.id,
               status: 'pending', // Default status - backend DagNode doesn't have status
               type: n.type || '',
-              kind: n.kind as NodeKind | undefined,
+              kind: normalizeNodeKind(n.kind),
               owner: n.owner,
               proof: n.proof,
               attestations: n.attestations,
               attestationsCount: n.attestationsCount,
+              planStatus: n.planStatus as PlanNodeStatus | undefined,
+              sessionId: n.sessionId,
             }))
             // Transform DagEdge {fromId, toId} to DAGEdge {source, target}
             const edges = dagSnapshot.edges.map(e => ({
@@ -1045,6 +1051,19 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
 
     // === Workflow Execution Events (Event Inspector) ===
     stream.onCustom("aevatar.workflow.execution_event", (event) => {
+      // ============================================================
+      //  DEBUG: Log workflow execution event for tracking
+      // ============================================================
+      console.log(
+        "%c[MAKER EVENT]%c aevatar.workflow.execution_event received",
+        "background: #22c55e; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold;",
+        "color: #22c55e; font-weight: bold;",
+        {
+          timestamp: new Date().toISOString(),
+          eventValue: event.value,
+        }
+      )
+
       if (import.meta.env.DEV) {
         addRawEvent(event)
       }
@@ -1053,10 +1072,40 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
       const workflowEvent = parseCustomEvent(event)
       if (workflowEvent) {
         const classified = classifyEvent(workflowEvent)
+
+        // DEBUG: Log classified event details
+        console.log(
+          "%c[MAKER EVENT]%c Classified →",
+          "background: #3b82f6; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold;",
+          "color: #3b82f6;",
+          {
+            category: classified.category,
+            title: classified.title,
+            status: classified.status,
+            phase: workflowEvent.phase,
+            nodeId: workflowEvent.nodeId,
+            hasVoteInfo: !!classified.voteInfo,
+            voteInfo: classified.voteInfo,
+            fields: workflowEvent.fields,
+          }
+        )
+
         addWorkflowEvent(classified)
         
         // Update voting status if vote-related event
         if (classified.voteInfo) {
+          console.log(
+            "%c[MAKER EVENT]%c Updating voting status →",
+            "background: #f59e0b; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold;",
+            "color: #f59e0b;",
+            {
+              round: classified.voteInfo.round,
+              maxRounds: classified.voteInfo.maxRounds,
+              k: classified.voteInfo.k,
+              mode: classified.voteInfo.mode,
+              consensusReached: classified.raw.fields.winner_is_consensus || false,
+            }
+          )
           updateVotingStatus({
             round: classified.voteInfo.round,
             maxRounds: classified.voteInfo.maxRounds,
@@ -1068,6 +1117,13 @@ export function useAxiomStream({ sessionId, enabled = true }: UseAxiomStreamOpti
             workers: [], // Workers updated separately
           })
         }
+      } else {
+        console.warn(
+          "%c[MAKER EVENT]%c Failed to parse event",
+          "background: #ef4444; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold;",
+          "color: #ef4444;",
+          event
+        )
       }
     })
 

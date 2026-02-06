@@ -30,7 +30,7 @@ export function classifyEvent(raw: WorkflowExecutionEvent): ClassifiedEvent {
     raw,
     voteInfo: extractVoteInfo(fields),
     toolInfo: extractToolInfo(fields),
-    redFlagInfo: extractRedFlagInfo(fields),
+    redFlagInfo: extractRedFlagInfo(phase, message, fields),
     llmConversation: extractLlmConversation(fields),
   }
 }
@@ -39,8 +39,10 @@ export function classifyEvent(raw: WorkflowExecutionEvent): ClassifiedEvent {
  * Detect event category from phase and fields
  */
 function detectCategory(phase: string, fields: WorkflowStepFields): EventCategory {
-  // Red flag events
-  if (fields.red_flag_reason) {
+  const phaseLower = phase.toLowerCase()
+  
+  // Red flag events - detect from phase (backend doesn't send red_flag_reason field)
+  if (phaseLower === 'red_flag' || phaseLower.includes('redflag')) {
     return 'red_flag'
   }
   
@@ -68,8 +70,7 @@ function detectCategory(phase: string, fields: WorkflowStepFields): EventCategor
     return 'llm'
   }
   
-  // Phase-based detection
-  const phaseLower = phase.toLowerCase()
+  // Phase-based detection (phaseLower already declared above)
   if (phaseLower.includes('vote') || phaseLower.includes('consensus')) {
     return 'vote'
   }
@@ -163,15 +164,31 @@ function extractToolInfo(fields: WorkflowStepFields): ToolCallInfo | undefined {
 }
 
 /**
- * Extract red flag information from fields
+ * Extract red flag information from phase and message
+ * NOTE: Backend doesn't send red_flag_reason field - reason is in message
  */
-function extractRedFlagInfo(fields: WorkflowStepFields): RedFlagInfo | undefined {
-  if (!fields.red_flag_reason) {
+function extractRedFlagInfo(
+  phase: string,
+  message: string,
+  fields: WorkflowStepFields
+): RedFlagInfo | undefined {
+  const phaseLower = phase.toLowerCase()
+  
+  // Only extract for red_flag events
+  if (phaseLower !== 'red_flag' && !phaseLower.includes('redflag')) {
     return undefined
   }
   
+  // Extract reason from message (backend embeds reason in message)
+  // Format: "🚩 Proposal rejected: {reason}" or just the reason itself
+  let reason = message
+  if (message.includes(':')) {
+    const parts = message.split(':')
+    reason = parts.slice(1).join(':').trim()
+  }
+  
   return {
-    reason: fields.red_flag_reason,
+    reason,
     round: fields.vote_round || 0,
   }
 }

@@ -319,6 +319,14 @@ export interface WorkflowStepFields {
   step_type?: string
   depth?: number
   parent_step_id?: string
+  // Run identification (CRITICAL for isolating worker data per run)
+  run_id?: string
+  step_id?: string
+  step_name?: string
+  // Worker / Proposal (Maker)
+  worker_id?: string
+  proposal_id?: string
+  proposal_hash?: string
   // Voting
   vote_round?: number
   vote_max_rounds?: number
@@ -328,7 +336,8 @@ export interface WorkflowStepFields {
   system_prompt?: string
   user_prompt?: string
   assistant_response?: string
-  // Red-Flag
+  // Red-Flag (DEPRECATED: backend doesn't send this field, reason is in message)
+  /** @deprecated Backend doesn't send this - reason is embedded in message */
   red_flag_reason?: string
   // Winner Info
   winner_proposal_id?: string
@@ -347,9 +356,11 @@ export interface WorkflowStepFields {
   tool_call_id?: string
   duration_ms?: number
   error?: string
-  // Tokens
+  // Tokens (real backend sends all four)
   tokens_used?: number
   llm_calls?: number
+  prompt_tokens?: number       // Input tokens
+  completion_tokens?: number   // Output tokens
 }
 
 export interface WorkflowExecutionEvent {
@@ -385,7 +396,6 @@ export interface VoteInfo {
   k: number
   currentVotes: number
   mode: 'semantic' | 'hash'
-  similarityThreshold?: number
   redFlagCount?: number
   clusterCount?: number
 }
@@ -396,7 +406,7 @@ export interface VoteWinnerInfo {
   hash: string
   votes: number
   runnerUpVotes: number
-  mode: 'semantic' | 'hash'
+  mode?: 'semantic' | 'hash'  // Optional: backend doesn't always send this
   isConsensus: boolean
   clusterCount: number
 }
@@ -438,8 +448,7 @@ export interface AggregatedEvent {
 // === Flow Graph State ===
 export interface FlowGraphState {
   visibleLayers: {
-    maker: boolean    // Coordinator + Workers + Vote edges
-    vibe: boolean     // Planner + Reasoner + Librarian
+    maker: boolean    // Coordinator + Workers + Consensus + Vote edges
     tool: boolean     // Tools + Tool edges
   }
   detailMode: boolean
@@ -448,15 +457,17 @@ export interface FlowGraphState {
 }
 
 // === Voting Status (for panel display) ===
+// Note: Backend only sends: round, maxRounds, k, mode (from winner_semantic),
+//       clusterCount, consensusReached, winner
+// Backend does NOT send: workers[], redFlagCount
 export interface VotingStatus {
   round: number
   maxRounds: number
   k: number
   mode: 'semantic' | 'hash'
-  similarityThreshold?: number
-  redFlagCount: number
+  redFlagCount?: number         // ❌ Backend doesn't send (inferred from events)
   clusterCount: number
-  workers: WorkerVoteInfo[]
+  workers: WorkerVoteInfo[]     // ❌ Backend doesn't send (inferred from events)
   consensusReached: boolean
   winner?: VoteWinnerInfo
 }

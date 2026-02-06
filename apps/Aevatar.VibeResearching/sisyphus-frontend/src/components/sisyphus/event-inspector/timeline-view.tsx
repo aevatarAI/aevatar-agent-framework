@@ -29,9 +29,9 @@ const TimelineView: React.FC<TimelineViewProps> = ({ events, sessionId: _session
   const [selectedCategories, setSelectedCategories] = useState<EventCategory[]>([])
   const [showFilters, setShowFilters] = useState(false)
 
-  // Filter events
+  // Filter and sort events (newest first for better UX)
   const filteredEvents = useMemo(() => {
-    return events.filter(event => {
+    const filtered = events.filter(event => {
       // Category filter
       if (selectedCategories.length > 0 && !selectedCategories.includes(event.category)) {
         return false
@@ -46,6 +46,8 @@ const TimelineView: React.FC<TimelineViewProps> = ({ events, sessionId: _session
       }
       return true
     })
+    // Sort by timestamp descending (newest first)
+    return filtered.sort((a, b) => b.timestamp - a.timestamp)
   }, [events, selectedCategories, search])
 
   // Group events by time (5-minute intervals)
@@ -90,15 +92,20 @@ const TimelineView: React.FC<TimelineViewProps> = ({ events, sessionId: _session
       <div className="flex-shrink-0 px-4 py-3 border-b border-border-subtle bg-bg-surface/50">
         <div className="flex items-center gap-3">
           {/* Search */}
-          <div className="relative flex-1 max-w-xs">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+          <div className="relative flex-1 max-w-xs group">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted 
+              group-focus-within:text-neon-cyan transition-colors" />
             <input
               type="text"
               placeholder="Search events..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 text-sm bg-bg-elevated border border-border-subtle rounded-lg
-                text-text-primary placeholder-text-muted focus:outline-none focus:border-neon-cyan/50"
+              className="w-full pl-9 pr-3 py-2 text-sm rounded-lg transition-all duration-200
+                bg-[#141820] border border-[rgba(125,211,252,0.15)]
+                text-text-primary placeholder:text-slate-500
+                focus:outline-none focus:border-[rgba(125,211,252,0.5)] focus:bg-[#0f172a]
+                focus:ring-1 focus:ring-[rgba(125,211,252,0.2)]
+                hover:border-[rgba(125,211,252,0.3)]"
             />
           </div>
 

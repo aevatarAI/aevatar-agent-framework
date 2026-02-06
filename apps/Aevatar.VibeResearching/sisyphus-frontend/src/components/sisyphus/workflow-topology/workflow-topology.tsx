@@ -9,6 +9,7 @@ import { useSisyphusStore } from '@/store/sisyphus-store'
 import { useDagInteractions } from '@/hooks/use-dag-interactions'
 import type { DAGNode, NodeKind } from '@/types'
 import { getDagSnapshot } from '@/lib/axiom-client'
+import { normalizeNodeKind } from '@/lib/dag-utils'
 import { cn } from '@/lib/utils'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogCloseButton } from '@/components/ui/dialog'
 import { SummaryModal } from '../summary-modal'
@@ -194,14 +195,30 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
     const visibleNodeIds = new Set(filteredDagNodes.map(n => n.id))
 
     // Convert to LayoutNode
+    // IMPORTANT: Single source of truth for Active status
+    // activeMilestoneNodeId takes precedence over backend planStatus to prevent duplicate Active nodes
     const nodes: LayoutNode[] = filteredDagNodes.map((node) => {
       const isOtherSession = node.sessionId ? node.sessionId !== sessionId : false
       const isActiveMilestone = node.id === activeMilestoneNodeId
+      
+      // Determine planStatus with single source of truth:
+      // - If activeMilestoneNodeId is set: ONLY that node can be Active
+      // - If activeMilestoneNodeId is null: use backend's planStatus
+      let computedPlanStatus: 'Pending' | 'Active' | 'Completed' | undefined
+      if (activeMilestoneNodeId) {
+        // When we have an explicit activeMilestoneNodeId, it's the only Active node
+        computedPlanStatus = isActiveMilestone ? 'Active' : 
+          (node.planStatus === 'Active' ? 'Pending' : node.planStatus as 'Pending' | 'Active' | 'Completed' | undefined)
+      } else {
+        // No explicit selection - trust backend's planStatus
+        computedPlanStatus = node.planStatus as 'Pending' | 'Active' | 'Completed' | undefined
+      }
+      
       return {
         id: node.id,
         label: node.label || node.id,
         kind: node.kind as 'Plan' | 'Knowledge' | undefined,
-        planStatus: isActiveMilestone ? 'Active' : (node.planStatus as 'Pending' | 'Active' | 'Completed' | undefined),
+        planStatus: computedPlanStatus,
         isOtherSession,
         level: 0, // Will be calculated by layout
       }
@@ -498,7 +515,7 @@ export function WorkflowTopology({ sessionId, fullHeight = false, onCollapse }: 
       if (snapshot) {
         const nodes: DAGNode[] = (snapshot.nodes || []).map(n => ({
           id: n.id, label: n.label || n.id, status: 'completed', type: n.type || 'node',
-          kind: n.kind as NodeKind | undefined, owner: n.owner, proof: n.proof,
+          kind: normalizeNodeKind(n.kind), owner: n.owner, proof: n.proof,
           attestations: n.attestations, attestationsCount: n.attestationsCount, sessionId: n.sessionId,
           planStatus: n.planStatus as 'Pending' | 'Active' | 'Completed' | undefined,
         }))

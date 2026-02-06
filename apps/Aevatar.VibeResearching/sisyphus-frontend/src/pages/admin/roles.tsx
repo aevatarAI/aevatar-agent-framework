@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { Plus, Shield, MoreHorizontal, Edit2, Trash2, Key, Users } from "lucide-react"
+import { Plus, Shield, MoreHorizontal, Edit2, Trash2, Key } from "lucide-react"
 import { AdminLayout } from "@/components/admin"
 import { CreateRoleModal, EditRoleModal, DeleteRoleModal, RolePermissionsModal } from "@/components/admin/roles"
 import { Button } from "@/components/ui/button"
@@ -122,7 +122,7 @@ export default function RolesPage() {
               </div>
 
               <DropdownMenu>
-                <DropdownMenuTrigger>
+                <DropdownMenuTrigger asChild>
                   <button className="p-1.5 rounded-md hover:bg-surface-elevated text-text-muted hover:text-text-primary">
                     <MoreHorizontal className="w-4 h-4" />
                   </button>
@@ -153,11 +153,7 @@ export default function RolesPage() {
             )}
 
             {/* Stats */}
-            <div className="grid grid-cols-2 gap-3 pt-3 border-t border-border-subtle">
-              <div className="flex items-center gap-2 text-sm">
-                <Users className="w-4 h-4 text-text-muted" />
-                <span className="text-text-muted">{role.userCount} Users</span>
-              </div>
+            <div className="pt-3 border-t border-border-subtle">
               <div className="flex items-center gap-2 text-sm">
                 <Key className="w-4 h-4 text-text-muted" />
                 <span className="text-text-muted">{role.permissionCount} Permissions</span>

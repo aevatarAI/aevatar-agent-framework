@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react"
 import { X, Shield, ShieldPlus, ShieldX, Save, Trash2, TriangleAlert } from "lucide-react"
-import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input, SearchInput } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
@@ -25,7 +25,6 @@ export const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
   const [isLoading, setIsLoading] = useState(false)
   const [formData, setFormData] = useState({
     name: "",
-    description: "",
     isDefault: false,
     isPublic: true,
   })
@@ -33,7 +32,7 @@ export const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
   // Reset form when modal opens
   useEffect(() => {
     if (open) {
-      setFormData({ name: "", description: "", isDefault: false, isPublic: true })
+      setFormData({ name: "", isDefault: false, isPublic: true })
     }
   }, [open])
 
@@ -55,6 +54,7 @@ export const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="w-[480px] p-0">
+        <DialogTitle className="sr-only">Create Role</DialogTitle>
         <form onSubmit={handleSubmit}>
           {/* Header */}
           <div className="flex items-center justify-between px-6 py-5 border-b border-border-subtle">
@@ -77,17 +77,6 @@ export const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
                 onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
                 placeholder="Enter role name"
                 required
-              />
-            </div>
-
-            {/* Description */}
-            <div className="space-y-1.5">
-              <label className="text-[13px] font-medium text-text-secondary">Description</label>
-              <textarea
-                value={formData.description}
-                onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                placeholder="Describe this role's purpose"
-                className="w-full h-20 px-3 py-2.5 rounded-lg bg-surface border border-border-subtle text-[13px] text-text-primary placeholder:text-text-dimmed resize-none focus:outline-none focus:border-neon-cyan/50"
               />
             </div>
 
@@ -152,7 +141,6 @@ export const EditRoleModal: React.FC<EditRoleModalProps> = ({
   const [isLoading, setIsLoading] = useState(false)
   const [formData, setFormData] = useState({
     name: "",
-    description: "",
     isDefault: false,
     isPublic: true,
   })
@@ -161,7 +149,6 @@ export const EditRoleModal: React.FC<EditRoleModalProps> = ({
     if (role) {
       setFormData({
         name: role.name,
-        description: role.description || "",
         isDefault: role.isDefault,
         isPublic: role.isPublic,
       })
@@ -188,6 +175,7 @@ export const EditRoleModal: React.FC<EditRoleModalProps> = ({
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="w-[480px] p-0">
+        <DialogTitle className="sr-only">Edit Role</DialogTitle>
         <form onSubmit={handleSubmit}>
           {/* Header */}
           <div className="flex items-center justify-between px-6 py-5 border-b border-border-subtle">
@@ -218,17 +206,6 @@ export const EditRoleModal: React.FC<EditRoleModalProps> = ({
               {role.isStatic && (
                 <p className="text-xs text-text-dimmed">Static roles cannot be renamed</p>
               )}
-            </div>
-
-            {/* Description */}
-            <div className="space-y-1.5">
-              <label className="text-[13px] font-medium text-text-secondary">Description</label>
-              <textarea
-                value={formData.description}
-                onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                placeholder="Describe this role's purpose"
-                className="w-full h-20 px-3 py-2.5 rounded-lg bg-surface border border-border-subtle text-[13px] text-text-primary placeholder:text-text-dimmed resize-none focus:outline-none focus:border-neon-cyan/50"
-              />
             </div>
 
             {/* Default Role Switch */}
@@ -306,6 +283,7 @@ export const DeleteRoleModal: React.FC<DeleteRoleModalProps> = ({
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="w-[420px] p-0">
+        <DialogTitle className="sr-only">Delete Role</DialogTitle>
         {/* Content */}
         <div className="px-6 py-6 flex flex-col items-center text-center">
           {/* Icon */}
@@ -326,17 +304,15 @@ export const DeleteRoleModal: React.FC<DeleteRoleModalProps> = ({
           </div>
           
           {/* Warning Box */}
-          {role.userCount > 0 && (
-            <div className="w-full p-3 rounded-lg bg-neon-red/10 border border-neon-red/30 text-left space-y-1.5">
-              <div className="flex items-center gap-2">
-                <TriangleAlert className="w-3.5 h-3.5 text-neon-red" />
-                <span className="text-xs font-semibold text-neon-red">Warning</span>
-              </div>
-              <p className="text-xs text-text-muted">
-                {role.userCount} users will lose their assigned permissions.
-              </p>
+          <div className="w-full p-3 rounded-lg bg-neon-red/10 border border-neon-red/30 text-left space-y-1.5">
+            <div className="flex items-center gap-2">
+              <TriangleAlert className="w-3.5 h-3.5 text-neon-red" />
+              <span className="text-xs font-semibold text-neon-red">Warning</span>
             </div>
-          )}
+            <p className="text-xs text-text-muted">
+              Users assigned to this role will lose their permissions.
+            </p>
+          </div>
         </div>
 
         {/* Footer */}
@@ -492,6 +468,7 @@ export const RolePermissionsModal: React.FC<RolePermissionsModalProps> = ({
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="w-[600px] h-[560px] p-0 flex flex-col">
+        <DialogTitle className="sr-only">Manage Permissions</DialogTitle>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-border-subtle shrink-0">
           <div className="flex items-center gap-3">

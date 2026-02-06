@@ -1,6 +1,6 @@
 import React from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { Shield, User, Users, Key, LogOut, Settings, ChevronDown } from 'lucide-react'
+import { Shield, User, Users, Key, LogOut, Settings, ChevronDown, Lock } from 'lucide-react'
 import { Avatar } from '@/components/ui/avatar'
 import {
   DropdownMenu,
@@ -105,13 +105,20 @@ export const UserMenu: React.FC<UserMenuProps> = ({ showName = true }) => {
           onClick={() => navigate('/account/profile')}
           icon={<User className="w-4 h-4" />}
         >
-          My Account
+          Profile
         </DropdownMenuItem>
         <DropdownMenuItem
           onClick={() => navigate('/account/password')}
+          icon={<Lock className="w-4 h-4" />}
+        >
+          Password
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onClick={() => navigate('/admin/settings')}
           icon={<Settings className="w-4 h-4" />}
         >
-          Settings
+          Platform Settings
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem

@@ -83,12 +83,37 @@ function transformAbpUserToUser(abpUser: AbpIdentityUserDto, roles: string[] = [
     createdAt: abpUser.creationTime,
     lastLoginTime: undefined, // ABP doesn't expose this directly
     roles,
-    avatarUrl: undefined,
+    // ABP profile picture URL - Avatar component will fallback to initials if 404
+    avatarUrl: `/api/account/profile-picture/${abpUser.id}`,
   }
 }
 
 // ============================================================================
-//  Get Users (Paginated)
+//  Vibe User API Response Type
+// ============================================================================
+
+interface VibeUserDto {
+  id: string
+  userName: string
+  email: string
+  name?: string
+  surname?: string
+  phoneNumber?: string
+  isActive: boolean
+  lockoutEnabled: boolean
+  lockoutEnd?: string
+  emailConfirmed: boolean
+  creationTime: string
+  roles: string[]
+}
+
+interface VibeUsersResult {
+  items: VibeUserDto[]
+  totalCount: number
+}
+
+// ============================================================================
+//  Get Users (Paginated) - Using optimized backend API
 // ============================================================================
 
 export async function getUsers(params?: {
@@ -98,44 +123,55 @@ export async function getUsers(params?: {
   role?: string
   status?: 'active' | 'inactive'
 }): Promise<PagedResult<User>> {
+  const skip = params?.skip || 0
+  const take = params?.take || 10
+
+  // Build query params for the new optimized API
   const queryParams: Record<string, unknown> = {
-    SkipCount: params?.skip || 0,
-    MaxResultCount: params?.take || 10,
-    Sorting: 'creationTime desc',
+    skipCount: skip,
+    maxResultCount: take,
   }
 
   if (params?.search) {
-    queryParams.Filter = params.search
+    queryParams.filter = params.search
   }
 
-  const queryString = buildQueryString(queryParams)
-  const result = await abpFetch<AbpPagedResult<AbpIdentityUserDto>>(
-    `/api/identity/users${queryString}`
-  )
-
-  // Fetch roles for each user
-  const usersWithRoles = await Promise.all(
-    result.items.map(async (abpUser) => {
-      const roles = await getUserRoles(abpUser.id)
-      return transformAbpUserToUser(abpUser, roles)
-    })
-  )
-
-  // Apply client-side filters (ABP doesn't support role/status filter in API)
-  let filtered = usersWithRoles
-
   if (params?.role) {
-    filtered = filtered.filter((u) => u.roles.includes(params.role!))
+    queryParams.roleName = params.role
   }
 
   if (params?.status) {
-    filtered = filtered.filter((u) =>
-      params.status === 'active' ? u.isActive : !u.isActive
-    )
+    queryParams.status = params.status
   }
 
+  const queryString = buildQueryString(queryParams)
+
+  // Use the new optimized backend API that handles filtering server-side
+  const result = await abpFetch<VibeUsersResult>(
+    `/api/vibe/users${queryString}`
+  )
+
+  // Transform to frontend User type
+  const users: User[] = result.items.map((user) => ({
+    id: user.id,
+    userName: user.userName,
+    email: user.email,
+    name: user.name,
+    surname: user.surname,
+    phoneNumber: user.phoneNumber,
+    isActive: user.isActive,
+    lockoutEnabled: user.lockoutEnabled,
+    lockoutEnd: user.lockoutEnd,
+    emailConfirmed: user.emailConfirmed,
+    twoFactorEnabled: false,
+    createdAt: user.creationTime,
+    lastLoginTime: undefined,
+    roles: user.roles,
+    avatarUrl: `/api/account/profile-picture/${user.id}`,
+  }))
+
   return {
-    items: filtered,
+    items: users,
     totalCount: result.totalCount,
   }
 }
@@ -292,34 +328,70 @@ export async function toggleUserLock(id: string, locked: boolean): Promise<User>
 }
 
 // ============================================================================
-//  Get User Statistics
+//  Vibe User Stats API Response Type
 // ============================================================================
+
+interface VibeUserStatsResult {
+  totalUsers: number
+  activeUsers: number
+  inactiveUsers: number
+  totalRoles: number
+  roleStats: Array<{
+    roleName: string
+    userCount: number
+  }>
+}
+
+// ============================================================================
+//  Get User Statistics - Using optimized backend API
+// ============================================================================
+
+// Cache for user stats to avoid repeated API calls
+let statsCache: {
+  data: { total: number; active: number; roles: number; inactive: number; admins: number } | null
+  timestamp: number
+} = { data: null, timestamp: 0 }
+
+const STATS_CACHE_TTL = 30000 // 30 seconds
 
 export async function getUserStats(): Promise<{
   total: number
   active: number
   roles: number
   inactive: number
+  admins: number
 }> {
-  // Fetch all users to calculate stats (ABP doesn't have a stats endpoint)
-  const result = await abpFetch<AbpPagedResult<AbpIdentityUserDto>>(
-    '/api/identity/users?MaxResultCount=1000'
-  )
-
-  const users = result.items
-  const activeCount = users.filter((u) => u.isActive).length
-
-  // Get unique roles count
-  const rolesResult = await abpFetch<AbpPagedResult<AbpIdentityRoleDto>>(
-    '/api/identity/roles'
-  )
-
-  return {
-    total: result.totalCount,
-    active: activeCount,
-    roles: rolesResult.totalCount,
-    inactive: result.totalCount - activeCount,
+  // Return cached data if still valid
+  const now = Date.now()
+  if (statsCache.data && (now - statsCache.timestamp) < STATS_CACHE_TTL) {
+    return statsCache.data
   }
+
+  // Use the new optimized backend API
+  const result = await abpFetch<VibeUserStatsResult>('/api/vibe/user-stats')
+
+  // Find admin count from role stats
+  const adminRoleStat = result.roleStats.find(
+    (r) => r.roleName.toLowerCase() === 'admin'
+  )
+
+  const stats = {
+    total: result.totalUsers,
+    active: result.activeUsers,
+    roles: result.totalRoles,
+    inactive: result.inactiveUsers,
+    admins: adminRoleStat?.userCount || 0,
+  }
+
+  // Update cache
+  statsCache = { data: stats, timestamp: now }
+
+  return stats
+}
+
+// Force refresh stats cache (call after user create/delete)
+export function invalidateStatsCache(): void {
+  statsCache = { data: null, timestamp: 0 }
 }
 
 // ============================================================================

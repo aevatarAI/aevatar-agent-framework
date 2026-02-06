@@ -92,9 +92,9 @@ createRoot(document.getElementById('root')!).render(
         <Route
           path="/admin/settings"
           element={
-            <AdminRoute>
+            <ProtectedRoute>
               <SettingsPage />
-            </AdminRoute>
+            </ProtectedRoute>
           }
         />
         

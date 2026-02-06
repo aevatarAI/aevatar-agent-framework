@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Mvc;
 using Volo.Abp.Data;
 using Volo.Abp.Identity;
 using Volo.Abp.ObjectExtending;
@@ -92,6 +93,117 @@ public static class ProfileEndpoints
             }
 
             return Results.Json(new { ok = true });
+        }).RequireAuthorization();
+
+        // ============================================================
+        // User Statistics API - Optimized for admin dashboard
+        // ============================================================
+        app.MapGet("/api/vibe/user-stats", async (
+            IIdentityUserRepository userRepository,
+            IIdentityRoleRepository roleRepository,
+            IdentityUserManager userManager) =>
+        {
+            // Get all users and roles
+            var users = await userRepository.GetListAsync();
+            var roles = await roleRepository.GetListAsync();
+
+            // Calculate role statistics
+            var roleStats = new List<object>();
+            foreach (var role in roles)
+            {
+                var usersInRole = await userManager.GetUsersInRoleAsync(role.Name);
+                roleStats.Add(new
+                {
+                    roleName = role.Name,
+                    userCount = usersInRole.Count
+                });
+            }
+
+            return Results.Json(new
+            {
+                totalUsers = users.Count,
+                activeUsers = users.Count(u => u.IsActive),
+                inactiveUsers = users.Count(u => !u.IsActive),
+                totalRoles = roles.Count,
+                roleStats
+            });
+        }).RequireAuthorization();
+
+        // ============================================================
+        // Users List API with Role Filter - Server-side filtering
+        // ============================================================
+        app.MapGet("/api/vibe/users", async (
+            IIdentityUserRepository userRepository,
+            IdentityUserManager userManager,
+            [FromQuery] string? roleName = null,
+            [FromQuery] string? status = null,
+            [FromQuery] string? filter = null,
+            [FromQuery] int skipCount = 0,
+            [FromQuery] int maxResultCount = 10) =>
+        {
+            IEnumerable<IdentityUser> users;
+
+            // Filter by role if specified
+            if (!string.IsNullOrEmpty(roleName))
+            {
+                users = await userManager.GetUsersInRoleAsync(roleName);
+            }
+            else
+            {
+                users = await userRepository.GetListAsync();
+            }
+
+            // Filter by status
+            if (status == "active")
+                users = users.Where(u => u.IsActive);
+            else if (status == "inactive")
+                users = users.Where(u => !u.IsActive);
+
+            // Search filter
+            if (!string.IsNullOrEmpty(filter))
+            {
+                var lowerFilter = filter.ToLowerInvariant();
+                users = users.Where(u =>
+                    (u.UserName?.ToLowerInvariant().Contains(lowerFilter) ?? false) ||
+                    (u.Email?.ToLowerInvariant().Contains(lowerFilter) ?? false) ||
+                    (u.Name?.ToLowerInvariant().Contains(lowerFilter) ?? false) ||
+                    (u.Surname?.ToLowerInvariant().Contains(lowerFilter) ?? false));
+            }
+
+            // Order by creation time descending
+            var orderedUsers = users.OrderByDescending(u => u.CreationTime).ToList();
+            var totalCount = orderedUsers.Count;
+
+            // Paginate
+            var pagedUsers = orderedUsers.Skip(skipCount).Take(maxResultCount).ToList();
+
+            // Get roles for each user in the page
+            var items = new List<object>();
+            foreach (var user in pagedUsers)
+            {
+                var userRoles = await userManager.GetRolesAsync(user);
+                items.Add(new
+                {
+                    id = user.Id,
+                    userName = user.UserName,
+                    email = user.Email,
+                    name = user.Name,
+                    surname = user.Surname,
+                    phoneNumber = user.PhoneNumber,
+                    isActive = user.IsActive,
+                    lockoutEnabled = user.LockoutEnabled,
+                    lockoutEnd = user.LockoutEnd,
+                    emailConfirmed = user.EmailConfirmed,
+                    creationTime = user.CreationTime,
+                    roles = userRoles
+                });
+            }
+
+            return Results.Json(new
+            {
+                items,
+                totalCount
+            });
         }).RequireAuthorization();
     }
 

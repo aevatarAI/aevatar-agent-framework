@@ -22,8 +22,13 @@ const managementItems: NavItem[] = [
   { label: "Users", href: "/admin/users", icon: <Users className="w-4 h-4" /> },
   { label: "Roles", href: "/admin/roles", icon: <Shield className="w-4 h-4" /> },
   { label: "Permissions", href: "/admin/permissions", icon: <Key className="w-4 h-4" /> },
-  { label: "Platform Settings", href: "/admin/settings", icon: <Settings className="w-4 h-4" /> },
 ]
+
+const platformItem: NavItem = { 
+  label: "Platform Settings", 
+  href: "/admin/settings", 
+  icon: <Settings className="w-4 h-4" /> 
+}
 
 export const AdminSidebar: React.FC = () => {
   const location = useLocation()
@@ -75,6 +80,14 @@ export const AdminSidebar: React.FC = () => {
       </p>
       <nav className="space-y-1">
         {managementItems.map((item) => renderNavItem(item, true))}
+      </nav>
+
+      {/* Divider */}
+      <div className="my-4 h-px bg-border-subtle" />
+
+      {/* Platform Settings - Always at bottom */}
+      <nav className="space-y-1">
+        {renderNavItem(platformItem, false)}
       </nav>
     </aside>
   )

@@ -4,7 +4,8 @@
 //  Supports API fetch + SSE real-time updates
 // ============================================================
 
-import { useMemo, useCallback, useEffect, useRef } from 'react'
+import { useMemo, useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   ReactFlow,
   Background,
@@ -16,14 +17,16 @@ import {
 import '@xyflow/react/dist/style.css'
 import './styles.css'
 
-import AgentNode, { type AgentNodeData } from './agent-node'
+import AgentNode, { type AgentNodeData, type UpstreamEvent } from './agent-node'
 import AnimatedEdge, { type AnimatedEdgeData } from './animated-edge'
+import AgentDetailModal from './agent-detail-modal'
 import { 
   useAgentTopologyStore, 
   selectTopology, 
   selectAgentStatus,
   selectAgentStats,
   selectEdgeStats,
+  selectSSEActiveNodes,
   selectIsLoading,
   type AgentStatus,
   type AgentStats,
@@ -203,28 +206,31 @@ function getLayer(nodeId: string, layersMap: Map<string, number>): number {
 }
 
 // ------------------------------------------------------------
-//  Legend Component
+//  Fullscreen Button Component
 // ------------------------------------------------------------
 
-const Legend = () => (
-  <div className="agent-flow-legend">
-    <div className="agent-flow-legend-item">
-      <div className="agent-flow-legend-dot entry" />
-      <span>Entry</span>
-    </div>
-    <div className="agent-flow-legend-item">
-      <div className="agent-flow-legend-dot process" />
-      <span>Process</span>
-    </div>
-    <div className="agent-flow-legend-item">
-      <div className="agent-flow-legend-dot validate" />
-      <span>Validate</span>
-    </div>
-    <div className="agent-flow-legend-item">
-      <div className="agent-flow-legend-dot output" />
-      <span>Output</span>
-    </div>
-  </div>
+interface FullscreenButtonProps {
+  isFullscreen: boolean
+  onToggle: () => void
+}
+
+const FullscreenButton: React.FC<FullscreenButtonProps> = ({ isFullscreen, onToggle }) => (
+  <button
+    onClick={onToggle}
+    className="size-7 rounded-lg bg-bg-surface/80 hover:bg-bg-elevated border border-border-subtle 
+               flex items-center justify-center transition-colors group"
+    title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+  >
+    {isFullscreen ? (
+      <svg className="size-3.5 text-text-muted group-hover:text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25" />
+      </svg>
+    ) : (
+      <svg className="size-3.5 text-text-muted group-hover:text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
+      </svg>
+    )}
+  </button>
 )
 
 // ------------------------------------------------------------
@@ -289,11 +295,19 @@ interface AgentFlowGraphProps {
 }
 
 const AgentFlowGraph: React.FC<AgentFlowGraphProps> = ({ className, fullHeight = false, sessionId }) => {
+  // Fullscreen state
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const toggleFullscreen = useCallback(() => setIsFullscreen(prev => !prev), [])
+  
+  // Modal state for agent detail
+  const [modalAgent, setModalAgent] = useState<string | null>(null)
+  const closeModal = useCallback(() => setModalAgent(null), [])
   // Store subscriptions - Topology store
   const topology = useAgentTopologyStore(selectTopology)
   const agentStatus = useAgentTopologyStore(selectAgentStatus)
   const agentStats = useAgentTopologyStore(selectAgentStats)
   const edgeStats = useAgentTopologyStore(selectEdgeStats)
+  const sseActiveNodes = useAgentTopologyStore(selectSSEActiveNodes)
   const isLoading = useAgentTopologyStore(selectIsLoading)
   const setSelectedAgent = useAgentTopologyStore(state => state.setSelectedAgent)
   
@@ -414,9 +428,10 @@ const AgentFlowGraph: React.FC<AgentFlowGraphProps> = ({ className, fullHeight =
     }
   }, [topology, baseNodes, baseEdges, setNodes, setEdges])
   
-  // Handle node selection for detail view
+  // Handle node selection for detail view - open modal
   const handleNodeSelect = useCallback((agentType: string) => {
     setSelectedAgent(agentType)
+    setModalAgent(agentType)
   }, [setSelectedAgent])
   
   // Update nodes when status/stats change
@@ -471,6 +486,32 @@ const AgentFlowGraph: React.FC<AgentFlowGraphProps> = ({ className, fullHeight =
         derivedStatus = 'completed'
       }
       
+      // Compute upstream events from topology edges and stream data
+      // Keep full content for modal scrollable view
+      const upstreamEvents: UpstreamEvent[] = topology?.edges
+        .filter(edge => edge.to.toLowerCase() === nodeData.agentType.toLowerCase())
+        .map(edge => {
+          const sourceAgentType = edge.from.toLowerCase()
+          const sourceStream = agentStreams[sourceAgentType] || 
+                              agentStreams[sourceAgentType.replace(/_/g, ' ')] ||
+                              agentStreams[sourceAgentType.replace(/ /g, '_')]
+          if (!sourceStream?.content) return null
+          
+          // Keep full content (light cleanup only) for scrollable modal view
+          const fullContent = sourceStream.content
+            .replace(/^#+\s*/gm, '')  // Remove markdown headers
+            .replace(/\*\*/g, '')     // Remove bold markers
+            .trim()
+          
+          return {
+            fromAgent: edge.from,
+            eventType: 'output',
+            preview: fullContent,  // Full content, not truncated
+            timestamp: Date.now(),
+          }
+        })
+        .filter((e): e is UpstreamEvent => e !== null) || []
+      
       return {
         ...node,
         data: {
@@ -478,11 +519,12 @@ const AgentFlowGraph: React.FC<AgentFlowGraphProps> = ({ className, fullHeight =
           status: derivedStatus,
           stats: mergedStats,
           outputPreview,
+          upstreamEvents,
           onSelect: handleNodeSelect,
         },
       }
     })
-  }, [nodes, agentStatus, agentStats, agentStreams, handleNodeSelect])
+  }, [nodes, agentStatus, agentStats, agentStreams, topology, handleNodeSelect])
   
   // Update edges when status changes (preserve edgeIndex/totalFromSource, add message count)
   const edgesWithStatus = useMemo(() => {
@@ -493,9 +535,12 @@ const AgentFlowGraph: React.FC<AgentFlowGraphProps> = ({ className, fullHeight =
       const targetData = targetNode?.data as AgentNodeData | undefined
       const edgeData = edge.data as AnimatedEdgeData | undefined
       
-      // Get edge stats for message count
-      const edgeKey = `${edge.source}-${edge.target}`
+      // Get edge stats for message count (key must be lowercase to match store)
+      const edgeKey = `${edge.source.toLowerCase()}-${edge.target.toLowerCase()}`
       const stats = edgeStats[edgeKey]
+      
+      // Check if source node is actively running via SSE (not from API history)
+      const isSourceSSEActive = sseActiveNodes.has(edge.source.toLowerCase())
       
       return {
         ...edge,
@@ -505,13 +550,159 @@ const AgentFlowGraph: React.FC<AgentFlowGraphProps> = ({ className, fullHeight =
           edgeIndex: edgeData?.edgeIndex,
           totalFromSource: edgeData?.totalFromSource,
           messageCount: stats?.messageCount || 0,
+          isSourceSSEActive,  // Only show animation if triggered by SSE
         },
       }
     })
-  }, [edges, nodesWithStatus, edgeStats])
+  }, [edges, nodesWithStatus, edgeStats, sseActiveNodes])
   
   // Disable interactions for read-only view
   const onNodeDragStop = useCallback(() => {}, [])
+  
+  // Compute upstream events for modal agent (must be before any conditional returns)
+  const modalAgentData = useMemo(() => {
+    if (!modalAgent || !topology) return null
+    
+    // Find upstream agents (those that have edges pointing to this agent)
+    const upstreamAgentTypes = topology.edges
+      .filter(edge => edge.to.toLowerCase() === modalAgent.toLowerCase())
+      .map(edge => edge.from.toLowerCase())
+    
+    // Build upstream events from stream data - full content for scrollable modal
+    const upstreamEvents: UpstreamEvent[] = upstreamAgentTypes
+      .map(fromAgent => {
+        const stream = agentStreams[fromAgent] || agentStreams[fromAgent.replace(/_/g, ' ')]
+        if (!stream?.content) return null
+        
+        return {
+          fromAgent,
+          eventType: 'output',
+          preview: stream.content,  // Full content, not truncated
+          timestamp: Date.now(),
+        }
+      })
+      .filter((e): e is UpstreamEvent => e !== null)
+    
+    // Get modal agent's data
+    const status = agentStatus[modalAgent] || 'idle'
+    const stats = agentStats[modalAgent]
+    const streamData = agentStreams[modalAgent] || agentStreams[modalAgent.replace(/_/g, ' ')]
+    const output = streamData?.content || ''
+    
+    return { status, stats, output, upstreamEvents }
+  }, [modalAgent, topology, agentStreams, agentStatus, agentStats])
+  // Graph content (reusable for normal and fullscreen modes)
+  const graphContent = (
+    <>
+      {isLoading ? (
+        <LoadingState />
+      ) : !topology ? (
+        <EmptyState />
+      ) : (
+        <ReactFlow
+          nodes={nodesWithStatus}
+          edges={edgesWithStatus}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onNodeDragStop={onNodeDragStop}
+          fitView
+          fitViewOptions={{ 
+            padding: 0.3,
+            minZoom: 0.8,
+            maxZoom: 1.5,
+          }}
+          nodesDraggable={true}
+          nodesConnectable={false}
+          elementsSelectable={true}
+          panOnDrag={true}
+          zoomOnScroll={true}
+          zoomOnPinch={true}
+          zoomOnDoubleClick={true}
+          minZoom={0.3}
+          maxZoom={2.5}
+          preventScrolling={true}
+          proOptions={{ hideAttribution: true }}
+        >
+          <Background 
+            variant={BackgroundVariant.Dots} 
+            gap={20} 
+            size={1}
+            color="rgba(255, 255, 255, 0.05)"
+          />
+          <Controls 
+            showZoom={true}
+            showFitView={true}
+            showInteractive={false}
+            position="bottom-right"
+            className="!bg-bg-surface/80 !border-border-subtle !rounded-lg !shadow-lg"
+          />
+        </ReactFlow>
+      )}
+    </>
+  )
+  
+  // Fullscreen overlay - use Portal to render outside modal container
+  if (isFullscreen) {
+    return createPortal(
+      <div className="fixed inset-0 z-[9999] bg-[#0a0a0f] flex flex-col agent-flow-graph">
+        {/* Fullscreen Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 flex-shrink-0 bg-[#0a0a0f]">
+          <div className="flex items-center gap-2">
+            <div className="size-6 rounded-lg bg-cyan-500/20 flex items-center justify-center">
+              <svg className="size-3.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            </div>
+            <h3 className="text-sm font-medium text-white/80 tracking-wider">AGENT TOPOLOGY</h3>
+          </div>
+          <FullscreenButton isFullscreen={isFullscreen} onToggle={toggleFullscreen} />
+        </div>
+        
+        {/* Fullscreen Graph - with explicit styling for Controls */}
+        <div className="flex-1 min-h-0 fullscreen-graph-container">
+          {graphContent}
+        </div>
+        
+        {/* Fullscreen-specific styles */}
+        <style>{`
+          .fullscreen-graph-container .react-flow__controls {
+            background: rgba(20, 20, 30, 0.9) !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            border-radius: 8px !important;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+          }
+          .fullscreen-graph-container .react-flow__controls-button {
+            background: transparent !important;
+            border: none !important;
+            color: rgba(255, 255, 255, 0.6) !important;
+          }
+          .fullscreen-graph-container .react-flow__controls-button:hover {
+            background: rgba(255, 255, 255, 0.1) !important;
+            color: rgba(255, 255, 255, 0.9) !important;
+          }
+          .fullscreen-graph-container .react-flow__controls-button svg {
+            fill: currentColor !important;
+          }
+        `}</style>
+        
+        {/* Agent Detail Modal - also in fullscreen */}
+        {modalAgent && modalAgentData && (
+          <AgentDetailModal
+            isOpen={!!modalAgent}
+            onClose={closeModal}
+            agentType={modalAgent}
+            status={modalAgentData.status}
+            stats={modalAgentData.stats}
+            output={modalAgentData.output}
+            upstreamEvents={modalAgentData.upstreamEvents}
+          />
+        )}
+      </div>,
+      document.body
+    )
+  }
   
   return (
     <div className={`agent-flow-graph relative ${fullHeight ? 'h-full flex flex-col' : ''} ${className || ''}`}>
@@ -525,7 +716,7 @@ const AgentFlowGraph: React.FC<AgentFlowGraphProps> = ({ className, fullHeight =
           </div>
           <h3 className="text-xs font-display font-medium text-text-muted tracking-wider">AGENT TOPOLOGY</h3>
         </div>
-        {topology && <Legend />}
+        <FullscreenButton isFullscreen={isFullscreen} onToggle={toggleFullscreen} />
       </div>
       
       {/* Graph Container */}
@@ -533,53 +724,21 @@ const AgentFlowGraph: React.FC<AgentFlowGraphProps> = ({ className, fullHeight =
         className={`rounded-xl border border-border-subtle bg-bg-void/50 overflow-hidden ${fullHeight ? 'flex-1 min-h-0' : ''}`}
         style={fullHeight ? undefined : { height: 380 }}
       >
-        {isLoading ? (
-          <LoadingState />
-        ) : !topology ? (
-          <EmptyState />
-        ) : (
-          <ReactFlow
-            nodes={nodesWithStatus}
-            edges={edgesWithStatus}
-            nodeTypes={nodeTypes}
-            edgeTypes={edgeTypes}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onNodeDragStop={onNodeDragStop}
-            fitView
-            fitViewOptions={{ 
-              padding: 0.3,
-              minZoom: 0.8,
-              maxZoom: 1.5,
-            }}
-            nodesDraggable={true}
-            nodesConnectable={false}
-            elementsSelectable={true}
-            panOnDrag={true}
-            zoomOnScroll={true}
-            zoomOnPinch={true}
-            zoomOnDoubleClick={true}
-            minZoom={0.3}
-            maxZoom={2.5}
-            preventScrolling={true}
-            proOptions={{ hideAttribution: true }}
-          >
-            <Background 
-              variant={BackgroundVariant.Dots} 
-              gap={20} 
-              size={1}
-              color="rgba(255, 255, 255, 0.05)"
-            />
-            <Controls 
-              showZoom={true}
-              showFitView={true}
-              showInteractive={false}
-              position="bottom-right"
-              className="!bg-bg-surface/80 !border-border-subtle !rounded-lg !shadow-lg"
-            />
-          </ReactFlow>
-        )}
+        {graphContent}
       </div>
+      
+      {/* Agent Detail Modal */}
+      {modalAgent && modalAgentData && (
+        <AgentDetailModal
+          isOpen={!!modalAgent}
+          onClose={closeModal}
+          agentType={modalAgent}
+          status={modalAgentData.status}
+          stats={modalAgentData.stats}
+          output={modalAgentData.output}
+          upstreamEvents={modalAgentData.upstreamEvents}
+        />
+      )}
     </div>
   )
 }

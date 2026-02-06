@@ -58,6 +58,10 @@ export interface AgentTopologyState {
   // Edge statistics by edge ID (format: "from-to")
   edgeStats: Record<string, EdgeStats>
   
+  // Nodes that are actively running via SSE (not from API/history)
+  // Only these nodes should trigger EventBox animation
+  sseActiveNodes: Set<string>
+  
   // Currently selected agent for detail view
   selectedAgent: string | null
   
@@ -79,6 +83,8 @@ export interface AgentTopologyState {
   updateAgentStats: (agentType: string, stats: Partial<AgentStats>) => void
   incrementEdgeMessages: (fromAgent: string, toAgent: string) => void
   setSelectedAgent: (agentType: string | null) => void
+  markNodeSSEActive: (agentType: string) => void
+  clearNodeSSEActive: (agentType: string) => void
   fetchTopology: (sessionId: string) => Promise<void>
   reset: () => void
 }
@@ -102,6 +108,7 @@ const initialState = {
   agentStatus: {} as Record<string, AgentStatus>,
   agentStats: {} as Record<string, AgentStats>,
   edgeStats: {} as Record<string, EdgeStats>,
+  sseActiveNodes: new Set<string>(),
   selectedAgent: null as string | null,
   sessionId: null as string | null,
   runId: null as string | null,
@@ -174,6 +181,8 @@ export const useAgentTopologyStore = create<AgentTopologyState>((set, get) => ({
   
   incrementEdgeMessages: (fromAgent, toAgent) => {
     const edgeKey = `${fromAgent.toLowerCase()}-${toAgent.toLowerCase()}`
+    const currentCount = get().edgeStats[edgeKey]?.messageCount || 0
+    console.log('[EdgeStats Debug] incrementEdgeMessages:', edgeKey, 'current:', currentCount, '-> new:', currentCount + 1)
     set((state) => ({
       edgeStats: {
         ...state.edgeStats,
@@ -186,6 +195,26 @@ export const useAgentTopologyStore = create<AgentTopologyState>((set, get) => ({
   },
   
   setSelectedAgent: (agentType) => set({ selectedAgent: agentType }),
+  
+  // Mark a node as actively running via SSE (triggers EventBox animation)
+  markNodeSSEActive: (agentType) => {
+    const key = agentType.toLowerCase()
+    set((state) => {
+      const newSet = new Set(state.sseActiveNodes)
+      newSet.add(key)
+      return { sseActiveNodes: newSet }
+    })
+  },
+  
+  // Clear SSE active flag when node finishes (stops EventBox animation)
+  clearNodeSSEActive: (agentType) => {
+    const key = agentType.toLowerCase()
+    set((state) => {
+      const newSet = new Set(state.sseActiveNodes)
+      newSet.delete(key)
+      return { sseActiveNodes: newSet }
+    })
+  },
   
   fetchTopology: async (sessionId: string) => {
     // Validate sessionId
@@ -258,6 +287,7 @@ export const selectTopology = (state: AgentTopologyState) => state.topology
 export const selectAgentStatus = (state: AgentTopologyState) => state.agentStatus
 export const selectAgentStats = (state: AgentTopologyState) => state.agentStats
 export const selectEdgeStats = (state: AgentTopologyState) => state.edgeStats
+export const selectSSEActiveNodes = (state: AgentTopologyState) => state.sseActiveNodes
 export const selectSelectedAgent = (state: AgentTopologyState) => state.selectedAgent
 export const selectRunId = (state: AgentTopologyState) => state.runId
 export const selectIsLoading = (state: AgentTopologyState) => state.isLoading

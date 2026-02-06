@@ -26,6 +26,8 @@ using Aevatar.VibeResearching.Knowledge.Neo4j;
 using Aevatar.VibeResearching.Agents;
 using Aevatar.VibeResearching.Agents.MongoDB;
 using Aevatar.VibeResearching.Agents.ReviewAgent;
+using Aevatar.VibeResearching.Comments;
+using Aevatar.VibeResearching.Comments.MongoDB;
 using Aevatar.VibeResearching.Infrastructure;
 using Aevatar.VibeResearching.Infrastructure.MongoDB;
 using Microsoft.AspNetCore.Builder;
@@ -119,6 +121,11 @@ namespace Aevatar.VibeResearching.HttpApi.Host;
     typeof(VibeAgentsHttpApiModule),
     typeof(VibeAgentsApplicationModule),
     typeof(VibeAgentsMongoDbModule),
+
+    // Comments Module
+    typeof(VibeCommentsHttpApiModule),
+    typeof(VibeCommentsApplicationModule),
+    typeof(VibeCommentsMongoDbModule),
 
     // Infrastructure Module
     typeof(VibeInfrastructureHttpApiModule),

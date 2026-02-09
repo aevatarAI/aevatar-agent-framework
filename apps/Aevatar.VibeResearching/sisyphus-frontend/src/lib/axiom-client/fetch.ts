@@ -1,12 +1,18 @@
 // ============================================================================
 //  Axiom Client - Fetch Helper & Request Caching
+//  Supports 401 auto-refresh with retry
 // ============================================================================
 
 import { apiLogger } from '../logger'
-import { getAccessToken } from '../abp/config'
+import { getAccessToken, clearTokens } from '../abp/config'
+import { abpRefreshToken } from '../abp/auth'
 
 // === API Base URL ===
 export const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
+
+// === Token Refresh State ===
+let isRefreshing = false
+let refreshPromise: Promise<boolean> | null = null
 
 // === Cache Types ===
 
@@ -54,6 +60,56 @@ export function clearRequestCache(): void {
 export interface FetchOptions {
   cache?: boolean
   cacheTtl?: number
+  skipAuthRefresh?: boolean // Skip 401 auto-refresh (for auth endpoints)
+}
+
+// === Core Fetch with 401 Auto-Refresh ===
+
+async function doFetch<T>(
+  path: string,
+  init: RequestInit | undefined,
+  abortController: AbortController
+): Promise<Response> {
+  const token = getAccessToken()
+  const authHeaders: Record<string, string> = token
+    ? { Authorization: `Bearer ${token}` }
+    : {}
+
+  return fetch(`${API_BASE}${path}`, {
+    ...init,
+    signal: abortController.signal,
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      ...authHeaders,
+      ...init?.headers,
+    },
+  })
+}
+
+async function handleTokenRefresh(): Promise<boolean> {
+  // If already refreshing, wait for that to complete
+  if (isRefreshing && refreshPromise) {
+    return refreshPromise
+  }
+
+  isRefreshing = true
+  refreshPromise = abpRefreshToken()
+    .then((success) => {
+      if (!success) {
+        clearTokens()
+        // Dispatch event to notify app of auth failure
+        window.dispatchEvent(new CustomEvent('auth:session-expired'))
+      }
+      return success
+    })
+    .finally(() => {
+      isRefreshing = false
+      refreshPromise = null
+    })
+
+  return refreshPromise
 }
 
 export async function fetchJson<T>(
@@ -64,6 +120,7 @@ export async function fetchJson<T>(
   const cacheKey = `${init?.method || 'GET'}:${path}`
   const useCaching = options?.cache !== false && (!init?.method || init.method === 'GET')
   const ttl = options?.cacheTtl ?? CACHE_TTL_MS
+  const skipAuthRefresh = options?.skipAuthRefresh ?? false
 
   // Check cache first
   if (useCaching) {
@@ -87,26 +144,29 @@ export async function fetchJson<T>(
 
   const fetchPromise = (async () => {
     try {
-      const token = getAccessToken()
-      const authHeaders: Record<string, string> = token
-        ? { Authorization: `Bearer ${token}` }
-        : {}
+      let res = await doFetch<T>(path, init, abortController)
 
-      const res = await fetch(`${API_BASE}${path}`, {
-        ...init,
-        signal: abortController.signal,
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          ...authHeaders,
-          ...init?.headers,
-        },
-      })
+      // Handle 401: attempt token refresh and retry once
+      if (res.status === 401 && !skipAuthRefresh) {
+        apiLogger.info(`[fetchJson] 401 on ${path}, attempting token refresh...`)
+        
+        const refreshed = await handleTokenRefresh()
+        if (refreshed) {
+          apiLogger.info(`[fetchJson] Token refreshed, retrying ${path}...`)
+          // Retry with new token
+          res = await doFetch<T>(path, init, abortController)
+        } else {
+          apiLogger.warn(`[fetchJson] Token refresh failed for ${path}`)
+          const text = await res.text()
+          throw new Error(`API Error 401: ${text || 'Unauthorized - Session expired'}`)
+        }
+      }
+
       if (!res.ok) {
         const text = await res.text()
         throw new Error(`API Error ${res.status}: ${text}`)
       }
+
       const data = (await res.json()) as T
 
       if (useCaching) {

@@ -36,7 +36,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ sessionId, connected }) =
       <nav className="flex-shrink-0 px-6 pt-4 flex gap-1 border-b border-border-subtle">
         {[
           { key: 'tools' as TabKey, label: 'Tools & MCP', icon: '⚙️' },
-          { key: 'providers' as TabKey, label: 'Platform Providers', icon: '🔑' },
+          // NOTE: Platform Providers tab hidden but code preserved
+          // { key: 'providers' as TabKey, label: 'Platform Providers', icon: '🔑' },
           { key: 'my-providers' as TabKey, label: 'My Providers', icon: '🔐' },
           { key: 'agents' as TabKey, label: 'Agents', icon: '🤖' },
           { key: 'advanced' as TabKey, label: 'Advanced', icon: '🛠️' },

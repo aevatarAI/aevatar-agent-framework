@@ -9,6 +9,7 @@ import { listSessions, getDagSnapshot, getSessionEvents, parseWorkersFromEvents,
 import type { DAGGraph } from '@/types';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth-store';
+import { abpLogout } from '@/lib/abp/auth';
 
 // Panel collapse threshold (percentage)
 const COLLAPSE_THRESHOLD = 20;
@@ -80,9 +81,27 @@ const transformDagData = (rawData: unknown): DAGGraph | null => {
 
 const App: React.FC = () => {
   const { currentSessionId, isConnected, setSessions, setCurrentSession, resetForNewSession, setDag, updateWorker, restoreMilestoneForSession, setActiveMilestoneNodeId, restoreRunningSession } = useSisyphusStore();
+  const logout = useAuthStore((state) => state.logout);
   
   // New session dialog state
   const [showNewSessionDialog, setShowNewSessionDialog] = useState(false);
+
+  // === Global Auth Session Expiry Handler ===
+  // Listen for token refresh failures and force logout
+  useEffect(() => {
+    const handleSessionExpired = async () => {
+      console.warn('[App] Session expired - forcing logout');
+      await abpLogout();
+      logout();
+      // Navigate to login page
+      window.location.href = '/login';
+    };
+
+    window.addEventListener('auth:session-expired', handleSessionExpired);
+    return () => {
+      window.removeEventListener('auth:session-expired', handleSessionExpired);
+    };
+  }, [logout]);
 
   // Resizable panel state
   const [leftPanelWidth, setLeftPanelWidth] = useState(DEFAULT_LEFT_WIDTH);

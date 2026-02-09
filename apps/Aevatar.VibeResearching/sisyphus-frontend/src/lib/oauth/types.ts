@@ -1,5 +1,10 @@
 // ============================================================
-//  OAuth Types
+//  OAuth Types - Redirect Flow
+// ============================================================
+//
+//  Both Google and GitHub use redirect flow with backend
+//  token exchange for security and ABP Identity integration.
+//
 // ============================================================
 
 export interface OAuthUser {
@@ -10,12 +15,24 @@ export interface OAuthUser {
   provider: 'google' | 'github'
 }
 
+export interface OAuthResult {
+  success: boolean
+  user?: OAuthUser
+  error?: string
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Legacy types (kept for backward compatibility, may be removed)
+// ─────────────────────────────────────────────────────────────────────
+
+/** @deprecated No longer used with redirect flow */
 export interface GoogleCredentialResponse {
   credential: string
   select_by: string
   clientId: string
 }
 
+/** @deprecated No longer used with redirect flow */
 export interface GoogleDecodedToken {
   iss: string
   azp: string
@@ -32,16 +49,11 @@ export interface GoogleDecodedToken {
   exp: number
 }
 
+/** @deprecated Use backend response instead */
 export interface GitHubUser {
   id: number
   login: string
   name: string | null
   email: string | null
   avatar_url: string
-}
-
-export interface OAuthResult {
-  success: boolean
-  user?: OAuthUser
-  error?: string
 }

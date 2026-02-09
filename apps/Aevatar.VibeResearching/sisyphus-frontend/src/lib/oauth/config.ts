@@ -1,12 +1,18 @@
 // ============================================================
 //  OAuth Configuration - Environment Variables
 // ============================================================
+//
+//  Both Google and GitHub use the redirect flow with backend
+//  token exchange for security and ABP Identity integration.
+//
+// ============================================================
 
 export const oauthConfig = {
   google: {
     clientId: import.meta.env.VITE_GOOGLE_CLIENT_ID || '',
     redirectUri: `${window.location.origin}/auth/callback/google`,
     scope: 'openid email profile',
+    authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
   },
   github: {
     clientId: import.meta.env.VITE_GITHUB_CLIENT_ID || '',

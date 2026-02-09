@@ -5,12 +5,15 @@ import {
   PasswordPanel,
 } from "@/components/account"
 import { UserProvidersTab } from "@/components/user-providers"
+import { useHasPassword } from "@/store/auth-store"
 
 // ============================================================
 //  Account Page - Routes to Account Panels (Basic Version)
 // ============================================================
 
 export default function AccountPage() {
+  const hasPassword = useHasPassword()
+
   return (
     <Routes>
       {/* Default redirect to profile */}
@@ -26,13 +29,17 @@ export default function AccountPage() {
         }
       />
 
-      {/* Password */}
+      {/* Password — only for local (non-OAuth) users */}
       <Route
         path="/password"
         element={
-          <AccountLayout title="Change Password" subtitle="Update your account password">
-            <PasswordPanel />
-          </AccountLayout>
+          hasPassword ? (
+            <AccountLayout title="Change Password" subtitle="Update your account password">
+              <PasswordPanel />
+            </AccountLayout>
+          ) : (
+            <Navigate to="/account/profile" replace />
+          )
         }
       />
 

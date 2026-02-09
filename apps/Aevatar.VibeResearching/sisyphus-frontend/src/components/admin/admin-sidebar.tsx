@@ -2,6 +2,7 @@ import React from "react"
 import { NavLink, useLocation } from "react-router-dom"
 import { User, Lock, Users, Shield, Key, Settings } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useHasPassword } from "@/store/auth-store"
 
 // ============================================================
 //  Admin Sidebar - Navigation with Settings + Management
@@ -12,11 +13,6 @@ interface NavItem {
   href: string
   icon: React.ReactNode
 }
-
-const settingsItems: NavItem[] = [
-  { label: "Profile", href: "/account/profile", icon: <User className="w-4 h-4" /> },
-  { label: "Password", href: "/account/password", icon: <Lock className="w-4 h-4" /> },
-]
 
 const managementItems: NavItem[] = [
   { label: "Users", href: "/admin/users", icon: <Users className="w-4 h-4" /> },
@@ -32,6 +28,15 @@ const platformItem: NavItem = {
 
 export const AdminSidebar: React.FC = () => {
   const location = useLocation()
+  const hasPassword = useHasPassword()
+
+  // Build settings items dynamically — hide Password for OAuth users
+  const settingsItems: NavItem[] = [
+    { label: "Profile", href: "/account/profile", icon: <User className="w-4 h-4" /> },
+    ...(hasPassword
+      ? [{ label: "Password", href: "/account/password", icon: <Lock className="w-4 h-4" /> }]
+      : []),
+  ]
 
   const renderNavItem = (item: NavItem, useGold = false) => {
     const isActive = location.pathname === item.href

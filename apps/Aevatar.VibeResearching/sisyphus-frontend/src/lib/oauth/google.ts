@@ -1,255 +1,191 @@
 // ============================================================
-//  Google OAuth - Using Google Identity Services (GIS)
+//  Google OAuth - Redirect Flow (Backend Token Exchange)
+// ============================================================
+//
+//  This implementation uses the standard OAuth 2.0 authorization
+//  code flow with backend token exchange, similar to GitHub OAuth.
+//
+//  Flow:
+//  1. Frontend redirects to Google authorization
+//  2. Google redirects back with authorization code
+//  3. Frontend sends code to backend
+//  4. Backend exchanges code for tokens and creates user
+//
 // ============================================================
 
 import { oauthConfig, isGoogleConfigured } from './config'
-import type { OAuthResult, GoogleCredentialResponse, GoogleDecodedToken } from './types'
+import type { OAuthResult } from './types'
+import type { AuthUser } from '@/types/user-management'
 
-// Google Identity Services types (FedCM compatible)
-declare global {
-  interface Window {
-    google?: {
-      accounts: {
-        id: {
-          initialize: (config: {
-            client_id: string
-            callback: (response: GoogleCredentialResponse) => void
-            auto_select?: boolean
-            cancel_on_tap_outside?: boolean
-            use_fedcm_for_prompt?: boolean  // FedCM migration
-            itp_support?: boolean            // Intelligent Tracking Prevention
-          }) => void
-          prompt: (notification?: (notification: {
-            isNotDisplayed: () => boolean
-            isSkippedMoment: () => boolean
-            isDismissedMoment?: () => boolean
-            getMomentType?: () => string
-            getNotDisplayedReason: () => string
-            getSkippedReason: () => string
-            getDismissedReason?: () => string
-          }) => void) => void
-          renderButton: (
-            parent: HTMLElement,
-            options: {
-              type?: 'standard' | 'icon'
-              theme?: 'outline' | 'filled_blue' | 'filled_black'
-              size?: 'large' | 'medium' | 'small'
-              text?: 'signin_with' | 'signup_with' | 'continue_with' | 'signin'
-              shape?: 'rectangular' | 'pill' | 'circle' | 'square'
-              logo_alignment?: 'left' | 'center'
-              width?: number
-              locale?: string
-            }
-          ) => void
-          disableAutoSelect: () => void
-          cancel: () => void
-        }
-      }
-    }
-  }
-}
-
-// State
-let isInitialized = false
-let resolveCallback: ((result: OAuthResult) => void) | null = null
+// State key for CSRF protection
+const STATE_KEY = 'google_oauth_state'
 
 /**
- * Decode JWT token from Google
+ * Generate random state for CSRF protection
  */
-function decodeJwt(token: string): GoogleDecodedToken | null {
-  try {
-    const base64Url = token.split('.')[1]
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
-    const jsonPayload = decodeURIComponent(
-      atob(base64)
-        .split('')
-        .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-        .join('')
-    )
-    return JSON.parse(jsonPayload)
-  } catch {
-    return null
-  }
+function generateState(): string {
+  const array = new Uint8Array(32)
+  crypto.getRandomValues(array)
+  return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('')
 }
 
 /**
- * Handle Google credential response
+ * Start Google OAuth flow (redirect)
  */
-function handleCredentialResponse(response: GoogleCredentialResponse) {
-  const decoded = decodeJwt(response.credential)
-  
-  if (!decoded) {
-    resolveCallback?.({
-      success: false,
-      error: 'Failed to decode Google credential',
-    })
+export function initiateGoogleLogin(): void {
+  if (!isGoogleConfigured()) {
+    console.error('[OAuth] Google Client ID not configured')
     return
   }
 
-  resolveCallback?.({
-    success: true,
-    user: {
-      id: decoded.sub,
-      email: decoded.email,
-      name: decoded.name,
-      picture: decoded.picture,
-      provider: 'google',
-    },
-  })
-}
+  const state = generateState()
+  sessionStorage.setItem(STATE_KEY, state)
 
-/**
- * Load Google Identity Services SDK
- */
-export async function loadGoogleSdk(): Promise<boolean> {
-  if (!isGoogleConfigured()) {
-    console.warn('[OAuth] Google Client ID not configured')
-    return false
-  }
-
-  if (window.google?.accounts) {
-    return true
-  }
-
-  return new Promise((resolve) => {
-    const script = document.createElement('script')
-    script.src = 'https://accounts.google.com/gsi/client'
-    script.async = true
-    script.defer = true
-    script.onload = () => {
-      resolve(true)
-    }
-    script.onerror = () => {
-      console.error('[OAuth] Failed to load Google Identity Services')
-      resolve(false)
-    }
-    document.head.appendChild(script)
-  })
-}
-
-/**
- * Initialize Google Identity Services
- */
-export async function initializeGoogleAuth(): Promise<boolean> {
-  if (isInitialized) return true
-  
-  const loaded = await loadGoogleSdk()
-  if (!loaded || !window.google?.accounts) {
-    return false
-  }
-
-  // FedCM requires Privacy Policy & Terms of Service URLs in Google Console
-  // Set use_fedcm_for_prompt: false until Console is properly configured
-  const useFedCM = import.meta.env.VITE_GOOGLE_USE_FEDCM === 'true'
-  
-  window.google.accounts.id.initialize({
+  const params = new URLSearchParams({
     client_id: oauthConfig.google.clientId,
-    callback: handleCredentialResponse,
-    auto_select: false,
-    cancel_on_tap_outside: true,
-    use_fedcm_for_prompt: useFedCM,  // Enable FedCM when Console is configured
-    itp_support: true,               // Safari ITP support
+    redirect_uri: oauthConfig.google.redirectUri,
+    response_type: 'code',
+    scope: oauthConfig.google.scope,
+    state,
+    access_type: 'offline',      // Get refresh token
+    prompt: 'select_account',    // Always show account picker
   })
 
-  isInitialized = true
-  return true
+  window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`
 }
 
 /**
- * Trigger Google Sign-In popup
+ * Handle Google OAuth callback
+ * This should be called when user returns from Google authorization
  */
-export async function signInWithGoogle(): Promise<OAuthResult> {
-  if (!isGoogleConfigured()) {
+export interface GoogleCallbackResult {
+  success: boolean
+  user?: AuthUser
+  error?: string
+}
+
+export async function handleGoogleCallback(
+  code: string,
+  state: string
+): Promise<GoogleCallbackResult> {
+  // Verify state for CSRF protection
+  const savedState = sessionStorage.getItem(STATE_KEY)
+  sessionStorage.removeItem(STATE_KEY)
+
+  if (!savedState || savedState !== state) {
     return {
       success: false,
-      error: 'Google OAuth not configured. Please set VITE_GOOGLE_CLIENT_ID.',
+      error: 'Invalid OAuth state. Please try again.',
     }
   }
 
-  const initialized = await initializeGoogleAuth()
-  if (!initialized) {
-    return {
-      success: false,
-      error: 'Failed to initialize Google Sign-In',
-    }
-  }
-
-  return new Promise((resolve) => {
-    resolveCallback = resolve
-    
-    // Use One Tap prompt with FedCM
-    window.google?.accounts.id.prompt((notification) => {
-      // FedCM compatible: check moment type if available
-      const momentType = notification.getMomentType?.() || 'unknown'
-      
-      if (notification.isNotDisplayed()) {
-        const reason = notification.getNotDisplayedReason()
-        console.info('[OAuth] One Tap not displayed:', reason)
-        resolve({
-          success: false,
-          error: `Google Sign-In unavailable: ${reason}. Try using the Google button.`,
-        })
-      } else if (notification.isSkippedMoment()) {
-        const reason = notification.getSkippedReason()
-        console.info('[OAuth] One Tap skipped:', reason)
-        resolve({
-          success: false,
-          error: `Google Sign-In skipped: ${reason}. Try using the Google button.`,
-        })
-      } else if (notification.isDismissedMoment?.()) {
-        const reason = notification.getDismissedReason?.() || 'user_cancel'
-        console.info('[OAuth] One Tap dismissed:', reason)
-        // User dismissed, don't show error - just resolve quietly
-        resolve({
-          success: false,
-          error: reason === 'credential_returned' ? '' : `Sign-in cancelled`,
-        })
-      }
-      // If none of above, credential callback will handle success
-      console.debug('[OAuth] One Tap moment:', momentType)
+  try {
+    const response = await fetch('/api/auth/google/callback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ code, state }),
     })
 
-    // Timeout after 60 seconds
-    setTimeout(() => {
-      if (resolveCallback === resolve) {
-        resolveCallback = null
-        resolve({
-          success: false,
-          error: 'Google Sign-In timed out',
-        })
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}))
+      return {
+        success: false,
+        error: error.error || 'Google authentication failed',
       }
-    }, 60000)
-  })
-}
+    }
 
-/**
- * Render Google Sign-In button into container
- */
-export async function renderGoogleButton(containerId: string): Promise<boolean> {
-  const initialized = await initializeGoogleAuth()
-  if (!initialized) return false
+    const data = await response.json()
 
-  const container = document.getElementById(containerId)
-  if (!container) {
-    console.error(`[OAuth] Container #${containerId} not found`)
-    return false
+    return {
+      success: true,
+      user: data.user as AuthUser,
+    }
+  } catch (error) {
+    console.error('[OAuth] Google callback error:', error)
+    return {
+      success: false,
+      error: 'Failed to complete Google authentication',
+    }
   }
-
-  window.google?.accounts.id.renderButton(container, {
-    type: 'standard',
-    theme: 'filled_black',
-    size: 'large',
-    text: 'continue_with',
-    shape: 'rectangular',
-    width: 300,
-  })
-
-  return true
 }
 
 /**
- * Sign out from Google
+ * Check if current URL is Google callback
  */
+export function isGoogleCallback(): boolean {
+  const url = new URL(window.location.href)
+  return (
+    url.pathname === '/auth/callback/google' &&
+    url.searchParams.has('code') &&
+    url.searchParams.has('state')
+  )
+}
+
+/**
+ * Get Google callback parameters
+ */
+export function getGoogleCallbackParams(): { code: string; state: string } | null {
+  const url = new URL(window.location.href)
+  const code = url.searchParams.get('code')
+  const state = url.searchParams.get('state')
+
+  if (!code || !state) return null
+  return { code, state }
+}
+
+/**
+ * Mock Google OAuth for development (when backend is not available)
+ * This simulates a successful Google login
+ */
+export async function mockGoogleLogin(): Promise<OAuthResult> {
+  // Simulate network delay
+  await new Promise(resolve => setTimeout(resolve, 1000))
+
+  return {
+    success: true,
+    user: {
+      id: 'google-mock-123',
+      email: 'developer@google.local',
+      name: 'Google Developer',
+      picture: 'https://lh3.googleusercontent.com/a/default-user',
+      provider: 'google',
+    },
+  }
+}
+
+// ============================================================
+//  Legacy exports for backward compatibility (deprecated)
+// ============================================================
+
+/** @deprecated Use initiateGoogleLogin instead */
+export async function signInWithGoogle(): Promise<OAuthResult> {
+  // Redirect flow - this function now initiates redirect
+  initiateGoogleLogin()
+  // Return pending state since we're redirecting
+  return {
+    success: false,
+    error: 'Redirecting to Google...',
+  }
+}
+
+/** @deprecated No longer needed with redirect flow */
+export async function loadGoogleSdk(): Promise<boolean> {
+  return true // No SDK needed for redirect flow
+}
+
+/** @deprecated No longer needed with redirect flow */
+export async function initializeGoogleAuth(): Promise<boolean> {
+  return true // No initialization needed for redirect flow
+}
+
+/** @deprecated No longer needed with redirect flow */
+export async function renderGoogleButton(_containerId: string): Promise<boolean> {
+  console.warn('[OAuth] renderGoogleButton is deprecated. Use initiateGoogleLogin instead.')
+  return false
+}
+
+/** @deprecated No longer needed with redirect flow */
 export function signOutGoogle() {
-  window.google?.accounts.id.disableAutoSelect()
+  // No-op for redirect flow
 }

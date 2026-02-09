@@ -5,6 +5,8 @@ using Aevatar.Agents.AGUI;
 using Aevatar.Agents.Abstractions.EventSourcing;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
+using Aevatar.Agents.AI.Core;
+using Aevatar.Agents.AI.Core.Configuration;
 using Aevatar.Agents.AI.MEAI;
 using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Persistence.SQLite.GAgent.DependencyInjection;
@@ -23,10 +25,18 @@ builder.Configuration
     .AddJsonFile("appsettings.secrets.json", optional: true)
     .AddEnvironmentVariables();
 
+var demoOptions = new DemoOptions();
+builder.Configuration.GetSection("ProgressHookChatWebDemo").Bind(demoOptions);
+DemoAgentYamlBootstrap.EnsureDemoAgentYaml(demoOptions);
+
 builder.Services.Configure<DemoOptions>(builder.Configuration.GetSection("ProgressHookChatWebDemo"));
 builder.Services.Configure<LLMProvidersConfig>(builder.Configuration.GetSection("LLMProviders"));
 
 builder.Services.AddSingleton<ILLMProviderFactory, MEAILLMProviderFactory>();
+builder.Services.AddSingleton<GlobalAgentYamlRegistry>();
+builder.Services.AddSingleton<RoleAgentFactory>();
+builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IEventModuleFactory, DemoEventModuleFactory>());
+builder.Services.TryAddSingleton<IEventRouteEvaluator, DefaultEventRouteEvaluator>();
 
 var sqliteConn = builder.Configuration["ProgressHookChatWebDemo:SqliteConnection"];
 if (string.IsNullOrWhiteSpace(sqliteConn))

@@ -7,7 +7,9 @@ import type {
   ResearchBrief,
   SystemStats,
   DAGGraph,
-  ToolSummary
+  ToolSummary,
+  ClassifiedEvent,
+  VotingStatus,
 } from "@/types"
 
 // ============================================================================
@@ -270,6 +272,13 @@ interface SisyphusState {
   // Raw Events (for debugging)
   rawEvents: unknown[]
   addRawEvent: (event: unknown) => void
+
+  // Event Inspector (Workflow Events)
+  workflowEvents: ClassifiedEvent[]
+  votingStatus: VotingStatus | null
+  addWorkflowEvent: (event: ClassifiedEvent) => void
+  updateVotingStatus: (status: Partial<VotingStatus>) => void
+  clearWorkflowEvents: () => void
 
   // Reset state for new session
   resetForNewSession: () => void
@@ -586,6 +595,19 @@ export const useSisyphusStore = create<SisyphusState>((set) => ({
     // In production: no-op for maximum performance
   },
 
+  // === Event Inspector (Workflow Events) ===
+  workflowEvents: [],
+  votingStatus: null,
+  addWorkflowEvent: (event) => set((state) => ({
+    workflowEvents: [...state.workflowEvents.slice(-199), event], // Keep last 200
+  })),
+  updateVotingStatus: (status) => set((state) => ({
+    votingStatus: state.votingStatus 
+      ? { ...state.votingStatus, ...status }
+      : status as VotingStatus,
+  })),
+  clearWorkflowEvents: () => set({ workflowEvents: [], votingStatus: null }),
+
   // === Reset for new session ===
   resetForNewSession: () =>
     set({
@@ -603,6 +625,8 @@ export const useSisyphusStore = create<SisyphusState>((set) => ({
       messages: [],
       researchBrief: null,
       rawEvents: [],
+      workflowEvents: [],
+      votingStatus: null,
       agentProviders: {},
       agentRoster: [],
       agentStatusReports: {},

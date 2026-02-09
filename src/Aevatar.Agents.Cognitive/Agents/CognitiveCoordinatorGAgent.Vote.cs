@@ -20,7 +20,7 @@ namespace Aevatar.Agents.Cognitive.Agents;
 
 public partial class CognitiveCoordinatorGAgent
 {
-    private async Task<PrimitiveResult> ExecuteVoteAsync(StepDefinition step)
+    internal async Task<PrimitiveResult> ExecuteVoteAsync(StepDefinition step)
     {
         var k = ResolveIntParameter(step.Parameters, "k", 3);
         var maxRounds = ResolveIntParameter(step.Parameters, "max_rounds", 10);

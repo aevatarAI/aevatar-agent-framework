@@ -35,7 +35,7 @@ Phase 6: 高级功能            📋 计划中
                     │ ExecuteStepRequestEvent
                     ↓
 ┌────────────────────────────────────────────┐
-│   CognitiveWorkerGAgent (执行器)           │
+│   RoleAIGAgent + CognitiveStepExecutionHandler │
 │   - 接收任务事件                           │
 │   - 执行 LLM 调用                          │
 │   - 返回结果事件                           │
@@ -49,7 +49,7 @@ Phase 6: 高级功能            📋 计划中
 | 文件 | 说明 |
 |------|------|
 | `CognitiveCoordinatorGAgent.cs` | 工作流协调器 |
-| `CognitiveWorkerGAgent.cs` | LLM 执行器 |
+| `CognitiveStepExecutionHandler.cs` | LLM 执行器 |
 | `cognitive_messages.proto` | Protobuf 事件定义 |
 
 ---

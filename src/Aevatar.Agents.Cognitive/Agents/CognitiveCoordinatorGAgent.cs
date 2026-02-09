@@ -1,8 +1,9 @@
 using System.Collections.Concurrent;
+using System.Linq;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Threading;
 using Aevatar.Agents.Abstractions;
-using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Abstractions.Tracing;
@@ -37,7 +38,7 @@ namespace Aevatar.Agents.Cognitive.Agents;
 /// 
 /// This follows MAKER design pattern:
 /// - MakerCoordinatorGAgent → CognitiveCoordinatorGAgent
-/// - MakerWorkerGAgent → CognitiveWorkerGAgent
+/// - MakerWorkerGAgent → RoleAIGAgent (Cognitive Step Handler)
 /// </summary>
 public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<CognitiveCoordinatorState>
 {
@@ -48,6 +49,7 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
     private readonly TemplateEngine _templateEngine = new();
     private readonly OutputParserFactory _parserFactory = new();
     private readonly InMemoryWorkflowRegistry _workflowRegistry = new();
+    private readonly CognitiveStepExecutionHandler _stepExecutionHandler = new();
 
     // ============================================================
     //  Runtime State
@@ -80,14 +82,13 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
     // Token-free primitives
     private TransformExecutor? _transformExecutor;
     private RetrieveFactsExecutor? _retrieveFactsExecutor;
-    private HpaExecutor? _hpaExecutor;
 
     // Step event tracking (for frontend visualization)
-    private readonly List<WorkflowStepEvent> _stepEvents = [];
+    private readonly ConcurrentQueue<WorkflowStepEvent> _stepEvents = new();
     private readonly ConcurrentDictionary<string, DateTime> _stepStartTimes = new();
     private Action<WorkflowStepEvent>? _onStepEvent;
-    private readonly object _stepEventsLock = new(); // May have concurrent writes during vote parallel generation
-    private readonly object _statsLock = new(); // Accumulate statistics under multiple parallel tasks, avoid loss/confusion
+    private int _totalTokensUsed;
+    private int _totalLlmCalls;
 
     // ExecutionTrace store (injected by ExecutionTraceStoreInjector, best-effort)
     protected IExecutionTraceStore? ExecutionTraceStore { get; set; }
@@ -114,6 +115,12 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
 
     protected override async Task RegisterToolsAsync(CancellationToken cancellationToken = default)
     {
+        if (ToolEvolutionOptions.EnableToolCalls)
+        {
+            await base.RegisterToolsAsync(cancellationToken);
+            return;
+        }
+
         if (!EnableSkillTools)
             return;
 
@@ -142,6 +149,8 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
         // ============================================================
         CustomState.MaxDepth = 50;
         CustomState.Status = ExecutionStatus.EsPending;
+        _totalTokensUsed = CustomState.TotalTokensUsed;
+        _totalLlmCalls = CustomState.TotalLlmCalls;
 
         // Enable Red-Flag strategy by default, limit max content length to 102400
         _redFlagStrategy ??= new DefaultEnglishRedFlagStrategy(new RedFlagOptions
@@ -149,6 +158,8 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
             MaxContentLength = 102400,
             EnableLengthValidation = true
         });
+
+        EnsureCoordinatorEventModules();
         
         Logger.LogDebug("CognitiveCoordinatorGAgent activated. Id={Id}", Id);
     }
@@ -158,6 +169,25 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
         return Task.FromResult(
             $"CognitiveCoordinator [{CustomState.ExecutionId}] - " +
             $"Phase: {CustomState.CurrentPhase}, Workers: {_workerIds.Count}");
+    }
+
+    private void EnsureCoordinatorEventModules()
+    {
+        var modules = GetEventModules();
+        var hasWorkflow = modules.Any(m =>
+            string.Equals(m.Name, CoordinatorWorkflowEventModule.ModuleName, StringComparison.OrdinalIgnoreCase));
+        var hasParallel = modules.Any(m =>
+            string.Equals(m.Name, CoordinatorParallelEventModule.ModuleName, StringComparison.OrdinalIgnoreCase));
+
+        if (!hasWorkflow)
+        {
+            RegisterEventModule(new CoordinatorWorkflowEventModule());
+        }
+
+        if (!hasParallel)
+        {
+            RegisterEventModule(new CoordinatorParallelEventModule());
+        }
     }
 
     // ============================================================
@@ -244,25 +274,46 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
 
         for (var i = 0; i < ids.Count; i++)
         {
-            // Create Worker Actor
+            // Create Role-based Worker Actor
             var rawWorkerId = ids[i].ToString("D");
-            var workerActor = await _actorManager.CreateAndRegisterAsync<CognitiveWorkerGAgent>(rawWorkerId);
-            var workerActorId = workerActor.Id; // Normalized full ActorId: "CognitiveWorkerGAgent:RawId"
+            var workerActor = await _actorManager.CreateAndRegisterAsync<RoleAIGAgent>(rawWorkerId);
+            var workerActorId = workerActor.Id; // Normalized full ActorId: "RoleAIGAgent:RawId"
 
-            if (workerActor.GetAgent() is CognitiveWorkerGAgent worker)
+            try
             {
-                // Reuse AIGAgentBase history switch (default off)
-                worker.EnableChatHistoryInState = EnableChatHistoryInState;
-                worker.EnableChatHistoryCompaction = EnableChatHistoryCompaction;
-                worker.ChatHistoryMaxMessages = ChatHistoryMaxMessages;
-                worker.ChatHistorySummaryMaxChars = ChatHistorySummaryMaxChars;
-
-                // Initialize Worker's LLM Provider (otherwise Worker.LLMProvider will throw exception)
-                // Use config-based init to avoid ILLMProviderFactory lookup issues with runtime-configured providers.
-                if (providerConfig != null)
+                if (workerActor.GetAgent() is RoleAIGAgent worker)
                 {
-                    await worker.InitializeAsync(providerConfig, cancellationToken: CancellationToken.None);
+                    // Reuse AIGAgentBase history switch (default off)
+                    worker.EnableChatHistoryInState = EnableChatHistoryInState;
+                    worker.EnableChatHistoryCompaction = EnableChatHistoryCompaction;
+                    worker.ChatHistoryMaxMessages = ChatHistoryMaxMessages;
+                    worker.ChatHistorySummaryMaxChars = ChatHistorySummaryMaxChars;
+
+                    if (!string.IsNullOrWhiteSpace(SessionId))
+                    {
+                        worker.ConfigureSessionContext(
+                            SessionId!,
+                            EnableSessionMemoryStoreAppend,
+                            EnableMemoryStoreAppend);
+                    }
+
+                    worker.ToolEvolutionOptions = ToolEvolutionOptions;
+
+                    worker.SetStepExecutionHandler(_stepExecutionHandler);
+
+                    // Initialize Worker's LLM Provider (otherwise Worker.LLMProvider will throw exception)
+                    // Use config-based init to avoid ILLMProviderFactory lookup issues with runtime-configured providers.
+                    if (providerConfig != null)
+                    {
+                        await worker.InitializeAsync(providerConfig, cancellationToken: CancellationToken.None);
+                    }
                 }
+            }
+            catch (NotSupportedException)
+            {
+                Logger.LogWarning(
+                    "Worker configuration requires local runtime to access agent {AgentId}",
+                    workerActorId);
             }
 
             // Set parent-child relationship (Worker subscribes to Coordinator's stream)
@@ -287,128 +338,104 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
     /// <summary>
     /// Get execution result
     /// </summary>
-    public WorkflowResult GetResult() => new()
+    public WorkflowResult GetResult()
     {
-        Success = CustomState.Status == ExecutionStatus.EsCompleted,
-        Output = _workflowVariables.GetValueOrDefault("_output"),
-        Error = string.IsNullOrWhiteSpace(CustomState.Error) ? null : CustomState.Error,
-        TotalTokens = CustomState.TotalTokensUsed,
-        TotalLlmCalls = CustomState.TotalLlmCalls
-    };
+        SyncStatsSnapshot();
+        return new WorkflowResult
+        {
+            Success = CustomState.Status == ExecutionStatus.EsCompleted,
+            Output = _workflowVariables.GetValueOrDefault("_output"),
+            Error = string.IsNullOrWhiteSpace(CustomState.Error) ? null : CustomState.Error,
+            TotalTokens = CustomState.TotalTokensUsed,
+            TotalLlmCalls = CustomState.TotalLlmCalls
+        };
+    }
 
     // ============================================================
     //  Event Handling
     // ============================================================
 
-    private async Task<PrimitiveResult> ExecuteStepAsync(StepDefinition step)
+    private CognitiveStepExecutor? _stepExecutor;
+
+    private Task<PrimitiveResult> ExecuteStepAsync(StepDefinition step)
+        => (_stepExecutor ??= BuildStepExecutor()).ExecuteAsync(step);
+
+    private CognitiveStepExecutor BuildStepExecutor()
     {
-        // Pre-render prompt for start event (ensure WORKERS panel can display complete prompt)
-        string? preRenderedPrompt = null;
-        string? preRenderedSystem = null;
-
-        if (step.Type == "llm_call")
-        {
-            var rawPrompt = step.Parameters.GetValueOrDefault("prompt")?.ToString() ?? "";
-            var rawSystem = step.Parameters.GetValueOrDefault("system")?.ToString();
-
-            preRenderedPrompt = _templateEngine.Render(rawPrompt, _workflowVariables);
-            if (rawSystem != null)
-                preRenderedSystem = _templateEngine.Render(rawSystem, _workflowVariables);
-
-            // Debug: If task variable is empty, log warning
-            if (rawPrompt.Contains("{{task}}") &&
-                string.IsNullOrWhiteSpace(_workflowVariables.GetValueOrDefault("task")?.ToString()))
-            {
-                Logger.LogWarning("[{Step}] WARNING: task variable is empty! Available vars: {Vars}",
-                    step.Id, string.Join(", ", _workflowVariables.Keys));
-            }
-        }
-
-        // Send start event (includes pre-rendered prompt)
-        EmitStepEvent(step, StepStatus.Running,
-            userPrompt: preRenderedPrompt,
-            systemPrompt: preRenderedSystem);
-
-        try
-        {
-            var result = step.Type switch
-            {
-                // Simple step: Coordinator executes directly (pass pre-rendered prompt to avoid duplicate rendering)
-                "llm_call" => await ExecuteLlmCallDirectAsync(step, preRenderedPrompt, preRenderedSystem),
-                "conditional" => await ExecuteConditionalAsync(step),
-
-                // Parallel step: Distribute to Workers (true Actor parallelism)
-                "fan_out" => await ExecuteFanOutAsync(step),
-                "parallel" => await ExecuteParallelAsync(step),
-
-                // Others
-                "vote" => await ExecuteVoteAsync(step),
-                "workflow_call" => await ExecuteWorkflowCallAsync(step),
-                "checkpoint" => await ExecuteCheckpointAsync(step),
-                "assign" => await ExecuteAssignAsync(step),
-                "transform" => await ExecuteTransformAsync(step),
-                "retrieve_facts" => await ExecuteRetrieveFactsAsync(step),
-                "hpa" => await ExecuteHpaAsync(step),
-
-                // Deterministic workspace primitives (coordinator-only)
-                "workspace_read_file" => await ExecuteWorkspaceReadFileAsync(step),
-                "workspace_code_search" => await ExecuteWorkspaceCodeSearchAsync(step),
-                "workspace_apply_patch" => await ExecuteWorkspaceApplyPatchAsync(step),
-                "sandbox_command" => await ExecuteSandboxCommandAsync(step),
-
-                _ => PrimitiveResult.Fail($"Unknown step type: {step.Type}")
-            };
-
-            // Send completion/failure event (includes conversation history)
-            EmitStepEvent(step,
-                result.Success ? StepStatus.Completed : StepStatus.Failed,
-                result.Success ? null : result.Error,
-                progress: 1.0f,
-                systemPrompt: result.SystemPrompt,
-                userPrompt: result.UserPrompt,
-                assistantResponse: result.AssistantResponse,
-                winnerProposalId: result.WinnerProposalId,
-                winnerHash: result.WinnerHash,
-                winnerVotes: result.WinnerVotes,
-                winnerRunnerUpVotes: result.WinnerRunnerUpVotes,
-                winnerClusterCount: result.WinnerClusterCount,
-                winnerSemantic: result.WinnerSemantic,
-                winnerIsConsensus: result.WinnerIsConsensus);
-
-            return result;
-        }
-        catch (Exception ex)
-        {
-            EmitStepEvent(step, StepStatus.Failed, ex.Message);
-            throw;
-        }
+        return CognitiveStepExecutorFactory.CreateForCoordinator(this, SnapshotStepModules());
     }
 
-    private Task<PrimitiveResult> ExecuteTransformAsync(StepDefinition step)
+    internal void EmitStepStart(StepDefinition step, string? userPrompt, string? systemPrompt)
+        => EmitStepEvent(step, StepStatus.Running, userPrompt: userPrompt, systemPrompt: systemPrompt);
+
+    internal void EmitStepCompleted(StepDefinition step, PrimitiveResult result)
+        => EmitStepEvent(step,
+            result.Success ? StepStatus.Completed : StepStatus.Failed,
+            result.Success ? null : result.Error,
+            progress: 1.0f,
+            systemPrompt: result.SystemPrompt,
+            userPrompt: result.UserPrompt,
+            assistantResponse: result.AssistantResponse,
+            winnerProposalId: result.WinnerProposalId,
+            winnerHash: result.WinnerHash,
+            winnerVotes: result.WinnerVotes,
+            winnerRunnerUpVotes: result.WinnerRunnerUpVotes,
+            winnerClusterCount: result.WinnerClusterCount,
+            winnerSemantic: result.WinnerSemantic,
+            winnerIsConsensus: result.WinnerIsConsensus);
+
+    internal void EmitStepError(StepDefinition step, Exception ex)
+        => EmitStepEvent(step, StepStatus.Failed, ex.Message);
+
+    private ICognitiveStepModule[] SnapshotStepModules()
+    {
+        var modules = GetEventModules();
+        if (modules.Count == 0)
+            return Array.Empty<ICognitiveStepModule>();
+
+        var list = new List<ICognitiveStepModule>();
+        foreach (var module in modules)
+        {
+            if (module is ICognitiveStepModule stepModule)
+                list.Add(stepModule);
+        }
+
+        return list.ToArray();
+    }
+
+    internal ILogger CoordinatorLogger => Logger;
+    internal TemplateEngine CoordinatorTemplateEngine => _templateEngine;
+    internal Dictionary<string, object> WorkflowVariables => _workflowVariables;
+
+    private void AddStats(int tokensUsed, int llmCalls)
+    {
+        if (tokensUsed != 0)
+            Interlocked.Add(ref _totalTokensUsed, tokensUsed);
+        if (llmCalls != 0)
+            Interlocked.Add(ref _totalLlmCalls, llmCalls);
+
+        SyncStatsSnapshot();
+    }
+
+    private void SyncStatsSnapshot()
+    {
+        CustomState.TotalTokensUsed = Volatile.Read(ref _totalTokensUsed);
+        CustomState.TotalLlmCalls = Volatile.Read(ref _totalLlmCalls);
+    }
+
+    
+
+    internal Task<PrimitiveResult> ExecuteTransformAsync(StepDefinition step)
     {
         _transformExecutor ??= new TransformExecutor(_templateEngine, Logger);
         var result = _transformExecutor.Execute(step, _workflowVariables);
         return Task.FromResult(result);
     }
 
-    private Task<PrimitiveResult> ExecuteRetrieveFactsAsync(StepDefinition step)
+    internal Task<PrimitiveResult> ExecuteRetrieveFactsAsync(StepDefinition step)
     {
         _retrieveFactsExecutor ??= new RetrieveFactsExecutor(_templateEngine, Logger);
         var result = _retrieveFactsExecutor.Execute(step, _workflowVariables);
-        return Task.FromResult(result);
-    }
-
-    private Task<PrimitiveResult> ExecuteHpaAsync(StepDefinition step)
-    {
-        // ============================================================
-        //  HPA (token-free, coordinator-only)
-        //
-        //  WHY:
-        //  - Extract HPA's "computable geometric layer" from prompt
-        //  - Allow workflow to use deterministic metrics for routing/scheduling, instead of letting LLM tell stories
-        // ============================================================
-        _hpaExecutor ??= new HpaExecutor(_templateEngine, Logger);
-        var result = _hpaExecutor.Execute(step, _workflowVariables);
         return Task.FromResult(result);
     }
 
@@ -416,7 +443,7 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
     //  Other Steps
     // ============================================================
 
-    private async Task<PrimitiveResult> ExecuteConditionalAsync(StepDefinition step)
+    internal async Task<PrimitiveResult> ExecuteConditionalAsync(StepDefinition step)
     {
         var conditionExpr = step.Condition ?? "false";
         object? conditionResult;
@@ -501,7 +528,7 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
     // NOTE: vote moved to `CognitiveCoordinatorGAgent.Vote.cs`
     // NOTE: parsing/parameters moved to `CognitiveCoordinatorGAgent.Parameters.cs`
 
-    private async Task<PrimitiveResult> ExecuteWorkflowCallAsync(StepDefinition step)
+    internal async Task<PrimitiveResult> ExecuteWorkflowCallAsync(StepDefinition step)
     {
         var rawWorkflowName = step.Workflow ?? "";
         var workflowName = _templateEngine.Render(rawWorkflowName, _workflowVariables).Trim();
@@ -631,7 +658,7 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
         return value > 0;
     }
 
-    private Task<PrimitiveResult> ExecuteCheckpointAsync(StepDefinition step)
+    internal Task<PrimitiveResult> ExecuteCheckpointAsync(StepDefinition step)
     {
         // Checkpoint is a token-free observability primitive.
         // It can optionally emit a JSON snapshot of selected workflow variables (or dotted paths),
@@ -704,7 +731,7 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
     //      from: "recursive_output.state"
     //      store: state
     // ============================================================
-    private Task<PrimitiveResult> ExecuteAssignAsync(StepDefinition step)
+    internal Task<PrimitiveResult> ExecuteAssignAsync(StepDefinition step)
     {
         var from = step.Parameters.GetValueOrDefault("from")?.ToString();
         if (string.IsNullOrWhiteSpace(from))

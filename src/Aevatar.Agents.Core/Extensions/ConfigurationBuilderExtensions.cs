@@ -32,6 +32,23 @@ public static class ConfigurationBuilderExtensions
 
         builder.Add(new AevatarUserConfigConfigurationSource(options));
         builder.Add(new AevatarUserSecretsConfigurationSource(options));
+
+        // Best-effort: load ~/.aevatar/mcp.json (Cursor-style MCP config)
+        try
+        {
+            var configPath = options.ResolveConfigPath();
+            var dir = Path.GetDirectoryName(configPath);
+            if (!string.IsNullOrWhiteSpace(dir))
+            {
+                var mcpPath = Path.Combine(dir, "mcp.json");
+                builder.AddJsonFile(mcpPath, optional: true, reloadOnChange: true);
+            }
+        }
+        catch
+        {
+            // best-effort only
+        }
+
         return builder;
     }
 
@@ -50,6 +67,85 @@ public static class ConfigurationBuilderExtensions
         services.AddSingleton(options);
         services.AddSingleton<IAevatarUserSecretsStore, FileAevatarUserSecretsStore>();
         return services;
+    }
+
+    // ============================================================
+    //  共享 helper | shared helper
+    // ============================================================
+
+    private static void TryEnableReloadOnChangeCore(
+        AevatarUserSecretsOptions options,
+        ref FileSystemWatcher? watcher,
+        Func<string> resolvePath,
+        Action onReload)
+    {
+        if (!options.ReloadOnChange)
+            return;
+
+        if (watcher != null)
+            return;
+
+        string path;
+        try
+        {
+            path = resolvePath();
+        }
+        catch
+        {
+            return;
+        }
+
+        var dir = Path.GetDirectoryName(path);
+        var file = Path.GetFileName(path);
+        if (string.IsNullOrWhiteSpace(dir) || string.IsNullOrWhiteSpace(file))
+            return;
+
+        try
+        {
+            if (!Directory.Exists(dir))
+                return;
+
+            watcher = new FileSystemWatcher(dir, file)
+            {
+                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.FileName
+            };
+
+            watcher.Changed += (_, _) => onReload();
+            watcher.Created += (_, _) => onReload();
+            watcher.Renamed += (_, _) => onReload();
+            watcher.Deleted += (_, _) => onReload();
+            watcher.EnableRaisingEvents = true;
+        }
+        catch
+        {
+            // best-effort only
+        }
+    }
+
+    private static void ReloadBestEffortCore(Action loadAction, Action onReload)
+    {
+        try
+        {
+            loadAction();
+            onReload();
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static void DisposeWatcher(ref FileSystemWatcher? watcher)
+    {
+        try
+        {
+            watcher?.Dispose();
+            watcher = null;
+        }
+        catch
+        {
+            // ignore
+        }
     }
 
     // ============================================================
@@ -134,73 +230,17 @@ public static class ConfigurationBuilderExtensions
 
         public void Dispose()
         {
-            try
-            {
-                _watcher?.Dispose();
-                _watcher = null;
-            }
-            catch
-            {
-                // ignore
-            }
+            DisposeWatcher(ref _watcher);
         }
 
         private void TryEnableReloadOnChange()
         {
-            if (!_options.ReloadOnChange)
-                return;
-
-            if (_watcher != null)
-                return;
-
-            string path;
-            try
-            {
-                path = _options.ResolveConfigPath();
-            }
-            catch
-            {
-                return;
-            }
-
-            var dir = Path.GetDirectoryName(path);
-            var file = Path.GetFileName(path);
-            if (string.IsNullOrWhiteSpace(dir) || string.IsNullOrWhiteSpace(file))
-                return;
-
-            try
-            {
-                if (!Directory.Exists(dir))
-                    return;
-
-                _watcher = new FileSystemWatcher(dir, file)
-                {
-                    NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.FileName
-                };
-
-                _watcher.Changed += (_, _) => ReloadBestEffort();
-                _watcher.Created += (_, _) => ReloadBestEffort();
-                _watcher.Renamed += (_, _) => ReloadBestEffort();
-                _watcher.Deleted += (_, _) => ReloadBestEffort();
-                _watcher.EnableRaisingEvents = true;
-            }
-            catch
-            {
-                // best-effort only
-            }
+            TryEnableReloadOnChangeCore(_options, ref _watcher, _options.ResolveConfigPath, ReloadBestEffort);
         }
 
         private void ReloadBestEffort()
         {
-            try
-            {
-                Load();
-                OnReload();
-            }
-            catch
-            {
-                // ignore
-            }
+            ReloadBestEffortCore(Load, OnReload);
         }
     }
 
@@ -251,73 +291,17 @@ public static class ConfigurationBuilderExtensions
 
         public void Dispose()
         {
-            try
-            {
-                _watcher?.Dispose();
-                _watcher = null;
-            }
-            catch
-            {
-                // ignore
-            }
+            DisposeWatcher(ref _watcher);
         }
 
         private void TryEnableReloadOnChange()
         {
-            if (!_options.ReloadOnChange)
-                return;
-
-            if (_watcher != null)
-                return;
-
-            string path;
-            try
-            {
-                path = _options.ResolveSecretsPath();
-            }
-            catch
-            {
-                return;
-            }
-
-            var dir = Path.GetDirectoryName(path);
-            var file = Path.GetFileName(path);
-            if (string.IsNullOrWhiteSpace(dir) || string.IsNullOrWhiteSpace(file))
-                return;
-
-            try
-            {
-                if (!Directory.Exists(dir))
-                    return;
-
-                _watcher = new FileSystemWatcher(dir, file)
-                {
-                    NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.FileName
-                };
-
-                _watcher.Changed += (_, _) => ReloadBestEffort();
-                _watcher.Created += (_, _) => ReloadBestEffort();
-                _watcher.Renamed += (_, _) => ReloadBestEffort();
-                _watcher.Deleted += (_, _) => ReloadBestEffort();
-                _watcher.EnableRaisingEvents = true;
-            }
-            catch
-            {
-                // best-effort only
-            }
+            TryEnableReloadOnChangeCore(_options, ref _watcher, _options.ResolveSecretsPath, ReloadBestEffort);
         }
 
         private void ReloadBestEffort()
         {
-            try
-            {
-                Load();
-                OnReload();
-            }
-            catch
-            {
-                // ignore
-            }
+            ReloadBestEffortCore(Load, OnReload);
         }
     }
 }

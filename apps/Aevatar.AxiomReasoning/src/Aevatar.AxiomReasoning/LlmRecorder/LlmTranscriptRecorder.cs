@@ -79,17 +79,7 @@ public sealed class LlmTranscriptRecorder
                         MaxDurationMinutes = session.MaxDurationMinutes,
                         MaxLlmCallsBudget = session.MaxLlmCallsBudget,
                         MaxTokensBudget = session.MaxTokensBudget,
-                        ContinueOnFailure = session.ContinueOnFailure,
-                        HpaEnabled = session.HpaEnabled,
-                        HpaAlpha = session.HpaAlpha,
-                        HpaSeedPhase = session.HpaSeedPhase,
-                        HpaBetaModel = session.HpaBetaModel,
-                        HpaBeta0 = session.HpaBeta0,
-                        HpaBeta1 = session.HpaBeta1,
-                        HpaSeed = session.HpaSeed,
-                        MinCoherence = session.MinCoherence,
-                        MaxGapNorm = session.MaxGapNorm,
-                        MaxAssociatorMean = session.MaxAssociatorMean
+                        ContinueOnFailure = session.ContinueOnFailure
                     },
                     Input = new SessionInput
                     {
@@ -812,16 +802,6 @@ public sealed class LlmTranscriptRecorder
         public int MaxLlmCallsBudget { get; init; }
         public long MaxTokensBudget { get; init; }
         public bool ContinueOnFailure { get; init; }
-        public bool HpaEnabled { get; init; }
-        public double HpaAlpha { get; init; }
-        public double HpaSeedPhase { get; init; }
-        public string HpaBetaModel { get; init; } = "";
-        public double HpaBeta0 { get; init; }
-        public double HpaBeta1 { get; init; }
-        public int HpaSeed { get; init; }
-        public double MinCoherence { get; init; }
-        public double MaxGapNorm { get; init; }
-        public double MaxAssociatorMean { get; init; }
     }
 
     private sealed record SessionInput

@@ -10,6 +10,7 @@ import Composer from './composer';
 import ToolOutputDisplay from './tool-output-display';
 import AgentTimeline from './agent-timeline';
 import WorkflowSteps from './workflow-steps';
+import { EventInspectorModal } from './event-inspector';
 import { AgentFlowGraph } from './agent-flow-graph';
 import type { ChatMessage, ToolOutput } from '@/types';
 
@@ -479,12 +480,17 @@ const AgentExpandedCard: React.FC<{ agentName: string; onClose: () => void }> = 
 
 const AgentsPanel: React.FC<AgentsPanelProps> = memo(({ agentNames, isVibeMode, hasActiveRun, sessionId }) => {
   const [showDrawer, setShowDrawer] = useState(false);
+  const [showEventInspector, setShowEventInspector] = useState(false);
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   
   // Get streaming count from isolated store
   const streamingCount = useStreamContentStore((s) => 
     agentNames.filter(name => s.agentStreams[name]?.isStreaming).length
   );
+
+  // Get workflow events and voting status from store
+  const workflowEvents = useSisyphusStore((s) => s.workflowEvents);
+  const votingStatus = useSisyphusStore((s) => s.votingStatus);
 
   // Don't show if nothing to display
   if (!isVibeMode || !hasActiveRun || agentNames.length === 0) return null;
@@ -507,29 +513,51 @@ const AgentsPanel: React.FC<AgentsPanelProps> = memo(({ agentNames, isVibeMode, 
             <span className="text-neon-gold">{streamingCount}</span>/{agentNames.length}
           </span>
         </div>
-        <button
-          onClick={() => setShowDrawer(true)}
-          className={cn(
-            "group relative text-[10px] font-medium px-3 py-1.5 rounded-lg transition-all duration-300 flex items-center gap-1.5",
-            "bg-gradient-to-r from-neon-gold/20 to-neon-gold/10",
-            "border border-neon-gold/50 text-neon-gold",
-            "hover:from-neon-gold/30 hover:to-neon-gold/20 hover:border-neon-gold hover:shadow-glow-gold",
-            "active:scale-95"
-          )}
-        >
-          {/* Pulse indicator */}
-          <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-neon-gold animate-ping opacity-75" />
-          <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-neon-gold" />
-          
-          {/* Icon */}
-          <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
-          </svg>
-          <span>Dashboard</span>
-          <svg className="size-3 transition-transform group-hover:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
+        
+        {/* Action Buttons */}
+        <div className="flex items-center gap-2">
+          {/* Makers Button - Opens Event Inspector with Maker consensus flow */}
+          <button
+            onClick={() => setShowEventInspector(true)}
+            className={cn(
+              "group text-[10px] font-medium px-3 py-1.5 rounded-lg transition-all duration-300 flex items-center gap-1.5",
+              "bg-gradient-to-r from-neon-cyan/20 to-neon-cyan/10",
+              "border border-neon-cyan/50 text-neon-cyan",
+              "hover:from-neon-cyan/30 hover:to-neon-cyan/20 hover:border-neon-cyan hover:shadow-glow-cyan",
+              "active:scale-95"
+            )}
+          >
+            <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+            <span>Makers</span>
+          </button>
+
+          {/* Dashboard Button */}
+          <button
+            onClick={() => setShowDrawer(true)}
+            className={cn(
+              "group relative text-[10px] font-medium px-3 py-1.5 rounded-lg transition-all duration-300 flex items-center gap-1.5",
+              "bg-gradient-to-r from-neon-gold/20 to-neon-gold/10",
+              "border border-neon-gold/50 text-neon-gold",
+              "hover:from-neon-gold/30 hover:to-neon-gold/20 hover:border-neon-gold hover:shadow-glow-gold",
+              "active:scale-95"
+            )}
+          >
+            {/* Pulse indicator */}
+            <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-neon-gold animate-ping opacity-75" />
+            <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-neon-gold" />
+            
+            {/* Icon */}
+            <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
+            </svg>
+            <span>Dashboard</span>
+            <svg className="size-3 transition-transform group-hover:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* Horizontal scrolling chips - each chip has its own subscription */}
@@ -558,6 +586,17 @@ const AgentsPanel: React.FC<AgentsPanelProps> = memo(({ agentNames, isVibeMode, 
         agentNames={agentNames}
         sessionId={sessionId}
       />
+
+      {/* Event Inspector Drawer */}
+      {sessionId && (
+        <EventInspectorModal
+          isOpen={showEventInspector}
+          onClose={() => setShowEventInspector(false)}
+          sessionId={sessionId}
+          events={workflowEvents}
+          votingStatus={votingStatus}
+        />
+      )}
     </div>
   );
 });

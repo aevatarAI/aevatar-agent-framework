@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "memoryId": "session::d57573ca2fe941bf95d3c02a44199c31",
+  "scopeType": "Session",
+  "scopeId": "d57573ca2fe941bf95d3c02a44199c31",
+  "entryCount": 5,
+  "latestAtUtc": "2026-01-29T06:45:14.694843+00:00",
+  "files": {
+    "entriesBinary": "entries.pb",
+    "manifest": "manifest.json"
+  }
+}

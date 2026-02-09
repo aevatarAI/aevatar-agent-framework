@@ -32,7 +32,8 @@ public class AIGAgentWithToolBaseTests
         
         // Setup default event publisher behavior
         _mockEventPublisher
-            .Setup(p => p.PublishEventAsync(It.IsAny<IMessage>(), It.IsAny<EventDirection>(), It.IsAny<CancellationToken>()))
+            .Setup(p => p.PublishEventAsync(It.IsAny<IMessage>(), It.IsAny<EventDirection>(),
+                It.IsAny<CancellationToken>(), It.IsAny<bool>()))
             .ReturnsAsync("test-event-id");
     }
 

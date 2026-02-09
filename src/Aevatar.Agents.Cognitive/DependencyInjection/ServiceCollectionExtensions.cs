@@ -1,8 +1,11 @@
 using System.IO;
+using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Cognitive.Engine;
+using Aevatar.Agents.Cognitive.Execution;
 using Aevatar.Agents.Cognitive.Primitives;
 using Aevatar.Agents.Cognitive.Template;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Aevatar.Agents.Cognitive.DependencyInjection;
 
@@ -55,6 +58,9 @@ public static class ServiceCollectionExtensions
             
             return registry;
         });
+
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IEventModuleFactory, CognitiveEventModuleFactory>());
+        services.TryAddSingleton<IEventRouteEvaluator, CognitiveEventRouteEvaluator>();
         
         return services;
     }

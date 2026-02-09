@@ -31,7 +31,7 @@
 
 ### 2.3 Token-Free First
 
-- 确定性处理（聚合/过滤/去重/事实检索/指标计算）应优先走 token-free primitives（如 `transform/retrieve_facts/hpa`）。
+- 确定性处理（聚合/过滤/去重/事实检索/指标计算）应优先走 token-free primitives（如 `transform/retrieve_facts`）。
 - LLM 只做：生成、推理、证明草案、不可确定的决策。
 
 ---
@@ -52,7 +52,7 @@
 
 - **Runtime（Aevatar Data Plane）**
   - `CognitiveCoordinatorGAgent`：执行 YAML/IR 编译后的 workflow
-  - `CognitiveWorkerGAgent`：并行执行 `llm_call`（Actor 真实并行）
+  - `RoleAIGAgent` + `CognitiveStepExecutionHandler`：并行执行 `llm_call`（Actor 真实并行）
 
 ### 3.2 数据存储（建议）
 

@@ -20,11 +20,13 @@ public class LocalGAgentActorFactory : GAgentActorFactoryBase
         IServiceProvider serviceProvider,
         ILogger<LocalGAgentActorFactory> logger,
         ILoggerFactory loggerFactory,
+        LocalMessageStreamRegistry streamRegistry,
         IMessageStreamProvider? externalStreamProvider = null,
         IOptions<MessageStreamProviderOptions>? providerOptions = null)
         : base(serviceProvider, logger)
     {
-        _streamRegistry = new LocalMessageStreamRegistry();
+        // Use the shared registry from DI to ensure all components see the same streams.
+        _streamRegistry = streamRegistry ?? throw new ArgumentNullException(nameof(streamRegistry));
         _externalStreamProvider = externalStreamProvider;
         _providerOptions = providerOptions;
         _loggerFactory = loggerFactory;

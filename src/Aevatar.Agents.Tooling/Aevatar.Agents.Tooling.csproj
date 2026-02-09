@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <Authors>Aevatar Team</Authors>
+    <Description>Shared tooling catalog for agent tools</Description>
+    <PackageProjectUrl>https://github.com/aevatar/agent-framework</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/aevatar/agent-framework</RepositoryUrl>
+    <PackageTags>agents;tools;skills</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
+  </ItemGroup>
+
+</Project>

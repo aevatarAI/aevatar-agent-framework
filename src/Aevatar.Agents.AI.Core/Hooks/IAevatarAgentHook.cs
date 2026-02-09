@@ -69,6 +69,18 @@ public interface IAevatarAgentHook
         => Task.CompletedTask;
 
     /// <summary>
+    /// Called right before invoking an event handler (best-effort).
+    /// </summary>
+    Task BeforeEventHandlerAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
+        => Task.CompletedTask;
+
+    /// <summary>
+    /// Called right after invoking an event handler (best-effort).
+    /// </summary>
+    Task AfterEventHandlerAsync(AevatarAgentHookContext context, CancellationToken cancellationToken)
+        => Task.CompletedTask;
+
+    /// <summary>
     /// Called when an error happens during LLM/tool pipeline (best-effort).
     /// </summary>
     Task OnErrorAsync(AevatarAgentHookContext context, Exception exception, CancellationToken cancellationToken)

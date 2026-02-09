@@ -124,24 +124,6 @@ public static class AxiomAgUiEventStream
                     maxDurationMinutes = session.MaxDurationMinutes,
                     maxLlmCalls = session.MaxLlmCallsBudget,
                     maxTokens = session.MaxTokensBudget
-                },
-                hpa = new
-                {
-                    enabled = session.HpaEnabled,
-                    alpha = session.HpaAlpha,
-                    seedPhase = session.HpaSeedPhase,
-                    betaModel = session.HpaBetaModel,
-                    beta0 = session.HpaBeta0,
-                    beta1 = session.HpaBeta1,
-                    seed = session.HpaSeed,
-                    radialWBase = session.HpaRadialWBase,
-                    radialWScale = session.HpaRadialWScale,
-                    gates = new
-                    {
-                        minCoherence = session.MinCoherence,
-                        maxGapNorm = session.MaxGapNorm,
-                        maxAssociatorMean = session.MaxAssociatorMean
-                    }
                 }
             }
         };

@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom'
 import { RotateCcw, Sparkles, Loader2, GitBranch, RefreshCw, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getGlobalDagSnapshot, type DagSnapshot, type DagNode as ApiDagNode } from '@/lib/axiom-client'
+import { normalizeNodeKind } from '@/lib/dag-utils'
 import type { DAGGraph, DAGNode } from '@/types'
 import {
   createPersistentSimulation,
@@ -24,7 +25,7 @@ function transformApiData(snapshot: DagSnapshot): DAGGraph {
   const nodes: DAGNode[] = (snapshot.nodes || []).map((node: ApiDagNode) => ({
     id: node.id,
     label: node.label || node.id,
-    kind: (node.kind as 'Plan' | 'Knowledge') || 'Knowledge',
+    kind: normalizeNodeKind(node.kind) || 'Knowledge',
     status: 'completed',
     type: node.type || 'Knowledge',
     proof: node.proof,

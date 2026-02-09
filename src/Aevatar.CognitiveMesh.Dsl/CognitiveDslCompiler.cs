@@ -11,6 +11,8 @@ using Aevatar.CognitiveMesh.Dsl.Models;
 using Aevatar.CognitiveMesh.Dsl.Options;
 using Aevatar.CognitiveMesh.Dsl.Validation;
 using Aevatar.CognitiveMesh.Dsl.Validation.Rules;
+using YamlDotNet.Serialization;
+using YamlDotNet.Serialization.NamingConventions;
 
 namespace Aevatar.CognitiveMesh.Dsl;
 
@@ -121,6 +123,137 @@ public sealed class CognitiveDslCompiler
         if (allErrors.Length > 0)
         {
             throw new DslCompilationException("DSL 校验失败", allErrors);
+        }
+    }
+}
+
+public static class MeshInputCoercer
+{
+    private static readonly JsonSerializerOptions Json = new() { WriteIndented = false };
+    private static readonly IDeserializer Yaml = new DeserializerBuilder()
+        .IgnoreUnmatchedProperties()
+        .WithNamingConvention(UnderscoredNamingConvention.Instance)
+        .Build();
+
+    public static (string Json, IReadOnlySet<string> NodeTypes) CoerceToJson(string raw)
+    {
+        raw = (raw ?? string.Empty).Replace("\r", "").Trim();
+        if (raw.Length == 0)
+            throw new ArgumentException("DSL 内容不能为空。", nameof(raw));
+
+        var trimmed = raw.TrimStart();
+        if (trimmed.StartsWith('{') || trimmed.StartsWith('['))
+        {
+            using var doc = JsonDocument.Parse(raw);
+            var nodeTypes = ExtractNodeTypesFromJson(doc.RootElement);
+            return (raw, nodeTypes);
+        }
+
+        var obj = Yaml.Deserialize<object>(raw);
+        var normalizedYaml = NormalizeYaml(obj);
+        var jsonText = JsonSerializer.Serialize(normalizedYaml, Json);
+        JsonDocument.Parse(jsonText);
+        return (jsonText, ExtractNodeTypes(normalizedYaml));
+    }
+
+    private static IReadOnlySet<string> ExtractNodeTypesFromJson(JsonElement root)
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (root.ValueKind != JsonValueKind.Object)
+            return set;
+
+        if (!root.TryGetProperty("nodes", out var nodes) || nodes.ValueKind != JsonValueKind.Array)
+            return set;
+
+        foreach (var node in nodes.EnumerateArray())
+        {
+            if (node.ValueKind != JsonValueKind.Object)
+                continue;
+            if (node.TryGetProperty("type", out var typeElem) && typeElem.ValueKind == JsonValueKind.String)
+            {
+                var t = (typeElem.GetString() ?? string.Empty).Trim();
+                if (t.Length > 0) set.Add(t);
+            }
+        }
+
+        return set;
+    }
+
+    private static IReadOnlySet<string> ExtractNodeTypes(object? normalized)
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (normalized is not Dictionary<string, object?> dict)
+            return set;
+
+        if (!dict.TryGetValue("nodes", out var nodesObj) || nodesObj is not IEnumerable<object?> nodes)
+            return set;
+
+        foreach (var node in nodes)
+        {
+            if (node is not Dictionary<string, object?> nodeDict)
+                continue;
+
+            if (nodeDict.TryGetValue("type", out var typeObj) && typeObj is string type)
+            {
+                var t = type.Trim();
+                if (t.Length > 0) set.Add(t);
+            }
+        }
+
+        return set;
+    }
+
+    private static object? NormalizeYaml(object? value)
+    {
+        switch (value)
+        {
+            case null:
+                return null;
+            case string s:
+            {
+                var t = s.Trim();
+                if (t.Equals("true", StringComparison.OrdinalIgnoreCase)) return true;
+                if (t.Equals("false", StringComparison.OrdinalIgnoreCase)) return false;
+                if (t is "0.1" or "0.2") return t;
+                if (int.TryParse(t, out var i)) return i;
+                if (long.TryParse(t, out var l)) return l;
+                if (double.TryParse(t, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out var d))
+                    return d;
+                return s;
+            }
+            case bool b:
+                return b;
+            case int i:
+                return i;
+            case long l:
+                return l;
+            case double d:
+                return d;
+            case float f:
+                return f;
+            case decimal m:
+                return (double)m;
+            case System.Collections.IDictionary dict:
+            {
+                var next = new Dictionary<string, object?>(StringComparer.Ordinal);
+                foreach (System.Collections.DictionaryEntry kv in dict)
+                {
+                    var k = (kv.Key?.ToString() ?? string.Empty).Trim();
+                    if (k.Length == 0) continue;
+                    next[k] = NormalizeYaml(kv.Value);
+                }
+                return next;
+            }
+            case System.Collections.IEnumerable seq when value is not string:
+            {
+                var list = new List<object?>();
+                foreach (var item in seq)
+                    list.Add(NormalizeYaml(item));
+                return list;
+            }
+            default:
+                return value.ToString();
         }
     }
 }

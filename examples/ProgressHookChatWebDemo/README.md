@@ -31,8 +31,43 @@ dotnet run --project examples/ProgressHookChatWebDemo/ProgressHookChatWebDemo.cs
 
 - **Progress Hook**：`ExecutionTraceProgressHook` 在 session/llm/tool 边界产生 `ExecutionTraceEvent`。
 - **投影到 AG‑UI**：后端订阅 agent stream → `AgUiTraceProjector.Map`。
-- **流式回复**：`ChatStreamAsync` 的 token 被实时转成 `TEXT_MESSAGE_*`。
+- **流式回复**：`ChatStreamAsync` 输出的内容通过 `ChatStreamChunkEvent` 转成 `TEXT_MESSAGE_*`。
 - **Session Demo + SQLite**：会话消息写入 SQLite MemoryStore；`/api/sessions` 可列出已有会话。
+
+## Agent YAML 装配 Demo
+
+这个 demo 会演示 **agent.yaml → event_modules 装配**：
+
+- 默认写入 `~/.aevatar/agents/progress_demo.yaml`（仅在文件不存在时）。
+- 通过 `extensions.event_modules / extensions.event_routes` 装配 `demo_chat_trace` 模块。
+- 模块会把 `ChatRequestEvent / ChatResponseEvent` 转成 `ExecutionTraceEvent`，UI 右侧可看到 `[agent.yaml]` 提示。
+
+如需关闭，设置：
+
+```json
+{
+  "ProgressHookChatWebDemo": {
+    "EnableAgentYaml": false
+  }
+}
+```
+
+示例 YAML（文件已自动生成，等价内容如下）：
+
+```yaml
+id: "progress_demo"
+name: "ProgressHookChatWebDemo"
+version: "1.0"
+system_prompt: |
+  You are a helpful assistant. (from agent.yaml)
+extensions:
+  event_modules: "demo_chat_trace"
+  event_routes: |
+    - when: event.type == "aevatar.agents.ai.core.ChatRequestEvent"
+      to: demo_chat_trace
+    - when: event.type == "aevatar.agents.ai.core.ChatResponseEvent"
+      to: demo_chat_trace
+```
 
 ## 可选：本地 appsettings.secrets.json
 

@@ -144,6 +144,7 @@ public abstract partial class AIGAgentBase : GAgentBase<AevatarAIAgentState, Aev
         // calling ActivateAsync again would cause infinite recursion.
 
         // Load state and config if stores are available
+        // NOTE: When event sourcing is active (Version > 0), avoid direct State assignment.
         if (StateStore != null && GetCurrentVersion() == 0)
         {
             State = await StateStore.LoadAsync(Id, cancellationToken) ?? new AevatarAIAgentState();

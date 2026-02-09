@@ -26,4 +26,17 @@ Tool/
 - **对外**：业务只依赖 `Aevatar.Agents.AI.Core`，通过 `AIGAgentBase` 自动获得工具能力
 - **对内**：`Tool/` 仅实现工具系统，不承载业务 Agent 逻辑
 
+## Tool Pack（可插拔工具集）
+
+> 目的：避免 Core 反向依赖具体工具库，同时支持 YAML 按需注册工具。
+
+- `IAevatarToolPack`：工具集合接口（由具体工具库实现，如 `Aevatar.Agents.AI.Tools`）
+- `AIGAgentBase.RegisterYamlToolPacksAsync(...)`：读取 YAML tools 列表，按需注册
+- 运行时通过 DI 注入 tool pack（`AddAevatarAiToolsPack()`）
+
+**最小使用方式**
+1. 应用引用工具库（`Aevatar.Agents.AI.Tools`）
+2. `services.AddAevatarAiToolsPack()`
+3. YAML 中声明 `tools: [ "file_read", "grep", ... ]`
+
 

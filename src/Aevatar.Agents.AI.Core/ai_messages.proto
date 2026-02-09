@@ -22,6 +22,8 @@ message ChatRequestEvent {
   // Optional parameters
   double temperature = 6;
   int32 max_tokens = 7;
+  // Streaming throttle: emit a chunk event every N tokens/chunks (default handled by server).
+  int32 stream_chunk_every_n = 8;
 }
 
 // Chat response event  
@@ -33,6 +35,15 @@ message ChatResponseEvent {
   google.protobuf.Timestamp timestamp = 5;
   // For now, using google.protobuf.Any until we can properly import from AI.Abstractions
   repeated google.protobuf.Any processing_steps = 6;
+}
+
+// Chat streaming chunk event
+message ChatStreamChunkEvent {
+  string request_id = 1;
+  string content = 2;
+  // 1-based sequence of emitted chunks (post-throttle)
+  int32 chunk_index = 3;
+  google.protobuf.Timestamp timestamp = 4;
 }
 
 // Note: ProcessingStep and ProcessingStepType are now defined in 

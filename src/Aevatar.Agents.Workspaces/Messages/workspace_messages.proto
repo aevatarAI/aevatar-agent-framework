@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package aevatar.workspaces;
+
+option csharp_namespace = "Aevatar.Agents.Workspaces.Messages";
+
+// Ping event to demonstrate [EventHandler] and YAML module handling.
+message WorkspacePingEvent {
+  string request_id = 1;
+  string content = 2;
+  int64 timestamp = 3;
+}
+
+// Pong response emitted by handlers/modules.
+message WorkspacePongEvent {
+  string request_id = 1;
+  string content = 2;
+  int64 timestamp = 3;
+}

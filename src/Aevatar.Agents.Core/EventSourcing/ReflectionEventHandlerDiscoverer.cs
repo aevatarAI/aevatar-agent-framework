@@ -12,16 +12,37 @@ public class ReflectionEventHandlerDiscoverer : IEventHandlerDiscoverer
 {
     public MethodInfo[] DiscoverEventHandlers(Type type)
     {
-        var methods = type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        var selected = new Dictionary<MethodInfo, MethodInfo>();
+        var current = type;
 
-        var handlers = methods
-            .Where(IsEventHandlerMethod)
+        while (current != null)
+        {
+            var methods = current.GetMethods(
+                BindingFlags.Instance |
+                BindingFlags.Public |
+                BindingFlags.NonPublic |
+                BindingFlags.DeclaredOnly);
+
+            foreach (var method in methods)
+            {
+                if (!IsEventHandlerMethod(method))
+                    continue;
+
+                var baseDefinition = method.GetBaseDefinition();
+                if (selected.ContainsKey(baseDefinition))
+                    continue;
+
+                selected[baseDefinition] = method;
+            }
+
+            current = current.BaseType;
+        }
+
+        return selected.Values
             .OrderBy(m => m.GetCustomAttribute<EventHandlerAttribute>()?.Priority ??
                           m.GetCustomAttribute<AllEventHandlerAttribute>()?.Priority ??
                           int.MaxValue)
             .ToArray();
-
-        return handlers;
     }
 
     /// <summary>

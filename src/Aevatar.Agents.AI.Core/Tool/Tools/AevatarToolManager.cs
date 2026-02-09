@@ -20,6 +20,7 @@ public class AevatarToolManager : IAevatarToolManager
 {
     private readonly ConcurrentDictionary<string, ToolDefinition> _tools = new();
     private readonly ILogger<AevatarToolManager> _logger;
+    private Aevatar.Agents.AI.Tool.Evolution.IToolEvolutionRegistry? _evolutionRegistry;
 
     // ------------------------------------------------------------
     // Protobuf JSON formatting (Any support)
@@ -60,9 +61,21 @@ public class AevatarToolManager : IAevatarToolManager
         }
     }
 
-    public AevatarToolManager(ILogger<AevatarToolManager> logger)
+    public AevatarToolManager(
+        ILogger<AevatarToolManager> logger,
+        Aevatar.Agents.AI.Tool.Evolution.IToolEvolutionRegistry? evolutionRegistry = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _evolutionRegistry = evolutionRegistry;
+    }
+
+    /// <summary>
+    /// Tool evolution registry (optional).
+    /// </summary>
+    public Aevatar.Agents.AI.Tool.Evolution.IToolEvolutionRegistry? EvolutionRegistry
+    {
+        get => _evolutionRegistry;
+        set => _evolutionRegistry = value;
     }
 
     /// <inheritdoc/>
@@ -85,6 +98,8 @@ public class AevatarToolManager : IAevatarToolManager
         _logger.LogInformation("Registered tool: {ToolName} (Category: {Category}, Version: {Version})",
             tool.Name, tool.Category, tool.Version);
 
+        _evolutionRegistry?.RegisterBaseTool(tool);
+
         return Task.CompletedTask;
     }
 
@@ -92,6 +107,13 @@ public class AevatarToolManager : IAevatarToolManager
     public async Task<IReadOnlyList<ToolDefinition>> GetAvailableToolsAsync(CancellationToken cancellationToken = default)
     {
         await Task.CompletedTask;
+        if (_evolutionRegistry != null)
+        {
+            var active = _evolutionRegistry.GetActiveTools();
+            if (active.Count > 0)
+                return active.Where(t => t.IsEnabled).ToList();
+        }
+
         return _tools.Values.Where(t => t.IsEnabled).ToList();
     }
 
@@ -108,7 +130,8 @@ public class AevatarToolManager : IAevatarToolManager
         var stopwatch = Stopwatch.StartNew();
         var toolCallId = Guid.NewGuid().ToString("N");
 
-        if (!_tools.TryGetValue(toolName, out var tool))
+        var resolvedTool = _evolutionRegistry?.ResolveToolForExecution(toolName);
+        if (resolvedTool == null && !_tools.TryGetValue(toolName, out resolvedTool))
         {
             _logger.LogError("Tool '{ToolName}' not found", toolName);
             var result = BuildFailureResult(
@@ -121,6 +144,7 @@ public class AevatarToolManager : IAevatarToolManager
             return result;
         }
 
+        var tool = resolvedTool;
         if (!IsExecutionAllowed(tool, context, out var denyReason))
         {
             _logger.LogWarning("Tool '{ToolName}' execution denied: {Reason}", toolName, denyReason);
@@ -159,6 +183,12 @@ public class AevatarToolManager : IAevatarToolManager
 
             await TryPublishToolExecutedEventAsync(toolName, parameters, result, context, cancellationToken);
             return result;
+        }
+
+        if (context != null)
+        {
+            context.Metadata["tool_version"] = tool.Version ?? string.Empty;
+            context.Metadata["tool_category"] = tool.Category.ToString();
         }
 
         _logger.LogDebug("Executing tool: {ToolName} for agent: {AgentId}", toolName, context?.AgentId ?? "unknown");

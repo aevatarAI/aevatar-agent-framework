@@ -26,11 +26,10 @@ public abstract partial class AIGAgentBase
 
     private static readonly IReadOnlyCollection<string> DefaultYamlSkillToolNames =
     [
-        "skills_list",
-        "skills_load",
+        // Prefer search-first flow; avoid auto-exposing full inventory tools by default.
         "find_helpful_skills",
         "find_helpful_alls",
-        "list_skills",
+        "skills_load",
         "read_skill_document",
         "skills_files",
         "skills_read_file",

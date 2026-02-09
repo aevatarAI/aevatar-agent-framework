@@ -215,19 +215,31 @@ public class LocalGAgentActor : GAgentActorBase
         if (_myStream != null)
         {
             // Store subscription handle for proper cleanup in OnDeactivateAsync
+            // Important: use CancellationToken.None for the callback to avoid premature cancellation
             _selfStreamSubscription = await _myStream.SubscribeAsync<EventEnvelope>(
                 async envelope =>
                 {
                     Logger.LogDebug("[SUBSCRIPTION] Agent {AgentId} received event {EventId} from stream", Id,
                         envelope.Id);
-                    await _eventGate.WaitAsync(ct);
                     try
                     {
-                    await HandleEventAsync(envelope, ct);
+                        Logger.LogDebug("[SUBSCRIPTION] Agent {AgentId} waiting for event gate", Id);
+                        await _eventGate.WaitAsync(CancellationToken.None);
+                        Logger.LogDebug("[SUBSCRIPTION] Agent {AgentId} acquired event gate, calling HandleEventAsync", Id);
+                        try
+                        {
+                            await HandleEventAsync(envelope, CancellationToken.None);
+                            Logger.LogDebug("[SUBSCRIPTION] Agent {AgentId} HandleEventAsync completed for event {EventId}", Id, envelope.Id);
+                        }
+                        finally
+                        {
+                            _eventGate.Release();
+                            Logger.LogDebug("[SUBSCRIPTION] Agent {AgentId} released event gate", Id);
+                        }
                     }
-                    finally
+                    catch (Exception ex)
                     {
-                        _eventGate.Release();
+                        Logger.LogError(ex, "[SUBSCRIPTION] Agent {AgentId} error processing event {EventId}", Id, envelope.Id);
                     }
                 },
                 null,

@@ -1,22 +1,32 @@
 import { useEffect, useRef, useState } from "react"
-import { useNavigate, useSearchParams } from "react-router-dom"
+import { useNavigate, useSearchParams, useLocation } from "react-router-dom"
 import { Loader2, AlertCircle, CheckCircle } from "lucide-react"
 import { AuthLayout } from "@/components/auth"
 import { Button } from "@/components/ui/button"
 import { useAuthStore } from "@/store/auth-store"
-import { handleGitHubCallback } from "@/lib/oauth"
+import { handleGitHubCallback, handleGoogleCallback } from "@/lib/oauth"
 
 // ============================================================
-//  OAuth Callback Page - Handles GitHub redirect
+//  OAuth Callback Page - Handles GitHub & Google redirects
 // ============================================================
+
+type OAuthProvider = "github" | "google" | "unknown"
+
+function detectProvider(pathname: string): OAuthProvider {
+  if (pathname.includes("/callback/github")) return "github"
+  if (pathname.includes("/callback/google")) return "google"
+  return "unknown"
+}
 
 export default function OAuthCallbackPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [searchParams] = useSearchParams()
   const { login } = useAuthStore()
   
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading")
   const [message, setMessage] = useState("Processing authentication...")
+  const [provider, setProvider] = useState<OAuthProvider>("unknown")
   const calledRef = useRef(false)
 
   useEffect(() => {
@@ -26,12 +36,15 @@ export default function OAuthCallbackPage() {
   }, [])
 
   const handleCallback = async () => {
+    const detectedProvider = detectProvider(location.pathname)
+    setProvider(detectedProvider)
+
     const code = searchParams.get("code")
     const state = searchParams.get("state")
     const error = searchParams.get("error")
     const errorDescription = searchParams.get("error_description")
 
-    // Handle OAuth error
+    // Handle OAuth error from provider
     if (error) {
       setStatus("error")
       setMessage(errorDescription || `OAuth error: ${error}`)
@@ -45,10 +58,19 @@ export default function OAuthCallbackPage() {
       return
     }
 
+    if (detectedProvider === "unknown") {
+      setStatus("error")
+      setMessage("Unknown OAuth provider. Please try again.")
+      return
+    }
+
     try {
-      setMessage("Completing authentication...")
+      setMessage(`Completing ${detectedProvider === "github" ? "GitHub" : "Google"} authentication...`)
       
-      const result = await handleGitHubCallback(code, state)
+      // Call the appropriate handler based on provider
+      const result = detectedProvider === "github"
+        ? await handleGitHubCallback(code, state)
+        : await handleGoogleCallback(code, state)
 
       if (result.success && result.user) {
         setStatus("success")
@@ -70,10 +92,12 @@ export default function OAuthCallbackPage() {
     }
   }
 
+  const providerName = provider === "github" ? "GitHub" : provider === "google" ? "Google" : "OAuth"
+
   return (
     <AuthLayout
       title={
-        status === "loading" ? "Authenticating..." :
+        status === "loading" ? `Authenticating with ${providerName}...` :
         status === "success" ? "Success!" :
         "Authentication Failed"
       }

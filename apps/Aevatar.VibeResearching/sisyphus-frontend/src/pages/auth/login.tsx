@@ -8,26 +8,26 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/ui/toast"
 import { abpLogin, type AuthResponse } from "@/lib/abp"
+import { useAuthStore } from "@/store/auth-store"
+import {
+  isGoogleConfigured,
+  isGitHubConfigured,
+  initiateGoogleLogin,
+  initiateGitHubLogin,
+} from "@/lib/oauth"
 
 // Demo credentials for testing (remove in production)
 const getDemoCredentials = () => ({
   admin: { email: "admin", password: "1q2w3E*" },  // ABP default
   user: { email: "testuser", password: "Abc@123" },
 })
-import { useAuthStore } from "@/store/auth-store"
-import {
-  isGoogleConfigured,
-  isGitHubConfigured,
-  signInWithGoogle,
-  initiateGitHubLogin,
-} from "@/lib/oauth"
-import type { OAuthUser } from "@/lib/oauth"
 
 // OAuth feature flag - set VITE_ENABLE_OAUTH=false to disable
 const OAUTH_ENABLED = import.meta.env.VITE_ENABLE_OAUTH !== 'false'
 
 // ============================================================
 //  Login Page - Email/Password + OAuth Social Login
+//  Both Google and GitHub use redirect flow for security
 // ============================================================
 
 export default function LoginPage() {
@@ -76,53 +76,23 @@ export default function LoginPage() {
     }
   }
 
-  // Convert OAuth user to AuthUser format
-  const convertOAuthUser = (oauthUser: OAuthUser) => ({
-    id: oauthUser.id,
-    userName: oauthUser.email.split('@')[0],
-    email: oauthUser.email,
-    name: oauthUser.name.split(' ')[0] || oauthUser.name,
-    surname: oauthUser.name.split(' ').slice(1).join(' ') || undefined,
-    roles: ['member'],
-    isAdmin: false,
-    avatarUrl: oauthUser.picture,
-  })
-
-  const handleGoogleLogin = async () => {
-    setIsLoading(true)
-
-    try {
-      if (isGoogleConfigured()) {
-        // Real Google OAuth with FedCM
-        const result = await signInWithGoogle()
-        
-        if (result.success && result.user) {
-          login(convertOAuthUser(result.user))
-          navigate("/app")
-        } else {
-          // Show user-friendly message
-          const friendlyError = result.error?.includes('unavailable') || result.error?.includes('skipped')
-            ? "Please sign in to Google in your browser first, or use email/password login."
-            : (result.error || "Google login failed")
-          showError(friendlyError)
-        }
-      } else {
-        // Google OAuth not configured
-        showError("Google OAuth not configured. Please use email/password login.")
-      }
-    } catch {
-      showError("An unexpected error occurred. Please try again.")
-    } finally {
-      setIsLoading(false)
+  const handleGoogleLogin = () => {
+    if (isGoogleConfigured()) {
+      // Google OAuth - redirect flow (same as GitHub)
+      setIsLoading(true)
+      initiateGoogleLogin()
+      // Page will redirect to Google, callback handled by oauth-callback page
+    } else {
+      showError("Google OAuth not configured. Please use email/password login.")
     }
   }
 
-  const handleGithubLogin = async () => {
+  const handleGithubLogin = () => {
     if (isGitHubConfigured()) {
-      // Real GitHub OAuth - redirect flow
+      // GitHub OAuth - redirect flow
       setIsLoading(true)
       initiateGitHubLogin()
-      // Page will redirect, no need to handle response here
+      // Page will redirect to GitHub, callback handled by oauth-callback page
     } else {
       showError("GitHub OAuth not configured. Please use email/password login.")
     }

@@ -2,6 +2,7 @@ import React from "react"
 import { NavLink, useLocation } from "react-router-dom"
 import { User, Lock, Users, Shield, Key, Cpu } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useHasPassword } from "@/store/auth-store"
 
 // ============================================================
 //  Account Sidebar - Navigation Menu (Basic Version)
@@ -12,12 +13,6 @@ interface NavItem {
   href: string
   icon: React.ReactNode
 }
-
-const settingsItems: NavItem[] = [
-  { label: "Profile", href: "/account/profile", icon: <User className="w-4 h-4" /> },
-  { label: "Password", href: "/account/password", icon: <Lock className="w-4 h-4" /> },
-  { label: "My Providers", href: "/account/providers", icon: <Cpu className="w-4 h-4" /> },
-]
 
 const adminItems: NavItem[] = [
   { label: "Users", href: "/admin/users", icon: <Users className="w-4 h-4" /> },
@@ -30,6 +25,16 @@ interface AccountSidebarProps {
 }
 
 export const AccountSidebar: React.FC<AccountSidebarProps> = ({ isAdmin }) => {
+  const hasPassword = useHasPassword()
+
+  // Build settings items dynamically — hide Password for OAuth users
+  const settingsItems: NavItem[] = [
+    { label: "Profile", href: "/account/profile", icon: <User className="w-4 h-4" /> },
+    ...(hasPassword
+      ? [{ label: "Password", href: "/account/password", icon: <Lock className="w-4 h-4" /> }]
+      : []),
+    { label: "My Providers", href: "/account/providers", icon: <Cpu className="w-4 h-4" /> },
+  ]
   const location = useLocation()
 
   const renderNavItem = (item: NavItem, isAdminSection = false) => {

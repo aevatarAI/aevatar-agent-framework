@@ -1,6 +1,6 @@
 import React, { useState } from "react"
 import { Pencil, Lock, User, Camera, Save, X } from "lucide-react"
-import { useAuthStore } from "@/store/auth-store"
+import { useAuthStore, useHasPassword } from "@/store/auth-store"
 import { useNavigate } from "react-router-dom"
 import { AvatarUploadModal, AvatarCropModal } from "../avatar-modals"
 import { updateMyProfile, uploadProfilePicture, getProfilePictureUrl } from "@/lib/abp"
@@ -12,6 +12,7 @@ import { updateMyProfile, uploadProfilePicture, getProfilePictureUrl } from "@/l
 export const ProfilePanel: React.FC = () => {
   const { user, updateUser: updateAuthUser } = useAuthStore()
   const navigate = useNavigate()
+  const hasPassword = useHasPassword()
 
   // Edit mode state
   const [isEditing, setIsEditing] = useState(false)
@@ -317,27 +318,30 @@ export const ProfilePanel: React.FC = () => {
       </div>
 
       {/* Security Settings Card */}
-      <div className="rounded-xl bg-surface border border-border-subtle p-6 space-y-4">
-        <h3 className="text-base font-semibold text-text-primary">Security Settings</h3>
+      {/* Security Settings — hide for OAuth users who have no password */}
+      {hasPassword && (
+        <div className="rounded-xl bg-surface border border-border-subtle p-6 space-y-4">
+          <h3 className="text-base font-semibold text-text-primary">Security Settings</h3>
 
-        {/* Password Row */}
-        <div className="flex items-center justify-between p-4 rounded-lg bg-surface-elevated">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-neon-gold/10 flex items-center justify-center">
-                <Lock className="w-5 h-5 text-neon-gold" />
+          {/* Password Row */}
+          <div className="flex items-center justify-between p-4 rounded-lg bg-surface-elevated">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-neon-gold/10 flex items-center justify-center">
+                  <Lock className="w-5 h-5 text-neon-gold" />
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-sm font-medium text-text-primary">Password</p>
+                </div>
               </div>
-              <div className="space-y-0.5">
-                <p className="text-sm font-medium text-text-primary">Password</p>
-              </div>
-            </div>
-          <button
-            onClick={() => navigate("/account/password")}
-            className="px-3.5 py-2 text-xs font-medium text-bg-base bg-neon-gold rounded-md hover:bg-neon-gold/90 transition-colors"
-          >
-            Change
-          </button>
+            <button
+              onClick={() => navigate("/account/password")}
+              className="px-3.5 py-2 text-xs font-medium text-bg-base bg-neon-gold rounded-md hover:bg-neon-gold/90 transition-colors"
+            >
+              Change
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Avatar Upload Modal */}
       <AvatarUploadModal

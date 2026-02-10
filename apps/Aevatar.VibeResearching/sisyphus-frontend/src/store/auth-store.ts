@@ -57,3 +57,6 @@ export const useAuthStore = create<AuthState>()(
 export const useIsAdmin = () => useAuthStore((state) => state.user?.isAdmin ?? false)
 export const useCurrentUser = () => useAuthStore((state) => state.user)
 export const useIsAuthenticated = () => useAuthStore((state) => state.isAuthenticated)
+export const useHasPassword = () => useAuthStore((state) =>
+  !state.user?.loginProvider || state.user.loginProvider === 'local'
+)

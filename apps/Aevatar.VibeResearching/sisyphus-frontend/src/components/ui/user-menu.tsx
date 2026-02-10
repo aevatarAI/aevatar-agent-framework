@@ -10,7 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu'
-import { useAuthStore, useIsAdmin } from '@/store/auth-store'
+import { useAuthStore, useIsAdmin, useHasPassword } from '@/store/auth-store'
 
 // ============================================================
 //  User Menu - Reusable Profile Dropdown
@@ -24,6 +24,7 @@ export const UserMenu: React.FC<UserMenuProps> = ({ showName = true }) => {
   const navigate = useNavigate()
   const { user, isAuthenticated, logout } = useAuthStore()
   const isAdmin = useIsAdmin()
+  const hasPassword = useHasPassword()
 
   const handleLogout = () => {
     logout()
@@ -107,19 +108,25 @@ export const UserMenu: React.FC<UserMenuProps> = ({ showName = true }) => {
         >
           Profile
         </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={() => navigate('/account/password')}
-          icon={<Lock className="w-4 h-4" />}
-        >
-          Password
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          onClick={() => navigate('/admin/settings')}
-          icon={<Settings className="w-4 h-4" />}
-        >
-          Platform Settings
-        </DropdownMenuItem>
+        {hasPassword && (
+          <DropdownMenuItem
+            onClick={() => navigate('/account/password')}
+            icon={<Lock className="w-4 h-4" />}
+          >
+            Password
+          </DropdownMenuItem>
+        )}
+        {isAdmin && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => navigate('/admin/settings')}
+              icon={<Settings className="w-4 h-4" />}
+            >
+              Platform Settings
+            </DropdownMenuItem>
+          </>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onClick={handleLogout}

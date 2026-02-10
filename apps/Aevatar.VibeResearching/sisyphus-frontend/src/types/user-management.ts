@@ -136,6 +136,7 @@ export interface AuthUser {
   roles: string[]
   isAdmin: boolean
   avatarUrl?: string
+  loginProvider?: 'local' | 'Google' | 'GitHub'  // OAuth users have no password
 }
 
 export interface AuthState {

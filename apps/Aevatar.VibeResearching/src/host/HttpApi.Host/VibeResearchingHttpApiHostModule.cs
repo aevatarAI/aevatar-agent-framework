@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Volo.Abp.AspNetCore.Mvc.AntiForgery;
+using Volo.Abp.AspNetCore.Mvc.Libs;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Core.Configuration;
 using Aevatar.Agents.AI.DependencyInjection;
@@ -189,6 +190,12 @@ public class VibeResearchingHttpApiHostModule : AbpModule
         Configure<AbpAntiForgeryOptions>(options =>
         {
             options.AutoValidate = false;
+        });
+
+        // Disable ABP Libs folder check (API-only host, no MVC views)
+        Configure<AbpMvcLibsOptions>(options =>
+        {
+            options.CheckLibs = false;
         });
 
         // ==========================================

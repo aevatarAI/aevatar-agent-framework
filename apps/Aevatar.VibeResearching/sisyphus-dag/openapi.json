@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "sisyphus-dag API",
-    "description": "Knowledge DAG microservice for the Aevatar VibeResearching platform.",
+    "description": "Knowledge DAG (Directed Acyclic Graph) microservice for the Aevatar VibeResearching platform. Manages knowledge nodes and their dependency relationships in a Neo4j graph database. Each knowledge node represents a piece of research knowledge, and DEPENDS_ON edges form a derivation chain showing how knowledge is built upon prior knowledge. The edge direction convention is: (child)-[:DEPENDS_ON]->(parent), meaning the 'from' node depends on the 'to' node.",
     "version": "1.0.0"
   },
   "paths": {
@@ -10,6 +10,7 @@
       "post": {
         "operationId": "createKnowledges",
         "summary": "Create knowledge nodes and dependency edges",
+        "description": "Batch-creates one or more knowledge nodes in the DAG and optionally establishes DEPENDS_ON edges between them. There are two ways to create dependency edges:\n\n1. **dependsOn** (per-node): Each knowledge item can specify a list of existing node IDs it depends on. This creates edges FROM the new node TO the specified existing nodes.\n\n2. **indexDependencies** (cross-reference within batch): A map where each key is a parent node's index in the knowledgeList array, and the value is a list of child node indices. This creates edges FROM the parent node TO each child node, all within the same batch. Useful when submitting a group of interrelated knowledge nodes in a single request.\n\nAll nodes are assigned server-generated UUIDs. The response returns the list of created node IDs in the exact same order as the input knowledgeList, so callers can correlate IDs to their submitted items by array index.",
         "requestBody": {
           "required": true,
           "content": {
@@ -22,20 +23,21 @@
         },
         "responses": {
           "200": {
-            "description": "List of created node IDs in the same order as input.",
+            "description": "Successfully created. Returns a JSON array of the newly generated node IDs (UUID strings), in the same order as the input knowledgeList. Use these IDs for subsequent read, update, delete, or explain operations.",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "array",
                   "items": {
-                    "type": "string"
+                    "type": "string",
+                    "format": "uuid"
                   }
                 }
               }
             }
           },
           "400": {
-            "description": "Invalid request (empty list, missing required fields, out-of-bounds index).",
+            "description": "Validation error. Possible causes: knowledgeList is empty, a required field (title, description, deriveDetail) is missing or blank, an indexDependencies index is out of bounds for the knowledgeList array.",
             "content": {
               "application/json": {
                 "schema": {
@@ -45,7 +47,7 @@
             }
           },
           "500": {
-            "description": "Internal server error.",
+            "description": "Internal server error. The error detail is logged server-side; the response body contains a generic error message.",
             "content": {
               "application/json": {
                 "schema": {
@@ -59,9 +61,10 @@
       "get": {
         "operationId": "getKnowledgeSnapshot",
         "summary": "Get a complete snapshot of the knowledge DAG",
+        "description": "Returns a full snapshot of the entire knowledge DAG, including all knowledge nodes, all DEPENDS_ON edges, and three pre-computed lookup maps for efficient client-side traversal:\n\n- **nodeMap**: A dictionary keyed by node ID mapping to the full KnowledgeNode object, enabling O(1) lookup by ID.\n- **parentsMap**: A dictionary keyed by node ID mapping to a list of that node's parent IDs (nodes it depends on). Following the edge convention (from)-[:DEPENDS_ON]->(to), a parent of node X is any node that X points TO.\n- **childrenMap**: A dictionary keyed by node ID mapping to a list of that node's child IDs (nodes that depend on it). A child of node X is any node that points TO X.\n\nThis endpoint takes no parameters and always returns the complete graph. For large graphs, consider using the explain endpoint to inspect individual nodes and their local neighborhoods.",
         "responses": {
           "200": {
-            "description": "Complete knowledge DAG snapshot.",
+            "description": "Complete knowledge DAG snapshot containing all nodes, all edges, and pre-computed parent/child lookup maps.",
             "content": {
               "application/json": {
                 "schema": {
@@ -71,7 +74,7 @@
             }
           },
           "500": {
-            "description": "Internal server error.",
+            "description": "Internal server error. The error detail is logged server-side; the response body contains a generic error message.",
             "content": {
               "application/json": {
                 "schema": {
@@ -85,6 +88,7 @@
       "put": {
         "operationId": "updateKnowledges",
         "summary": "Update knowledge nodes by ID",
+        "description": "Batch-updates one or more existing knowledge nodes. The request body is a JSON object (map) where each key is a knowledge node ID and the value is a KnowledgeDto containing the new field values. All mutable fields (title, sessionId, description, deriveDetail, resourceUri, references) are overwritten with the provided values. The updatedBy and updatedAt audit fields are automatically set server-side. Fields not included in KnowledgeDto (such as isActive, deactivateReason, createdBy, createdAt) are not modified by this operation. Note: this endpoint does NOT modify dependency edges — use delete + create to restructure edges.",
         "requestBody": {
           "required": true,
           "content": {
@@ -94,27 +98,28 @@
                 "additionalProperties": {
                   "$ref": "#/components/schemas/KnowledgeDto"
                 },
-                "description": "Map of node ID to updated knowledge values."
+                "description": "A JSON object mapping knowledge node IDs (keys) to their updated values (KnowledgeDto). Each key must be a valid existing node ID. Example: {\"uuid-1\": {\"title\": \"Updated Title\", ...}, \"uuid-2\": {...}}"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "List of updated node IDs.",
+            "description": "Successfully updated. Returns a JSON array of the node IDs that were updated (matching the keys in the request body).",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "array",
                   "items": {
-                    "type": "string"
+                    "type": "string",
+                    "format": "uuid"
                   }
                 }
               }
             }
           },
           "400": {
-            "description": "Invalid request (null or empty map).",
+            "description": "Validation error. The updates map is null or empty.",
             "content": {
               "application/json": {
                 "schema": {
@@ -124,7 +129,7 @@
             }
           },
           "500": {
-            "description": "Internal server error.",
+            "description": "Internal server error. The error detail is logged server-side; the response body contains a generic error message.",
             "content": {
               "application/json": {
                 "schema": {
@@ -137,7 +142,8 @@
       },
       "delete": {
         "operationId": "deleteKnowledges",
-        "summary": "Delete knowledge nodes by ID (DETACH DELETE)",
+        "summary": "Delete knowledge nodes by ID",
+        "description": "Batch-deletes one or more knowledge nodes from the DAG using Neo4j DETACH DELETE, which automatically removes all DEPENDS_ON edges connected to the deleted nodes (both incoming and outgoing). This means you do not need to manually clean up edges before deleting a node. The operation is idempotent — deleting a non-existent ID does not cause an error, it is silently skipped.",
         "requestBody": {
           "required": true,
           "content": {
@@ -145,29 +151,31 @@
               "schema": {
                 "type": "array",
                 "items": {
-                  "type": "string"
+                  "type": "string",
+                  "format": "uuid"
                 },
-                "description": "List of node IDs to delete."
+                "description": "A JSON array of knowledge node IDs to delete. Example: [\"uuid-1\", \"uuid-2\"]"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "List of deleted node IDs.",
+            "description": "Successfully processed. Returns the same list of node IDs that were submitted for deletion. Note: IDs that did not match any existing node are still included in the response (the operation is idempotent).",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "array",
                   "items": {
-                    "type": "string"
+                    "type": "string",
+                    "format": "uuid"
                   }
                 }
               }
             }
           },
           "400": {
-            "description": "Invalid request (null or empty list).",
+            "description": "Validation error. The ID list is null or empty.",
             "content": {
               "application/json": {
                 "schema": {
@@ -177,7 +185,7 @@
             }
           },
           "500": {
-            "description": "Internal server error.",
+            "description": "Internal server error. The error detail is logged server-side; the response body contains a generic error message.",
             "content": {
               "application/json": {
                 "schema": {
@@ -192,17 +200,18 @@
     "/api/knowledges/{id}/explain": {
       "get": {
         "operationId": "explainKnowledge",
-        "summary": "Get a markdown explanation of a knowledge node",
-        "description": "Returns a comprehensive markdown document describing the knowledge node's full metadata, detailed content, and derivation chain (upstream and downstream) via BFS traversal.",
+        "summary": "Get a comprehensive markdown explanation of a knowledge node",
+        "description": "Generates and returns a comprehensive markdown document that describes everything about a specific knowledge node. The output includes three sections:\n\n1. **Knowledge Info**: A property table showing all metadata fields — ID, session ID, title, truncated description, references, resource URI, active status, review timestamp, and audit fields (createdBy, createdAt, updatedBy, updatedAt).\n\n2. **Knowledge Details**: The full description text and the complete derivation details explaining how this knowledge was derived.\n\n3. **Knowledge Derivation Chain**: Shows the node's position in the DAG by listing:\n   - **Parent Nodes**: Direct upstream dependencies (nodes this knowledge depends on), with full detail cards for each.\n   - **Child Nodes**: Direct downstream dependents (nodes that depend on this knowledge), with full detail cards for each.\n   - **Full Upstream Chain**: BFS traversal of all transitive upstream ancestors, organized by level depth, with full detail cards for every node at each level.\n   - **Full Downstream Chain**: BFS traversal of all transitive downstream descendants, organized by level depth, with full detail cards for every node at each level.\n\nThe BFS traversal uses cycle detection (visited set) and stops when there are no more unvisited nodes or the configured depth limit is reached. Use the 'level' query parameter to control how many levels deep the traversal goes.",
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "string",
+              "format": "uuid"
             },
-            "description": "The knowledge node ID."
+            "description": "The unique identifier of the knowledge node to explain. Must be a valid UUID that corresponds to an existing node in the DAG."
           },
           {
             "name": "level",
@@ -214,12 +223,12 @@
               "minimum": 1,
               "maximum": 50
             },
-            "description": "Max BFS traversal depth for upstream/downstream chains. Default 10, clamped to [1, 50]."
+            "description": "Maximum BFS traversal depth for upstream and downstream derivation chains. Controls how many levels of parent/child relationships to include in the explanation. Default is 10. Server-side clamped to [1, 50]. If the actual graph depth is less than this value, traversal stops early at the last reachable level."
           }
         ],
         "responses": {
           "200": {
-            "description": "Markdown explanation of the knowledge node.",
+            "description": "A markdown-formatted text document containing the full explanation of the knowledge node, including metadata table, detailed content, and multi-level derivation chain with full detail cards for every referenced node.",
             "content": {
               "text/markdown": {
                 "schema": {
@@ -229,7 +238,7 @@
             }
           },
           "400": {
-            "description": "Invalid request (empty or whitespace ID).",
+            "description": "Validation error. The node ID path parameter is empty or whitespace.",
             "content": {
               "application/json": {
                 "schema": {
@@ -239,7 +248,7 @@
             }
           },
           "404": {
-            "description": "Knowledge node not found.",
+            "description": "The specified knowledge node ID does not exist in the DAG.",
             "content": {
               "application/json": {
                 "schema": {
@@ -249,7 +258,7 @@
             }
           },
           "500": {
-            "description": "Internal server error.",
+            "description": "Internal server error. The error detail is logged server-side; the response body contains a generic error message.",
             "content": {
               "application/json": {
                 "schema": {
@@ -266,30 +275,30 @@
     "schemas": {
       "KnowledgeDto": {
         "type": "object",
-        "description": "Input DTO for a single knowledge item (create or update).",
+        "description": "Input DTO for creating or updating a single knowledge item. Used as the element type in batch create requests and as the value type in update requests. When creating, the server auto-generates the node ID, timestamps, and audit fields. When updating, only the fields present in this DTO are overwritten; system-managed fields (isActive, deactivateReason, createdBy, createdAt) are not affected.",
         "required": ["title", "description", "deriveDetail"],
         "properties": {
           "sessionId": {
             "type": "string",
             "nullable": true,
-            "description": "Associated session ID."
+            "description": "The research session ID this knowledge belongs to. Used to group related knowledge nodes within a single research session. If null or omitted, defaults to an empty string."
           },
           "title": {
             "type": "string",
-            "description": "Knowledge title."
+            "description": "A concise, human-readable title summarizing this piece of knowledge. Required. Must not be blank. Displayed as the primary identifier in DAG visualizations and explain outputs."
           },
           "description": {
             "type": "string",
-            "description": "Knowledge description."
+            "description": "A detailed description of this knowledge — the core content explaining what was discovered, concluded, or established. Required. Must not be blank. This is the main body text of the knowledge node."
           },
           "deriveDetail": {
             "type": "string",
-            "description": "Derivation detail."
+            "description": "Explains how this knowledge was derived — the methodology, reasoning steps, experimental process, or logical chain that led to this conclusion. Required. Must not be blank. This is distinct from the description: description says WHAT was found, deriveDetail says HOW it was found."
           },
           "resourceUri": {
             "type": "string",
             "nullable": true,
-            "description": "External resource link."
+            "description": "An optional URI pointing to an external resource associated with this knowledge, such as a paper PDF, dataset download link, or supplementary material URL. If null or omitted, defaults to an empty string."
           },
           "references": {
             "type": "array",
@@ -297,21 +306,22 @@
             "items": {
               "type": "string"
             },
-            "description": "Reference list."
+            "description": "An optional list of reference strings citing sources that support this knowledge — paper titles, URLs, book chapters, DOIs, etc. If null or omitted, defaults to an empty list."
           },
           "dependsOn": {
             "type": "array",
             "nullable": true,
             "items": {
-              "type": "string"
+              "type": "string",
+              "format": "uuid"
             },
-            "description": "List of existing node IDs this node depends on."
+            "description": "An optional list of existing knowledge node IDs that this new knowledge depends on (upstream dependencies). Creates a DEPENDS_ON edge FROM this new node TO each specified existing node. Only used during creation (POST). Ignored during update (PUT). Each ID must be a valid UUID of an already-existing node in the DAG."
           }
         }
       },
       "KnowledgesDto": {
         "type": "object",
-        "description": "Input DTO for batch knowledge creation.",
+        "description": "Input DTO for the batch knowledge creation endpoint. Contains a list of knowledge items to create and an optional cross-reference map for establishing dependency edges between the items within this same batch.",
         "required": ["knowledgeList"],
         "properties": {
           "knowledgeList": {
@@ -319,7 +329,7 @@
             "items": {
               "$ref": "#/components/schemas/KnowledgeDto"
             },
-            "description": "Knowledge items to create."
+            "description": "The list of knowledge items to create. Must contain at least one item. Each item will be assigned a server-generated UUID. The response returns IDs in the same array order, so use the array index to correlate input items with their generated IDs."
           },
           "indexDependencies": {
             "type": "object",
@@ -330,144 +340,178 @@
                 "type": "integer"
               }
             },
-            "description": "Parent index to child indices mapping. Keys are string-encoded integers."
+            "description": "Optional map defining dependency edges between nodes within this batch using their array indices in knowledgeList. Each key is a string-encoded integer representing a parent node's index, and the value is an array of child node indices. Creates a DEPENDS_ON edge FROM the parent-index node TO each child-index node. All indices must be valid (>= 0 and < knowledgeList.length). Example: {\"0\": [1, 2]} means the node at index 0 depends on nodes at index 1 and 2."
           }
         }
       },
       "KnowledgeNode": {
         "type": "object",
-        "description": "A knowledge node in the DAG.",
+        "description": "A knowledge node stored in the Neo4j DAG. Represents a single piece of research knowledge with metadata, content, and audit trail. Nodes are connected by DEPENDS_ON edges forming a directed acyclic graph of knowledge derivation.",
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "format": "uuid",
+            "description": "Server-generated unique identifier (UUID) for this knowledge node. Used as the primary key for all operations (read, update, delete, explain) and as edge endpoints in DEPENDS_ON relationships."
           },
           "title": {
-            "type": "string"
+            "type": "string",
+            "description": "Concise, human-readable title summarizing this knowledge."
           },
           "sessionId": {
-            "type": "string"
+            "type": "string",
+            "description": "Research session ID this node belongs to. Empty string if not associated with a session."
           },
           "description": {
-            "type": "string"
+            "type": "string",
+            "description": "Detailed description of this knowledge — the core content."
           },
           "deriveDetails": {
-            "type": "string"
+            "type": "string",
+            "description": "Explanation of how this knowledge was derived — methodology, reasoning steps, or experimental process."
           },
           "resourceUri": {
-            "type": "string"
+            "type": "string",
+            "description": "URI to an external resource (paper, dataset, etc.). Empty string if none."
           },
           "references": {
             "type": "array",
             "items": {
               "type": "string"
-            }
+            },
+            "description": "List of reference citations supporting this knowledge (paper titles, URLs, DOIs, etc.). Empty array if none."
           },
           "lastReviewedAt": {
-            "type": "string"
+            "type": "string",
+            "description": "ISO-8601 timestamp of when this node was last reviewed by the Review Agent. Empty string if never reviewed."
           },
           "isActive": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Whether this knowledge node is currently active (valid). Set to false when verification fails, meaning the knowledge has been deactivated and should not be relied upon."
           },
           "deactivateReason": {
-            "type": "string"
+            "type": "string",
+            "description": "Human-readable reason why this node was deactivated (e.g., failed verification, superseded by newer research). Empty string if the node is still active."
           },
           "deactivateAt": {
-            "type": "string"
+            "type": "string",
+            "description": "ISO-8601 timestamp of when this node was deactivated. Empty string if the node is still active."
           },
           "createdBy": {
-            "type": "string"
+            "type": "string",
+            "description": "Identifier of the actor who created this node. Currently defaults to 'system'."
           },
           "createdAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO-8601 timestamp of when this node was created. Set once at creation time, never modified."
           },
           "updatedBy": {
-            "type": "string"
+            "type": "string",
+            "description": "Identifier of the actor who last updated this node. Currently defaults to 'system'."
           },
           "updatedAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO-8601 timestamp of when this node was last updated. Updated on every PUT operation."
           }
         }
       },
       "KnowledgeDependsOnEdge": {
         "type": "object",
-        "description": "A DEPENDS_ON relationship between two knowledge nodes.",
+        "description": "A DEPENDS_ON directed edge between two knowledge nodes in the DAG. The direction convention is (from)-[:DEPENDS_ON]->(to), meaning the 'from' node depends on the 'to' node. In other words, 'from' is the downstream child and 'to' is the upstream parent in the derivation chain.",
         "properties": {
           "fromId": {
-            "type": "string"
+            "type": "string",
+            "format": "uuid",
+            "description": "The ID of the source (child/dependent) knowledge node — the node that depends on another."
           },
           "toId": {
-            "type": "string"
+            "type": "string",
+            "format": "uuid",
+            "description": "The ID of the target (parent/dependency) knowledge node — the node being depended upon."
           },
           "createdBy": {
-            "type": "string"
+            "type": "string",
+            "description": "Identifier of the actor who created this edge. Currently defaults to 'system'."
           },
           "createdAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO-8601 timestamp of when this edge was created."
           },
           "updatedBy": {
-            "type": "string"
+            "type": "string",
+            "description": "Identifier of the actor who last updated this edge. Currently defaults to 'system'."
           },
           "updatedAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO-8601 timestamp of when this edge was last updated."
           }
         }
       },
       "KnowledgeSnapshotDto": {
         "type": "object",
-        "description": "Complete snapshot of the knowledge DAG at a point in time.",
+        "description": "A complete point-in-time snapshot of the entire knowledge DAG. Contains all nodes, all edges, and three pre-computed lookup maps that enable efficient client-side graph traversal without requiring additional API calls.",
         "properties": {
           "snapshotTakenAt": {
             "type": "string",
-            "description": "ISO-8601 timestamp when the snapshot was taken."
+            "format": "date-time",
+            "description": "ISO-8601 timestamp of when this snapshot was generated on the server."
           },
           "nodes": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/KnowledgeNode"
-            }
+            },
+            "description": "Flat list of all knowledge nodes currently in the DAG."
           },
           "edges": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/KnowledgeDependsOnEdge"
-            }
+            },
+            "description": "Flat list of all DEPENDS_ON edges currently in the DAG."
           },
           "nodeMap": {
             "type": "object",
             "additionalProperties": {
               "$ref": "#/components/schemas/KnowledgeNode"
             },
-            "description": "Node ID to KnowledgeNode lookup."
+            "description": "Dictionary mapping each node ID to its full KnowledgeNode object. Enables O(1) node lookup by ID without scanning the nodes array."
           },
           "parentsMap": {
             "type": "object",
             "additionalProperties": {
               "type": "array",
               "items": {
-                "type": "string"
+                "type": "string",
+                "format": "uuid"
               }
             },
-            "description": "Node ID to parent node IDs."
+            "description": "Dictionary mapping each node ID to the list of its parent node IDs (upstream dependencies — nodes it depends on). Following the edge convention (from)-[:DEPENDS_ON]->(to), the parents of node X are the 'to' nodes of all edges where X is the 'from' node."
           },
           "childrenMap": {
             "type": "object",
             "additionalProperties": {
               "type": "array",
               "items": {
-                "type": "string"
+                "type": "string",
+                "format": "uuid"
               }
             },
-            "description": "Node ID to child node IDs."
+            "description": "Dictionary mapping each node ID to the list of its child node IDs (downstream dependents — nodes that depend on it). Following the edge convention (from)-[:DEPENDS_ON]->(to), the children of node X are the 'from' nodes of all edges where X is the 'to' node."
           }
         }
       },
       "ErrorResponse": {
         "type": "object",
-        "description": "Standard error response envelope.",
+        "description": "Standard error response envelope returned for all 4xx and 5xx responses. Contains a single human-readable error message. For 500 errors, the message is always generic ('An internal error occurred.') to avoid leaking internal details; the actual exception is logged server-side.",
+        "required": ["error"],
         "properties": {
           "error": {
             "type": "string",
-            "description": "Human-readable error message."
+            "description": "Human-readable error message describing what went wrong. For 400 errors, includes specific validation details (e.g., 'Title is required at index 0.'). For 404 errors, includes the missing node ID. For 500 errors, always 'An internal error occurred.'"
           }
         }
       }

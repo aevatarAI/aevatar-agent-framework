@@ -1,0 +1,476 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "sisyphus-dag API",
+    "description": "Knowledge DAG microservice for the Aevatar VibeResearching platform.",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/knowledges": {
+      "post": {
+        "operationId": "createKnowledges",
+        "summary": "Create knowledge nodes and dependency edges",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgesDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "List of created node IDs in the same order as input.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request (empty list, missing required fields, out-of-bounds index).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "getKnowledgeSnapshot",
+        "summary": "Get a complete snapshot of the knowledge DAG",
+        "responses": {
+          "200": {
+            "description": "Complete knowledge DAG snapshot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeSnapshotDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "updateKnowledges",
+        "summary": "Update knowledge nodes by ID",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/KnowledgeDto"
+                },
+                "description": "Map of node ID to updated knowledge values."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "List of updated node IDs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request (null or empty map).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteKnowledges",
+        "summary": "Delete knowledge nodes by ID (DETACH DELETE)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "List of node IDs to delete."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "List of deleted node IDs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request (null or empty list).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/knowledges/{id}/explain": {
+      "get": {
+        "operationId": "explainKnowledge",
+        "summary": "Get a markdown explanation of a knowledge node",
+        "description": "Returns a comprehensive markdown document describing the knowledge node's full metadata, detailed content, and derivation chain (upstream and downstream) via BFS traversal.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The knowledge node ID."
+          },
+          {
+            "name": "level",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 10,
+              "minimum": 1,
+              "maximum": 50
+            },
+            "description": "Max BFS traversal depth for upstream/downstream chains. Default 10, clamped to [1, 50]."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Markdown explanation of the knowledge node.",
+            "content": {
+              "text/markdown": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request (empty or whitespace ID).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Knowledge node not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "KnowledgeDto": {
+        "type": "object",
+        "description": "Input DTO for a single knowledge item (create or update).",
+        "required": ["title", "description", "deriveDetail"],
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "nullable": true,
+            "description": "Associated session ID."
+          },
+          "title": {
+            "type": "string",
+            "description": "Knowledge title."
+          },
+          "description": {
+            "type": "string",
+            "description": "Knowledge description."
+          },
+          "deriveDetail": {
+            "type": "string",
+            "description": "Derivation detail."
+          },
+          "resourceUri": {
+            "type": "string",
+            "nullable": true,
+            "description": "External resource link."
+          },
+          "references": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "string"
+            },
+            "description": "Reference list."
+          },
+          "dependsOn": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "string"
+            },
+            "description": "List of existing node IDs this node depends on."
+          }
+        }
+      },
+      "KnowledgesDto": {
+        "type": "object",
+        "description": "Input DTO for batch knowledge creation.",
+        "required": ["knowledgeList"],
+        "properties": {
+          "knowledgeList": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeDto"
+            },
+            "description": "Knowledge items to create."
+          },
+          "indexDependencies": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            },
+            "description": "Parent index to child indices mapping. Keys are string-encoded integers."
+          }
+        }
+      },
+      "KnowledgeNode": {
+        "type": "object",
+        "description": "A knowledge node in the DAG.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "deriveDetails": {
+            "type": "string"
+          },
+          "resourceUri": {
+            "type": "string"
+          },
+          "references": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "lastReviewedAt": {
+            "type": "string"
+          },
+          "isActive": {
+            "type": "boolean"
+          },
+          "deactivateReason": {
+            "type": "string"
+          },
+          "deactivateAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedBy": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
+      "KnowledgeDependsOnEdge": {
+        "type": "object",
+        "description": "A DEPENDS_ON relationship between two knowledge nodes.",
+        "properties": {
+          "fromId": {
+            "type": "string"
+          },
+          "toId": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedBy": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
+      "KnowledgeSnapshotDto": {
+        "type": "object",
+        "description": "Complete snapshot of the knowledge DAG at a point in time.",
+        "properties": {
+          "snapshotTakenAt": {
+            "type": "string",
+            "description": "ISO-8601 timestamp when the snapshot was taken."
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeNode"
+            }
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeDependsOnEdge"
+            }
+          },
+          "nodeMap": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/KnowledgeNode"
+            },
+            "description": "Node ID to KnowledgeNode lookup."
+          },
+          "parentsMap": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "description": "Node ID to parent node IDs."
+          },
+          "childrenMap": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "description": "Node ID to child node IDs."
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "description": "Standard error response envelope.",
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Human-readable error message."
+          }
+        }
+      }
+    }
+  }
+}

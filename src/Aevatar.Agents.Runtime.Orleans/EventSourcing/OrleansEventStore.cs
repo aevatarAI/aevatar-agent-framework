@@ -48,11 +48,23 @@ public class OrleansEventStore : IEventStore
         var currentVersion = await _eventRepository.GetLatestVersionAsync(agentId, agentTypeName, ct);
         if (currentVersion != expectedVersion)
         {
-            _logger.LogWarning(
-                "Version conflict for agent {AgentId}: expected {ExpectedVersion}, got {CurrentVersion}",
-                agentId, expectedVersion, currentVersion);
-            throw new InvalidOperationException(
-                $"Concurrency conflict: expected version {expectedVersion}, got {currentVersion}");
+            // Special case: Migration scenario - snapshot exists (expectedVersion > 0) but event stream is empty (currentVersion == 0)
+            // This is normal after data migration where only snapshots are imported without event history
+            if (currentVersion == 0 && expectedVersion > 0)
+            {
+                _logger.LogInformation(
+                    "Migration scenario detected for agent {AgentId}: snapshot version {SnapshotVersion}, event stream empty. Allowing append.",
+                    agentId, expectedVersion);
+                // Continue execution - this is expected after migration
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "Version conflict for agent {AgentId}: expected {ExpectedVersion}, got {CurrentVersion}",
+                    agentId, expectedVersion, currentVersion);
+                throw new InvalidOperationException(
+                    $"Concurrency conflict: expected version {expectedVersion}, got {currentVersion}");
+            }
         }
 
         // Direct repository call - no extra Grain RPC

@@ -46,6 +46,29 @@ public interface IGAgentGrain : IGrainWithStringKey
     Task HandleEventAsync(byte[] envelopeBytes);
 
     /// <summary>
+    /// Publish event by envelope bytes (non-blocking, via Stream).
+    /// Used by Silo-internal actor to keep a single IGAgentActor API surface.
+    /// </summary>
+    /// <param name="envelopeBytes">EventEnvelope serialized bytes</param>
+    /// <param name="direction">Propagation direction</param>
+    /// <param name="isInternalCall">
+    /// If true, keeps PublisherId for self-handling check; if false, clears PublisherId so Agent can handle the event.
+    /// </param>
+    /// <returns>Event ID</returns>
+    Task<string> PublishEventAsync(byte[] envelopeBytes, EventDirection direction = EventDirection.Down, bool isInternalCall = false);
+
+    /// <summary>
+    /// Point-to-point send by envelope bytes (non-blocking, via Stream).
+    /// Used by Silo-internal actor to keep a single IGAgentActor API surface.
+    /// </summary>
+    /// <param name="targetAgentId">Target agent id (full ActorId)</param>
+    /// <param name="envelopeBytes">EventEnvelope serialized bytes</param>
+    /// <param name="onArrivalDirection">Propagation direction after arrival</param>
+    /// <param name="isInternalCall">Same semantics as PublishEventAsync</param>
+    /// <returns>Event ID</returns>
+    Task<string> SendToAsync(string targetAgentId, byte[] envelopeBytes, EventDirection onArrivalDirection = EventDirection.Unspecified, bool isInternalCall = false);
+
+    /// <summary>
     /// Add child Agent
     /// </summary>
     Task AddChildAsync(string childId);
@@ -90,4 +113,14 @@ public interface IGAgentGrain : IGrainWithStringKey
     /// <param name="requestBytes">RpcRequest serialized bytes</param>
     /// <returns>RpcResponse serialized bytes</returns>
     Task<byte[]> InvokeRpcAsync(byte[] requestBytes);
+    
+    /// <summary>
+    /// Protobuf RPC method invocation (for read-only operations)
+    /// [AlwaysInterleave] allows concurrent execution - safe for read-only operations
+    /// Use this for methods marked with [ReadOnly] attribute
+    /// </summary>
+    /// <param name="requestBytes">RpcRequest serialized bytes</param>
+    /// <returns>RpcResponse serialized bytes</returns>
+    [AlwaysInterleave]
+    Task<byte[]> InvokeReadOnlyRpcAsync(byte[] requestBytes);
 }

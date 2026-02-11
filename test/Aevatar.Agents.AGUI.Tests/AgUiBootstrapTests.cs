@@ -108,6 +108,8 @@ public class AgUiBootstrapTests
             bool isInternalCall = false) where TEvent : IMessage
             => Task.FromResult(string.Empty);
 
+        public Task<byte[]> InvokeReadOnlyRpcAsync(byte[] requestBytes) => InvokeRpcAsync(requestBytes);
+
         public Task<byte[]> InvokeRpcAsync(byte[] requestBytes)
         {
             var req = RpcRequest.Parser.ParseFrom(requestBytes);

@@ -406,5 +406,14 @@ public class OrleansGAgentActor : IGAgentActor, IActorHierarchyOperations
         return await _grain!.InvokeRpcAsync(requestBytes);
     }
 
+    /// <summary>
+    /// Invoke read-only RPC method (uses [AlwaysInterleave] for concurrent execution)
+    /// </summary>
+    public async Task<byte[]> InvokeReadOnlyRpcAsync(byte[] requestBytes)
+    {
+        EnsureGrain();
+        return await _grain!.InvokeReadOnlyRpcAsync(requestBytes);
+    }
+
     #endregion
 }

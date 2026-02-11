@@ -73,9 +73,14 @@ public class OrleansAgentState
 /// 3. Store hierarchy relationships (Parent/Children)
 /// 4. Manage Orleans Streams subscriptions
 /// </summary>
-[Reentrant]
+// Note: Removed [Reentrant] to ensure single-threaded execution per Grain.
+// This prevents version conflicts during activation (ReplayEventsAsync must complete
+// before any other request can modify state).
 public class OrleansGAgentGrain : Grain, IGAgentGrain
 {
+    // Static shared SiloGAgentActorFactory - cached across all Grains for performance
+    private static SiloGAgentActorFactory? _sharedSiloFactory;
+    
     // Grain persistent state
     private readonly IPersistentState<OrleansAgentState> _grainState;
 
@@ -529,6 +534,9 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
         // IMPORTANT: Must inject StateStore BEFORE EventStore, as EventSourcing needs StateStore for snapshots
         AgentStateStoreInjector.InjectStateStore(agent, ServiceProvider);
 
+        // Inject EventSourcingOptions (must be before EventStore for SnapshotFrequency)
+        EventSourcingOptionsInjector.InjectEventSourcingOptions(agent, ServiceProvider);
+
         // Inject EventStore (only if agent supports EventSourcing)
         if (AgentEventStoreInjector.HasEventStore(agent))
         {
@@ -707,15 +715,42 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
         if (actorFactoryProperty == null || !actorFactoryProperty.CanWrite)
             return;
 
-        // Get IGAgentActorFactory from DI
-        var actorFactory = ServiceProvider.GetService<IGAgentActorFactory>();
-        if (actorFactory == null)
-        {
-            _logger.LogWarning("IGAgentActorFactory not registered in DI, cannot inject into Agent {AgentType}", agentType.Name);
-            return;
-        }
+        // IMPORTANT:
+        // Agent runs inside Silo. If we inject the DI-registered OrleansGAgentActorFactory (client-side),
+        // it may create client proxies (IClusterClient) which are NOT suitable for Grain-to-Grain calls.
+        //
+        // Instead, use shared SiloGAgentActorFactory that caches actor instances.
+        // First try to get from DI (if registered as Singleton), otherwise use static instance.
+        var siloFactory = GetOrCreateSharedSiloFactory();
 
-        actorFactoryProperty.SetValue(agent, actorFactory);
+        actorFactoryProperty.SetValue(agent, siloFactory);
+        _logger.LogDebug("✅ Injected SiloGAgentActorFactory into Agent {AgentType}", agentType.Name);
+    }
+    
+    /// <summary>
+    /// Get or create shared SiloGAgentActorFactory instance.
+    /// This ensures all Grains share the same factory with its actor cache.
+    /// Uses Interlocked for thread-safe lazy initialization (static field shared across Grains).
+    /// </summary>
+    private SiloGAgentActorFactory GetOrCreateSharedSiloFactory()
+    {
+        if (_sharedSiloFactory != null)
+            return _sharedSiloFactory;
+        
+        var grainFactory = ServiceProvider.GetRequiredService<IGrainFactory>();
+        var loggerFactory = ServiceProvider.GetRequiredService<ILoggerFactory>();
+        var newFactory = new SiloGAgentActorFactory(
+            grainFactory,
+            loggerFactory.CreateLogger<SiloGAgentActorFactory>());
+        
+        // Thread-safe: if another Grain already set it, use that one (newFactory will be GC'd)
+        var existing = Interlocked.CompareExchange(ref _sharedSiloFactory, newFactory, null);
+        if (existing == null)
+        {
+            _logger.LogInformation("✅ Created shared SiloGAgentActorFactory (with cache)");
+            return newFactory;
+        }
+        return existing;
     }
 
     public Task<bool> IsInitializedAsync()
@@ -778,6 +813,102 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
             _logger.LogError(ex, "Error handling event in Grain {GrainId}", this.GetGrainId());
             throw;
         }
+    }
+
+    /// <summary>
+    /// Publish event by envelope bytes (non-blocking, via Stream).
+    /// This is used by Silo-internal actor factory to keep a single IGAgentActor API surface.
+    /// </summary>
+    public async Task<string> PublishEventAsync(
+        byte[] envelopeBytes,
+        EventDirection direction = EventDirection.Down,
+        bool isInternalCall = false)
+    {
+        if (envelopeBytes == null || envelopeBytes.Length == 0)
+        {
+            _logger.LogWarning("Received empty PublishEvent bytes in Grain {GrainId}", this.GetGrainId());
+            return string.Empty;
+        }
+
+        if (_myStream == null)
+        {
+            _logger.LogWarning("Stream not available for Grain {GrainId}, PublishEvent ignored", this.GetGrainId());
+            return string.Empty;
+        }
+
+        var envelope = EventEnvelope.Parser.ParseFrom(envelopeBytes);
+
+        // Normalize envelope fields
+        if (string.IsNullOrWhiteSpace(envelope.Id))
+            envelope.Id = Guid.NewGuid().ToString();
+
+        envelope.Direction = direction;
+        envelope.Timestamp ??= Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow);
+        envelope.CorrelationId ??= Guid.NewGuid().ToString();
+
+        // PublisherId semantics:
+        // - Internal call: keep PublisherId to prevent self-handling by default
+        // - External call: clear PublisherId so Agent can handle its own event
+        envelope.PublisherId = isInternalCall ? this.GetPrimaryKeyString() : "";
+
+        await _myStream.ProduceAsync(envelope, CancellationToken.None);
+        _logger.LogDebug("Grain {GrainId} published event {EventId} via stream, direction={Direction}",
+            this.GetGrainId(), envelope.Id, direction);
+
+        return envelope.Id;
+    }
+
+    /// <summary>
+    /// Point-to-point send by envelope bytes (non-blocking, via Stream).
+    /// This is used by Silo-internal actor factory to keep a single IGAgentActor API surface.
+    /// </summary>
+    public async Task<string> SendToAsync(
+        string targetAgentId,
+        byte[] envelopeBytes,
+        EventDirection onArrivalDirection = EventDirection.Unspecified,
+        bool isInternalCall = false)
+    {
+        if (string.IsNullOrWhiteSpace(targetAgentId))
+            throw new ArgumentException("targetAgentId cannot be empty", nameof(targetAgentId));
+
+        if (envelopeBytes == null || envelopeBytes.Length == 0)
+        {
+            _logger.LogWarning("Received empty SendTo bytes in Grain {GrainId}", this.GetGrainId());
+            return string.Empty;
+        }
+
+        if (_streamFactory == null)
+        {
+            _logger.LogWarning("StreamFactory not available in Grain {GrainId}, cannot SendTo {TargetId}",
+                this.GetGrainId(), targetAgentId);
+            return string.Empty;
+        }
+
+        var envelope = EventEnvelope.Parser.ParseFrom(envelopeBytes);
+
+        // Normalize envelope fields
+        if (string.IsNullOrWhiteSpace(envelope.Id))
+            envelope.Id = Guid.NewGuid().ToString();
+
+        envelope.TargetAgentId = targetAgentId;
+        envelope.OnArrivalDirection = onArrivalDirection;
+        envelope.Direction = onArrivalDirection;
+        envelope.Timestamp ??= Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow);
+        envelope.CorrelationId ??= Guid.NewGuid().ToString();
+
+        envelope.PublisherId = isInternalCall ? this.GetPrimaryKeyString() : "";
+
+        try
+        {
+            var targetStream = await _streamFactory.CreateStreamAsync(targetAgentId, null, this.GetStreamProvider);
+            await targetStream.ProduceAsync(envelope, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to SendTo {TargetId} from Grain {GrainId}", targetAgentId, this.GetGrainId());
+        }
+
+        return envelope.Id;
     }
 
     /// <summary>
@@ -907,7 +1038,19 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
         if (_agent == null)
             throw new InvalidOperationException("Agent not initialized");
 
-        return RpcInvoker.InvokeAsync(_agent, requestBytes, _logger, CancellationToken.None);
+        return RpcInvoker.InvokeAsync(_agent, requestBytes, _logger);
+    }
+
+    /// <summary>
+    /// Protobuf RPC method invocation for read-only operations
+    /// [AlwaysInterleave] on interface allows concurrent execution
+    /// </summary>
+    public Task<byte[]> InvokeReadOnlyRpcAsync(byte[] requestBytes)
+    {
+        if (_agent == null)
+            throw new InvalidOperationException("Agent not initialized");
+
+        return RpcInvoker.InvokeAsync(_agent, requestBytes, _logger);
     }
 
     #endregion

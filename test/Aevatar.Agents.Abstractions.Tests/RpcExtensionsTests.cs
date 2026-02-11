@@ -54,6 +54,8 @@ public class RpcExtensionsTests
             bool isInternalCall = false) where TEvent : IMessage
             => throw new NotSupportedException();
 
+        public Task<byte[]> InvokeReadOnlyRpcAsync(byte[] requestBytes) => InvokeRpcAsync(requestBytes);
+
         public Task<byte[]> InvokeRpcAsync(byte[] requestBytes)
         {
             InvokeRpcCalled = true;

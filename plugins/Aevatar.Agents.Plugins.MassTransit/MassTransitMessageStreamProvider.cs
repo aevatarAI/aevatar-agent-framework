@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Linq;
 using Aevatar.Agents.Abstractions;
 using MassTransit;
 using MassTransit.KafkaIntegration;
@@ -84,8 +85,32 @@ public class MassTransitMessageStreamProvider : IMessageStreamProvider
         // A stream instance is tied to an AgentId. 
         // If we create it with a category, that category determines where it publishes TO.
         
-        return _streams.GetOrAdd(agentId, id => 
-            new MassTransitMessageStream(id, category, _bus, _serviceProvider, _options));
+        var logger = _serviceProvider.GetService<ILogger<MassTransitMessageStreamProvider>>();
+        var isNew = !_streams.ContainsKey(agentId);
+        
+        var stream = _streams.GetOrAdd(agentId, id => 
+        {
+            logger?.LogInformation("[MassTransitMessageStreamProvider] Creating NEW stream - StreamId='{StreamId}', StreamIdLength={Length}, Category={Category}, TotalStreams={Total}",
+                id, id?.Length ?? 0, category ?? "null", _streams.Count + 1);
+            
+            // Log raw bytes to detect hidden characters
+            if (!string.IsNullOrEmpty(id))
+            {
+                var bytes = System.Text.Encoding.UTF8.GetBytes(id);
+                var hex = string.Join(" ", bytes.Take(50).Select(b => b.ToString("X2")));
+                logger?.LogDebug("[MassTransitMessageStreamProvider] StreamId raw bytes (first 50): {Hex}", hex);
+            }
+            
+            return new MassTransitMessageStream(id, category, _bus, _serviceProvider, _options);
+        });
+        
+        if (!isNew)
+        {
+            logger?.LogDebug("[MassTransitMessageStreamProvider] Using EXISTING stream - StreamId={StreamId}, Category={Category}, TotalStreams={Total}",
+                agentId, category ?? "null", _streams.Count);
+        }
+        
+        return stream;
     }
 
     /// <summary>
@@ -94,7 +119,32 @@ public class MassTransitMessageStreamProvider : IMessageStreamProvider
     /// </summary>
     internal MassTransitMessageStream? GetStreamInternal(string streamId)
     {
-        _streams.TryGetValue(streamId, out var stream);
+        // Defensive: Try lookup with stripped quotes if direct lookup fails
+        var found = _streams.TryGetValue(streamId, out var stream);
+        
+        if (!found && !string.IsNullOrEmpty(streamId))
+        {
+            // Try stripping quotes and lookup again
+            var stripped = streamId.Trim('"', '\'', '\u201C', '\u201D', ' ', '\t');
+            if (stripped.Length != streamId.Length)
+            {
+                found = _streams.TryGetValue(stripped, out stream);
+                if (found)
+                {
+                    var logger = _serviceProvider.GetService<ILogger<MassTransitMessageStreamProvider>>();
+                    logger?.LogDebug("[MassTransitMessageStreamProvider] Stream found after quote stripping: '{Original}' -> '{Stripped}'",
+                        streamId, stripped);
+                }
+            }
+        }
+        
+        if (!found)
+        {
+            var logger = _serviceProvider.GetService<ILogger<MassTransitMessageStreamProvider>>();
+            logger?.LogWarning("[MassTransitMessageStreamProvider] Stream NOT FOUND - StreamId='{StreamId}', TotalRegistered={Total}, RegisteredStreams=[{Streams}]",
+                streamId, _streams.Count, string.Join(", ", _streams.Keys.Take(10)));
+        }
+        
         return stream;
     }
 
@@ -102,4 +152,28 @@ public class MassTransitMessageStreamProvider : IMessageStreamProvider
     /// Gets all registered stream IDs (for debugging).
     /// </summary>
     internal IEnumerable<string> GetAllStreamIds() => _streams.Keys;
+
+    /// <summary>
+    /// Fast check if there's a local subscriber for the given streamId.
+    /// Used by StreamMessageDispatcher for early filtering in broadcast mode.
+    /// This is O(1) lookup - no heavy processing.
+    /// </summary>
+    internal bool HasSubscriber(string streamId)
+    {
+        if (string.IsNullOrEmpty(streamId))
+            return false;
+
+        // Direct lookup
+        if (_streams.TryGetValue(streamId, out var stream) && stream.GetHandlerCount() > 0)
+            return true;
+
+        // Defensive: try with stripped quotes
+        var stripped = streamId.Trim('"', '\'', '\u201C', '\u201D', ' ', '\t');
+        if (stripped.Length != streamId.Length && 
+            _streams.TryGetValue(stripped, out stream) && 
+            stream.GetHandlerCount() > 0)
+            return true;
+
+        return false;
+    }
 }

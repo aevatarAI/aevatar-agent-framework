@@ -1,3 +1,4 @@
+using System.Linq;
 using Aevatar.Agents.Abstractions;
 using MassTransit;
 using Microsoft.Extensions.DependencyInjection;
@@ -5,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Google.Protobuf;
 
 namespace Aevatar.Agents.Plugins.MassTransit;
 
@@ -17,11 +19,13 @@ namespace Aevatar.Agents.Plugins.MassTransit;
 /// Dispatch modes (configurable via Consumer.DispatchMode):
 /// - GrainOnly: Only dispatch to Grain handlers (Silo, best performance)
 /// - LocalStreamOnly: Only dispatch to local memory streams (HttpApi Client)
+/// - Both: Dispatch to both (for debugging)
 /// </summary>
 public class StreamMessageDispatcher : IConsumer<ByteArrayMessage>
 {
     private readonly IEnumerable<IMassTransitEventHandler> _eventHandlers;
     private readonly IEnumerable<IStreamNotFoundHandler> _notFoundHandlers;
+    private readonly IEnumerable<ITraceIdExtractor> _traceIdExtractors;
     private readonly ILogger<StreamMessageDispatcher> _logger;
     private readonly IServiceProvider? _serviceProvider;
     private readonly DispatchHandler _dispatchHandler;
@@ -30,16 +34,16 @@ public class StreamMessageDispatcher : IConsumer<ByteArrayMessage>
         IEnumerable<IMassTransitEventHandler> eventHandlers,
         IEnumerable<IStreamNotFoundHandler> notFoundHandlers,
         ILogger<StreamMessageDispatcher> logger,
+        IEnumerable<ITraceIdExtractor>? traceIdExtractors = null,
         IOptions<MassTransitStreamOptions>? options = null,
         IServiceProvider? serviceProvider = null)
     {
         _eventHandlers = eventHandlers;
         _notFoundHandlers = notFoundHandlers;
+        _traceIdExtractors = traceIdExtractors ?? Enumerable.Empty<ITraceIdExtractor>();
         _logger = logger;
         _serviceProvider = serviceProvider;
         _dispatchHandler = options?.Value?.Consumer?.DispatchHandler ?? DispatchHandler.GrainHandler;
-        
-        _logger.LogInformation("StreamMessageDispatcher initialized with DispatchHandler: {DispatchHandler}", _dispatchHandler);
     }
 
     public async Task Consume(ConsumeContext<ByteArrayMessage> context)
@@ -54,9 +58,25 @@ public class StreamMessageDispatcher : IConsumer<ByteArrayMessage>
             return;
         }
         
-        _logger.LogDebug("Received message for StreamId {StreamId}, DispatchHandler: {DispatchHandler}", streamId, _dispatchHandler);
+        // ============================================================
+        // EARLY FILTER: For LocalHandler (broadcast mode), check if we have
+        // a local subscriber BEFORE any heavy processing (deserialization, reflection).
+        // This is O(1) lookup - avoids wasting resources on irrelevant messages.
+        // ============================================================
+        if (_dispatchHandler == DispatchHandler.LocalHandler)
+        {
+            var streamProvider = _serviceProvider?.GetService<MassTransitMessageStreamProvider>();
+            if (streamProvider == null || !streamProvider.HasSubscriber(streamId))
+            {
+                // No local subscriber - skip immediately without heavy processing
+                // Silent return - this is expected in broadcast mode
+                return;
+            }
+        }
         
-        // Parse the envelope first
+        // === Proceed with heavy processing only for relevant messages ===
+        
+        // Parse the envelope
         EventEnvelope envelope;
         try
         {
@@ -64,66 +84,127 @@ public class StreamMessageDispatcher : IConsumer<ByteArrayMessage>
         }
         catch (System.Exception ex)
         {
-            _logger.LogError(ex, "Failed to parse EventEnvelope for StreamId {StreamId}", streamId);
+            _logger.LogError(ex, "[StreamMessageDispatcher] Failed to parse EventEnvelope for StreamId {StreamId}", streamId);
             throw;
         }
+        
+        // Extract TraceId via pluggable extractors (application-specific)
+        var traceId = ExtractTraceId(envelope);
+        var traceIdPrefix = traceId != null ? $"[TraceId={traceId}]" : "";
+        
+        // Defensive: Strip quotes from StreamId if present
+        streamId = SanitizeStreamId(streamId, traceIdPrefix);
+        
+        _logger.LogDebug(
+            "[StreamMessageDispatcher]{TraceId} Consuming message - StreamId='{StreamId}', DispatchHandler={DispatchHandler}",
+            traceIdPrefix, streamId, _dispatchHandler);
         
         // ============================================================
         // Dispatch based on configured handler type
         // ============================================================
         if (_dispatchHandler == DispatchHandler.LocalHandler)
         {
-            // LocalHandler: Dispatch to local memory stream subscribers (HttpApi Client)
-            var dispatched = await TryDispatchToLocalStreamAsync(streamId, data, envelope);
-            if (!dispatched)
-            {
-                _logger.LogDebug("LocalHandler: No local subscribers for StreamId {StreamId}", streamId);
-            }
+            await TryDispatchToLocalStreamAsync(streamId, data, envelope);
             return;
         }
         
         // GrainHandler: Dispatch to Grain handlers (Silo)
         var handled = await TryDispatchToGrainHandlersAsync(streamId, envelope);
-        if (handled)
-        {
-            return;
-        }
+        if (handled) return;
         
         // Try activation handlers and retry
         handled = await TryActivateAndRetryAsync(streamId, envelope);
-        if (handled)
-        {
-            return;
-        }
+        if (handled) return;
         
         // If still not handled, throw to trigger MassTransit retry
-        _logger.LogWarning("GrainHandler: No handler for StreamId {StreamId}. Throwing to trigger retry.", streamId);
-        throw new System.InvalidOperationException($"No handler for StreamId {streamId}. Actor might be failing to activate.");
+        _logger.LogWarning("Message dropped - StreamId={StreamId}, Reason=NoHandler (will retry)", streamId);
+        throw new System.InvalidOperationException(
+            $"No handler for StreamId {streamId}. Actor might be failing to activate.");
+    }
+
+    /// <summary>
+    /// Extract trace ID from envelope using registered ITraceIdExtractor implementations.
+    /// Returns null if no extractor matches.
+    /// </summary>
+    private string? ExtractTraceId(EventEnvelope envelope)
+    {
+        foreach (var extractor in _traceIdExtractors)
+        {
+            try
+            {
+                if (extractor.TryExtract(envelope, out var traceId) && !string.IsNullOrEmpty(traceId))
+                    return traceId;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex,
+                    "[StreamMessageDispatcher] TraceIdExtractor {Extractor} failed for TypeUrl={TypeUrl}",
+                    extractor.GetType().Name, envelope.Payload?.TypeUrl);
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Sanitize StreamId by stripping stray quotes from edge-case JSON serialization.
+    /// </summary>
+    private string SanitizeStreamId(string streamId, string traceIdPrefix)
+    {
+        if (string.IsNullOrEmpty(streamId)) return streamId;
+
+        var stripped = streamId.Trim('"', '\'', '\u201C', '\u201D', ' ', '\t');
+        if (stripped.Length != streamId.Length)
+        {
+            _logger.LogDebug(
+                "[StreamMessageDispatcher]{TraceId} Stripped quotes from StreamId: '{Original}' -> '{Stripped}'",
+                traceIdPrefix, streamId, stripped);
+            return stripped;
+        }
+        return streamId;
     }
     
     /// <summary>
     /// Dispatch to local memory stream subscribers (e.g., ChatMiddleware in HttpApi)
     /// </summary>
-    private async Task<bool> TryDispatchToLocalStreamAsync(string streamId, byte[] data, EventEnvelope envelope)
+    private async Task<bool> TryDispatchToLocalStreamAsync(
+        string streamId, byte[] data, EventEnvelope envelope)
     {
         if (_serviceProvider == null)
         {
+            _logger.LogWarning("Message dropped - StreamId={StreamId}, Reason=ServiceProviderNull", streamId);
             return false;
         }
         
         try
         {
             var streamProvider = _serviceProvider.GetService<MassTransitMessageStreamProvider>();
-            if (streamProvider != null)
+            if (streamProvider == null)
             {
-                var localStream = streamProvider.GetStreamInternal(streamId);
-                if (localStream != null)
+                _logger.LogWarning("Message dropped - StreamId={StreamId}, Reason=StreamProviderNotFound", streamId);
+                return false;
+            }
+            
+            var localStream = streamProvider.GetStreamInternal(streamId);
+            if (localStream != null)
+            {
+                var handlerCount = localStream.GetHandlerCount();
+                if (handlerCount == 0)
                 {
-                    await localStream.DispatchAsync(data);
-                    _logger.LogDebug("Event {EventId} dispatched to local stream subscribers for StreamId {StreamId}", 
-                        envelope.Id, streamId);
-                    return true;
+                    _logger.LogWarning(
+                        "Message dropped - StreamId={StreamId}, Reason=NoHandlers (race condition)",
+                        streamId);
+                    return false;
                 }
+                
+                await localStream.DispatchAsync(data);
+                _logger.LogInformation(
+                    "Message dispatched - StreamId={StreamId}, Handlers={HandlerCount}",
+                    streamId, handlerCount);
+                return true;
+            }
+            else
+            {
+                _logger.LogWarning("Message dropped - StreamId={StreamId}, Reason=StreamNotFound", streamId);
             }
         }
         catch (System.Exception ex)
@@ -137,7 +218,8 @@ public class StreamMessageDispatcher : IConsumer<ByteArrayMessage>
     /// <summary>
     /// Dispatch to Grain handlers (Orleans/ProtoActor actors)
     /// </summary>
-    private async Task<bool> TryDispatchToGrainHandlersAsync(string streamId, EventEnvelope envelope)
+    private async Task<bool> TryDispatchToGrainHandlersAsync(
+        string streamId, EventEnvelope envelope)
     {
         foreach (var handler in _eventHandlers)
         {
@@ -146,15 +228,17 @@ public class StreamMessageDispatcher : IConsumer<ByteArrayMessage>
                 var handled = await handler.HandleEventAsync(streamId, envelope);
                 if (handled)
                 {
-                    _logger.LogDebug("Event {EventId} handled by {HandlerType} for StreamId {StreamId}", 
-                        envelope.Id, handler.GetType().Name, streamId);
+                    _logger.LogInformation(
+                        "Message dispatched - StreamId={StreamId}, Handler={HandlerType}", 
+                        streamId, handler.GetType().Name);
                     return true;
                 }
             }
             catch (System.Exception ex)
             {
-                _logger.LogWarning(ex, "Event handler {HandlerType} failed for StreamId {StreamId}", 
-                    handler.GetType().Name, streamId);
+                _logger.LogWarning(ex,
+                    "Handler failed - StreamId={StreamId}, Handler={HandlerType}", 
+                    streamId, handler.GetType().Name);
             }
         }
         
@@ -164,9 +248,10 @@ public class StreamMessageDispatcher : IConsumer<ByteArrayMessage>
     /// <summary>
     /// Try stream not found handlers (activate actor) and retry dispatch
     /// </summary>
-    private async Task<bool> TryActivateAndRetryAsync(string streamId, EventEnvelope envelope)
+    private async Task<bool> TryActivateAndRetryAsync(
+        string streamId, EventEnvelope envelope)
     {
-        _logger.LogDebug("No event handler found for StreamId {StreamId}, trying activation handlers...", streamId);
+        _logger.LogDebug("Trying activation for StreamId={StreamId}", streamId);
         
         foreach (var notFoundHandler in _notFoundHandlers)
         {
@@ -176,7 +261,7 @@ public class StreamMessageDispatcher : IConsumer<ByteArrayMessage>
             }
             catch (System.Exception ex)
             {
-                _logger.LogError(ex, "StreamNotFoundHandler failed for StreamId {StreamId}", streamId);
+                _logger.LogError(ex, "Activation failed - StreamId={StreamId}", streamId);
             }
         }
         
@@ -188,15 +273,15 @@ public class StreamMessageDispatcher : IConsumer<ByteArrayMessage>
                 var handled = await handler.HandleEventAsync(streamId, envelope);
                 if (handled)
                 {
-                    _logger.LogDebug("Event {EventId} handled after activation for StreamId {StreamId}", 
-                        envelope.Id, streamId);
+                    _logger.LogInformation(
+                        "Message dispatched (after activation) - StreamId={StreamId}", streamId);
                     return true;
                 }
             }
             catch (System.Exception ex)
             {
-                _logger.LogWarning(ex, "Event handler failed after activation for StreamId {StreamId}", 
-                    handler.GetType().Name);
+                _logger.LogWarning(ex,
+                    "Handler failed (after activation) - StreamId={StreamId}", streamId);
             }
         }
         

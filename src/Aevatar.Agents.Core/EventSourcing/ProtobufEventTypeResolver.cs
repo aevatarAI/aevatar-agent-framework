@@ -8,12 +8,13 @@ namespace Aevatar.Agents.Core.EventSourcing;
 
 /// <summary>
 /// Resolves Protobuf event types using reflection and caching.
+/// Supports cross-assembly lookup for multi-module deployments.
 /// </summary>
 public class ProtobufEventTypeResolver : IEventTypeResolver
 {
     private readonly ILogger<ProtobufEventTypeResolver>? _logger;
     
-    // Key: Simple type name (e.g., "MoneyDeposited")
+    // Key: Protobuf full type name (e.g., "aevatar.agents.banking.MoneyDeposited")
     // Value: Cached parser and metadata
     private readonly ConcurrentDictionary<string, EventTypeInfo> _typeCache = new();
 
@@ -27,7 +28,7 @@ public class ProtobufEventTypeResolver : IEventTypeResolver
         var fullTypeName = ExtractFullTypeName(typeUrl);
         var simpleTypeName = ExtractSimpleTypeName(fullTypeName);
 
-        // Fast path: cache hit
+        // Fast path: cache hit by full protobuf name
         if (_typeCache.TryGetValue(fullTypeName, out var info))
         {
             return info;
@@ -38,29 +39,34 @@ public class ProtobufEventTypeResolver : IEventTypeResolver
         if (info != null)
         {
             _typeCache[fullTypeName] = info;
-            _logger?.LogInformation("Type {TypeName} cached. Total cached types: {Count}", fullTypeName, _typeCache.Count);
+            _logger?.LogInformation(
+                "Type {TypeName} cached. Total cached types: {Count}",
+                fullTypeName, _typeCache.Count);
         }
 
         return info;
     }
 
-    private EventTypeInfo? BuildTypeCache(string fullTypeName, string simpleTypeName, Assembly assembly)
+    private EventTypeInfo? BuildTypeCache(
+        string fullTypeName,
+        string simpleTypeName,
+        Assembly searchAssembly)
     {
         try
         {
-            // 1) Prefer exact Protobuf full-name match via static Descriptor.FullName.
-            var matchingType = FindMessageTypeByDescriptorFullName(assembly, fullTypeName)
-                               ?? FindMessageTypeBySimpleName(assembly, simpleTypeName);
+            // 1) Try searchAssembly first (fast path for single-assembly scenarios)
+            var matchingType = FindMessageTypeByDescriptorFullName(searchAssembly, fullTypeName)
+                               ?? FindMessageTypeBySimpleName(searchAssembly, simpleTypeName);
 
-            // 2) Fallback: scan all loaded assemblies (cross-boundary events often live in different modules).
+            // 2) Fallback: scan all loaded assemblies (cross-module events)
             if (matchingType == null)
             {
-                foreach (var a in AppDomain.CurrentDomain.GetAssemblies()
-                             .Where(x => !x.IsDynamic)
-                             .OrderBy(x => x.FullName, StringComparer.Ordinal))
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies()
+                             .Where(a => !a.IsDynamic)
+                             .OrderBy(a => a.FullName, StringComparer.Ordinal))
                 {
-                    matchingType = FindMessageTypeByDescriptorFullName(a, fullTypeName)
-                                   ?? FindMessageTypeBySimpleName(a, simpleTypeName);
+                    matchingType = FindMessageTypeByDescriptorFullName(asm, fullTypeName)
+                                   ?? FindMessageTypeBySimpleName(asm, simpleTypeName);
                     if (matchingType != null)
                         break;
                 }
@@ -69,8 +75,8 @@ public class ProtobufEventTypeResolver : IEventTypeResolver
             if (matchingType == null)
             {
                 _logger?.LogWarning(
-                    "Type {TypeName} not found (TypeUrl fullName: {FullTypeName}) starting from assembly {Assembly}",
-                    simpleTypeName, fullTypeName, assembly.FullName);
+                    "Type {TypeName} not found (fullName: {FullTypeName}) starting from assembly {Assembly}",
+                    simpleTypeName, fullTypeName, searchAssembly.FullName);
                 return null;
             }
 
@@ -80,11 +86,15 @@ public class ProtobufEventTypeResolver : IEventTypeResolver
 
             if (parser == null)
             {
-                _logger?.LogWarning("Parser property not found for type {TypeName}", matchingType.FullName);
+                _logger?.LogWarning(
+                    "Parser property not found for type {TypeName}",
+                    matchingType.FullName);
                 return null;
             }
 
-            _logger?.LogDebug("Built type cache for {TypeName} (type: {FullName})", simpleTypeName, matchingType.FullName);
+            _logger?.LogDebug(
+                "Built type cache for {TypeName} (type: {FullName})",
+                simpleTypeName, matchingType.FullName);
 
             return new EventTypeInfo(matchingType, parser);
         }
@@ -95,6 +105,11 @@ public class ProtobufEventTypeResolver : IEventTypeResolver
         }
     }
 
+    /// <summary>
+    /// Extract full protobuf type name from typeUrl.
+    /// e.g., "type.googleapis.com/aevatar.agents.banking.MoneyDeposited"
+    ///     -> "aevatar.agents.banking.MoneyDeposited"
+    /// </summary>
     private static string ExtractFullTypeName(string typeUrl)
     {
         if (string.IsNullOrWhiteSpace(typeUrl))
@@ -105,6 +120,10 @@ public class ProtobufEventTypeResolver : IEventTypeResolver
             : typeUrl.Trim();
     }
 
+    /// <summary>
+    /// Extract simple C# type name from protobuf full name.
+    /// e.g., "aevatar.agents.banking.MoneyDeposited" -> "MoneyDeposited"
+    /// </summary>
     private static string ExtractSimpleTypeName(string fullTypeName)
     {
         if (string.IsNullOrWhiteSpace(fullTypeName))
@@ -114,6 +133,9 @@ public class ProtobufEventTypeResolver : IEventTypeResolver
             : fullTypeName;
     }
 
+    /// <summary>
+    /// Exact match by Protobuf Descriptor.FullName (handles package-qualified names).
+    /// </summary>
     private static Type? FindMessageTypeByDescriptorFullName(Assembly assembly, string fullTypeName)
     {
         if (string.IsNullOrWhiteSpace(fullTypeName))
@@ -134,12 +156,15 @@ public class ProtobufEventTypeResolver : IEventTypeResolver
         }
         catch
         {
-            // best-effort: some assemblies may throw on GetTypes()
+            // Best-effort: some assemblies may throw on GetTypes()
         }
 
         return null;
     }
 
+    /// <summary>
+    /// Fallback match by simple C# class name.
+    /// </summary>
     private static Type? FindMessageTypeBySimpleName(Assembly assembly, string simpleTypeName)
     {
         if (string.IsNullOrWhiteSpace(simpleTypeName))

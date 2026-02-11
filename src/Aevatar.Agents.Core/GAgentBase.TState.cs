@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Reflection;
 using Aevatar.Agents.Abstractions;
@@ -116,6 +116,11 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
     /// </summary>
     protected IEventStore? EventStore { get; set; }
 
+    /// <summary>
+    /// EventSourcing options (injected from configuration)
+    /// </summary>
+    protected EventSourcingOptions? EventSourcingOptions { get; set; }
+
     private long _currentVersion;
 
     // Batch event management
@@ -138,9 +143,9 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
         // StateProjector is injected by StateProjectorInjector after agent creation
         
         // State initialization strategy:
-        // - If EventStore is configured: replay events (may or may not activate event sourcing)
-        // - If event sourcing is not active (version==0), fall back to StateStore
-        // This avoids blocking StateStore just because EventStore is injected.
+        // - If EventStore is configured: Use Event Sourcing (replay events from snapshot)
+        // - Otherwise: Use StateStore for simple state persistence
+        // These two strategies are mutually exclusive to avoid duplication
         
         if (EventStore != null)
         {
@@ -148,8 +153,7 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
             // No need for StateStore - EventStore handles all persistence
             await ReplayEventsAsync(ct);
         }
-
-        if (_currentVersion == 0 && StateStore != null)
+        else if (StateStore != null)
         {
             // Simple state mode: Load state directly from StateStore
             // Only load if there's persisted state, otherwise keep current state
@@ -182,14 +186,12 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
     /// </summary>
     public override async Task HandleEventAsync(EventEnvelope envelope, CancellationToken ct = default)
     {
-        // Persistence strategy:
-        // - EventStore may be injected but event sourcing is active only when version > 0.
-        // - StateStore should not be blocked until event sourcing actually starts.
-        var eventStoreEnabled = EventStore != null;
-        var eventSourcingActive = eventStoreEnabled && _currentVersion > 0;
+        // Persistence strategy: EventStore and StateStore are mutually exclusive
+        // to avoid duplicate storage operations
+        var useEventSourcing = EventStore != null;
         
-        // 1. Load State (only when event sourcing is not active)
-        if (!eventSourcingActive && StateStore != null)
+        // 1. Load State (only in StateStore mode - EventStore mode uses in-memory state from replay)
+        if (!useEventSourcing && StateStore != null)
         {
             using (StateProtectionContext.BeginEventHandlerScope())
             {
@@ -206,16 +208,16 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
         await HandleEventCoreAsync(envelope, ct);
 
         // 3. Persist state changes
-        if (eventStoreEnabled)
+        if (useEventSourcing)
         {
-            // Event Sourcing mode: Persist via events + snapshots (best-effort).
-            // Pass notifyStateChanged=false to avoid duplicate call (we call it below).
+            // Event Sourcing mode: Persist via events + snapshots
+            // EventStore handles all persistence, no StateStore needed
+            // Pass notifyStateChanged=false to avoid duplicate call (we call it below)
             await ConfirmEventsAsync(ct, notifyStateChanged: false);
         }
-
-        if (StateStore != null && _currentVersion == 0)
+        else if (StateStore != null)
         {
-            // StateStore mode (event sourcing not active): Direct state persistence.
+            // StateStore mode: Direct state persistence
             await StateStore.SaveAsync(Id, _state, ct);
         }
 
@@ -559,9 +561,8 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
 
     // ============ Snapshot Operations ============
 
-    // TODO: Read from configuration (EventSourcing:SnapshotFrequency)
     protected virtual ISnapshotStrategy SnapshotStrategy =>
-        new IntervalSnapshotStrategy(100);
+        new IntervalSnapshotStrategy(EventSourcingOptions?.SnapshotFrequency ?? 10);
 
     /// <summary>
     /// Create snapshot using StateStore (preferred) or EventStore (fallback)

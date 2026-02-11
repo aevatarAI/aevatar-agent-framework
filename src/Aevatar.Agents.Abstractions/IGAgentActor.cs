@@ -67,11 +67,21 @@ public interface IGAgentActor : IEventPublisher
     Task DeactivateAsync(CancellationToken ct = default);
 
     /// <summary>
-    /// Invoke RPC method on Agent via Protobuf.
+    /// Invoke RPC method on Agent via Protobuf (for write operations).
     /// For Local runtime, this may directly call the method.
-    /// For Orleans runtime, this calls the Grain RPC method.
+    /// For Orleans runtime, this calls the Grain RPC method (serial execution).
     /// </summary>
     /// <param name="requestBytes">RpcRequest serialized bytes</param>
     /// <returns>RpcResponse serialized bytes</returns>
     Task<byte[]> InvokeRpcAsync(byte[] requestBytes);
+    
+    /// <summary>
+    /// Invoke read-only RPC method on Agent via Protobuf.
+    /// For Local runtime, same as InvokeRpcAsync.
+    /// For Orleans runtime, this calls the [AlwaysInterleave] Grain method (concurrent execution).
+    /// Use this for methods marked with [ReadOnly] attribute.
+    /// </summary>
+    /// <param name="requestBytes">RpcRequest serialized bytes</param>
+    /// <returns>RpcResponse serialized bytes</returns>
+    Task<byte[]> InvokeReadOnlyRpcAsync(byte[] requestBytes);
 }

@@ -76,6 +76,7 @@ public class GAgentActorFactoryBaseTests
         }
         public Task DeactivateAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task<byte[]> InvokeRpcAsync(byte[] requestBytes) => Task.FromResult(Array.Empty<byte>());
+        public Task<byte[]> InvokeReadOnlyRpcAsync(byte[] requestBytes) => InvokeRpcAsync(requestBytes);
         public Task<string> PublishEventAsync<TEvent>(TEvent evt, EventDirection direction = EventDirection.Down,
             CancellationToken ct = default, bool isInternalCall = false) where TEvent : IMessage
             => Task.FromResult(string.Empty);

@@ -71,6 +71,10 @@ public static class ProtobufPacker
     /// </summary>
     public static object? Unpack(Any any, System.Type targetType)
     {
+        // Handle null Any (should be treated as null/Empty)
+        if (any == null || string.IsNullOrEmpty(any.TypeUrl))
+            return null;
+
         var underlyingType = Nullable.GetUnderlyingType(targetType);
         var actualType = underlyingType ?? targetType;
 

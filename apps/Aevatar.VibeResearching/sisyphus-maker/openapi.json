@@ -1,0 +1,398 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Sisyphus Maker — Consensus Verification Engine",
+    "description": "Sisyphus Maker is a stateless, prompt-driven verification engine powered by the **Aevatar CognitiveStrategy + maker.yaml** DSL workflow. It implements the MAKER paper algorithm — atomicity checking, task decomposition, parallel worker fan-out, multi-round voting with ahead-by-K consensus, red-flag detection, recursive subtask execution, and result composition — to achieve robust LLM consensus on any verifiable task.\n\n## How It Works\n\n1. **Prompt Submission** — The caller provides a prompt (system instruction + user prompt template) and a flat variables map directly in the request body.\n2. **Template Rendering** — The `userPromptTemplate` has its `{{placeholder}}` variables substituted with values from the `variables` map.\n3. **CognitiveStrategy Execution** — The rendered prompt is passed to the CognitiveStrategy engine, which executes the `maker.yaml` DSL workflow with configurable worker count, consensus threshold, max rounds, and timeout.\n4. **SSE Streaming** — The entire process streams real-time progress events via Server-Sent Events (SSE): `started`, `phase`, `worker_done`, `vote_round`, then either `result` or `error`.\n\n## Use Cases\n\nSisyphus Maker is task-agnostic. Any task that can be expressed as a prompt and evaluated by an LLM can be verified through consensus:\n\n- **Fact-checking** — Verify factual accuracy of claims or knowledge nodes\n- **Code review** — Evaluate source code for correctness, security, and best practices\n- **Content moderation** — Check content against policy guidelines\n- **Data validation** — Verify data quality or integrity constraints\n- **Custom verification** — Any domain-specific verification expressed as a prompt\n\n## Key Concepts\n\n- **Prompt** — Each request includes a `systemPrompt` (LLM role/persona and output format) and a `userPromptTemplate` (the task description with `{{placeholder}}` variables).\n- **Variables** — A flat `string→string` map. The caller is responsible for formatting complex data (lists, nested objects) into string values before sending.\n- **MakerConfig** — Per-request overrides for worker count, consensus threshold, max rounds, timeout, and LLM provider. All fields are optional; omitted fields fall back to server defaults.\n- **Consensus** — Multiple LLM workers independently evaluate the prompt. Responses are grouped by content hash and voted on. Consensus is reached when the leading hash leads the runner-up by at least K votes (ahead-by-K algorithm).",
+    "version": "2.0.0",
+    "contact": {
+      "name": "Aevatar Team"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:5180",
+      "description": "Local development server"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Verification",
+      "description": "Run consensus-based verification on any task using inline prompts. Returns results via SSE streaming."
+    },
+    {
+      "name": "System",
+      "description": "Health check and service status."
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["System"],
+        "summary": "Health check",
+        "description": "Returns the service health status, service name, execution engine identifier, and current UTC timestamp. Use this to verify the service is running and responsive.",
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "description": "Service is healthy and ready to accept requests.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                },
+                "example": {
+                  "status": "healthy",
+                  "service": "sisyphus-maker",
+                  "engine": "CognitiveStrategy + maker.yaml",
+                  "timestamp": "2026-02-12T10:30:00.0000000Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/verify": {
+      "post": {
+        "tags": ["Verification"],
+        "summary": "Run consensus verification",
+        "description": "Executes a full CognitiveStrategy + maker.yaml consensus verification using the provided prompt and variables. The response is streamed as **Server-Sent Events (SSE)**.\n\nThe caller provides a prompt (system instruction + user template with `{{placeholder}}` variables), a variables map for template rendering, and optional engine configuration overrides.\n\n## SSE Event Sequence\n\nEvents are emitted in this order:\n\n| Event | Payload | When |\n|-------|---------|------|\n| `started` | `{jobId, verificationType, workerCount}` | Immediately after validation passes |\n| `phase` | `{phase, message, progress}` | When the CognitiveStrategy workflow transitions to a new phase (e.g., LOADING, INITIALIZING, ASSESS, DECOMPOSE, SOLVE, COMPOSE, EXECUTE, COMPLETE) |\n| `worker_done` | `{workerId, proposalId, success}` | As each parallel worker completes a proposal |\n| `vote_round` | `{round, votesNeeded, currentVotes, consensusReached}` | During voting rounds within the maker workflow |\n| `result` | Full `VerificationResponse` object | When consensus is reached or workflow completes |\n| `error` | `{error, jobId, durationMs}` | On timeout or unrecoverable error |\n\n## Timeout Behavior\n\n- **MaxDuration** (primary): Set to `config.timeoutSeconds`. When exceeded, the CognitiveStrategy returns a partial best-effort result from completed work and deactivates the coordinator.\n- **CancellationToken** (safety net): Set to `config.timeoutSeconds + 30s`. If the framework hangs past MaxDuration, force-cancels the request. Returns an SSE `error` event.\n\n## Example SSE Stream\n\n```\nevent: started\ndata: {\"jobId\":\"abc-123\",\"verificationType\":\"inline\",\"workerCount\":3}\n\nevent: phase\ndata: {\"phase\":\"ASSESS\",\"message\":\"Checking if task is atomic\",\"progress\":10}\n\nevent: phase\ndata: {\"phase\":\"SOLVE\",\"message\":\"Launching parallel workers\",\"progress\":30}\n\nevent: worker_done\ndata: {\"workerId\":\"worker-0\",\"proposalId\":\"prop-a1b2\",\"success\":true}\n\nevent: worker_done\ndata: {\"workerId\":\"worker-1\",\"proposalId\":\"prop-c3d4\",\"success\":true}\n\nevent: worker_done\ndata: {\"workerId\":\"worker-2\",\"proposalId\":\"prop-e5f6\",\"success\":true}\n\nevent: vote_round\ndata: {\"round\":1,\"votesNeeded\":2,\"currentVotes\":2,\"consensusReached\":true}\n\nevent: phase\ndata: {\"phase\":\"COMPOSE\",\"message\":\"Composing final result\",\"progress\":90}\n\nevent: result\ndata: {\"isPassed\":true,\"reason\":\"...\",\"confidence\":0.95,...}\n```",
+        "operationId": "verify",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyRequest"
+              },
+              "examples": {
+                "factCheck": {
+                  "summary": "Fact-check a mathematical claim",
+                  "description": "Verifies the factual accuracy of a Pythagorean Theorem description using a custom system prompt.",
+                  "value": {
+                    "prompt": {
+                      "systemPrompt": "You are a rigorous knowledge validator. Evaluate the given content for factual accuracy, internal consistency, and completeness. Respond with STRICT JSON only, no additional text. Format: { \"passed\": true|false, \"reason\": \"...\", \"confidence\": 0.0-1.0 }",
+                      "userPromptTemplate": "Verify the following claim:\n\nTitle: {{title}}\nDescription: {{description}}\nDerivation: {{derivation}}\n\nIs this factually accurate and internally consistent?"
+                    },
+                    "variables": {
+                      "title": "Pythagorean Theorem",
+                      "description": "In a right triangle, the square of the hypotenuse equals the sum of squares of the other two sides.",
+                      "derivation": "Given sides a, b, c where c is the hypotenuse: a² + b² = c²"
+                    }
+                  }
+                },
+                "codeReview": {
+                  "summary": "Security-focused code review",
+                  "description": "Reviews source code for security vulnerabilities and best practices using configurable worker count and consensus threshold.",
+                  "value": {
+                    "prompt": {
+                      "systemPrompt": "You are a senior security-focused code reviewer. Evaluate code for security vulnerabilities, correctness, and best practices. Respond with STRICT JSON only: { \"passed\": true|false, \"reason\": \"...\", \"confidence\": 0.0-1.0 }",
+                      "userPromptTemplate": "Review the following {{language}} code from file `{{filename}}`:\n\n```{{language}}\n{{code}}\n```\n\nContext: {{context}}\n\nPerform a thorough security and quality review."
+                    },
+                    "variables": {
+                      "language": "python",
+                      "filename": "auth_service.py",
+                      "code": "def login(username, password):\n    query = f\"SELECT * FROM users WHERE username='{username}'\"\n    ...",
+                      "context": "Authentication module for a production web application."
+                    },
+                    "config": {
+                      "workerCount": 5,
+                      "consensusK": 3,
+                      "timeoutSeconds": 300
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "SSE event stream. The response uses `text/event-stream` content type and emits events progressively as the CognitiveStrategy workflow runs. The final event is either `result` (with the full `VerificationResponse` including vote breakdown) or `error`. **Note:** Runtime errors (timeout, LLM failure) are returned as SSE `error` events within the 200 stream, not as HTTP error codes — because SSE headers are sent before processing begins.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string",
+                  "description": "Server-Sent Events stream. Each event has the format: `event: <type>\\ndata: <json>\\n\\n`. Event types: started, phase (workflow transitions), worker_done (per worker), vote_round (during voting), then either result or error."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request validation failed before SSE streaming started. Returned as standard JSON (not SSE). Possible causes: `prompt.systemPrompt` is empty; `prompt.userPromptTemplate` is empty; `config` values out of range (e.g., workerCount not 1-20, timeoutSeconds not 10-600, consensusK > workerCount).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "prompt.systemPrompt must not be empty."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "HealthResponse": {
+        "type": "object",
+        "description": "Service health status response.",
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "Health status. Always `\"healthy\"` when the service is running.",
+            "example": "healthy"
+          },
+          "service": {
+            "type": "string",
+            "description": "Service identifier.",
+            "example": "sisyphus-maker"
+          },
+          "engine": {
+            "type": "string",
+            "description": "Execution engine identifier. Always `\"CognitiveStrategy + maker.yaml\"` in the current version.",
+            "example": "CognitiveStrategy + maker.yaml"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Current server UTC time in ISO 8601 format.",
+            "example": "2026-02-12T10:30:00.0000000Z"
+          }
+        }
+      },
+      "VerifyRequest": {
+        "type": "object",
+        "description": "Verification request. Provides the prompt (system instruction + user template), optional variables for template rendering, and optional engine configuration overrides.",
+        "required": ["prompt"],
+        "properties": {
+          "prompt": {
+            "$ref": "#/components/schemas/InlinePrompt"
+          },
+          "variables": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Flat string-to-string map of template variables. Each key corresponds to a `{{placeholder}}` in the `userPromptTemplate`. The caller is responsible for formatting complex data (lists, objects, etc.) into string values. Unmatched placeholders in the template are left as-is. Optional — omit if the prompt has no placeholders.",
+            "example": {
+              "language": "python",
+              "code": "def fibonacci(n):\n    if n <= 1:\n        return n\n    return fibonacci(n-1) + fibonacci(n-2)",
+              "context": "Utility function for computing Fibonacci numbers."
+            }
+          },
+          "config": {
+            "$ref": "#/components/schemas/MakerConfig"
+          }
+        }
+      },
+      "InlinePrompt": {
+        "type": "object",
+        "description": "Prompt definition containing the system-level instruction and user-level prompt template. Both fields are required and must not be empty.",
+        "required": ["systemPrompt", "userPromptTemplate"],
+        "properties": {
+          "systemPrompt": {
+            "type": "string",
+            "description": "System-level instruction for the LLM. Defines the role/persona and output format expectations. Must not be empty. For best results, instruct the LLM to respond with STRICT JSON: `{ \"passed\": true|false, \"reason\": \"...\", \"confidence\": 0.0-1.0 }` — this format is parsed by the engine to extract structured verification results.",
+            "example": "You are a code quality reviewer. Respond with STRICT JSON only: { \"passed\": true|false, \"reason\": \"...\", \"confidence\": 0.0-1.0 }"
+          },
+          "userPromptTemplate": {
+            "type": "string",
+            "description": "User-level prompt template with `{{placeholder}}` variables that will be substituted from the `variables` map at runtime. Must not be empty.",
+            "example": "Review this {{language}} code:\n\n{{code}}\n\nRespond with STRICT JSON only."
+          }
+        }
+      },
+      "MakerConfig": {
+        "type": "object",
+        "description": "Optional per-request overrides for the CognitiveStrategy maker workflow. All fields are nullable — omitted fields fall back to server defaults (configured in `appsettings.json`). Server defaults: workerCount=3, consensusK=2, maxRounds=5, timeoutSeconds=120.",
+        "properties": {
+          "workerCount": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20,
+            "description": "Number of parallel LLM workers to launch per voting round. Higher values increase reliability but cost more API calls. Must be between 1 and 20. Default: 3.",
+            "example": 3
+          },
+          "consensusK": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Ahead-by-K consensus threshold. Consensus is reached when the leading response hash leads the runner-up by at least K votes. Must be >= 1 and <= workerCount. Default: 2.",
+            "example": 2
+          },
+          "maxRounds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20,
+            "description": "Maximum number of voting rounds before returning a best-effort majority result. If consensus is not reached after maxRounds, the response with the most votes is returned with `consensusReached: false`. Must be between 1 and 20. Default: 5.",
+            "example": 5
+          },
+          "timeoutSeconds": {
+            "type": "integer",
+            "minimum": 10,
+            "maximum": 600,
+            "description": "Per-request timeout in seconds. Controls the CognitiveStrategy MaxDuration — if exceeded mid-round, returns a partial best-effort result from completed work. A safety-net CancellationToken is set at timeoutSeconds + 30s to force-cancel if the framework hangs. Must be between 10 and 600. Default: 120.",
+            "example": 120
+          },
+          "model": {
+            "type": "string",
+            "description": "LLM provider name override for this request only. Maps to a provider key configured in `LLMProviders:Providers` (e.g., `\"deepseek\"`, `\"openai\"`). If null or omitted, uses the server's default provider. Must not be an empty string if provided.",
+            "example": "deepseek"
+          }
+        }
+      },
+      "VerificationResponse": {
+        "type": "object",
+        "description": "Final verification result emitted as the SSE `result` event. Contains the consensus outcome parsed from the winning LLM response, plus full voting breakdown extracted from the CognitiveStrategy MakerTrace.",
+        "properties": {
+          "isPassed": {
+            "type": "boolean",
+            "description": "Whether the verification subject passed. Extracted from the winning LLM response's `\"passed\"` field.",
+            "example": true
+          },
+          "reason": {
+            "type": "string",
+            "description": "Consensus reasoning from the winning LLM response. Extracted from the `\"reason\"` field.",
+            "example": "The content is factually accurate, internally consistent, and well-supported by the provided derivation details."
+          },
+          "confidence": {
+            "type": "number",
+            "format": "double",
+            "description": "Confidence score from the winning LLM response (0.0 to 1.0). Extracted from the `\"confidence\"` field. Returns 0.0 if the LLM response could not be parsed as JSON.",
+            "example": 0.95
+          },
+          "failureReason": {
+            "type": "string",
+            "nullable": true,
+            "description": "Same as `reason` when `isPassed` is `false`. `null` when `isPassed` is `true`. Convenience field for consumers that only care about failures.",
+            "example": null
+          },
+          "voteDetail": {
+            "$ref": "#/components/schemas/VoteDetail"
+          },
+          "durationMs": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total wall-clock duration of the verification process in milliseconds, from request start to result emission.",
+            "example": 4523
+          }
+        }
+      },
+      "VoteDetail": {
+        "type": "object",
+        "description": "Consensus voting metadata extracted from the CognitiveStrategy MakerTrace. Contains per-worker vote breakdown and per-round vote distribution summaries. On engine failure or if the MakerTrace is unavailable, both arrays may be empty.",
+        "properties": {
+          "workerCount": {
+            "type": "integer",
+            "description": "Number of parallel LLM workers used.",
+            "example": 3
+          },
+          "totalRounds": {
+            "type": "integer",
+            "description": "Total number of voting rounds executed (1 to maxRounds).",
+            "example": 1
+          },
+          "consensusReached": {
+            "type": "boolean",
+            "description": "`true` if the ahead-by-K threshold was met in some round. `false` if all rounds were exhausted and the result is a best-effort majority winner, or if the engine failed.",
+            "example": true
+          },
+          "workerVotes": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/WorkerVote" },
+            "description": "Per-worker vote detail from the final voting session. Each entry represents one worker's individual vote, parsed from the worker's LLM response. Workers with identical responses share the same `responseHash`.",
+            "example": [
+              { "workerId": 0, "votedPass": true, "reason": "The theorem is correct.", "confidence": 0.95, "responseHash": "a1b2c3d4" },
+              { "workerId": 1, "votedPass": true, "reason": "The theorem is correct.", "confidence": 0.95, "responseHash": "a1b2c3d4" },
+              { "workerId": 2, "votedPass": true, "reason": "Mathematically sound.", "confidence": 0.90, "responseHash": "e5f6g7h8" }
+            ]
+          },
+          "rounds": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/VoteRoundSummary" },
+            "description": "Per-round vote distribution summaries showing how votes were distributed across response hashes in each voting round.",
+            "example": [
+              { "round": 1, "distribution": { "a1b2c3d4": 2, "e5f6g7h8": 1 }, "consensusReached": true, "winnerHash": "a1b2c3d4" }
+            ]
+          }
+        }
+      },
+      "WorkerVote": {
+        "type": "object",
+        "description": "An individual LLM worker's vote in the consensus process, parsed from its JSON response.",
+        "properties": {
+          "workerId": {
+            "type": "integer",
+            "description": "Worker identifier (0-based index).",
+            "example": 0
+          },
+          "votedPass": {
+            "type": "boolean",
+            "description": "Whether this worker voted pass (`true`) or fail (`false`). Parsed from the worker's `\"passed\"` JSON field.",
+            "example": true
+          },
+          "reason": {
+            "type": "string",
+            "description": "This worker's reasoning. Parsed from the `\"reason\"` JSON field.",
+            "example": "The theorem statement is mathematically correct and well-known."
+          },
+          "confidence": {
+            "type": "number",
+            "format": "double",
+            "description": "This worker's confidence score (0.0 to 1.0). Parsed from the `\"confidence\"` JSON field.",
+            "example": 0.95
+          },
+          "responseHash": {
+            "type": "string",
+            "description": "Hash of the worker's raw response content. Workers with identical responses produce identical hashes, enabling vote grouping in the consensus algorithm.",
+            "example": "a1b2c3d4"
+          }
+        }
+      },
+      "VoteRoundSummary": {
+        "type": "object",
+        "description": "Summary of a single voting round showing vote distribution across response hashes and whether the ahead-by-K consensus threshold was met.",
+        "properties": {
+          "round": {
+            "type": "integer",
+            "description": "Round number (1-based).",
+            "example": 1
+          },
+          "distribution": {
+            "type": "object",
+            "additionalProperties": { "type": "integer" },
+            "description": "Vote distribution: maps each unique response hash to its vote count.",
+            "example": {
+              "a1b2c3d4": 2,
+              "e5f6g7h8": 1
+            }
+          },
+          "consensusReached": {
+            "type": "boolean",
+            "description": "`true` if the leading hash's vote count exceeds the runner-up by at least K (the consensusK threshold).",
+            "example": true
+          },
+          "winnerHash": {
+            "type": "string",
+            "nullable": true,
+            "description": "The winning response hash if consensus was reached in this round. `null` if consensus was not reached.",
+            "example": "a1b2c3d4"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "description": "Standard error response envelope used for HTTP 400 validation errors (returned as JSON before SSE streaming starts).",
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Human-readable error message describing what went wrong.",
+            "example": "prompt.systemPrompt must not be empty."
+          }
+        }
+      }
+    }
+  }
+}

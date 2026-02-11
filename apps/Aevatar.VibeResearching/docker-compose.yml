@@ -10,3 +10,23 @@ services:
       - Neo4j__Username=
       - Neo4j__Password=
       - Neo4j__Database=
+
+  sisyphus-maker:
+    build:
+      context: ../../
+      dockerfile: apps/Aevatar.VibeResearching/sisyphus-maker/Dockerfile
+    ports:
+      - "8081:8080"
+    environment:
+      # Consensus defaults
+      - Maker__WorkerCount=
+      - Maker__ConsensusK=
+      - Maker__MaxRounds=
+      - Maker__TimeoutSeconds=
+      # LLM Provider (framework format)
+      - LLMProviders__Default=
+      - LLMProviders__Providers__deepseek__ProviderType=
+      - LLMProviders__Providers__deepseek__Endpoint=
+      - LLMProviders__Providers__deepseek__ApiKey=
+      - LLMProviders__Providers__deepseek__Model=
+      - LLMProviders__Providers__deepseek__EnableStreaming=

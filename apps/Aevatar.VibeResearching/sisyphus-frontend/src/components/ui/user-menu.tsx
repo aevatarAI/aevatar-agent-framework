@@ -11,6 +11,7 @@ import {
   DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu'
 import { useAuthStore, useIsAdmin } from '@/store/auth-store'
+import { usePermissionStore } from '@/store/permission-store'
 
 // ============================================================
 //  User Menu - Reusable Profile Dropdown
@@ -24,6 +25,18 @@ export const UserMenu: React.FC<UserMenuProps> = ({ showName = true }) => {
   const navigate = useNavigate()
   const { user, isAuthenticated, logout } = useAuthStore()
   const isAdmin = useIsAdmin()
+  const permissions = usePermissionStore((s) => s.permissions)
+
+  // Permission-based menu visibility
+  const canSeeUsers = isAdmin || permissions.includes('AbpIdentity.Users')
+  const canSeeRoles = isAdmin || permissions.some(p =>
+    p === 'AbpIdentity.Roles.Create' || p === 'AbpIdentity.Roles.Update' ||
+    p === 'AbpIdentity.Roles.Delete' || p === 'AbpIdentity.Roles.ManagePermissions'
+  )
+  const canSeePermissions = isAdmin || permissions.some(p =>
+    p === 'AbpIdentity.Roles.ManagePermissions' || p === 'AbpIdentity.Users.ManagePermissions'
+  )
+  const hasAnyAdminAccess = canSeeUsers || canSeeRoles || canSeePermissions
 
   const handleLogout = () => {
     logout()
@@ -72,30 +85,36 @@ export const UserMenu: React.FC<UserMenuProps> = ({ showName = true }) => {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
-        {/* Admin Section */}
-        {isAdmin && (
+        {/* Admin Section - Show based on actual permissions */}
+        {hasAnyAdminAccess && (
           <>
             <DropdownMenuLabel className="text-neon-gold">
               Administration
             </DropdownMenuLabel>
-            <DropdownMenuItem
-              onClick={() => navigate('/admin/users')}
-              icon={<Users className="w-4 h-4" />}
-            >
-              Users
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => navigate('/admin/roles')}
-              icon={<Shield className="w-4 h-4" />}
-            >
-              Roles
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => navigate('/admin/permissions')}
-              icon={<Key className="w-4 h-4" />}
-            >
-              Permissions
-            </DropdownMenuItem>
+            {canSeeUsers && (
+              <DropdownMenuItem
+                onClick={() => navigate('/admin/users')}
+                icon={<Users className="w-4 h-4" />}
+              >
+                Users
+              </DropdownMenuItem>
+            )}
+            {canSeeRoles && (
+              <DropdownMenuItem
+                onClick={() => navigate('/admin/roles')}
+                icon={<Shield className="w-4 h-4" />}
+              >
+                Roles
+              </DropdownMenuItem>
+            )}
+            {canSeePermissions && (
+              <DropdownMenuItem
+                onClick={() => navigate('/admin/permissions')}
+                icon={<Key className="w-4 h-4" />}
+              >
+                Permissions
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSeparator />
           </>
         )}

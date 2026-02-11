@@ -40,7 +40,7 @@ import AccountPage from './pages/account'
 import AccessDeniedPage from './pages/errors/access-denied'
 
 // Route Guards
-import { ProtectedRoute, AdminRoute } from './components/guards'
+import { ProtectedRoute, AdminRoute, PermissionRoute } from './components/guards'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -64,29 +64,29 @@ createRoot(document.getElementById('root')!).render(
         {/* App Route - Public for anonymous browsing */}
         <Route path="/app" element={<App />} />
         
-        {/* Admin Routes */}
+        {/* Admin Routes - Permission-based access control */}
         <Route
           path="/admin/users"
           element={
-            <AdminRoute>
+            <PermissionRoute requiredPermissions={["AbpIdentity.Users"]}>
               <UsersPage />
-            </AdminRoute>
+            </PermissionRoute>
           }
         />
         <Route
           path="/admin/roles"
           element={
-            <AdminRoute>
+            <PermissionRoute requiredPermissions={["AbpIdentity.Roles.Create", "AbpIdentity.Roles.Update", "AbpIdentity.Roles.Delete", "AbpIdentity.Roles.ManagePermissions"]}>
               <RolesPage />
-            </AdminRoute>
+            </PermissionRoute>
           }
         />
         <Route
           path="/admin/permissions"
           element={
-            <AdminRoute>
+            <PermissionRoute requiredPermissions={["AbpIdentity.Roles.ManagePermissions", "AbpIdentity.Users.ManagePermissions"]}>
               <PermissionsPage />
-            </AdminRoute>
+            </PermissionRoute>
           }
         />
         <Route

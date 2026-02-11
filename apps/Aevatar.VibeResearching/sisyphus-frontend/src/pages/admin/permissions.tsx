@@ -22,6 +22,7 @@ import type {
   PermissionProviderName,
 } from "@/types/user-management"
 import { cn } from "@/lib/utils"
+import { usePermission } from "@/hooks/use-permission"
 
 // ============================================================
 //  Icon mapping for provider types
@@ -37,6 +38,8 @@ const PROVIDER_ICONS: Record<PermissionProvider["icon"], React.ReactNode> = {
 // ============================================================
 
 export default function PermissionsPage() {
+  const { hasPermission, isAdmin } = usePermission()
+
   // Provider configuration from backend
   const [providerConfigs, setProviderConfigs] = useState<PermissionProvider[]>([])
   const [activeProviderType, setActiveProviderType] = useState<PermissionProviderName | null>(null)
@@ -45,6 +48,9 @@ export default function PermissionsPage() {
   // Data for each provider type
   const [roles, setRoles] = useState<Role[]>([])
   const [users, setUsers] = useState<UserType[]>([])
+  const [userSearch, setUserSearch] = useState("")
+  const [userTotalCount, setUserTotalCount] = useState(0)
+  const [isLoadingMoreUsers, setIsLoadingMoreUsers] = useState(false)
   const [selectedProviderKey, setSelectedProviderKey] = useState<string | null>(null)
   const [permissionGroups, setPermissionGroups] = useState<PermissionGroup[]>([])
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
@@ -62,20 +68,80 @@ export default function PermissionsPage() {
     loadInitialData()
   }, [])
 
+  // 按需加载 — 只请求用户有权限访问的数据，其余容错降级
+  const canManageRolePerms = isAdmin || hasPermission("AbpIdentity.Roles.ManagePermissions")
+  const canManageUserPerms = isAdmin || hasPermission("AbpIdentity.Users.ManagePermissions")
+
   const loadInitialData = async () => {
     const [providers, rolesResult, usersResult] = await Promise.all([
       getPermissionProviders(),
-      getRoles(),
-      getUsers({ take: 100 }),
+      canManageRolePerms
+        ? getRoles().catch(() => [] as Role[])
+        : Promise.resolve([] as Role[]),
+      canManageUserPerms
+        ? getUsers({ take: 50 }).catch(() => ({ items: [] as UserType[], totalCount: 0 }))
+        : Promise.resolve({ items: [] as UserType[], totalCount: 0 }),
     ])
     
-    setProviderConfigs(providers)
+    // Filter tabs based on user permissions
+    const visibleProviders = isAdmin
+      ? providers
+      : providers.filter(p => {
+          if (p.name === "R") return canManageRolePerms
+          if (p.name === "U") return canManageUserPerms
+          return true
+        })
+
+    setProviderConfigs(visibleProviders)
     setRoles(rolesResult)
     setUsers(usersResult.items)
+    setUserTotalCount(usersResult.totalCount)
     
-    // Select first enabled provider as default tab
-    if (providers.length > 0) {
-      setActiveProviderType(providers[0].name)
+    // Select first visible provider as default tab
+    if (visibleProviders.length > 0) {
+      setActiveProviderType(visibleProviders[0].name)
+    }
+  }
+
+  // ============================================================
+  //  User search with debounce
+  // ============================================================
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      searchUsers(userSearch)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [userSearch])
+
+  const searchUsers = async (query: string) => {
+    try {
+      const result = await getUsers({ take: 50, search: query || undefined })
+      setUsers(result.items)
+      setUserTotalCount(result.totalCount)
+      if (activeProviderType === "U") {
+        setSelectedProviderKey(result.items.length > 0 ? result.items[0].id : null)
+        if (result.items.length === 0) setPermissionGroups([])
+      }
+    } catch {
+      // 权限不足或网络错误时静默降级
+    }
+  }
+
+  const loadMoreUsers = async () => {
+    if (isLoadingMoreUsers || users.length >= userTotalCount) return
+    setIsLoadingMoreUsers(true)
+    try {
+      const result = await getUsers({
+        skip: users.length,
+        take: 50,
+        search: userSearch || undefined,
+      })
+      setUsers(prev => [...prev, ...result.items])
+      setUserTotalCount(result.totalCount)
+    } catch {
+      // 权限不足或网络错误时静默降级
+    } finally {
+      setIsLoadingMoreUsers(false)
     }
   }
 
@@ -85,20 +151,25 @@ export default function PermissionsPage() {
   useEffect(() => {
     if (!activeProviderType) return
 
-    // Select first item for the current provider type
+    // Full reset: clear stale data from the previous tab
+    setSelectedProviderKey(null)
+    setPermissionGroups([])
+    setPendingChanges(new Map())
+  }, [activeProviderType])
+
+  // Auto-select first item when nothing is selected (after tab switch or initial load)
+  useEffect(() => {
+    if (selectedProviderKey) return
+    if (!activeProviderType) return
+
     if (activeProviderType === "R" && roles.length > 0) {
       setSelectedProviderKey(roles[0].name)
     } else if (activeProviderType === "U" && users.length > 0) {
       setSelectedProviderKey(users[0].id)
     } else if (activeProviderType === "C") {
       setSelectedProviderKey("frontend")
-    } else {
-      setSelectedProviderKey(null)
     }
-    
-    // Clear pending changes when switching provider type
-    setPendingChanges(new Map())
-  }, [activeProviderType, roles.length, users.length])
+  }, [activeProviderType, roles.length, users.length, selectedProviderKey])
 
   // ============================================================
   //  Load permissions when selected provider changes
@@ -112,12 +183,39 @@ export default function PermissionsPage() {
 
   const loadPermissions = async () => {
     if (!selectedProviderKey || !activeProviderType) return
+
+    // Validate providerKey matches the current provider type to prevent mismatched requests
+    if (activeProviderType === "U") {
+      // User providerKey should be a GUID (contains hyphens), not a role name
+      if (!selectedProviderKey.includes("-")) return
+    }
     
     setIsLoading(true)
     try {
       const groups = await getPermissions(activeProviderType, selectedProviderKey)
-      setPermissionGroups(groups)
-      setExpandedGroups(new Set(groups.map(g => g.name)))
+
+      // Normalize hierarchy: if any child is granted, ensure its parent chain is also granted.
+      // This fixes data inconsistencies from legacy permission assignments.
+      const normalized = groups.map(group => {
+        const permsByName = new Map(group.permissions.map(p => [p.name, p]))
+        let changed = true
+        while (changed) {
+          changed = false
+          for (const perm of group.permissions) {
+            if (perm.isGranted && perm.parentName) {
+              const parent = permsByName.get(perm.parentName)
+              if (parent && !parent.isGranted) {
+                parent.isGranted = true
+                changed = true
+              }
+            }
+          }
+        }
+        return group
+      })
+
+      setPermissionGroups(normalized)
+      setExpandedGroups(new Set(normalized.map(g => g.name)))
     } finally {
       setIsLoading(false)
     }
@@ -153,6 +251,11 @@ export default function PermissionsPage() {
   // Find parent permission
   const findParent = (name: string): string | undefined => {
     return allPermissions.find(p => p.name === name)?.parentName
+  }
+
+  // Count granted permissions - parent permissions count as real permissions (e.g. Read/View access)
+  const countGranted = (permissions: typeof allPermissions): number => {
+    return permissions.filter(p => p.isGranted).length
   }
 
   // ============================================================
@@ -258,22 +361,42 @@ export default function PermissionsPage() {
 
   // Filter groups by search AND allowedProviders
   // NOTE: Empty allowedProviders array means permission is allowed for ALL provider types
+  // When a child permission matches search, its parent chain is auto-included
+  // to preserve the tree structure for rendering.
   const filteredGroups = useMemo(() => {
     if (!activeProviderType) return []
-    
+    const q = search.toLowerCase()
+
     return permissionGroups
-      .map(group => ({
-        ...group,
-        permissions: group.permissions.filter(p => {
-          // Empty allowedProviders = allowed for all providers
-          const isAllowed = p.allowedProviders.length === 0 || 
-                           p.allowedProviders.includes(activeProviderType)
-          const matchesSearch = search === "" ||
-            p.displayName.toLowerCase().includes(search.toLowerCase()) ||
-            group.displayName.toLowerCase().includes(search.toLowerCase())
-          return isAllowed && matchesSearch
-        })
-      }))
+      .map(group => {
+        // Step 1: filter by allowedProviders
+        const allowed = group.permissions.filter(p =>
+          p.allowedProviders.length === 0 || p.allowedProviders.includes(activeProviderType)
+        )
+        if (q === "") return { ...group, permissions: allowed }
+
+        // Step 2: find permissions that directly match the search
+        const matchSet = new Set(
+          allowed
+            .filter(p =>
+              p.displayName.toLowerCase().includes(q) ||
+              group.displayName.toLowerCase().includes(q)
+            )
+            .map(p => p.name)
+        )
+
+        // Step 3: for every match, walk up the parent chain and include ancestors
+        const permByName = new Map(allowed.map(p => [p.name, p]))
+        for (const name of [...matchSet]) {
+          let cur = permByName.get(name)
+          while (cur?.parentName) {
+            matchSet.add(cur.parentName)
+            cur = permByName.get(cur.parentName)
+          }
+        }
+
+        return { ...group, permissions: allowed.filter(p => matchSet.has(p.name)) }
+      })
       .filter(group => group.permissions.length > 0)
   }, [permissionGroups, activeProviderType, search])
 
@@ -330,7 +453,7 @@ export default function PermissionsPage() {
   return (
     <AdminLayout
       title="Permissions"
-      subtitle="Manage permissions for roles, users and clients"
+      subtitle={`Manage permissions for ${providerConfigs.map(p => p.displayName.replace(' Permissions', '').toLowerCase()).join(', ')}`}
     >
       {/* Dynamic Tabs from Provider Config */}
       <Tabs 
@@ -348,20 +471,32 @@ export default function PermissionsPage() {
         </TabsList>
       </Tabs>
 
-      <div className="flex gap-6">
+      <div className="flex gap-6 h-[calc(100vh-220px)] min-h-[400px]">
         {/* Left Panel - Provider Selection */}
-        <div className="w-72 shrink-0">
-          <div className="border border-border-subtle rounded-lg bg-surface overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle">
+        <div className="w-72 shrink-0 flex flex-col">
+          <div className="border border-border-subtle rounded-lg bg-surface overflow-hidden flex flex-col h-full">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle shrink-0">
               <span className="text-sm font-semibold text-text-primary">
                 {leftPanelHeader}
               </span>
               <Badge variant="purple" className="text-[10px] normal-case">
-                {selectableProviders.length} items
+                {activeProviderType === "U" ? `${userTotalCount} items` : `${selectableProviders.length} items`}
               </Badge>
             </div>
+
+            {/* User search box - only for User Permissions tab */}
+            {activeProviderType === "U" && (
+              <div className="px-3 py-2 border-b border-border-subtle shrink-0">
+                <SearchInput
+                  placeholder="Search users..."
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  className="w-full"
+                />
+              </div>
+            )}
             
-            <div className="max-h-[500px] overflow-y-auto p-2 space-y-1">
+            <div className="flex-1 overflow-y-auto p-2 space-y-1">
               {selectableProviders.map((provider) => (
                 <button
                   key={provider.id}
@@ -384,25 +519,39 @@ export default function PermissionsPage() {
                   <span className="text-sm font-medium truncate capitalize">{provider.label}</span>
                 </button>
               ))}
+
+              {/* Load more button for users */}
+              {activeProviderType === "U" && users.length < userTotalCount && (
+                <button
+                  onClick={loadMoreUsers}
+                  disabled={isLoadingMoreUsers}
+                  className="w-full py-2 text-xs text-neon-cyan hover:text-neon-cyan/80 transition-colors disabled:opacity-50"
+                >
+                  {isLoadingMoreUsers ? "Loading..." : `Load more (${users.length}/${userTotalCount})`}
+                </button>
+              )}
             </div>
           </div>
         </div>
 
         {/* Right Panel - Permissions */}
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 flex flex-col">
           {selectedProviderKey ? (
-            <div className="border border-border-subtle rounded-lg bg-surface overflow-hidden">
+            <div className="border border-border-subtle rounded-lg bg-surface overflow-hidden flex flex-col h-full">
               {/* Header */}
-              <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle">
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-semibold text-text-primary capitalize">
-                    {selectedProviderLabel} Permissions
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle shrink-0">
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="text-sm font-semibold text-text-primary truncate max-w-[200px]" title={selectedProviderLabel}>
+                    {selectedProviderLabel}
                   </span>
-                  <Badge variant="green" className="text-[10px] normal-case">
-                    {filteredGroups.reduce((acc, g) => acc + g.permissions.filter(p => p.isGranted).length, 0)} granted
+                  <Badge variant="purple" className="text-[10px] normal-case shrink-0">
+                    {filteredGroups.reduce((acc, g) => acc + g.permissions.length, 0)} permissions
+                  </Badge>
+                  <Badge variant="green" className="text-[10px] normal-case shrink-0">
+                    {filteredGroups.reduce((acc, g) => acc + countGranted(g.permissions), 0)} granted
                   </Badge>
                   {isDirty && (
-                    <Badge variant="gold" className="text-[10px] normal-case">
+                    <Badge variant="gold" className="text-[10px] normal-case shrink-0">
                       {pendingChanges.size} unsaved
                     </Badge>
                   )}
@@ -455,7 +604,7 @@ export default function PermissionsPage() {
               </div>
 
               {/* Search */}
-              <div className="px-4 py-3 border-b border-border-subtle">
+              <div className="px-4 py-3 border-b border-border-subtle shrink-0">
                 <SearchInput
                   placeholder="Search permissions..."
                   value={search}
@@ -465,11 +614,12 @@ export default function PermissionsPage() {
               </div>
 
               {/* Permission Groups */}
-              <div className="max-h-[400px] overflow-y-auto">
+              <div className="flex-1 overflow-y-auto">
                 {filteredGroups.map((group) => {
                   const isExpanded = expandedGroups.has(group.name)
-                  const grantedCount = group.permissions.filter(p => p.isGranted).length
-                  const totalCount = group.permissions.length
+                  const granted = countGranted(group.permissions)
+                  const rawTotal = group.permissions.length
+                  const allGranted = granted === rawTotal && rawTotal > 0
 
                   return (
                     <div key={group.name} className="border-b border-border-subtle last:border-0">
@@ -486,59 +636,106 @@ export default function PermissionsPage() {
                           )}
                           <span className="font-medium text-text-primary">{group.displayName}</span>
                         </div>
-                        <Badge variant={grantedCount === totalCount ? "green" : grantedCount > 0 ? "gold" : "default"}>
-                          {grantedCount}/{totalCount}
+                        <Badge variant={allGranted ? "green" : granted > 0 ? "gold" : "default"}>
+                          {granted}/{rawTotal}
                         </Badge>
                       </button>
 
-                      {/* Permissions */}
+                      {/* Permissions - Tree Structure */}
                       {isExpanded && (
-                        <div className="px-4 py-2 space-y-1">
-                          {group.permissions.map((perm) => {
-                            // Check if permission is inherited from other providers
-                            const inheritedFrom = perm.grantedProviders?.filter(
-                              gp => gp.providerName !== activeProviderType
-                            ) || []
-                            const isInherited = inheritedFrom.length > 0
-                            const inheritedRoles = inheritedFrom
-                              .filter(gp => gp.providerName === 'R')
-                              .map(gp => gp.providerKey)
+                        <div className="px-4 py-2 space-y-0.5">
+                          {(() => {
+                            // Build tree: group permissions by parent
+                            const parentPerms = group.permissions.filter(p => !p.parentName)
+                            const childPerms = group.permissions.filter(p => !!p.parentName)
+                            const childrenByParent = new Map<string, typeof group.permissions>()
+                            childPerms.forEach(p => {
+                              const list = childrenByParent.get(p.parentName!) || []
+                              list.push(p)
+                              childrenByParent.set(p.parentName!, list)
+                            })
+
+                            // Standalone permissions (no parent, no children)
+                            const standalonePerms = parentPerms.filter(p => !childrenByParent.has(p.name))
+                            // Parent permissions (has children)
+                            const treeParents = parentPerms.filter(p => childrenByParent.has(p.name))
+
+                            const renderPermCheckbox = (perm: typeof group.permissions[0], isChild: boolean, isLast?: boolean) => {
+                              const inheritedFrom = perm.grantedProviders?.filter(
+                                gp => gp.providerName !== activeProviderType
+                              ) || []
+                              const isInherited = inheritedFrom.length > 0
+                              const inheritedRoles = inheritedFrom
+                                .filter(gp => gp.providerName === 'R')
+                                .map(gp => gp.providerKey)
+
+                              return (
+                                <label
+                                  key={perm.name}
+                                  className={cn(
+                                    "flex items-center gap-3 py-1.5 rounded-md cursor-pointer",
+                                    isChild ? "pl-4 pr-3" : "px-3",
+                                    isInherited && !perm.isGranted
+                                      ? "bg-neon-purple/5 hover:bg-neon-purple/10"
+                                      : "hover:bg-surface-elevated"
+                                  )}
+                                  title={isInherited && !perm.isGranted
+                                    ? `Inherited from role: ${inheritedRoles.join(', ')}`
+                                    : undefined
+                                  }
+                                >
+                                  {/* Tree connector for children */}
+                                  {isChild && (
+                                    <span className="text-border-default text-xs w-4 text-center select-none shrink-0">
+                                      {isLast ? "└" : "├"}
+                                    </span>
+                                  )}
+                                  <input
+                                    type="checkbox"
+                                    checked={perm.isGranted}
+                                    onChange={() => togglePermission(perm.name, perm.isGranted)}
+                                    className="h-4 w-4 rounded border-border-default bg-bg-base text-neon-cyan focus:ring-neon-cyan focus:ring-offset-0 shrink-0"
+                                  />
+                                  <span className={cn(
+                                    "text-sm flex-1",
+                                    isChild ? "text-text-muted" : "font-medium text-text-secondary"
+                                  )}>
+                                    {perm.displayName}
+                                  </span>
+                                  {activeProviderType === 'U' && isInherited && !perm.isGranted && (
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-neon-purple/20 text-neon-purple border border-neon-purple/30 shrink-0">
+                                      via {inheritedRoles.join(', ')}
+                                    </span>
+                                  )}
+                                </label>
+                              )
+                            }
 
                             return (
-                              <label
-                                key={perm.name}
-                                className={cn(
-                                  "flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer",
-                                  isInherited && !perm.isGranted
-                                    ? "bg-neon-purple/5 hover:bg-neon-purple/10"
-                                    : "hover:bg-surface-elevated"
-                                )}
-                                title={isInherited && !perm.isGranted
-                                  ? `Inherited from role: ${inheritedRoles.join(', ')}`
-                                  : undefined
-                                }
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={perm.isGranted}
-                                  onChange={() => togglePermission(perm.name, perm.isGranted)}
-                                  className="h-4 w-4 rounded border-border-default bg-bg-base text-neon-cyan focus:ring-neon-cyan focus:ring-offset-0"
-                                />
-                                <span className={cn(
-                                  "text-sm flex-1",
-                                  perm.parentName ? "ml-4 text-text-muted" : "text-text-secondary"
-                                )}>
-                                  {perm.displayName}
-                                </span>
-                                {/* Show inherited badge for User Permissions */}
-                                {activeProviderType === 'U' && isInherited && !perm.isGranted && (
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-neon-purple/20 text-neon-purple border border-neon-purple/30">
-                                    via {inheritedRoles.join(', ')}
-                                  </span>
-                                )}
-                              </label>
+                              <>
+                                {/* Parent permissions with their children */}
+                                {treeParents.map((parent) => {
+                                  const children = childrenByParent.get(parent.name) || []
+                                  return (
+                                    <div key={parent.name} className="mb-1">
+                                      {/* Parent row */}
+                                      {renderPermCheckbox(parent, false)}
+                                      {/* Children with left border */}
+                                      {children.length > 0 && (
+                                        <div className="ml-6 border-l border-border-subtle">
+                                          {children.map((child, idx) =>
+                                            renderPermCheckbox(child, true, idx === children.length - 1)
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )
+                                })}
+                                {/* Standalone permissions (no children) */}
+                                {standalonePerms.map((perm) => renderPermCheckbox(perm, false))}
+                              </>
                             )
-                          })}
+                          })()}
                         </div>
                       )}
                     </div>
@@ -547,7 +744,7 @@ export default function PermissionsPage() {
               </div>
             </div>
           ) : (
-            <div className="flex items-center justify-center h-64 text-text-muted border border-border-subtle rounded-lg bg-surface">
+            <div className="flex items-center justify-center h-full text-text-muted border border-border-subtle rounded-lg bg-surface">
               Select a {currentProviderConfig?.displayName.replace(" Permissions", "").toLowerCase() || "provider"} to manage permissions
             </div>
           )}

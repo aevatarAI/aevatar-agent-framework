@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button"
 import { Input, SearchInput } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import type { Role, CreateRoleInput, UpdateRoleInput, PermissionGroup } from "@/types/user-management"
-import { cn } from "@/lib/utils"
 
 // ============================================================
 //  Create Role Modal
@@ -46,6 +45,9 @@ export const CreateRoleModal: React.FC<CreateRoleModalProps> = ({
         isPublic: formData.isPublic,
       })
       onClose()
+    } catch {
+      // Error is handled by parent component (toast notification)
+      // Don't close the modal so user can fix the input
     } finally {
       setIsLoading(false)
     }
@@ -165,6 +167,8 @@ export const EditRoleModal: React.FC<EditRoleModalProps> = ({
         isPublic: formData.isPublic,
       })
       onClose()
+    } catch {
+      // Error is handled by parent component (toast notification)
     } finally {
       setIsLoading(false)
     }
@@ -273,6 +277,8 @@ export const DeleteRoleModal: React.FC<DeleteRoleModalProps> = ({
     try {
       await onConfirm()
       onClose()
+    } catch {
+      // Error is handled by parent component (toast notification)
     } finally {
       setIsLoading(false)
     }
@@ -282,12 +288,12 @@ export const DeleteRoleModal: React.FC<DeleteRoleModalProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="w-[420px] p-0">
+      <DialogContent className="w-[420px] max-w-[90vw] p-0 overflow-hidden">
         <DialogTitle className="sr-only">Delete Role</DialogTitle>
         {/* Content */}
-        <div className="px-6 py-6 flex flex-col items-center text-center">
+        <div className="px-6 py-6 flex flex-col items-center text-center overflow-hidden">
           {/* Icon */}
-          <div className="w-16 h-16 rounded-full bg-neon-red/10 border border-neon-red/30 flex items-center justify-center mb-5">
+          <div className="w-16 h-16 rounded-full bg-neon-red/10 border border-neon-red/30 flex items-center justify-center mb-5 flex-shrink-0">
             <ShieldX className="w-7 h-7 text-neon-red" />
           </div>
           
@@ -298,9 +304,9 @@ export const DeleteRoleModal: React.FC<DeleteRoleModalProps> = ({
           </p>
           
           {/* Role Name Pill */}
-          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-neon-purple/10 mb-5">
-            <Shield className="w-3.5 h-3.5 text-neon-purple" />
-            <span className="text-[13px] font-medium text-neon-purple capitalize">{role.name}</span>
+          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-neon-purple/10 mb-5 max-w-full overflow-hidden">
+            <Shield className="w-3.5 h-3.5 text-neon-purple flex-shrink-0" />
+            <span className="text-[13px] font-medium text-neon-purple capitalize truncate" title={role.name}>{role.name}</span>
           </div>
           
           {/* Warning Box */}
@@ -435,6 +441,8 @@ export const RolePermissionsModal: React.FC<RolePermissionsModalProps> = ({
       }))
       await onSave(updates)
       onClose()
+    } catch {
+      // Error is handled by parent component (toast notification)
     } finally {
       setIsLoading(false)
     }
@@ -521,27 +529,49 @@ export const RolePermissionsModal: React.FC<RolePermissionsModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Permissions */}
+                  {/* Permissions — tree structure */}
                   <div className="pl-9 pr-3 py-2 space-y-0.5">
-                    {group.permissions.map(perm => (
-                      <label
-                        key={perm.name}
-                        className="flex items-center gap-3 cursor-pointer hover:bg-surface-elevated px-2 py-1.5 rounded"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={permissions[perm.name] || false}
-                          onChange={() => togglePermission(perm.name)}
-                          className="h-4 w-4 rounded border-border-default bg-bg-base text-neon-cyan focus:ring-neon-cyan focus:ring-offset-0"
-                        />
-                        <span className={cn(
-                          "text-sm",
-                          perm.parentName ? "text-text-muted" : "text-text-secondary"
-                        )}>
-                          {perm.displayName}
-                        </span>
-                      </label>
-                    ))}
+                    {group.permissions
+                      .filter(p => !p.parentName)
+                      .map(parent => {
+                        const children = group.permissions.filter(p => p.parentName === parent.name)
+                        return (
+                          <div key={parent.name}>
+                            {/* Parent permission */}
+                            <label className="flex items-center gap-3 cursor-pointer hover:bg-surface-elevated px-2 py-1.5 rounded">
+                              <input
+                                type="checkbox"
+                                checked={permissions[parent.name] || false}
+                                onChange={() => togglePermission(parent.name)}
+                                className="h-4 w-4 rounded border-border-default bg-bg-base text-neon-cyan focus:ring-neon-cyan focus:ring-offset-0"
+                              />
+                              <span className="text-sm font-medium text-text-secondary">
+                                {parent.displayName}
+                              </span>
+                            </label>
+                            {/* Child permissions */}
+                            {children.map((child, idx) => (
+                              <label
+                                key={child.name}
+                                className="flex items-center gap-3 cursor-pointer hover:bg-surface-elevated pl-6 pr-2 py-1.5 rounded"
+                              >
+                                <span className="text-text-dimmed text-xs w-3 text-center select-none">
+                                  {idx === children.length - 1 ? "└" : "├"}
+                                </span>
+                                <input
+                                  type="checkbox"
+                                  checked={permissions[child.name] || false}
+                                  onChange={() => togglePermission(child.name)}
+                                  className="h-4 w-4 rounded border-border-default bg-bg-base text-neon-cyan focus:ring-neon-cyan focus:ring-offset-0"
+                                />
+                                <span className="text-sm text-text-muted">
+                                  {child.displayName}
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                        )
+                      })}
                   </div>
                 </div>
               )

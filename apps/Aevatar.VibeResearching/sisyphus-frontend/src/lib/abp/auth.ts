@@ -300,10 +300,14 @@ async function fetchVibeProfile(): Promise<AuthUser | null> {
       credentials: 'include',
     } as RequestInit)
 
-    const permissions = await fetchMyPermissions()
+    // Fetch permissions and real roles in parallel
+    const [permissions, roles] = await Promise.all([
+      fetchMyPermissions(),
+      fetchMyRoles(),
+    ])
+
     // Store permissions in the permission store
     usePermissionStore.setState({ permissions, isLoaded: true })
-    const roles = extractRolesFromPermissions(permissions)
 
     // Parse display name, keep empty if not provided
     const displayName = profile.displayName?.trim() || ''
@@ -373,15 +377,18 @@ export async function fetchMyPermissions(): Promise<string[]> {
   }
 }
 
-function extractRolesFromPermissions(permissions: string[]): string[] {
-  // Infer roles from permission patterns
-  const roles: string[] = ['member']
-
-  if (permissions.some((p) => p.includes('.Admin') || p.includes('AbpIdentity'))) {
-    roles.push('admin')
+// Fetch real user roles from ABP application-configuration endpoint
+async function fetchMyRoles(): Promise<string[]> {
+  try {
+    const config = await abpFetch<{
+      currentUser: { roles: string[] }
+    }>('/api/abp/application-configuration', {
+      credentials: 'include',
+    } as RequestInit)
+    return config.currentUser?.roles ?? ['member']
+  } catch {
+    return ['member']
   }
-
-  return [...new Set(roles)]
 }
 
 // ============================================================================

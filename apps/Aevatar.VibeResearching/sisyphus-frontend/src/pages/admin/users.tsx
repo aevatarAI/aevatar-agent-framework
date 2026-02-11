@@ -9,16 +9,27 @@ import { Pagination } from "@/components/ui/pagination"
 import { Avatar } from "@/components/ui/avatar"
 import { Badge, StatusDot } from "@/components/ui/badge"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
-import { getUsers, getUserStats, createUser, updateUser, deleteUser, setUserPassword, getRoles, invalidateStatsCache } from "@/lib/abp"
+import { getUsers, getUserStats, createUser, updateUser, deleteUser, setUserPassword, getAssignableRoles, invalidateStatsCache } from "@/lib/abp"
 import { useToast } from "@/components/ui/toast"
+import { usePermission } from "@/hooks/use-permission"
 import type { User, CreateUserInput, UpdateUserInput } from "@/types/user-management"
 
 // ============================================================
 //  Users Admin Page - Matches Pencil Design
 // ============================================================
 
+// 默认 admin 账号不可删除 —— 系统的最后一把钥匙不能被丢掉
+const isDefaultAdmin = (user: User) => user.userName === "admin"
+
 export default function UsersPage() {
   const { error: showError, success: showSuccess } = useToast()
+  const { isAdmin, hasPermission } = usePermission()
+
+  // 细粒度权限标志 — admin 绕过所有检查，普通用户按 ABP 权限树控制
+  const canCreate = isAdmin || hasPermission("AbpIdentity.Users.Create")
+  const canUpdate = isAdmin || hasPermission("AbpIdentity.Users.Update")
+  const canDelete = isAdmin || hasPermission("AbpIdentity.Users.Delete")
+
   const [users, setUsers] = useState<User[]>([])
   const [stats, setStats] = useState({ total: 0, active: 0, roles: 0, admins: 0 })
   const [roles, setRoles] = useState<string[]>([])
@@ -46,6 +57,9 @@ export default function UsersPage() {
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false)
   const [isBulkDeleting, setIsBulkDeleting] = useState(false)
 
+  // 是否需要角色列表 — 只有能 Create/Edit 时才加载，避免无权限的 API 调用
+  const needsRoles = canCreate || canUpdate
+
   // Load data and clear selection on page/filter change
   useEffect(() => {
     setSelectedUsers(new Set())
@@ -55,7 +69,8 @@ export default function UsersPage() {
   const loadData = async () => {
     setIsLoading(true)
     try {
-      const [usersResult, statsResult, rolesResult] = await Promise.all([
+      // 核心数据：用户列表（必须）+ 统计/角色（可选，容错降级）
+      const [usersResult, statsResult, roleNames] = await Promise.all([
         getUsers({ 
           search,
           skip: (currentPage - 1) * pageSize,
@@ -63,19 +78,20 @@ export default function UsersPage() {
           role: roleFilter || undefined,
           status: statusFilter as 'active' | 'inactive' | undefined,
         }),
-        getUserStats(),
-        getRoles(),
+        getUserStats().catch(() => ({ total: 0, active: 0, roles: 0, inactive: 0, admins: 0 })),
+        needsRoles
+          ? getAssignableRoles().catch(() => [] as string[])
+          : Promise.resolve([] as string[]),
       ])
       setUsers(usersResult.items)
       setTotalItems(usersResult.totalCount)
-      // Adapt stats to match design (admins instead of inactive)
       setStats({
         total: statsResult.total,
         active: statsResult.active,
         roles: statsResult.roles,
         admins: statsResult.admins || 0,
       })
-      setRoles(rolesResult.map(r => r.name))
+      setRoles(roleNames)
     } finally {
       setIsLoading(false)
     }
@@ -108,6 +124,15 @@ export default function UsersPage() {
 
   const handleUpdateUser = async (data: UpdateUserInput) => {
     if (!editingUser) return
+    // 防御纵深：默认 admin 必须保留 admin 角色且保持激活
+    if (isDefaultAdmin(editingUser)) {
+      if (!data.roleNames.some(r => r.toLowerCase() === "admin")) {
+        data = { ...data, roleNames: [...data.roleNames, "admin"] }
+      }
+      if (!data.isActive) {
+        data = { ...data, isActive: true }
+      }
+    }
     try {
       await updateUser(editingUser.id, data)
       invalidateStatsCache() // Refresh stats on next load (role might have changed)
@@ -121,6 +146,8 @@ export default function UsersPage() {
 
   const handleDeleteUser = async () => {
     if (!deletingUser) return
+    // 终极防线：即使代码路径被绕过，也绝不删除 admin
+    if (isDefaultAdmin(deletingUser)) return
     try {
       await deleteUser(deletingUser.id)
       invalidateStatsCache() // Refresh stats on next load
@@ -147,8 +174,12 @@ export default function UsersPage() {
     if (selectedUsers.size === 0) return
     setIsBulkDeleting(true)
     try {
+      // 防御性过滤：即使 UI 已阻止，逻辑层也不允许删除 admin
+      const adminIds = new Set(users.filter(isDefaultAdmin).map(u => u.id))
+      const safeIds = Array.from(selectedUsers).filter(id => !adminIds.has(id))
+      if (safeIds.length === 0) return
       // Delete users one by one (ABP doesn't have bulk delete API)
-      const deletePromises = Array.from(selectedUsers).map(id => deleteUser(id))
+      const deletePromises = safeIds.map(id => deleteUser(id))
       const results = await Promise.allSettled(deletePromises)
       
       const succeeded = results.filter(r => r.status === 'fulfilled').length
@@ -176,10 +207,12 @@ export default function UsersPage() {
       title="Users"
       subtitle="Manage system users and their permissions"
       actions={
-        <Button variant="gold" onClick={() => setShowCreateModal(true)} className="gap-1.5">
-          <UserPlus className="w-3.5 h-3.5" />
-          Add User
-        </Button>
+        canCreate ? (
+          <Button variant="gold" onClick={() => setShowCreateModal(true)} className="gap-1.5">
+            <UserPlus className="w-3.5 h-3.5" />
+            Add User
+          </Button>
+        ) : undefined
       }
     >
       {/* Stats Cards - Matching Design */}
@@ -273,8 +306,8 @@ export default function UsersPage() {
         </DropdownMenu>
       </div>
 
-      {/* Bulk Action Bar - Show when users are selected */}
-      {selectedUsers.size > 0 && (
+      {/* Bulk Action Bar — 仅有删除权限时才显示 */}
+      {canDelete && selectedUsers.size > 0 && (
         <div className="flex items-center justify-between px-4 py-3 mb-4 rounded-xl bg-neon-cyan/10 border border-neon-cyan/30">
           <span className="text-sm text-text-primary">
             <span className="font-medium text-neon-cyan">{selectedUsers.size}</span> user(s) selected
@@ -305,23 +338,30 @@ export default function UsersPage() {
         <Table className="table-fixed">
           <TableHeader>
             <TableRow>
+              {canDelete && (
               <TableHead className="w-10">
-                <input
-                  type="checkbox"
-                  checked={users.length > 0 && selectedUsers.size === users.length}
-                  onChange={(e) => {
-                    if (e.target.checked) {
-                      setSelectedUsers(new Set(users.map(u => u.id)))
-                    } else {
-                      setSelectedUsers(new Set())
-                    }
-                  }}
-                  className="w-4 h-4 rounded border-2 border-border-default accent-neon-cyan cursor-pointer"
-                />
+                {(() => {
+                  const selectableUsers = users.filter(u => !isDefaultAdmin(u))
+                  return (
+                    <input
+                      type="checkbox"
+                      checked={selectableUsers.length > 0 && selectedUsers.size === selectableUsers.length}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedUsers(new Set(selectableUsers.map(u => u.id)))
+                        } else {
+                          setSelectedUsers(new Set())
+                        }
+                      }}
+                      className="w-4 h-4 rounded border-2 border-border-default accent-neon-cyan cursor-pointer"
+                    />
+                  )
+                })()}
               </TableHead>
+              )}
               <TableHead className="w-[180px]">USER</TableHead>
-              <TableHead className="w-[240px]">EMAIL</TableHead>
-              <TableHead className="w-[100px]">ROLE</TableHead>
+              <TableHead className="w-[220px]">EMAIL</TableHead>
+              <TableHead className="w-[140px]">ROLE</TableHead>
               <TableHead className="w-[80px]">STATUS</TableHead>
               <TableHead className="w-[60px]">ACTIONS</TableHead>
             </TableRow>
@@ -329,7 +369,7 @@ export default function UsersPage() {
           <TableBody>
             {users.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="h-32 text-center">
+                <TableCell colSpan={canDelete ? 6 : 5} className="h-32 text-center">
                   <div className="flex flex-col items-center justify-center gap-2 text-text-muted">
                     <UserPlus className="w-8 h-8 text-text-dimmed" />
                     <p className="text-sm">No users found</p>
@@ -344,23 +384,29 @@ export default function UsersPage() {
             ) : (
               users.map((user) => (
               <TableRow key={user.id} className={selectedUsers.has(user.id) ? "bg-neon-cyan/5" : ""}>
-                {/* Checkbox */}
+                {/* Checkbox — 仅有删除权限时显示，admin 不可被选中 */}
+                {canDelete && (
                 <TableCell>
-                  <input
-                    type="checkbox"
-                    checked={selectedUsers.has(user.id)}
-                    onChange={(e) => {
-                      const newSelected = new Set(selectedUsers)
-                      if (e.target.checked) {
-                        newSelected.add(user.id)
-                      } else {
-                        newSelected.delete(user.id)
-                      }
-                      setSelectedUsers(newSelected)
-                    }}
-                    className="w-4 h-4 rounded border-2 border-border-default accent-neon-cyan cursor-pointer"
-                  />
+                  {isDefaultAdmin(user) ? (
+                    <div className="w-4 h-4" />
+                  ) : (
+                    <input
+                      type="checkbox"
+                      checked={selectedUsers.has(user.id)}
+                      onChange={(e) => {
+                        const newSelected = new Set(selectedUsers)
+                        if (e.target.checked) {
+                          newSelected.add(user.id)
+                        } else {
+                          newSelected.delete(user.id)
+                        }
+                        setSelectedUsers(newSelected)
+                      }}
+                      className="w-4 h-4 rounded border-2 border-border-default accent-neon-cyan cursor-pointer"
+                    />
+                  )}
                 </TableCell>
+                )}
 
                 {/* USER - Avatar + Name */}
                 <TableCell>
@@ -384,20 +430,25 @@ export default function UsersPage() {
                   {user.email}
                 </TableCell>
 
-                {/* ROLE - Single badge */}
+                {/* ROLE - All roles */}
                 <TableCell>
                   {user.roles.length > 0 ? (
-                    <Badge
-                      variant={
-                        user.roles.includes("admin")
-                          ? "gold"
-                          : user.roles.includes("member")
-                          ? "cyan"
-                          : "default"
-                      }
-                    >
-                      {user.roles[0]}
-                    </Badge>
+                    <div className="flex flex-wrap gap-1">
+                      {user.roles.map((role) => (
+                        <Badge
+                          key={role}
+                          variant={
+                            role.toLowerCase() === "admin"
+                              ? "gold"
+                              : role.toLowerCase() === "member"
+                              ? "cyan"
+                              : "default"
+                          }
+                        >
+                          {role}
+                        </Badge>
+                      ))}
+                    </div>
                   ) : (
                     <span className="text-xs text-text-dimmed">—</span>
                   )}
@@ -423,20 +474,28 @@ export default function UsersPage() {
                       <DropdownMenuItem onClick={() => setViewingUser(user)} icon={<Eye className="w-4 h-4" />}>
                         View Details
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setEditingUser(user)} icon={<Edit2 className="w-4 h-4" />}>
-                        Edit User
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setPasswordUser(user)} icon={<Lock className="w-4 h-4" />}>
-                        Set Password
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        onClick={() => setDeletingUser(user)}
-                        destructive
-                        icon={<Trash2 className="w-4 h-4" />}
-                      >
-                        Delete User
-                      </DropdownMenuItem>
+                      {canUpdate && (
+                        <>
+                          <DropdownMenuItem onClick={() => setEditingUser(user)} icon={<Edit2 className="w-4 h-4" />}>
+                            Edit User
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => setPasswordUser(user)} icon={<Lock className="w-4 h-4" />}>
+                            Set Password
+                          </DropdownMenuItem>
+                        </>
+                      )}
+                      {canDelete && !isDefaultAdmin(user) && (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onClick={() => setDeletingUser(user)}
+                            destructive
+                            icon={<Trash2 className="w-4 h-4" />}
+                          >
+                            Delete User
+                          </DropdownMenuItem>
+                        </>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </TableCell>
@@ -464,7 +523,7 @@ export default function UsersPage() {
       <UserDetailModal
         open={!!viewingUser}
         onClose={() => setViewingUser(null)}
-        onEdit={() => setEditingUser(viewingUser)}
+        onEdit={canUpdate ? () => setEditingUser(viewingUser) : undefined}
         user={viewingUser}
       />
 

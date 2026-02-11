@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react"
-import { X, Trash2, User, ShieldCheck, Shield, Users, Pencil, UserPlus } from "lucide-react"
+import { X, Trash2, User, ShieldCheck, Shield, Users, Pencil, UserPlus, Lock as LockIcon } from "lucide-react"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input, PasswordInput } from "@/components/ui/input"
@@ -252,7 +252,12 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
     }
   }
 
+  // 默认 admin 账号：admin 角色不可移除，否则系统失控
+  const isProtectedAdmin = user?.userName === "admin"
+
   const toggleRole = (role: string) => {
+    // 锁定：默认 admin 的 admin 角色不可取消
+    if (isProtectedAdmin && role.toLowerCase() === "admin") return
     setFormData(prev => ({
       ...prev,
       roleNames: prev.roleNames.includes(role)
@@ -334,32 +339,46 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
             <div className="space-y-2">
               <label className="text-sm text-text-secondary">Assigned Roles</label>
               <div className="flex flex-wrap gap-2">
-                {roles.map(role => (
-                  <button
-                    key={role}
-                    type="button"
-                    onClick={() => toggleRole(role)}
-                    className={cn(
-                      "px-3 py-1.5 rounded-md text-sm border transition-all",
-                      formData.roleNames.includes(role)
-                        ? "bg-neon-cyan/15 border-neon-cyan/40 text-neon-cyan"
-                        : "bg-surface border-border-subtle text-text-muted hover:border-border-default"
-                    )}
-                  >
-                    {role}
-                  </button>
-                ))}
+                {roles.map(role => {
+                  const isLocked = isProtectedAdmin && role.toLowerCase() === "admin"
+                  const isSelected = formData.roleNames.includes(role)
+                  return (
+                    <button
+                      key={role}
+                      type="button"
+                      onClick={() => toggleRole(role)}
+                      disabled={isLocked}
+                      className={cn(
+                        "px-3 py-1.5 rounded-md text-sm border transition-all inline-flex items-center gap-1.5",
+                        isLocked
+                          ? "bg-neon-gold/15 border-neon-gold/40 text-neon-gold cursor-not-allowed opacity-80"
+                          : isSelected
+                          ? "bg-neon-cyan/15 border-neon-cyan/40 text-neon-cyan"
+                          : "bg-surface border-border-subtle text-text-muted hover:border-border-default"
+                      )}
+                    >
+                      {isLocked && <LockIcon className="w-3 h-3" />}
+                      {role}
+                    </button>
+                  )
+                })}
               </div>
+              {isProtectedAdmin && (
+                <p className="text-xs text-text-dimmed">Default admin role cannot be removed</p>
+              )}
             </div>
 
             <div className="flex items-center justify-between py-2">
               <div>
                 <p className="text-sm text-text-primary">Active</p>
-                <p className="text-xs text-text-muted">User can sign in</p>
+                <p className="text-xs text-text-muted">
+                  {isProtectedAdmin ? "Default admin must remain active" : "User can sign in"}
+                </p>
               </div>
               <Switch
                 checked={formData.isActive}
                 onCheckedChange={(checked) => setFormData(prev => ({ ...prev, isActive: checked }))}
+                disabled={isProtectedAdmin}
               />
             </div>
           </div>
@@ -567,7 +586,8 @@ export const SetPasswordModal: React.FC<SetPasswordModalProps> = ({
 interface UserDetailModalProps {
   open: boolean
   onClose: () => void
-  onEdit: () => void
+  /** If undefined, the "Edit User" button is hidden (no edit permission) */
+  onEdit?: () => void
   user: UserType | null
 }
 
@@ -731,16 +751,18 @@ export const UserDetailModal: React.FC<UserDetailModalProps> = ({
 
         {/* Footer */}
         <div className="flex justify-end gap-3 px-6 py-4 border-t border-border-subtle">
-          <Button
-            onClick={() => {
-              onClose()
-              onEdit()
-            }}
-            className="gap-1.5"
-          >
-            <Pencil className="w-3.5 h-3.5" />
-            Edit User
-          </Button>
+          {onEdit && (
+            <Button
+              onClick={() => {
+                onClose()
+                onEdit()
+              }}
+              className="gap-1.5"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+              Edit User
+            </Button>
+          )}
           <Button variant="secondary" onClick={onClose}>
             Close
           </Button>

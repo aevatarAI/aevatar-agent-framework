@@ -1,16 +1,20 @@
-import React from "react"
+import React, { useEffect, useMemo } from "react"
 import { NavLink, useLocation } from "react-router-dom"
 import { User, Lock, Users, Shield, Key, Settings } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useAuthStore } from "@/store/auth-store"
+import { usePermissionStore } from "@/store/permission-store"
 
 // ============================================================
-//  Account Sidebar - Navigation Menu (Basic Version)
+//  Account Sidebar - Navigation Menu
 // ============================================================
 
 interface NavItem {
   label: string
   href: string
   icon: React.ReactNode
+  /** ABP permission(s) required — if array, ANY match grants access */
+  permission?: string | string[]
 }
 
 const settingsItems: NavItem[] = [
@@ -24,10 +28,10 @@ const platformItem: NavItem = {
   icon: <Settings className="w-4 h-4" /> 
 }
 
-const adminItems: NavItem[] = [
-  { label: "Users", href: "/admin/users", icon: <Users className="w-4 h-4" /> },
-  { label: "Roles", href: "/admin/roles", icon: <Shield className="w-4 h-4" /> },
-  { label: "Permissions", href: "/admin/permissions", icon: <Key className="w-4 h-4" /> },
+const allManagementItems: NavItem[] = [
+  { label: "Users", href: "/admin/users", icon: <Users className="w-4 h-4" />, permission: "AbpIdentity.Users" },
+  { label: "Roles", href: "/admin/roles", icon: <Shield className="w-4 h-4" />, permission: ["AbpIdentity.Roles.Create", "AbpIdentity.Roles.Update", "AbpIdentity.Roles.Delete", "AbpIdentity.Roles.ManagePermissions"] },
+  { label: "Permissions", href: "/admin/permissions", icon: <Key className="w-4 h-4" />, permission: ["AbpIdentity.Roles.ManagePermissions", "AbpIdentity.Users.ManagePermissions"] },
 ]
 
 interface AccountSidebarProps {
@@ -36,6 +40,29 @@ interface AccountSidebarProps {
 
 export const AccountSidebar: React.FC<AccountSidebarProps> = ({ isAdmin }) => {
   const location = useLocation()
+  const { isAuthenticated } = useAuthStore()
+  const permissions = usePermissionStore((s) => s.permissions)
+  const isPermLoaded = usePermissionStore((s) => s.isLoaded)
+  const loadPermissions = usePermissionStore((s) => s.loadPermissions)
+
+  // Auto-load permissions if not yet loaded
+  useEffect(() => {
+    if (isAuthenticated && !isPermLoaded) {
+      loadPermissions()
+    }
+  }, [isAuthenticated, isPermLoaded, loadPermissions])
+
+  // Filter management items based on permissions
+  const managementItems = useMemo(() => {
+    if (isAdmin) return allManagementItems
+    return allManagementItems.filter(item => {
+      if (!item.permission) return true
+      if (Array.isArray(item.permission)) {
+        return item.permission.some(p => permissions.includes(p))
+      }
+      return permissions.includes(item.permission)
+    })
+  }, [isAdmin, permissions])
 
   const renderNavItem = (item: NavItem, isAdminSection = false) => {
     const isActive = location.pathname === item.href
@@ -74,19 +101,14 @@ export const AccountSidebar: React.FC<AccountSidebarProps> = ({ isAdmin }) => {
         {settingsItems.map((item) => renderNavItem(item, false))}
       </nav>
 
-      {/* Admin Section (only for admins) */}
-      {isAdmin && (
+      {/* Management Section — show based on permissions */}
+      {managementItems.length > 0 && (
         <div className="mt-4 pt-4 border-t border-border-subtle">
-          <div className="flex items-center justify-between mb-3 px-3">
-            <p className="text-[10px] font-mono font-semibold uppercase tracking-wider text-neon-gold">
-              Administration
-            </p>
-            <span className="px-1.5 py-0.5 text-[8px] font-mono font-semibold text-neon-gold bg-neon-gold/20 rounded">
-              Admin
-            </span>
-          </div>
+          <p className="text-[10px] font-mono font-semibold uppercase tracking-wider text-neon-gold mb-3 px-3">
+            Management
+          </p>
           <nav className="space-y-1">
-            {adminItems.map((item) => renderNavItem(item, true))}
+            {managementItems.map((item) => renderNavItem(item, true))}
           </nav>
         </div>
       )}

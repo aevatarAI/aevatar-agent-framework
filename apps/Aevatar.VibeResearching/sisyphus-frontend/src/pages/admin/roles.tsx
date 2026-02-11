@@ -9,6 +9,8 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { getRoles, createRole, updateRole, deleteRole, getPermissions, updatePermissions } from "@/lib/abp"
 import type { Role, CreateRoleInput, UpdateRoleInput, PermissionGroup } from "@/types/user-management"
 import { cn } from "@/lib/utils"
+import { useToast } from "@/components/ui/toast"
+import { usePermission } from "@/hooks/use-permission"
 
 // ============================================================
 //  Roles Admin Page
@@ -17,6 +19,16 @@ import { cn } from "@/lib/utils"
 export default function RolesPage() {
   const [roles, setRoles] = useState<Role[]>([])
   const [, setIsLoading] = useState(true)
+  const toast = useToast()
+  const { hasPermission, isAdmin } = usePermission()
+
+  // Permission-based action visibility
+  const canCreate = isAdmin || hasPermission("AbpIdentity.Roles.Create")
+  const canUpdate = isAdmin || hasPermission("AbpIdentity.Roles.Update")
+  const canDelete = isAdmin || hasPermission("AbpIdentity.Roles.Delete")
+  const canManagePermissions = isAdmin || hasPermission("AbpIdentity.Roles.ManagePermissions")
+  // Only show "..." dropdown if user has any in-card action (not Create, which is a top-level button)
+  const hasDropdownAction = canUpdate || canDelete || canManagePermissions
 
   // Modal states
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -52,30 +64,62 @@ export default function RolesPage() {
     setPermissionGroups(groups)
   }
 
+  // Helper to extract error message from ABP error response
+  const getErrorMessage = (error: unknown): string => {
+    if (error && typeof error === "object" && "message" in error) {
+      return (error as { message: string }).message
+    }
+    return "An unexpected error occurred"
+  }
+
   // CRUD handlers
   const handleCreateRole = async (data: CreateRoleInput) => {
-    await createRole(data)
-    loadRoles()
+    try {
+      await createRole(data)
+      toast.success("Role Created", `Role "${data.name}" has been created successfully`)
+      loadRoles()
+    } catch (error) {
+      toast.error("Failed to Create Role", getErrorMessage(error))
+      throw error // Re-throw to prevent modal from closing
+    }
   }
 
   const handleUpdateRole = async (data: UpdateRoleInput) => {
     if (editingRole) {
-      await updateRole(editingRole.id, data)
-      loadRoles()
+      try {
+        await updateRole(editingRole.id, data)
+        toast.success("Role Updated", `Role "${data.name}" has been updated successfully`)
+        loadRoles()
+      } catch (error) {
+        toast.error("Failed to Update Role", getErrorMessage(error))
+        throw error
+      }
     }
   }
 
   const handleDeleteRole = async () => {
     if (deletingRole) {
-      await deleteRole(deletingRole.id)
-      loadRoles()
+      try {
+        await deleteRole(deletingRole.id)
+        toast.success("Role Deleted", `Role "${deletingRole.name}" has been deleted`)
+        loadRoles()
+      } catch (error) {
+        toast.error("Failed to Delete Role", getErrorMessage(error))
+        throw error
+      }
     }
   }
 
   const handleSavePermissions = async (permissions: { name: string; isGranted: boolean }[]) => {
     if (permissionsRole) {
-      await updatePermissions("R", permissionsRole.name, permissions)
-      loadRoles()
+      try {
+        await updatePermissions("R", permissionsRole.name, permissions)
+        toast.success("Permissions Updated", `Permissions for "${permissionsRole.name}" have been saved`)
+        loadRoles()
+      } catch (error) {
+        toast.error("Failed to Update Permissions", getErrorMessage(error))
+        throw error
+      }
     }
   }
 
@@ -84,10 +128,12 @@ export default function RolesPage() {
       title="Roles"
       subtitle="Manage roles and their permissions"
       actions={
-        <Button variant="gold" onClick={() => setShowCreateModal(true)} className="gap-1.5">
-          <Plus className="w-4 h-4" />
-          Create Role
-        </Button>
+        canCreate ? (
+          <Button variant="gold" onClick={() => setShowCreateModal(true)} className="gap-1.5">
+            <Plus className="w-4 h-4" />
+            Create Role
+          </Button>
+        ) : undefined
       }
     >
       {/* Roles Grid */}
@@ -95,10 +141,10 @@ export default function RolesPage() {
         {roles.map((role) => (
           <HoverCard key={role.id} className="p-5">
             {/* Header */}
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex items-center gap-3">
+            <div className="flex items-start justify-between gap-2 mb-4 overflow-hidden">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
                 <div className={cn(
-                  "w-10 h-10 rounded-lg flex items-center justify-center",
+                  "w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0",
                   role.isStatic
                     ? "bg-neon-gold/15 border border-neon-gold/40"
                     : "bg-neon-cyan/15 border border-neon-cyan/40"
@@ -108,8 +154,8 @@ export default function RolesPage() {
                     role.isStatic ? "text-neon-gold" : "text-neon-cyan"
                   )} />
                 </div>
-                <div>
-                  <h3 className="font-semibold text-text-primary">{role.name}</h3>
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-semibold text-text-primary truncate" title={role.name}>{role.name}</h3>
                   <div className="flex items-center gap-2 mt-0.5">
                     {role.isDefault && (
                       <Badge variant="cyan" className="text-[10px] px-1.5 py-0.5">Default</Badge>
@@ -121,30 +167,40 @@ export default function RolesPage() {
                 </div>
               </div>
 
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button className="p-1.5 rounded-md hover:bg-surface-elevated text-text-muted hover:text-text-primary">
-                    <MoreHorizontal className="w-4 h-4" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => setEditingRole(role)} icon={<Edit2 className="w-4 h-4" />}>
-                    Edit Role
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setPermissionsRole(role)} icon={<Key className="w-4 h-4" />}>
-                    Manage Permissions
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => setDeletingRole(role)}
-                    destructive
-                    disabled={role.isStatic}
-                    icon={<Trash2 className="w-4 h-4" />}
-                  >
-                    Delete Role
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              {hasDropdownAction && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button className="p-1.5 rounded-md hover:bg-surface-elevated text-text-muted hover:text-text-primary">
+                      <MoreHorizontal className="w-4 h-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {canUpdate && (
+                      <DropdownMenuItem onClick={() => setEditingRole(role)} icon={<Edit2 className="w-4 h-4" />}>
+                        Edit Role
+                      </DropdownMenuItem>
+                    )}
+                    {canManagePermissions && (
+                      <DropdownMenuItem onClick={() => setPermissionsRole(role)} icon={<Key className="w-4 h-4" />}>
+                        Manage Permissions
+                      </DropdownMenuItem>
+                    )}
+                    {canDelete && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onClick={() => setDeletingRole(role)}
+                          destructive
+                          disabled={role.isStatic}
+                          icon={<Trash2 className="w-4 h-4" />}
+                        >
+                          Delete Role
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </div>
 
             {/* Description */}
@@ -156,7 +212,9 @@ export default function RolesPage() {
             <div className="pt-3 border-t border-border-subtle">
               <div className="flex items-center gap-2 text-sm">
                 <Key className="w-4 h-4 text-text-muted" />
-                <span className="text-text-muted">{role.permissionCount} Permissions</span>
+                <span className="text-text-muted">
+                  {role.permissionCount} Permissions
+                </span>
               </div>
             </div>
           </HoverCard>

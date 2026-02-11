@@ -1,1 +1,1 @@
-export { ProtectedRoute, AdminRoute } from "./protected-route"
+export { ProtectedRoute, AdminRoute, PermissionRoute } from "./protected-route"

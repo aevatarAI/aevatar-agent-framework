@@ -100,9 +100,25 @@ export async function abpFetch<T>(
     headers,
   })
 
+  // ABP 后端对权限不足的请求返回 302 到 /Account/AccessDenied
+  // fetch 默认跟随重定向，导致拿到 HTML 而非 JSON → 前端崩溃
+  // 这里统一拦截：检测 redirected + AccessDenied → 直接抛出 403
+  if (response.redirected && response.url.includes('AccessDenied')) {
+    const error = new Error('Access denied') as Error & { code: string }
+    error.code = '403'
+    throw error
+  }
+
   // Handle no content response
   if (response.status === 204) {
     return undefined as T
+  }
+
+  // Handle non-JSON responses (e.g. HTML error pages from server)
+  const contentType = response.headers.get('content-type') || ''
+  if (!contentType.includes('application/json') && response.ok) {
+    // Server returned non-JSON (likely HTML page) for a JSON request
+    throw new Error(`Unexpected content-type: ${contentType}`)
   }
 
   // Try to parse JSON

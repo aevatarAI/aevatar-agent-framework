@@ -1,7 +1,9 @@
-import React from "react"
+import React, { useEffect, useMemo } from "react"
 import { NavLink, useLocation } from "react-router-dom"
 import { User, Lock, Users, Shield, Key, Settings } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useAuthStore, useIsAdmin } from "@/store/auth-store"
+import { usePermissionStore } from "@/store/permission-store"
 
 // ============================================================
 //  Admin Sidebar - Navigation with Settings + Management
@@ -11,6 +13,8 @@ interface NavItem {
   label: string
   href: string
   icon: React.ReactNode
+  /** ABP permission(s) required — if array, ANY match grants access (admin always sees all) */
+  permission?: string | string[]
 }
 
 const settingsItems: NavItem[] = [
@@ -18,10 +22,10 @@ const settingsItems: NavItem[] = [
   { label: "Password", href: "/account/password", icon: <Lock className="w-4 h-4" /> },
 ]
 
-const managementItems: NavItem[] = [
-  { label: "Users", href: "/admin/users", icon: <Users className="w-4 h-4" /> },
-  { label: "Roles", href: "/admin/roles", icon: <Shield className="w-4 h-4" /> },
-  { label: "Permissions", href: "/admin/permissions", icon: <Key className="w-4 h-4" /> },
+const allManagementItems: NavItem[] = [
+  { label: "Users", href: "/admin/users", icon: <Users className="w-4 h-4" />, permission: "AbpIdentity.Users" },
+  { label: "Roles", href: "/admin/roles", icon: <Shield className="w-4 h-4" />, permission: ["AbpIdentity.Roles.Create", "AbpIdentity.Roles.Update", "AbpIdentity.Roles.Delete", "AbpIdentity.Roles.ManagePermissions"] },
+  { label: "Permissions", href: "/admin/permissions", icon: <Key className="w-4 h-4" />, permission: ["AbpIdentity.Roles.ManagePermissions", "AbpIdentity.Users.ManagePermissions"] },
 ]
 
 const platformItem: NavItem = { 
@@ -32,6 +36,30 @@ const platformItem: NavItem = {
 
 export const AdminSidebar: React.FC = () => {
   const location = useLocation()
+  const isAdmin = useIsAdmin()
+  const { isAuthenticated } = useAuthStore()
+  const permissions = usePermissionStore((s) => s.permissions)
+  const isPermLoaded = usePermissionStore((s) => s.isLoaded)
+  const loadPermissions = usePermissionStore((s) => s.loadPermissions)
+
+  // Auto-load permissions if not yet loaded (e.g. navigating from account pages)
+  useEffect(() => {
+    if (isAuthenticated && !isPermLoaded) {
+      loadPermissions()
+    }
+  }, [isAuthenticated, isPermLoaded, loadPermissions])
+
+  // Filter management items based on user permissions
+  const managementItems = useMemo(() => {
+    if (isAdmin) return allManagementItems
+    return allManagementItems.filter(item => {
+      if (!item.permission) return true
+      if (Array.isArray(item.permission)) {
+        return item.permission.some(p => permissions.includes(p))
+      }
+      return permissions.includes(item.permission)
+    })
+  }, [isAdmin, permissions])
 
   const renderNavItem = (item: NavItem, useGold = false) => {
     const isActive = location.pathname === item.href
@@ -71,16 +99,18 @@ export const AdminSidebar: React.FC = () => {
         {settingsItems.map((item) => renderNavItem(item, false))}
       </nav>
 
-      {/* Divider */}
-      <div className="my-4 h-px bg-border-subtle" />
-
-      {/* Management Section */}
-      <p className="text-[10px] font-mono font-semibold uppercase tracking-wider text-text-dimmed mb-3 px-3">
-        Management
-      </p>
-      <nav className="space-y-1">
-        {managementItems.map((item) => renderNavItem(item, true))}
-      </nav>
+      {/* Management Section — only show if user has any management permissions */}
+      {managementItems.length > 0 && (
+        <>
+          <div className="my-4 h-px bg-border-subtle" />
+          <p className="text-[10px] font-mono font-semibold uppercase tracking-wider text-text-dimmed mb-3 px-3">
+            Management
+          </p>
+          <nav className="space-y-1">
+            {managementItems.map((item) => renderNavItem(item, true))}
+          </nav>
+        </>
+      )}
 
       {/* Divider */}
       <div className="my-4 h-px bg-border-subtle" />

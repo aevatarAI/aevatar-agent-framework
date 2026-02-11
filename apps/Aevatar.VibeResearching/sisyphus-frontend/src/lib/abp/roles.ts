@@ -60,37 +60,47 @@ export async function getRoles(): Promise<Role[]> {
     '/api/identity/roles?MaxResultCount=100'
   )
 
-  // Fetch user counts and permission counts for each role in parallel
+  if (result.items.length === 0) return []
+
+  // Fetch permission counts for all roles in parallel
+  const fetchCount = async (roleName: string): Promise<number> => {
+    try {
+      const permResult = await abpFetch<{
+        groups: Array<{
+          permissions: Array<{ name: string; isGranted: boolean; parentName?: string }>
+        }>
+      }>(`/api/permission-management/permissions?providerName=R&providerKey=${encodeURIComponent(roleName)}`)
+
+      // Normalize: if any child is granted, ensure parent chain is also granted
+      for (const group of permResult.groups) {
+        const permsByName = new Map(group.permissions.map(p => [p.name, p]))
+        let changed = true
+        while (changed) {
+          changed = false
+          for (const perm of group.permissions) {
+            if (perm.isGranted && perm.parentName) {
+              const parent = permsByName.get(perm.parentName)
+              if (parent && !parent.isGranted) {
+                parent.isGranted = true
+                changed = true
+              }
+            }
+          }
+        }
+      }
+
+      return permResult.groups.reduce((acc, group) =>
+        acc + group.permissions.filter(p => p.isGranted).length, 0
+      )
+    } catch {
+      return 0
+    }
+  }
+
   const rolesWithStats = await Promise.all(
     result.items.map(async (abpRole) => {
-      // Get permission count for this role
-      let permissionCount = 0
-      try {
-        const permResult = await abpFetch<{
-          groups: Array<{
-            permissions: Array<{ isGranted: boolean }>
-          }>
-        }>(`/api/permission-management/permissions?providerName=R&providerKey=${encodeURIComponent(abpRole.name)}`)
-        
-        permissionCount = permResult.groups.reduce((acc, group) => 
-          acc + group.permissions.filter(p => p.isGranted).length, 0
-        )
-      } catch {
-        // Ignore permission fetch errors
-      }
-
-      // Get user count for this role (via users API filter)
-      let userCount = 0
-      try {
-        const userResult = await abpFetch<{ totalCount: number }>(
-          `/api/identity/users?RoleId=${abpRole.id}&MaxResultCount=1`
-        )
-        userCount = userResult.totalCount
-      } catch {
-        // Ignore user count fetch errors
-      }
-
-      return transformAbpRoleToRole(abpRole, userCount, permissionCount)
+      const count = await fetchCount(abpRole.name)
+      return transformAbpRoleToRole(abpRole, 0, count)
     })
   )
 

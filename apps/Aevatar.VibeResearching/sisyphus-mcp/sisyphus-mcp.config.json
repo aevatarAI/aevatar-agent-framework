@@ -1,0 +1,7 @@
+{
+  "services": {
+    "dag": {
+      "baseUrl": "http://localhost:8080"
+    }
+  }
+}

@@ -528,6 +528,9 @@ scripts/.pids/
 # Sisyphus Frontend (Vite/React)
 /apps/Aevatar.VibeResearching/sisyphus-frontend/node_modules/
 /apps/Aevatar.VibeResearching/sisyphus-frontend/dist/
+
+# Sisyphus MCP (TypeScript)
+/apps/Aevatar.VibeResearching/sisyphus-mcp/dist/
 /apps/Aevatar.VibeResearching/sisyphus-frontend/dist-ssr/
 /apps/Aevatar.VibeResearching/sisyphus-frontend/.vite/
 /apps/Aevatar.VibeResearching/sisyphus-frontend/*.local

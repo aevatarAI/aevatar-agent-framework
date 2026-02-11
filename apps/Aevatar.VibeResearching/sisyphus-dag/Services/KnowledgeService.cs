@@ -246,16 +246,14 @@ public sealed class KnowledgeService : IKnowledgeService
         }
 
         // Populate parent/children maps from edges
+        // Edge convention: (from)-[:DEPENDS_ON]->(to), from=child, to=parent
         foreach (var edge in edges)
         {
-            // edge.FromId depends on edge.ToId
-            // ParentsMap: ToId's parent is FromId (FromId points TO ToId)
-            if (parentsMap.TryGetValue(edge.ToId, out var parents))
-                parents.Add(edge.FromId);
+            if (parentsMap.TryGetValue(edge.FromId, out var parents))
+                parents.Add(edge.ToId);
 
-            // ChildrenMap: FromId's child is ToId
-            if (childrenMap.TryGetValue(edge.FromId, out var children))
-                children.Add(edge.ToId);
+            if (childrenMap.TryGetValue(edge.ToId, out var children))
+                children.Add(edge.FromId);
         }
 
         return new KnowledgeSnapshotDto

@@ -3,8 +3,8 @@ namespace SisyphusMaker.Services;
 using SisyphusMaker.Dtos;
 
 /// <summary>
-/// Orchestrates generic verification: resolves prompt (inline or DB),
-/// renders template variables, invokes Maker engine, parses LLM results.
+/// Orchestrates generic verification: renders prompt template variables,
+/// invokes CognitiveStrategy maker workflow, parses LLM results.
 /// </summary>
 public interface IVerificationService
 {

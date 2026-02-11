@@ -16,18 +16,15 @@ public sealed partial class VerificationService : IVerificationService
     private readonly CognitiveStrategy _cognitive;
     private readonly IPromptRenderer _renderer;
     private readonly MakerOptions _defaults;
-    private readonly ILogger<VerificationService> _logger;
 
     public VerificationService(
         CognitiveStrategy cognitive,
         IPromptRenderer renderer,
-        IOptions<MakerOptions> options,
-        ILogger<VerificationService> logger)
+        IOptions<MakerOptions> options)
     {
         _cognitive = cognitive;
         _renderer = renderer;
         _defaults = options.Value;
-        _logger = logger;
     }
 
     /// <inheritdoc />

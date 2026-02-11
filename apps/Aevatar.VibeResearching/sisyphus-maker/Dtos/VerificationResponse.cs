@@ -5,7 +5,7 @@ namespace SisyphusMaker.Dtos;
 /// </summary>
 public sealed record VerificationResponse
 {
-    /// <summary>Whether the knowledge node passed verification.</summary>
+    /// <summary>Whether the verification subject passed.</summary>
     public bool IsPassed { get; init; }
 
     /// <summary>Consensus reason from the winning proposal.</summary>

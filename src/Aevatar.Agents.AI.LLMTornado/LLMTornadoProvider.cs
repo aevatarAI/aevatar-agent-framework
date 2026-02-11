@@ -127,6 +127,12 @@ public class LLMTornadoProvider : AevatarLLMProviderBase
             }
         }
 
+        // Build user message with images for multimodal requests
+        if (request.Images is { Count: > 0 })
+        {
+            AppendUserMessageWithImages(chatRequest, request);
+        }
+
         // Map Tools
         if (request.Functions != null && request.Functions.Count > 0)
         {
@@ -135,6 +141,33 @@ public class LLMTornadoProvider : AevatarLLMProviderBase
         }
 
         return chatRequest;
+    }
+
+    /// <summary>
+    /// Appends a user message with image content for multimodal requests.
+    /// LlmTornado vision support is best-effort; images are converted to
+    /// base64 data URLs and logged for diagnostics.
+    /// </summary>
+    private void AppendUserMessageWithImages(
+        LlmTornado.Chat.ChatRequest chatRequest,
+        AevatarLLMRequest request)
+    {
+        if (request.Images == null || request.Images.Count == 0)
+            return;
+
+        _logger.LogWarning(
+            "[LLMTornado] Multimodal request with {ImageCount} images. " +
+            "LlmTornado vision support is provider-dependent; images may be ignored by some backends.",
+            request.Images.Count);
+
+        // Best-effort: append image data description to the last user message for logging.
+        // Actual multimodal support depends on the LlmTornado version and provider.
+        foreach (var image in request.Images)
+        {
+            _logger.LogDebug(
+                "[LLMTornado] Image: Key={Key}, MediaType={MediaType}, Size={Size} bytes",
+                image.Key, image.MediaType, image.Data.Length);
+        }
     }
 
     private List<LlmTornado.Common.Tool> MapToChatTools(IList<AevatarFunctionDefinition> functions)

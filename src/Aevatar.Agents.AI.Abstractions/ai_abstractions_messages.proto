@@ -27,6 +27,21 @@ message AevatarChatMessage {
   google.protobuf.Timestamp timestamp = 6;
   int32 token_used = 7;
   map<string, string> metadata = 8;
+  // Image keys for multimodal messages (references to blob storage)
+  repeated string image_keys = 9;
+}
+
+// =====================================================
+// Multi-Modal Content Types
+// =====================================================
+
+// Image content for multimodal AI requests
+message AevatarImageContent {
+  string key = 1;           // Blob storage key
+  string url = 2;           // Optional: direct URL
+  bytes data = 3;           // Optional: raw image bytes
+  string media_type = 4;    // MIME type (image/jpeg, image/png, etc.)
+  string description = 5;   // Optional: image description/alt text
 }
 
 message ToolCall {
@@ -159,6 +174,10 @@ message ChatRequest {
   double temperature = 5;
   repeated string stop_sequences = 6;
   string stage_hint = 7;
+  // Image keys for multimodal input (references to blob storage)
+  repeated string image_keys = 8;
+  // External chat history for multi-turn conversations
+  repeated AevatarChatMessage history = 9;
 }
 
 // Chat response

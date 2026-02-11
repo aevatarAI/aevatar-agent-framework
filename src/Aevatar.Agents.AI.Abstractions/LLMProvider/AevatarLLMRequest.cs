@@ -34,4 +34,9 @@ public class AevatarLLMRequest
     /// Additional information in context window
     /// </summary>
     public Dictionary<string, object>? Context { get; set; }
+
+    /// <summary>
+    /// Images for multimodal input (already resolved with data)
+    /// </summary>
+    public IList<AevatarImageData>? Images { get; set; }
 }

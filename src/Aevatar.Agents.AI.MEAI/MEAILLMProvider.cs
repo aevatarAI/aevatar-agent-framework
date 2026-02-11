@@ -211,10 +211,47 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
             }
         }
 
-        if (!string.IsNullOrEmpty(request.UserPrompt))
-            messages.Add(new ChatMessage(ChatRole.User, request.UserPrompt));
+        // Build user message with optional images (multimodal)
+        if (!string.IsNullOrEmpty(request.UserPrompt) || request.Images?.Count > 0)
+        {
+            var userMessage = BuildUserMessageWithImages(request.UserPrompt, request.Images);
+            messages.Add(userMessage);
+        }
 
         return messages;
+    }
+
+    /// <summary>
+    /// Builds a user message with optional image content for multimodal requests.
+    /// </summary>
+    private ChatMessage BuildUserMessageWithImages(string? userPrompt, IList<AevatarImageData>? images)
+    {
+        // If no images, return simple text message
+        if (images == null || images.Count == 0)
+        {
+            return new ChatMessage(ChatRole.User, userPrompt ?? string.Empty);
+        }
+
+        // Build multimodal content with text and images
+        var contents = new List<AIContent>();
+
+        // Add text content first
+        if (!string.IsNullOrEmpty(userPrompt))
+        {
+            contents.Add(new TextContent(userPrompt));
+        }
+
+        // Add image contents using MEAI's DataContent
+        foreach (var image in images)
+        {
+            var dataContent = new DataContent(image.Data, image.MediaType);
+            contents.Add(dataContent);
+            _logger.LogDebug("Added image to request: Key={Key}, MediaType={MediaType}, Size={Size} bytes",
+                image.Key, image.MediaType, image.Data.Length);
+        }
+
+        _logger.LogInformation("[MEAI] Building multimodal message with {ImageCount} images", images.Count);
+        return new ChatMessage(ChatRole.User, contents);
     }
 
     /// <summary>

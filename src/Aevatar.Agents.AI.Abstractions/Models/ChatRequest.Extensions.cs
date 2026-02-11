@@ -82,4 +82,60 @@ public partial class ChatRequest
             MaxTokens = maxTokens;
         }
     }
+
+    /// <summary>
+    /// Adds an image key for multimodal input.
+    /// Image keys reference blob storage entries that will be resolved at runtime.
+    /// </summary>
+    /// <param name="imageKey">Blob storage key for the image</param>
+    public void AddImageKey(string imageKey)
+    {
+        if (!string.IsNullOrWhiteSpace(imageKey))
+        {
+            ImageKeys.Add(imageKey.Trim());
+        }
+    }
+
+    /// <summary>
+    /// Adds multiple image keys for multimodal input.
+    /// </summary>
+    /// <param name="imageKeys">Collection of blob storage keys</param>
+    public void AddImageKeys(IEnumerable<string> imageKeys)
+    {
+        foreach (var key in imageKeys)
+        {
+            AddImageKey(key);
+        }
+    }
+
+    /// <summary>
+    /// Returns true if this request contains image keys for multimodal processing.
+    /// </summary>
+    public bool HasImages => ImageKeys.Count > 0;
+
+    /// <summary>
+    /// Creates a new ChatRequest with a message and image keys.
+    /// </summary>
+    /// <param name="message">The text message</param>
+    /// <param name="imageKeys">Blob storage keys for images</param>
+    /// <returns>A new ChatRequest instance with images</returns>
+    public static ChatRequest CreateWithImages(string message, IEnumerable<string> imageKeys)
+    {
+        var request = Create(message);
+        request.AddImageKeys(imageKeys);
+        return request;
+    }
+
+    /// <summary>
+    /// Creates a new ChatRequest with a message and a single image key.
+    /// </summary>
+    /// <param name="message">The text message</param>
+    /// <param name="imageKey">Blob storage key for the image</param>
+    /// <returns>A new ChatRequest instance with image</returns>
+    public static ChatRequest CreateWithImage(string message, string imageKey)
+    {
+        var request = Create(message);
+        request.AddImageKey(imageKey);
+        return request;
+    }
 }

@@ -101,6 +101,12 @@ public abstract partial class AIGAgentBase
             request.Temperature = evt.Temperature;
         }
 
+        // Transfer image keys for multimodal input
+        if (evt.ImageKeys.Count > 0)
+        {
+            request.AddImageKeys(evt.ImageKeys);
+        }
+
         const int DefaultStreamChunkEveryN = 8;
         var chunkEvery = evt.StreamChunkEveryN > 0 ? evt.StreamChunkEveryN : DefaultStreamChunkEveryN;
         chunkEvery = Math.Clamp(chunkEvery, 1, 128);
@@ -244,6 +250,9 @@ public abstract partial class AIGAgentBase
 
             // Build LLM request from chat request
             var llmRequest = BuildLLMRequest(request);
+
+            // Resolve images for multimodal requests
+            await ResolveAndAttachImagesAsync(request, llmRequest, cancellationToken);
 
             // Optional: persist conversation to State.History (default off)
             if (EnableChatHistoryInState)
@@ -628,6 +637,9 @@ public abstract partial class AIGAgentBase
 
         // Build LLM request
         var llmRequest = BuildLLMRequest(request);
+
+        // Resolve images for multimodal streaming requests
+        await ResolveAndAttachImagesAsync(request, llmRequest, cancellationToken);
 
         // Optional: persist the user message (default off)
         if (EnableChatHistoryInState)

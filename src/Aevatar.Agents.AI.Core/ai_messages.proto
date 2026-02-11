@@ -24,6 +24,8 @@ message ChatRequestEvent {
   int32 max_tokens = 7;
   // Streaming throttle: emit a chunk event every N tokens/chunks (default handled by server).
   int32 stream_chunk_every_n = 8;
+  // Image keys for multimodal input (references to blob storage)
+  repeated string image_keys = 9;
 }
 
 // Chat response event  

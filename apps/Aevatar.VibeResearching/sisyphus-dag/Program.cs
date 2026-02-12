@@ -30,6 +30,17 @@ builder.Services.AddControllers()
 
 var app = builder.Build();
 
+// OpenAPI spec endpoint
+app.MapGet("/openapi.json", async (IWebHostEnvironment env) =>
+{
+    var path = Path.Combine(env.ContentRootPath, "openapi.json");
+    if (!File.Exists(path))
+        return Results.NotFound(new { error = "openapi.json not found." });
+
+    var json = await File.ReadAllTextAsync(path);
+    return Results.Content(json, "application/json");
+});
+
 app.MapControllers();
 
 app.Run();

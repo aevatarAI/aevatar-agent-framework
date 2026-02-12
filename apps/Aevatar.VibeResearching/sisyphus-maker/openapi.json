@@ -25,6 +25,26 @@
     }
   ],
   "paths": {
+    "/openapi.json": {
+      "get": {
+        "tags": ["System"],
+        "operationId": "getOpenApiSpec",
+        "summary": "Get OpenAPI specification",
+        "description": "Returns the OpenAPI 3.0.3 JSON specification for this service.",
+        "responses": {
+          "200": {
+            "description": "The OpenAPI specification document.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "tags": ["System"],

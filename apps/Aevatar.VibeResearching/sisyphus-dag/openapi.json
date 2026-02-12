@@ -6,6 +6,25 @@
     "version": "1.0.0"
   },
   "paths": {
+    "/openapi.json": {
+      "get": {
+        "operationId": "getOpenApiSpec",
+        "summary": "Get OpenAPI specification",
+        "description": "Returns the OpenAPI 3.0.3 JSON specification for this service.",
+        "responses": {
+          "200": {
+            "description": "The OpenAPI specification document.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/knowledges": {
       "post": {
         "operationId": "createKnowledges",

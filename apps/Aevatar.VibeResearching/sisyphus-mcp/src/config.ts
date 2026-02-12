@@ -13,6 +13,7 @@ export interface SisyphusConfig {
 /** Built-in defaults for known services. */
 const DEFAULTS: Record<string, ServiceConfig> = {
   dag: { baseUrl: "http://localhost:8080" },
+  maker: { baseUrl: "http://localhost:8081" },
 };
 
 /** Environment variable prefix/suffix pattern for service base URLs. */
@@ -50,7 +51,10 @@ export function loadConfig(configPath?: string): SisyphusConfig {
  * Returns the base URL for a named service.
  * Throws if the service is not configured.
  */
-export function getServiceBaseUrl(config: SisyphusConfig, serviceName: string): string {
+export function getServiceBaseUrl(
+  config: SisyphusConfig,
+  serviceName: string,
+): string {
   const svc = config.services[serviceName];
   if (!svc) {
     throw new Error(`Service "${serviceName}" is not configured.`);
@@ -75,7 +79,9 @@ function tryReadConfigFile(
     if (isExplicit) {
       throw new Error(`Config file not found: ${path}`);
     }
-    console.error(`[sisyphus-mcp] Config file not found at default path: ${path}. Using defaults.`);
+    console.error(
+      `[sisyphus-mcp] Config file not found at default path: ${path}. Using defaults.`,
+    );
     return null;
   }
 
@@ -104,9 +110,7 @@ function applyEnvOverrides(config: SisyphusConfig): void {
 
 /** Scans all env vars for SISYPHUS_*_BASE_URL to discover services not yet in config. */
 function scanEnvForNewServices(config: SisyphusConfig): void {
-  const pattern = new RegExp(
-    `^${ENV_PREFIX}(.+)${ENV_SUFFIX}$`,
-  );
+  const pattern = new RegExp(`^${ENV_PREFIX}(.+)${ENV_SUFFIX}$`);
   for (const key of Object.keys(process.env)) {
     const match = pattern.exec(key);
     if (!match) continue;

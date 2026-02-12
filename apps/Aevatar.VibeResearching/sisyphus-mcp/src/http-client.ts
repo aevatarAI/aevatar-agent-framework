@@ -20,6 +20,14 @@ export class HttpClientError extends Error {
   }
 }
 
+/** A single parsed Server-Sent Event. */
+export interface SSEEvent {
+  /** Event type (e.g., "result", "phase"). Defaults to "message" if not specified. */
+  event: string;
+  /** Raw data payload (concatenated data: lines). */
+  data: string;
+}
+
 /**
  * A lightweight HTTP client built on native fetch.
  * Each microservice gets its own instance with a dedicated base URL.
@@ -59,6 +67,44 @@ export class HttpClient {
    */
   async getText(path: string, params?: Record<string, string>): Promise<string> {
     return this.request<string>("GET", path, { params, raw: true });
+  }
+
+  /**
+   * Sends a POST request and consumes the response as an SSE event stream.
+   * Returns an array of all parsed SSE events.
+   *
+   * Unlike post(), this method sends Accept: text/event-stream, reads the full
+   * response as text, and parses SSE wire format. HTTP errors (e.g., 400 validation)
+   * are handled via the standard handleErrorResponse path.
+   */
+  async postSSE(path: string, body: unknown, timeoutMs?: number): Promise<SSEEvent[]> {
+    const url = new URL(path, this.baseUrl);
+    const effectiveTimeout = timeoutMs ?? this.timeoutMs;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), effectiveTimeout);
+
+    try {
+      const response = await fetch(url.toString(), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "text/event-stream",
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        await this.handleErrorResponse(response);
+      }
+
+      const text = await response.text();
+      return parseSSEText(text);
+    } catch (error) {
+      throw this.wrapFetchError(error, "POST", path);
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 
   private async request<T>(
@@ -135,4 +181,60 @@ export class HttpClient {
     }
     throw new HttpClientError(errorMessage, response.status);
   }
+}
+
+/**
+ * Parses raw SSE text into an array of SSEEvent objects.
+ * Handles the standard SSE wire format:
+ *   event: <type>\n
+ *   data: <line1>\n
+ *   data: <line2>\n
+ *   \n
+ *
+ * Events without an explicit event: field default to type "message".
+ * Comment lines (starting with `:`) and unrecognized fields are skipped.
+ */
+function parseSSEText(text: string): SSEEvent[] {
+  const events: SSEEvent[] = [];
+  const lines = text.split("\n");
+
+  let currentEvent = "";
+  let dataLines: string[] = [];
+
+  for (const line of lines) {
+    if (line === "") {
+      // Blank line = event boundary
+      if (dataLines.length > 0) {
+        events.push({
+          event: currentEvent || "message",
+          data: dataLines.join("\n"),
+        });
+      }
+      currentEvent = "";
+      dataLines = [];
+      continue;
+    }
+
+    if (line.startsWith(":")) {
+      // SSE comment line -- skip
+      continue;
+    }
+
+    if (line.startsWith("event:")) {
+      currentEvent = line.slice("event:".length).trim();
+    } else if (line.startsWith("data:")) {
+      dataLines.push(line.slice("data:".length).trimStart());
+    }
+    // Ignore id:, retry:, and any other unrecognized fields
+  }
+
+  // Handle trailing event without final blank line
+  if (dataLines.length > 0) {
+    events.push({
+      event: currentEvent || "message",
+      data: dataLines.join("\n"),
+    });
+  }
+
+  return events;
 }

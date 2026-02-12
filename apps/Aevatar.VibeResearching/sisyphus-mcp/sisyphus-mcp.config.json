@@ -2,6 +2,9 @@
   "services": {
     "dag": {
       "baseUrl": "http://localhost:8080"
+    },
+    "maker": {
+      "baseUrl": "http://localhost:8081"
     }
   }
 }

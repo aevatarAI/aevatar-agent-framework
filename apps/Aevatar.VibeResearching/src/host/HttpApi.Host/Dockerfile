@@ -46,7 +46,7 @@ RUN mkdir -p /app/data/workspace /app/data/.aevatar
 ENV ASPNETCORE_URLS=http://+:8080
 ENV ASPNETCORE_ENVIRONMENT=Production
 # Workspace root for Docker (avoids path escaping issues)
-ENV VIBE_WORKSPACE_ROOT=/app/data
+ENV Vibe__WorkspaceRoot=/app/data
 
 EXPOSE 8080
 

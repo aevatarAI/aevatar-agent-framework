@@ -257,7 +257,9 @@ await app.RunAsync();
 
 static bool IsLocal(HttpContext ctx)
 {
-    var allowRemote = Environment.GetEnvironmentVariable("ALLOW_REMOTE_LLM_API");
+    var cfg = ctx.RequestServices.GetService<IConfiguration>();
+    var allowRemote = cfg?["Security:AllowRemoteApi"]
+                      ?? Environment.GetEnvironmentVariable("ALLOW_REMOTE_LLM_API");
     if (string.Equals(allowRemote, "true", StringComparison.OrdinalIgnoreCase))
         return true;
 

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -57,7 +58,9 @@ public class VibeAgentsMongoDbModule : AbpModule
 
     private static string ResolveSystemRoot(IServiceProvider sp)
     {
-        var envRoot = Environment.GetEnvironmentVariable("VIBE_WORKSPACE_ROOT");
+        var cfg = sp.GetService<IConfiguration>();
+        var envRoot = cfg?["Vibe:WorkspaceRoot"]
+                      ?? Environment.GetEnvironmentVariable("VIBE_WORKSPACE_ROOT");
         if (!string.IsNullOrWhiteSpace(envRoot))
         {
             var resolved = Path.GetFullPath(envRoot.Trim());

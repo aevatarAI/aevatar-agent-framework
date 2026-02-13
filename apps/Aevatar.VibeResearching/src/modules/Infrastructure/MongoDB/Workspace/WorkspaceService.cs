@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.Text.RegularExpressions;
@@ -26,11 +27,13 @@ public sealed class WorkspaceService : Aevatar.VibeResearching.Infrastructure.IW
     private const int MaxRecentScanFiles = 2000;
 
     private readonly IHostEnvironment _env;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<WorkspaceService> _logger;
 
-    public WorkspaceService(IHostEnvironment env, ILogger<WorkspaceService> logger)
+    public WorkspaceService(IHostEnvironment env, IConfiguration configuration, ILogger<WorkspaceService> logger)
     {
         _env = env ?? throw new ArgumentNullException(nameof(env));
+        _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -164,9 +167,9 @@ public sealed class WorkspaceService : Aevatar.VibeResearching.Infrastructure.IW
 
     private string ResolveSystemRoot()
     {
-        // Docker/Production: use VIBE_WORKSPACE_ROOT env var if set
-        // This allows containerized deployments to specify workspace location
-        var envRoot = Environment.GetEnvironmentVariable("VIBE_WORKSPACE_ROOT");
+        // Docker/Production: use Vibe:WorkspaceRoot config or VIBE_WORKSPACE_ROOT env var
+        var envRoot = _configuration["Vibe:WorkspaceRoot"]
+                      ?? Environment.GetEnvironmentVariable("VIBE_WORKSPACE_ROOT");
         if (!string.IsNullOrWhiteSpace(envRoot))
         {
             var resolved = Path.GetFullPath(envRoot.Trim());

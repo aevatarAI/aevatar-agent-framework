@@ -786,7 +786,9 @@ public static partial class LlmSecretsApi
     private static bool IsLocal(HttpContext ctx)
     {
         // Allow disabling local check for trusted Docker environments
-        var allowRemote = Environment.GetEnvironmentVariable("ALLOW_REMOTE_LLM_API");
+        var cfg = ctx.RequestServices.GetService<IConfiguration>();
+        var allowRemote = cfg?["Security:AllowRemoteApi"]
+                          ?? Environment.GetEnvironmentVariable("ALLOW_REMOTE_LLM_API");
         if (string.Equals(allowRemote, "true", StringComparison.OrdinalIgnoreCase))
             return true;
 

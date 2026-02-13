@@ -11,10 +11,10 @@
 FROM --platform=linux/amd64 mcr.microsoft.com/dotnet/sdk:10.0-preview AS build
 WORKDIR /src
 
-# Copy solution and project files first (for layer caching)
+# Copy build props and solution first (for layer caching)
 COPY Directory.Packages.props ./
 COPY Directory.Build.props ./
-COPY *.sln ./
+COPY aevatar-agent-framework.slnx ./
 
 # Copy all project files
 COPY src/ src/
@@ -36,11 +36,8 @@ RUN dotnet publish apps/Aevatar.VibeResearching/src/host/HttpApi.Host/Aevatar.Vi
 FROM --platform=linux/amd64 mcr.microsoft.com/dotnet/aspnet:10.0-preview AS runtime
 WORKDIR /app
 
-# Copy published output
+# Copy published output (includes workflows/ and skillpacks.json via CopyToOutputDirectory)
 COPY --from=build /app/publish .
-
-# Copy workflows (required by the application)
-COPY apps/Aevatar.VibeResearching/src/host/HttpApi.Host/workflows/ ./workflows/
 
 # Create required directories for session data
 RUN mkdir -p /app/data/workspace /app/data/.aevatar

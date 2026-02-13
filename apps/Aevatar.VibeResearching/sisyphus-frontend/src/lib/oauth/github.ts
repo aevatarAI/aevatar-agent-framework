@@ -15,6 +15,7 @@
 import { oauthConfig, isGitHubConfigured } from './config'
 import type { OAuthResult } from './types'
 import type { AuthUser } from '@/types/user-management'
+import { API_BASE } from '@/lib/axiom-client'
 
 // State key for CSRF protection
 const STATE_KEY = 'github_oauth_state'
@@ -76,7 +77,7 @@ export async function handleGitHubCallback(
   }
 
   try {
-    const response = await fetch('/api/auth/github/callback', {
+    const response = await fetch(`${API_BASE}/api/auth/github/callback`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',

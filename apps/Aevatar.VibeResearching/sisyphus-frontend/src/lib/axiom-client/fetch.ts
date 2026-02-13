@@ -65,7 +65,7 @@ export interface FetchOptions {
 
 // === Core Fetch with 401 Auto-Refresh ===
 
-async function doFetch<T>(
+async function doFetch(
   path: string,
   init: RequestInit | undefined,
   abortController: AbortController
@@ -144,7 +144,7 @@ export async function fetchJson<T>(
 
   const fetchPromise = (async () => {
     try {
-      let res = await doFetch<T>(path, init, abortController)
+      let res = await doFetch(path, init, abortController)
 
       // Handle 401: attempt token refresh and retry once
       if (res.status === 401 && !skipAuthRefresh) {
@@ -154,7 +154,7 @@ export async function fetchJson<T>(
         if (refreshed) {
           apiLogger.info(`[fetchJson] Token refreshed, retrying ${path}...`)
           // Retry with new token
-          res = await doFetch<T>(path, init, abortController)
+          res = await doFetch(path, init, abortController)
         } else {
           apiLogger.warn(`[fetchJson] Token refresh failed for ${path}`)
           const text = await res.text()

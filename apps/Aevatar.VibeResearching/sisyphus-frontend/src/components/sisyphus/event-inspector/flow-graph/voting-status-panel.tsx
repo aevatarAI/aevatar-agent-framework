@@ -14,7 +14,7 @@
 
 import React from 'react'
 import { motion } from 'framer-motion'
-import { Check, Flag, Layers, Users, AlertTriangle, Activity, FileText, Trophy } from 'lucide-react'
+import { Check, Flag, Layers, AlertTriangle, FileText, Trophy } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { VotingStatus } from '@/types'
 
@@ -30,7 +30,6 @@ const VotingStatusPanel: React.FC<VotingStatusPanelProps> = ({
   className 
 }) => {
   const hasWorkers = status.workers.length > 0
-  const maxActivity = Math.max(...status.workers.map(w => w.votes), 1)
 
   // Calculate margin for K-ahead consensus
   const winnerVotes = status.winner?.votes ?? 0
@@ -185,7 +184,7 @@ const VotingStatusPanel: React.FC<VotingStatusPanelProps> = ({
               <span className="opacity-50">(by worker)</span>
             </div>
 
-            {status.workers.map((worker, index) => (
+            {status.workers.map((worker, _index) => (
               <div key={worker.id} className="flex items-center gap-2">
                 <div
                   className="w-2 h-2 rounded-full flex-shrink-0"

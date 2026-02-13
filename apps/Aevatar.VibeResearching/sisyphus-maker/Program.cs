@@ -9,9 +9,17 @@ using SisyphusMaker.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Writable in-memory config layer (required for per-request NyxID gateway provider injection)
+builder.Configuration.AddInMemoryCollection();
+
 // Configuration binding (consensus defaults only — LLM config is in LLMProviders section)
 builder.Services.Configure<MakerOptions>(
     builder.Configuration.GetSection("Maker"));
+
+// NyxID LLM Gateway options
+builder.Services.Configure<NyxGatewayOptions>(
+    builder.Configuration.GetSection("NyxGateway"));
+builder.Services.AddScoped<NyxIdConfigurationInjector>();
 
 // ==========================================
 // Aevatar Agent Framework

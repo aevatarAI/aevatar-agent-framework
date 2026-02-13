@@ -26,15 +26,18 @@ public class VerificationController : ControllerBase
 
     private readonly IVerificationService _service;
     private readonly MakerOptions _makerOptions;
+    private readonly NyxIdConfigurationInjector _nyxInjector;
     private readonly ILogger<VerificationController> _logger;
 
     public VerificationController(
         IVerificationService service,
         IOptions<MakerOptions> makerOptions,
+        NyxIdConfigurationInjector nyxInjector,
         ILogger<VerificationController> logger)
     {
         _service = service;
         _makerOptions = makerOptions.Value;
+        _nyxInjector = nyxInjector;
         _logger = logger;
     }
 
@@ -52,6 +55,25 @@ public class VerificationController : ControllerBase
         {
             await WriteValidationErrorAsync(validationError, ct);
             return;
+        }
+
+        // NyxID Flow A: inject gateway provider if delegation token is present
+        if (_nyxInjector.TryInjectFromHeaders(Request.Headers, request.Config?.Model))
+        {
+            request = request with
+            {
+                Config = (request.Config ?? new MakerConfig()) with
+                {
+                    Model = _nyxInjector.ResolvedProviderName
+                }
+            };
+
+            if (_nyxInjector.Identity is { } identity)
+            {
+                _logger.LogInformation(
+                    "NyxID request: user={UserId}, email={Email}, provider={Provider}",
+                    identity.UserId, identity.UserEmail, _nyxInjector.ResolvedProviderName);
+            }
         }
 
         var jobId = Guid.NewGuid().ToString();

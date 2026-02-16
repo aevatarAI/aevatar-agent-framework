@@ -16,7 +16,6 @@ import {
   FileText,
   Clock,
   Zap,
-  Inbox,
   ArrowDownLeft,
   type LucideIcon
 } from 'lucide-react'
@@ -179,17 +178,6 @@ const StatsTooltip = memo(({ stats, status, colorScheme }: StatsTooltipProps) =>
 ))
 
 // ------------------------------------------------------------
-//  Status Styles
-// ------------------------------------------------------------
-
-const STATUS_STYLES: Record<AgentStatus, { ring: string; animate: string }> = {
-  idle: { ring: 'ring-1 ring-white/10', animate: '' },
-  running: { ring: 'animate-gradient-border animate-border-glow', animate: '' },  // Rotating gradient border
-  completed: { ring: 'ring-2 ring-neon-green/60', animate: '' },
-  error: { ring: 'ring-2 ring-neon-rose', animate: '' },
-}
-
-// ------------------------------------------------------------
 //  Component
 // ------------------------------------------------------------
 
@@ -204,7 +192,6 @@ const AgentNode = memo(({ data }: AgentNodeProps) => {
   // Get icon by agent type, color by layer
   const Icon = getIcon(agentType)
   const colorScheme = getColorByLayer(layer)
-  const statusStyle = STATUS_STYLES[status] || STATUS_STYLES.idle
   
   const isCompleted = status === 'completed'
   const isError = status === 'error'

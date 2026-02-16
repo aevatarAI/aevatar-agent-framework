@@ -200,28 +200,30 @@ export default function LoginPage() {
           </Link>
         </p>
 
-        {/* Demo Credentials */}
-        <div className="pt-4 border-t border-border-subtle">
-          <p className="text-xs text-text-dimmed text-center mb-2">
-            Demo Credentials
-          </p>
-          <div className="flex gap-2 justify-center">
-            <button
-              type="button"
-              onClick={() => fillDemoCredentials("admin")}
-              className="text-xs px-3 py-1.5 rounded bg-neon-gold/10 text-neon-gold border border-neon-gold/30 hover:bg-neon-gold/20 transition-colors"
-            >
-              Admin
-            </button>
-            <button
-              type="button"
-              onClick={() => fillDemoCredentials("user")}
-              className="text-xs px-3 py-1.5 rounded bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/30 hover:bg-neon-cyan/20 transition-colors"
-            >
-              User
-            </button>
+        {/* Demo Credentials - Development Only */}
+        {import.meta.env.DEV && (
+          <div className="pt-4 border-t border-border-subtle">
+            <p className="text-xs text-text-dimmed text-center mb-2">
+              Demo Credentials
+            </p>
+            <div className="flex gap-2 justify-center">
+              <button
+                type="button"
+                onClick={() => fillDemoCredentials("admin")}
+                className="text-xs px-3 py-1.5 rounded bg-neon-gold/10 text-neon-gold border border-neon-gold/30 hover:bg-neon-gold/20 transition-colors"
+              >
+                Admin
+              </button>
+              <button
+                type="button"
+                onClick={() => fillDemoCredentials("user")}
+                className="text-xs px-3 py-1.5 rounded bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/30 hover:bg-neon-cyan/20 transition-colors"
+              >
+                User
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </form>
     </AuthLayout>
   )

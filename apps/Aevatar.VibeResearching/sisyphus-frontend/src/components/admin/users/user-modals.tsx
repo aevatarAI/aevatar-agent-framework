@@ -593,20 +593,6 @@ export const UserDetailModal: React.FC<UserDetailModalProps> = ({
     })
   }
 
-  const formatRelativeTime = (dateString: string | undefined) => {
-    if (!dateString) return "—"
-    const date = new Date(dateString)
-    const now = new Date()
-    const diffMs = now.getTime() - date.getTime()
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
-    const diffDays = Math.floor(diffHours / 24)
-
-    if (diffHours < 1) return "Just now"
-    if (diffHours < 24) return `${diffHours} hours ago`
-    if (diffDays < 7) return `${diffDays} days ago`
-    return formatDate(dateString)
-  }
-
   const isAdmin = user.roles.some(r => r.toLowerCase() === "admin")
 
   return (

@@ -18,9 +18,7 @@ import {
   FileText,
   X,
   Clock,
-  Zap,
   Inbox,
-  ArrowRight,
   Copy,
   FileOutput,
   type LucideIcon

@@ -16,6 +16,7 @@
 import { oauthConfig, isGoogleConfigured } from './config'
 import type { OAuthResult } from './types'
 import type { AuthUser } from '@/types/user-management'
+import { API_BASE } from '@/lib/axiom-client'
 
 // State key for CSRF protection
 const STATE_KEY = 'google_oauth_state'
@@ -80,7 +81,7 @@ export async function handleGoogleCallback(
   }
 
   try {
-    const response = await fetch('/api/auth/google/callback', {
+    const response = await fetch(`${API_BASE}/api/auth/google/callback`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',

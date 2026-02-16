@@ -250,8 +250,7 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
                 SystemPrompt = request.SystemPrompt,
                 Settings = new AevatarLLMSettings
                 {
-                    Temperature = request.Temperature,
-                    MaxTokens = request.MaxTokens
+                    Temperature = request.Temperature
                 },
                 Messages = [new AevatarChatMessage { Role = AevatarChatRole.User, Content = request.UserPrompt }]
             };
